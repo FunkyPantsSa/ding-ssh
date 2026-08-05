@@ -1,0 +1,60 @@
+@import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
+
+:root {
+  --bg-base: #0f172a;
+  --bg-panel: rgba(30, 41, 59, 0.72);
+  --border-panel: rgba(148, 163, 184, 0.14);
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --accent: #38bdf8;
+  --danger: #f87171;
+}
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  font-family: -apple-system, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+  color: var(--text-primary);
+  background: var(--bg-base);
+}
+
+/* 终端区玻璃拟态背景 */
+.terminal-bg {
+  background:
+    radial-gradient(1200px 600px at 20% 0%, rgba(56, 189, 248, 0.08), transparent 60%),
+    radial-gradient(1000px 500px at 90% 100%, rgba(129, 140, 248, 0.08), transparent 60%),
+    #0b1120;
+}
+
+.xterm {
+  height: 100%;
+  padding: 10px;
+}
+
+.xterm .xterm-rows {
+  /* 设计文档 3.4：文字阴影提升对比度 */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8), 0 0 5px rgba(0, 0, 0, 0.5);
+}
+
+.xterm-viewport {
+  background: transparent !important;
+}
+
+.xterm-screen {
+  background: transparent !important;
+}
+
+/* 细滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
