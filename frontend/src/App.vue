@@ -5,6 +5,7 @@ import SettingsPage from './components/SettingsPage.vue'
 import SftpPanel from './components/SftpPanel.vue'
 import TabBar from './components/TabBar.vue'
 import TerminalView from './components/TerminalView.vue'
+import TunnelPage from './components/TunnelPage.vue'
 import {useSessionsStore} from './stores/sessions'
 import {useSettingsStore} from './stores/settings'
 import {useUIStore} from './stores/ui'
@@ -12,6 +13,13 @@ import {useUIStore} from './stores/ui'
 const sessions = useSessionsStore()
 const ui = useUIStore()
 const settings = useSettingsStore()
+
+// 顶部标题栏副标题：按当前页面展示。
+const pageSubtitle = computed(() => {
+  if (ui.view === 'tunnel') return 'SSH 隧道'
+  if (ui.view === 'settings') return '应用设置'
+  return '服务器列表'
+})
 
 // 当前处于已连接状态的会话（用于右侧 SFTP 面板）。
 const activeConnected = computed(() =>
@@ -25,24 +33,16 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex h-full">
-    <!-- 左侧：服务器列表 / 设置导航 -->
-    <aside
-      class="w-64 shrink-0 border-r border-slate-700/60 bg-slate-900/70 backdrop-blur-md flex flex-col"
+  <div class="h-full flex flex-col min-h-0">
+    <!-- 顶部标题栏：应用标题 + 页面副标题 + 主导航 -->
+    <header
+      class="h-12 shrink-0 flex items-center gap-3 px-4 border-b border-slate-700/60 bg-slate-900/70 backdrop-blur-md"
     >
-      <div class="flex-1 min-h-0">
-        <ServerList v-if="ui.view === 'workspace'" />
-        <div
-          v-else
-          class="h-full flex flex-col items-center justify-center gap-3 px-4"
-        >
-          <p class="text-lg font-semibold text-slate-200">ding-ssh</p>
-          <p class="text-xs text-slate-500">应用设置</p>
-        </div>
-      </div>
-      <nav class="flex border-t border-slate-700/60">
+      <p class="text-sm font-semibold text-slate-100">ding-ssh</p>
+      <p class="text-[11px] text-slate-500">{{ pageSubtitle }}</p>
+      <nav class="ml-auto flex items-center gap-1">
         <button
-          class="flex-1 py-2.5 text-xs tracking-wide transition-colors"
+          class="px-3 py-1.5 rounded-md text-xs tracking-wide transition-colors"
           :class="
             ui.view === 'workspace'
               ? 'text-sky-400 bg-slate-800/60'
@@ -53,7 +53,18 @@ onMounted(() => {
           ▣ 终端
         </button>
         <button
-          class="flex-1 py-2.5 text-xs tracking-wide transition-colors"
+          class="px-3 py-1.5 rounded-md text-xs tracking-wide transition-colors"
+          :class="
+            ui.view === 'tunnel'
+              ? 'text-sky-400 bg-slate-800/60'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+          "
+          @click="ui.showTunnel()"
+        >
+          ⛓ 隧道
+        </button>
+        <button
+          class="px-3 py-1.5 rounded-md text-xs tracking-wide transition-colors"
           :class="
             ui.view === 'settings'
               ? 'text-sky-400 bg-slate-800/60'
@@ -64,37 +75,48 @@ onMounted(() => {
           ⚙ 设置
         </button>
       </nav>
-    </aside>
+    </header>
 
-    <!-- 右侧：设置页 / 标签 + 终端（v-show 保持 SSH 会话不中断） -->
-    <main class="flex-1 min-w-0 flex flex-col">
-      <SettingsPage v-show="ui.view === 'settings'" />
+    <div class="flex-1 min-h-0 flex">
+      <!-- 左侧：仅工作区显示服务器列表，隧道/设置页不占用左侧空间 -->
+      <aside
+        v-if="ui.view === 'workspace'"
+        class="w-64 shrink-0 border-r border-slate-700/60 bg-slate-900/70 backdrop-blur-md flex flex-col"
+      >
+        <ServerList />
+      </aside>
 
-      <div v-show="ui.view === 'workspace'" class="flex-1 min-h-0 flex flex-col">
-        <TabBar v-if="sessions.tabs.length" />
+      <!-- 右侧：设置页 / 隧道页 / 标签 + 终端（v-show 保持 SSH 会话不中断） -->
+      <main class="flex-1 min-w-0 flex flex-col">
+        <SettingsPage v-show="ui.view === 'settings'" />
+        <TunnelPage v-show="ui.view === 'tunnel'" />
 
-        <div class="flex-1 min-h-0 flex">
-          <div class="flex-1 min-w-0 relative terminal-bg">
-            <TerminalView
-              v-for="tab in sessions.tabs"
-              v-show="tab.clientId === sessions.activeId"
-              :key="tab.clientId"
-              :tab="tab"
-            />
+        <div v-show="ui.view === 'workspace'" class="flex-1 min-h-0 flex flex-col">
+          <TabBar v-if="sessions.tabs.length" />
 
-            <div
-              v-if="!sessions.tabs.length"
-              class="absolute inset-0 flex flex-col items-center justify-center gap-3"
-            >
-              <p class="text-2xl font-light text-slate-500">ding-ssh</p>
-              <p class="text-sm text-slate-600">在左侧选择服务器，点击 ▶ 建立 SSH 连接</p>
+          <div class="flex-1 min-h-0 flex">
+            <div class="flex-1 min-w-0 relative terminal-bg">
+              <TerminalView
+                v-for="tab in sessions.tabs"
+                v-show="tab.clientId === sessions.activeId"
+                :key="tab.clientId"
+                :tab="tab"
+              />
+
+              <div
+                v-if="!sessions.tabs.length"
+                class="absolute inset-0 flex flex-col items-center justify-center gap-3"
+              >
+                <p class="text-2xl font-light text-slate-500">ding-ssh</p>
+                <p class="text-sm text-slate-600">在左侧选择服务器，点击 ▶ 建立 SSH 连接</p>
+              </div>
             </div>
-          </div>
 
-          <!-- 右侧 SFTP 面板 -->
-          <SftpPanel v-if="activeConnected && sessions.sftpVisible" :tab="activeConnected" />
+            <!-- 右侧 SFTP 面板 -->
+            <SftpPanel v-if="activeConnected && sessions.sftpVisible" :tab="activeConnected" />
+          </div>
         </div>
-      </div>
-    </main>
+      </main>
+    </div>
   </div>
 </template>

@@ -104,6 +104,27 @@ type Credential struct {
 	Password string `json:"password"`
 }
 
+// TunnelInfo SSH 隧道摘要信息（本地端口转发）。
+type TunnelInfo struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	ServerID   string `json:"serverId"`
+	ServerName string `json:"serverName"`
+	LocalPort  int    `json:"localPort"`  // 本地监听端口
+	RemoteHost string `json:"remoteHost"` // 远程目标主机
+	RemotePort int    `json:"remotePort"` // 远程目标端口
+	Status     string `json:"status"`     // running | stopped | error
+	Message    string `json:"message,omitempty"`
+	StartedAt  int64  `json:"startedAt"`
+}
+
+// TunnelStatusEvent 隧道状态变更事件（事件名 tunnel:status）。
+type TunnelStatusEvent struct {
+	ID      string `json:"id"`
+	Status  string `json:"status"` // running | stopped | error
+	Message string `json:"message,omitempty"`
+}
+
 // SFTPEntry 远程目录条目。
 type SFTPEntry struct {
 	Name    string `json:"name"`
@@ -111,4 +132,15 @@ type SFTPEntry struct {
 	IsDir   bool   `json:"isDir"`
 	Size    int64  `json:"size"`
 	ModTime int64  `json:"modTime"`
+}
+
+// SFTPTransferEvent SFTP 传输进度事件。
+type SFTPTransferEvent struct {
+	SessionID   string `json:"sessionId"`
+	Direction   string `json:"direction"` // upload | download
+	Name        string `json:"name"`
+	Transferred int64  `json:"transferred"`
+	Total       int64  `json:"total"`
+	Done        bool   `json:"done"`
+	Error       string `json:"error,omitempty"`
 }

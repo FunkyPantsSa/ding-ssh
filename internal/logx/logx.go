@@ -4,11 +4,45 @@ package logx
 
 import (
 	"fmt"
+	"log"
+	"os"
+	"strings"
 	"sync/atomic"
 )
 
 // 全局日志开关，由设置页实时切换，应用内所有日志统一读取。
 var enabled atomic.Bool
+
+// noiseSubstrings 需要从标准库 log 输出中过滤的无害框架噪音。
+var noiseSubstrings = []string{
+	// Go net/http 在闲置 keep-alive 连接上收到意外响应时的内部提示，
+	// 常见于 Wails 内嵌 WebView 服务器与 WKWebView 连接复用，属框架噪音。
+	"Unsolicited response received on idle HTTP channel",
+}
+
+// stdLogWriter 将标准库 log 输出按日志开关过滤后转发到 stdout。
+type stdLogWriter struct{}
+
+// Write 实现 io.Writer：日志关闭时全部静默，开启时过滤已知噪音。
+func (stdLogWriter) Write(p []byte) (int, error) {
+	if !enabled.Load() {
+		return len(p), nil
+	}
+	msg := string(p)
+	for _, s := range noiseSubstrings {
+		if strings.Contains(msg, s) {
+			return len(p), nil
+		}
+	}
+	return os.Stdout.Write(p)
+}
+
+// init 接管标准库 log 输出，使第三方库（如 net/http）的内部日志同样
+// 受日志开关与噪音过滤控制，避免框架噪音刷屏。
+func init() {
+	log.SetOutput(stdLogWriter{})
+	log.SetFlags(log.LstdFlags)
+}
 
 // SetEnabled 设置日志开关：true 输出日志，false 静默。
 func SetEnabled(v bool) {

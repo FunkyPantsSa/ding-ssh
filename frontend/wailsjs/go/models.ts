@@ -170,6 +170,37 @@ export namespace models {
 		    return a;
 		}
 	}
+	
+	export class TunnelInfo {
+	    id: string;
+	    name: string;
+	    serverId: string;
+	    serverName: string;
+	    localPort: number;
+	    remoteHost: string;
+	    remotePort: number;
+	    status: string;
+	    message?: string;
+	    startedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TunnelInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.serverId = source["serverId"];
+	        this.serverName = source["serverName"];
+	        this.localPort = source["localPort"];
+	        this.remoteHost = source["remoteHost"];
+	        this.remotePort = source["remotePort"];
+	        this.status = source["status"];
+	        this.message = source["message"];
+	        this.startedAt = source["startedAt"];
+	    }
+	}
 
 }
 

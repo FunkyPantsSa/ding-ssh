@@ -93,8 +93,40 @@ export interface SFTPEntry {
   modTime: number
 }
 
+// SFTP 传输进度事件（对应 Go 端 models.SFTPTransferEvent）。
+export interface SFTPTransferEvent {
+  sessionId: string
+  direction: 'upload' | 'download'
+  name: string
+  transferred: number
+  total: number
+  done: boolean
+  error?: string
+}
+
 // SSH 连接过程进度事件。
 export interface ProgressEvent {
   sessionId: string
   step: string
+}
+
+// SSH 隧道信息（对应 Go 端 models.TunnelInfo）。
+export interface TunnelInfo {
+  id: string
+  name: string
+  serverId: string
+  serverName: string
+  localPort: number
+  remoteHost: string
+  remotePort: number
+  status: string // running | stopped | error
+  message?: string
+  startedAt: number
+}
+
+// SSH 隧道状态事件（对应 Go 端 models.TunnelStatusEvent）。
+export interface TunnelStatusEvent {
+  id: string
+  status: string // running | stopped | error
+  message?: string
 }

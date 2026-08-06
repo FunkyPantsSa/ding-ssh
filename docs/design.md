@@ -12,7 +12,19 @@
 | **SSH / SFTP 核心** | `golang.org/x/crypto/ssh`<br>
 
 <br>`pkg/sftp` | Golang 官方与社区高并发 SSH/SFTP 协议实现 |
-| **配置与历史存储** | **SQLite / BoltDB** | 本地加密存储服务器节点信息、凭据、命令历史 |
+| **配置与历史存储** | **SQLite**（`modernc.org/sqlite`，纯 Go 无 CGO） | 单文件数据库 `os.UserConfigDir()/ding-ssh/ding-ssh.db`（WAL 模式），表：`servers` / `settings` / `credentials` / `groups`；旧版 JSON 数据在首次启动时一次性自动迁移；已抽象 `store.Store` 等接口，敏感字段加密列入后续阶段 |
+
+### 1.1 存储设计（SQLite）
+
+* **数据库文件**：`os.UserConfigDir()/ding-ssh/ding-ssh.db`（macOS 为 `~/Library/Application Support/ding-ssh/ding-ssh.db`），采用 WAL 日志模式与 `busy_timeout`，兼顾读写并发与稳定性。
+* **表结构**：
+  * `servers(id, name, grp, host, port, user, auth_type, password, key_path, key_content, bg_image, blur_amount, env_vars)` — 服务器节点，`env_vars` 以 JSON 文本存储；
+  * `settings(key, value)` — 应用设置键值表（`logEnabled` / `copyOnSelect` / `theme`）；
+  * `credentials(id, name, user, password)` — 保存的常用凭证；
+  * `groups(name)` — 手动创建的空分组。
+* **驱动选型**：`modernc.org/sqlite`（纯 Go 实现，无 CGO，跨平台打包友好）；通过 `database/sql` 访问，`store.Store` / `SettingsStore` / `CredentialStore` / `GroupStore` 接口保持不变，JSON 实现保留为 SQLite 不可用时的兜底。
+* **旧数据迁移**：首次启动时若对应表为空且存在旧版 `servers.json` / `settings.json` / `credentials.json` / `groups.json`，自动导入 SQLite；迁移后 JSON 文件保留作备份，不自动删除。
+* **后续（Phase 4）**：敏感字段（密码 / 私钥 / 凭证）本地加密存储。
 
 ---
 
@@ -116,8 +128,9 @@ echo "===OS==="; uname -a; cat /etc/os-release | grep PRETTY_NAME
 
 ### 3.7 设置页面与日志开关
 
-* **入口与交互**：左侧边栏底部导航「设置」，主区域切换为设置页；设置项修改后即时生效。
-* **设置持久化**：应用设置独立存储于 `settings.json`（`os.UserConfigDir()/ding-ssh/settings.json`），与服务器列表分离，采用原子写入；后续随存储层统一迁移 SQLite/BoltDB。
+* **入口与交互**：顶部标题栏右侧主导航「设置」（与「终端 / 隧道」平级），点击后主区域切换为设置页；标题栏左侧展示应用名「ding-ssh」与当前页面副标题，不再占用左侧空间；设置项修改后即时生效。
+* **两级菜单布局**：设置页主区域为左右两栏——左侧一级菜单（通用 / 终端主题 / 保存的凭证），右侧为对应二级内容区，菜单切换不卸载组件、不打断 SSH 会话。
+* **设置持久化**：应用设置存储于 SQLite `settings` 键值表（`logEnabled` / `copyOnSelect` / `theme`），与服务器列表同库分表，读写即时生效。
 * **日志开关（默认关闭）**：
   * 关闭：应用日志与 Wails 框架日志全部静默。
   * 开启：输出应用运行日志（SSH 连接发起 / 建立 / Shell 就绪 / 断开 / 状态变更 / 错误信息）与 Wails 框架日志（过滤已知 `runtime:ready` 噪音），输出到运行终端，便于排查连接等问题。
@@ -126,14 +139,26 @@ echo "===OS==="; uname -a; cat /etc/os-release | grep PRETTY_NAME
 * **连接进度**：建立 SSH 连接时，后端按阶段上报进度（初始化 / 握手 / PTY / Shell），前端在标签页内实时展示详细过程，超时或失败时保留最后进度与错误原因。
 * **终端主题**：设置页可自定义终端背景色 / 文字 / 光标 / 选中颜色、背景图（文件选择 + 模糊强度）、文字阴影开关与强度，保存后所有标签页即时生效。
 * **保存的凭证**：设置页可增删常用用户名密码（`credentials.json` 持久化），新建 / 编辑服务器时可直接选择自动填充。
-* **服务器分组**：服务器节点支持分组（`ServerNode.Group`），左侧列表按分组聚合展示，未分组在前，分组可折叠。
+* **服务器分组**：服务器节点支持分组（`ServerNode.Group`），左侧列表按分组聚合展示，未分组在前，分组可折叠；支持手动新建空分组、重命名（同步更新组内服务器）、删除（组内服务器变为未分组），分组清单持久化于 `groups.json`。
 
-### 3.8 SFTP 面板（基础版）
+### 3.8 SFTP 面板
 
 * **入口与布局**：会话连接成功后，右侧显示 SFTP 面板（可隐藏 / 重新显示），与终端同屏展示。
-* **功能**：目录列表（目录优先）、面包屑导航、上一级、刷新、点击目录进入；文件属性展示大小与修改时间。
-* **实现**：SFTP 基于 `github.com/pkg/sftp`，在 SSH 会话上按需懒创建 `sftp.Client`（随会话关闭而释放），通过 `SftpList(sessionID, path)` 绑定读取目录。
-* **后续（Phase 2）**：上传 / 下载、进度条、LRU 目录缓存、终端与 SFTP 目录双向联动。
+* **目录浏览**：目录列表（目录优先）、面包屑导航、上一级、刷新、点击目录进入；文件属性展示大小与修改时间；目录切换时的「加载中」提示固定在列表底部，不遮挡浏览。
+* **工具栏布局**：面板顶部标题栏右侧为「⬆ 上传」操作（带文字标签，与导航区分）；下方独立导航行放置「上一级 / 刷新 / 面包屑」，避免上传按钮与上一级按钮视觉混淆。
+* **上传 / 下载**：标题栏「上传」选择本地文件上传到当前目录；文件行悬停出现「下载」，经系统保存对话框选择本地路径。
+* **传输进度与取消**：传输过程中后端通过 `sftp:transfer:{sessionID}` 事件（限频 100ms）上报字节进度，进度条展示在 SFTP 面板最底部；进行中的传输显示「取消」按钮，调用 `SftpCancelTransfer` 取消后上报 `{error: "已取消"}` 事件并清理不完整文件；失败保留错误信息可手动关闭，成功后自动刷新目录。
+* **实现**：SFTP 基于 `github.com/pkg/sftp`，在 SSH 会话上按需懒创建 `sftp.Client`（随会话关闭而释放）；流式拷贝（64KB 缓冲）并由 `SftpUpload / SftpDownload` 绑定驱动，失败时清理不完整文件。传输注册到会话级取消表（`Manager` 维护），`SftpCancelTransfer(sessionID, direction, name)` 通过 `context.CancelFunc` 通知传输协程在下一轮拷贝前停止并上报「已取消」。
+* **后续（Phase 2）**：LRU 目录缓存、终端与 SFTP 目录双向联动、多文件并发传输。
+
+### 3.9 SSH 隧道（本地端口转发）
+
+* **入口与交互**：顶部标题栏右侧主导航新增「隧道」一级入口（与「终端 / 设置」平级），主区域切换为独立隧道管理页；隧道基于已保存的服务器节点建立，无需重复录入认证信息。
+* **创建隧道**：选择跳板服务器，填写隧道名称（自动填充）、本地监听端口、远程目标主机与端口，点击「创建并启动」立即生效；本地监听固定绑定 `127.0.0.1`。
+* **隧道列表**：展示名称、跳板服务器、转发关系（`127.0.0.1:本地端口 → 远程主机:远程端口`）与状态徽标（运行中 / 已停止 / 异常）；运行中可「停止」，停止/异常可「启动」重启，「删除」停止并移除条目。
+* **状态事件**：后端通过 `tunnel:status` 事件上报状态变更（running / stopped / error 及错误信息），前端实时更新列表。
+* **实现**：`internal/sshx/tunnel.go` 复用 SSH 连接配置与 10s 超时拨号逻辑；每隧道一个 SSH 连接 + 本地 TCP 监听，连接级双向 `io.Copy` 转发；应用退出（`CloseAll`）时统一停止全部隧道。
+* **后续（Phase 2）**：隧道配置持久化、远程端口转发（反向隧道）、动态端口（SOCKS）。
 
 ---
 
@@ -202,6 +227,38 @@ type SFTPEntry struct {
 	ModTime int64  `json:"modTime"`
 }
 
+// SSH 隧道摘要信息（本地端口转发）
+type TunnelInfo struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	ServerID   string `json:"serverId"`
+	ServerName string `json:"serverName"`
+	LocalPort  int    `json:"localPort"`
+	RemoteHost string `json:"remoteHost"`
+	RemotePort int    `json:"remotePort"`
+	Status     string `json:"status"` // running | stopped | error
+	Message    string `json:"message,omitempty"`
+	StartedAt  int64  `json:"startedAt"`
+}
+
+// SSH 隧道状态事件（事件名 tunnel:status）
+type TunnelStatusEvent struct {
+	ID      string `json:"id"`
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+}
+
+// SFTP 传输进度事件（取消时 Error 为「已取消」，Done 为 true）
+type SFTPTransferEvent struct {
+	SessionID   string `json:"sessionId"`
+	Direction   string `json:"direction"` // upload | download
+	Name        string `json:"name"`
+	Transferred int64  `json:"transferred"`
+	Total       int64  `json:"total"`
+	Done        bool   `json:"done"`
+	Error       string `json:"error,omitempty"`
+}
+
 // 终端与SFTP同步事件
 type DirSyncEvent struct {
 	SessionID string `json:"sessionId"`
@@ -215,7 +272,7 @@ type DirSyncEvent struct {
 
 ## 5. 项目开发阶段规划
 
-1. **Phase 1 (基础框架与 SSH)**：完成 Wails 项目骨架搭建，实现多标签页切换、基础 SSH 终端连接及 xterm.js 渲染；提供设置页（日志开关 / 主题 / 凭证）、服务器分组与右侧 SFTP 目录浏览，便于开发期排查问题。
+1. **Phase 1 (基础框架与 SSH)**：完成 Wails 项目骨架搭建，实现多标签页切换、基础 SSH 终端连接及 xterm.js 渲染；提供设置页（两级菜单：日志开关 / 主题 / 凭证）、服务器分组、右侧 SFTP 目录浏览 / 上传下载（含传输取消）、独立 SSH 隧道页（本地端口转发）与 SQLite 存储（含旧版 JSON 数据迁移），便于开发期排查问题。
 2. **Phase 2 (SFTP 与同步)**：实现 SFTP 文件管理、高速 LRU 缓存架构及终端与 SFTP 的目录双向联动。
 3. **Phase 3 (进阶终端特性)**：集成 rz/sz 协议支持、命令智能匹配框、终端背景图及 CSS 动态模糊阴影特效。
 4. **Phase 4 (运维增强与多端构建)**：开发一键系统信息 Dashboard、全平台打包构建 (Windows EXE, macOS DMG, Linux AppImage) 及性能优化。

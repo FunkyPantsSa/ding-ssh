@@ -10,7 +10,7 @@
 | 前端 | Vue 3 + Pinia + TailwindCSS + Vite |
 | 终端渲染 | @xterm/xterm + @xterm/addon-fit |
 | SSH 核心 | golang.org/x/crypto/ssh |
-| 配置存储 | JSON 文件（`os.UserConfigDir()/ding-ssh/servers.json`），预留接口可替换 SQLite/BoltDB |
+| 配置存储 | SQLite（`modernc.org/sqlite` 纯 Go 驱动，`os.UserConfigDir()/ding-ssh/ding-ssh.db`），旧版 JSON 数据首次启动自动迁移 |
 
 ## 当前进度（Phase 1）
 
@@ -20,7 +20,10 @@
 - [x] 连接状态事件与失败重连
 - [x] 设置页面（日志开关、选中即复制、终端主题、保存的凭证）
 - [x] 服务器分组管理与折叠
-- [x] 右侧 SFTP 面板（目录浏览 / 导航，`github.com/pkg/sftp`）
+- [x] 右侧 SFTP 面板（目录浏览 / 导航 / 上传下载，底部进度条与传输取消，`github.com/pkg/sftp`）
+- [x] SSH 隧道页（与终端 / 设置平级，基于已保存服务器建立本地端口转发，支持停止 / 重启 / 删除）
+- [x] SQLite 存储（servers / settings / credentials / groups 单库分表，WAL 模式，旧版 JSON 自动迁移）
+- [x] 服务器分组管理（手动添加 / 重命名 / 删除）
 - [x] SSH 连接过程进度实时展示（10s 超时提示）
 - [ ] Phase 2: SFTP 文件管理、目录双向联动、LRU 缓存
 - [ ] Phase 3: rz/sz (Zmodem)、命令智能补全、终端背景特效
@@ -34,13 +37,13 @@ ding-ssh/
 ├── app.go                     # Wails 绑定 API（服务器管理 / SSH 会话）
 ├── internal/
 │   ├── models/                # 前后端共享数据结构
-│   ├── store/                 # 服务器配置持久化（JSON，含 settings.json）
+│   ├── store/                 # 持久化存储（SQLite 主实现 + JSON 兜底/迁移）
 │   ├── sshx/                  # SSH 会话管理器与终端会话
 │   ├── logx/                  # 受日志开关控制的应用日志
 │   └── logfilter/             # Wails 日志过滤（噪音 + 开关）
 └── frontend/
     ├── src/
-    │   ├── components/        # ServerList / ServerDialog / TabBar / TerminalView
+    │   ├── components/        # ServerList / ServerDialog / TabBar / TerminalView / TunnelPage
     │   ├── stores/            # Pinia: servers / sessions
     │   ├── services/          # Wails 绑定与事件封装（ssh / settings）
     │   └── types.ts           # 前端类型定义
@@ -86,8 +89,11 @@ runtime bundle 会发送内部消息 `runtime:ready`，而 devserver 未像桌�
 
 - 服务器：`GetServers` / `SaveServer` / `DeleteServer` / `SelectKeyFile`
 - 会话：`Connect` / `Disconnect` / `Write` / `Resize` / `ListSessions`
+- SFTP：`SftpList` / `SftpUpload` / `SftpDownload` / `SftpCancelTransfer` / `SelectLocalFile` / `SelectSavePath`
+- 隧道：`StartTunnel` / `StopTunnel` / `RestartTunnel` / `RemoveTunnel` / `ListTunnels`
 
 事件（按会话粒度，避免多标签互相干扰）：
 
 - `ssh:output:{sessionId}` — 终端输出，`data` 为 base64 编码字节流
 - `ssh:status:{sessionId}` — 会话状态（connected / closed / error）
+- `tunnel:status` — SSH 隧道状态变更（running / stopped / error）

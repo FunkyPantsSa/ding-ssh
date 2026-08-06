@@ -25,6 +25,9 @@ import (
 // 待上游修复后可删除本包。
 var ignoredSubstrings = []string{
 	"Unknown message from front end: runtime:ready",
+	// Go net/http 内部提示：闲置 keep-alive 连接收到意外响应。
+	// 常见于 Wails 内嵌 WebView 服务器与 WKWebView 连接复用，属框架噪音。
+	"Unsolicited response received on idle HTTP channel",
 }
 
 // Logger 包装 Wails 默认日志器，按日志开关与噪音过滤后转发。
