@@ -25,7 +25,8 @@
 - [x] SQLite 存储（servers / settings / credentials / groups 单库分表，WAL 模式，旧版 JSON 自动迁移）
 - [x] 服务器分组管理（手动添加 / 重命名 / 删除）
 - [x] SSH 连接过程进度实时展示（10s 超时提示）
-- [ ] Phase 2: SFTP 文件管理、目录双向联动、LRU 缓存
+- [x] Phase 2（部分）: SFTP 文件管理（右键菜单、重命名 / 删除 / 新建文件夹、路径编辑、多选上传）
+- [ ] Phase 2: 终端与 SFTP 目录双向联动、LRU 缓存、多文件并发传输
 - [ ] Phase 3: rz/sz (Zmodem)、命令智能补全、终端背景特效
 - [ ] Phase 4: 系统信息仪表盘、多平台打包
 
@@ -89,7 +90,7 @@ runtime bundle 会发送内部消息 `runtime:ready`，而 devserver 未像桌�
 
 - 服务器：`GetServers` / `SaveServer` / `DeleteServer` / `SelectKeyFile`
 - 会话：`Connect` / `Disconnect` / `Write` / `Resize` / `ListSessions`
-- SFTP：`SftpList` / `SftpUpload` / `SftpDownload` / `SftpCancelTransfer` / `SelectLocalFile` / `SelectSavePath`
+- SFTP：`SftpList` / `SftpUpload` / `SftpDownload` / `SftpCancelTransfer` / `SftpRename` / `SftpMkdir` / `SftpRemove` / `SelectLocalFiles` / `SelectSavePath`
 - 隧道：`StartTunnel` / `StopTunnel` / `RestartTunnel` / `RemoveTunnel` / `ListTunnels`
 
 事件（按会话粒度，避免多标签互相干扰）：

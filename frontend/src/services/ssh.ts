@@ -12,10 +12,14 @@ import {
   SelectKeyFile,
   SelectImageFile,
   SelectLocalFile,
+  SelectLocalFiles,
   SelectSavePath,
   SftpCancelTransfer,
   SftpDownload,
   SftpList,
+  SftpMkdir,
+  SftpRemove,
+  SftpRename,
   SftpUpload,
   StartTunnel,
   StopTunnel,
@@ -42,11 +46,18 @@ export const sshService = {
   sftpList: (sessionID: string, path: string): Promise<SFTPEntry[]> =>
     SftpList(sessionID, path),
   selectLocalFile: (): Promise<string> => SelectLocalFile(),
+  selectLocalFiles: (): Promise<string[]> => SelectLocalFiles(),
   selectSavePath: (defaultName: string): Promise<string> => SelectSavePath(defaultName),
   sftpUpload: (sessionID: string, localPath: string, remotePath: string): Promise<void> =>
     SftpUpload(sessionID, localPath, remotePath),
   sftpDownload: (sessionID: string, remotePath: string, localPath: string): Promise<void> =>
     SftpDownload(sessionID, remotePath, localPath),
+  sftpMkdir: (sessionID: string, path: string): Promise<void> =>
+    SftpMkdir(sessionID, path),
+  sftpRename: (sessionID: string, oldPath: string, newPath: string): Promise<void> =>
+    SftpRename(sessionID, oldPath, newPath),
+  sftpRemove: (sessionID: string, path: string): Promise<void> =>
+    SftpRemove(sessionID, path),
   sftpCancelTransfer: (sessionID: string, direction: string, name: string): Promise<void> =>
     SftpCancelTransfer(sessionID, direction, name),
   startTunnel: (node: ServerNode, name: string, localPort: number, remoteHost: string, remotePort: number): Promise<TunnelInfo> =>

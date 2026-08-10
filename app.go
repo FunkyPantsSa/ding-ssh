@@ -240,6 +240,17 @@ func (a *App) SelectLocalFile() (string, error) {
 	return file, nil
 }
 
+// SelectLocalFiles 弹出系统文件选择框（支持多选），返回所选文件路径列表（用于 SFTP 批量上传）。
+func (a *App) SelectLocalFiles() ([]string, error) {
+	files, err := runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "选择要上传的文件（可多选）",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
 // SelectSavePath 选择本地保存路径（用于 SFTP 下载）。
 func (a *App) SelectSavePath(defaultName string) (string, error) {
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
@@ -277,6 +288,33 @@ func (a *App) SftpCancelTransfer(sessionID, direction, name string) error {
 		return err
 	}
 	logx.Debugf("SFTP 传输已取消: session=%s direction=%s name=%s", sessionID, direction, name)
+	return nil
+}
+
+// SftpRename 重命名远程文件或目录。
+func (a *App) SftpRename(sessionID, oldPath, newPath string) error {
+	if err := a.manager.SftpRename(sessionID, oldPath, newPath); err != nil {
+		logx.Errorf("SFTP 重命名失败: session=%s old=%s new=%s err=%v", sessionID, oldPath, newPath, err)
+		return err
+	}
+	return nil
+}
+
+// SftpMkdir 在远程路径新建目录。
+func (a *App) SftpMkdir(sessionID, path string) error {
+	if err := a.manager.SftpMkdir(sessionID, path); err != nil {
+		logx.Errorf("SFTP 新建目录失败: session=%s path=%s err=%v", sessionID, path, err)
+		return err
+	}
+	return nil
+}
+
+// SftpRemove 删除远程文件或目录（目录递归删除）。
+func (a *App) SftpRemove(sessionID, path string) error {
+	if err := a.manager.SftpRemove(sessionID, path); err != nil {
+		logx.Errorf("SFTP 删除失败: session=%s path=%s err=%v", sessionID, path, err)
+		return err
+	}
 	return nil
 }
 

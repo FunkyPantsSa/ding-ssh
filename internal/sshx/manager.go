@@ -13,6 +13,8 @@ import (
 
 	"ding-ssh/internal/logx"
 	"ding-ssh/internal/models"
+
+	"github.com/pkg/sftp"
 )
 
 // ErrSessionNotFound 会话不存在。
@@ -167,6 +169,80 @@ func (m *Manager) SftpList(sessionID, path string) ([]models.SFTPEntry, error) {
 		})
 	}
 	return entries, nil
+}
+
+// SftpRename 重命名远程文件或目录。
+func (m *Manager) SftpRename(sessionID, oldPath, newPath string) error {
+	s, err := m.get(sessionID)
+	if err != nil {
+		return err
+	}
+	client, err := s.SftpClient()
+	if err != nil {
+		return fmt.Errorf("建立 SFTP 连接失败: %w", err)
+	}
+	if err := client.Rename(oldPath, newPath); err != nil {
+		return fmt.Errorf("重命名失败: %w", err)
+	}
+	return nil
+}
+
+// SftpMkdir 在远程路径新建目录。
+func (m *Manager) SftpMkdir(sessionID, path string) error {
+	s, err := m.get(sessionID)
+	if err != nil {
+		return err
+	}
+	client, err := s.SftpClient()
+	if err != nil {
+		return fmt.Errorf("建立 SFTP 连接失败: %w", err)
+	}
+	if err := client.Mkdir(path); err != nil {
+		return fmt.Errorf("创建目录失败: %w", err)
+	}
+	return nil
+}
+
+// SftpRemove 删除远程文件或目录（目录递归删除）。
+func (m *Manager) SftpRemove(sessionID, path string) error {
+	s, err := m.get(sessionID)
+	if err != nil {
+		return err
+	}
+	client, err := s.SftpClient()
+	if err != nil {
+		return fmt.Errorf("建立 SFTP 连接失败: %w", err)
+	}
+	if err := removeRemote(client, path); err != nil {
+		return fmt.Errorf("删除失败: %w", err)
+	}
+	return nil
+}
+
+// removeRemote 递归删除远程路径：目录先删子项再删自身。
+func removeRemote(client *sftp.Client, path string) error {
+	fi, err := client.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return client.Remove(path)
+	}
+	children, err := client.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	for _, c := range children {
+		child := path
+		if !strings.HasSuffix(child, "/") {
+			child += "/"
+		}
+		child += c.Name()
+		if err := removeRemote(client, child); err != nil {
+			return err
+		}
+	}
+	return client.RemoveDirectory(path)
 }
 
 // transferNotifyInterval 传输进度事件的最小发送间隔。

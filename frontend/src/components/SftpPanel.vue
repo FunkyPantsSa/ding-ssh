@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {onSftpTransfer, sshService} from '../services/ssh'
 import {useSessionsStore} from '../stores/sessions'
 import type {SFTPEntry, SessionTab} from '../types'
@@ -10,6 +10,21 @@ const sessions = useSessionsStore()
 const entries = ref<SFTPEntry[]>([])
 const loading = ref(false)
 const error = ref('')
+
+// 交互状态：选中 / 右键菜单 / 重命名 / 删除确认 / 新建文件夹 / 路径编辑
+const selected = ref('')
+const menu = ref<{x: number; y: number; entry: SFTPEntry} | null>(null)
+const renaming = ref<{path: string; name: string} | null>(null)
+const renameInput = ref('')
+const confirmDeletePath = ref('')
+const newFolderActive = ref(false)
+const newFolderName = ref('')
+const editingPath = ref(false)
+const pathInput = ref('')
+
+const renameInputEl = ref<HTMLInputElement>()
+const newFolderInputEl = ref<HTMLInputElement>()
+const pathInputEl = ref<HTMLInputElement>()
 
 interface TransferItem {
   key: string
@@ -47,6 +62,10 @@ function parentPath(p: string): string {
   return i <= 0 ? '/' : p.slice(0, i)
 }
 
+function joinPath(base: string, name: string): string {
+  return base === '/' ? `/${name}` : `${base}/${name}`
+}
+
 async function load(dir: string) {
   if (!props.tab.sessionId) return
   loading.value = true
@@ -80,6 +99,119 @@ function up() {
 
 function refresh() {
   load(path.value)
+}
+
+// ---- 右键菜单 ----
+function openMenu(e: MouseEvent, entry: SFTPEntry) {
+  selected.value = entry.path
+  menu.value = {
+    x: Math.min(e.clientX, window.innerWidth - 150),
+    y: Math.min(e.clientY, window.innerHeight - 120),
+    entry,
+  }
+}
+
+function closeMenu() {
+  menu.value = null
+}
+
+function menuEnter() {
+  if (menu.value?.entry.isDir) enter(menu.value.entry)
+  closeMenu()
+}
+
+function menuDownload() {
+  if (menu.value && !menu.value.entry.isDir) void download(menu.value.entry)
+  closeMenu()
+}
+
+// ---- 重命名 ----
+function startRename(entry: SFTPEntry) {
+  renaming.value = {path: entry.path, name: entry.name}
+  renameInput.value = entry.name
+  closeMenu()
+  void nextTick(() => renameInputEl.value?.select())
+}
+
+async function doRename() {
+  const target = renaming.value
+  renaming.value = null
+  if (!target) return
+  const name = renameInput.value.trim()
+  if (!name || name === target.name) return
+  const newPath = joinPath(parentPath(target.path), name)
+  try {
+    await sshService.sftpRename(props.tab.sessionId, target.path, newPath)
+    await refresh()
+  } catch (e) {
+    error.value = String(e)
+  }
+}
+
+// ---- 删除 ----
+function requestDelete(entry: SFTPEntry) {
+  confirmDeletePath.value = entry.path
+  closeMenu()
+}
+
+async function doDelete() {
+  const target = confirmDeletePath.value
+  confirmDeletePath.value = ''
+  if (!target) return
+  try {
+    await sshService.sftpRemove(props.tab.sessionId, target)
+    await refresh()
+  } catch (e) {
+    error.value = String(e)
+  }
+}
+
+// ---- 新建文件夹 ----
+function startNewFolder() {
+  newFolderActive.value = true
+  newFolderName.value = ''
+  void nextTick(() => newFolderInputEl.value?.focus())
+}
+
+async function doNewFolder() {
+  newFolderActive.value = false
+  const name = newFolderName.value.trim()
+  if (!name) return
+  try {
+    await sshService.sftpMkdir(props.tab.sessionId, joinPath(path.value, name))
+    await refresh()
+  } catch (e) {
+    error.value = String(e)
+  }
+}
+
+// ---- 路径编辑 ----
+function startPathEdit() {
+  editingPath.value = true
+  pathInput.value = path.value
+  void nextTick(() => pathInputEl.value?.select())
+}
+
+function doPathEdit() {
+  editingPath.value = false
+  const p = pathInput.value.trim()
+  if (!p || p === path.value) return
+  go(p.startsWith('/') ? p : `/${p}`)
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  menu.value = null
+  renaming.value = null
+  confirmDeletePath.value = ''
+  newFolderActive.value = false
+  editingPath.value = false
+}
+
+// ---- 双击：目录进入 / 文件下载 ----
+function onDblClick(entry: SFTPEntry) {
+  if (entry.isDir) enter(entry)
+  else void download(entry)
 }
 
 function fmtSize(n: number): string {
@@ -129,13 +261,15 @@ async function runTransfer(direction: 'upload' | 'download', name: string, task:
 }
 
 async function upload() {
-  const localPath = await sshService.selectLocalFile()
-  if (!localPath) return
-  const name = localPath.split('/').pop() || 'file'
-  const remotePath = path.value === '/' ? `/${name}` : `${path.value}/${name}`
-  await runTransfer('upload', name, () =>
-    sshService.sftpUpload(props.tab.sessionId, localPath, remotePath),
-  )
+  const files = await sshService.selectLocalFiles()
+  if (!files.length) return
+  for (const localPath of files) {
+    const name = localPath.split('/').pop() || 'file'
+    const remotePath = joinPath(path.value, name)
+    await runTransfer('upload', name, () =>
+      sshService.sftpUpload(props.tab.sessionId, localPath, remotePath),
+    )
+  }
 }
 
 async function download(entry: SFTPEntry) {
@@ -162,6 +296,9 @@ async function cancelTransfer(t: TransferItem) {
 onMounted(() => {
   if (props.tab.status === 'connected') void load(path.value)
   disposers.push(onSftpTransfer(props.tab.sessionId, onTransfer))
+  window.addEventListener('click', closeMenu)
+  window.addEventListener('keydown', onKeydown)
+  window.addEventListener('scroll', closeMenu, true)
 })
 
 watch(
@@ -188,6 +325,9 @@ watch(
 
 onBeforeUnmount(() => {
   disposers.forEach((d) => d())
+  window.removeEventListener('click', closeMenu)
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('scroll', closeMenu, true)
 })
 </script>
 
@@ -196,6 +336,13 @@ onBeforeUnmount(() => {
     <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-800/60">
       <p class="text-xs font-semibold text-slate-200">SFTP</p>
       <div class="flex items-center gap-1">
+        <button
+          class="h-6 px-2.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-300 text-[11px]"
+          title="在当前目录新建文件夹"
+          @click="startNewFolder"
+        >
+          ＋ 新建
+        </button>
         <button
           class="h-6 px-2.5 rounded-md bg-sky-500/80 hover:bg-sky-400 text-slate-900 text-[11px] font-medium"
           title="上传文件到当前目录"
@@ -229,12 +376,49 @@ onBeforeUnmount(() => {
       >
         ⟳
       </button>
-      <div class="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar px-1 text-[11px] text-slate-400">
+      <div
+        v-if="editingPath"
+        class="flex-1 min-w-0 flex items-center px-1"
+      >
+        <input
+          ref="pathInputEl"
+          v-model="pathInput"
+          class="w-full min-w-0 px-2 py-1 rounded-md bg-slate-800 border border-sky-500/60 text-slate-200 text-[11px] font-mono outline-none"
+          spellcheck="false"
+          @keyup.enter="doPathEdit"
+          @keyup.esc="editingPath = false"
+          @blur="doPathEdit"
+        />
+      </div>
+      <div
+        v-else
+        class="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar px-1 text-[11px] text-slate-400 cursor-text"
+        title="点击编辑完整路径"
+        @click="startPathEdit"
+      >
         <template v-for="(c, i) in crumbs" :key="c.path">
           <button class="shrink-0 hover:text-sky-400" @click="go(c.path)">{{ c.label }}</button>
           <span v-if="i < crumbs.length - 1" class="shrink-0 text-slate-600">/</span>
         </template>
+        <span class="shrink-0 ml-auto pl-1 text-slate-600 group-hover:text-slate-400">✎</span>
       </div>
+    </div>
+
+    <!-- 新建文件夹输入行 -->
+    <div
+      v-if="newFolderActive"
+      class="flex items-center gap-2 px-3 py-1.5 border-b border-slate-800/60"
+    >
+      <span class="text-[11px] text-slate-400 shrink-0">名称</span>
+      <input
+        ref="newFolderInputEl"
+        v-model="newFolderName"
+        class="flex-1 min-w-0 px-2 py-1 rounded-md bg-slate-800 border border-sky-500/60 text-slate-200 text-[11px] outline-none"
+        placeholder="新文件夹名称"
+        @keyup.enter="doNewFolder"
+        @keyup.esc="newFolderActive = false"
+        @blur="doNewFolder"
+      />
     </div>
 
     <div class="flex-1 overflow-y-auto px-1.5 py-1.5">
@@ -244,17 +428,49 @@ onBeforeUnmount(() => {
       <div
         v-for="e in entries"
         :key="e.path"
-        class="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-800/60 cursor-pointer text-[12px] text-slate-300"
-        :title="e.isDir ? '进入目录' : e.name"
-        @click="enter(e)"
+        class="group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[12px] text-slate-300 transition-colors"
+        :class="selected === e.path ? 'bg-sky-500/15' : 'hover:bg-slate-800/60'"
+        :title="e.isDir ? '双击进入目录，右键更多操作' : '双击下载到本地，右键更多操作'"
+        @click="selected = e.path"
+        @dblclick="onDblClick(e)"
+        @contextmenu.prevent="openMenu($event, e)"
       >
         <span class="shrink-0">{{ e.isDir ? '📁' : '📄' }}</span>
-        <span class="min-w-0 truncate">{{ e.name }}</span>
-        <span class="ml-auto shrink-0 text-[10px] text-slate-500">
-          {{ e.isDir ? '目录' : fmtSize(e.size) }}
-        </span>
+        <template v-if="renaming?.path === e.path">
+          <input
+            ref="renameInputEl"
+            v-model="renameInput"
+            class="min-w-0 flex-1 px-1.5 py-0.5 rounded bg-slate-800 border border-sky-500/60 text-slate-200 text-[11px] outline-none"
+            spellcheck="false"
+            @click.stop
+            @keyup.enter="doRename"
+            @keyup.esc="renaming = null"
+            @blur="doRename"
+          />
+        </template>
+        <template v-else-if="confirmDeletePath === e.path">
+          <span class="text-[11px] text-rose-300 truncate">删除「{{ e.name }}」？</span>
+          <button
+            class="shrink-0 px-2 py-0.5 rounded bg-rose-600/80 hover:bg-rose-500 text-white text-[10px]"
+            @click.stop="doDelete"
+          >
+            确认
+          </button>
+          <button
+            class="shrink-0 px-2 py-0.5 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 text-[10px]"
+            @click.stop="confirmDeletePath = ''"
+          >
+            取消
+          </button>
+        </template>
+        <template v-else>
+          <span class="min-w-0 truncate">{{ e.name }}</span>
+          <span class="ml-auto shrink-0 text-[10px] text-slate-500">
+            {{ e.isDir ? '目录' : fmtSize(e.size) }}
+          </span>
+        </template>
         <button
-          v-if="!e.isDir"
+          v-if="!e.isDir && renaming?.path !== e.path && confirmDeletePath !== e.path"
           class="shrink-0 opacity-0 group-hover:opacity-100 w-5 h-5 rounded bg-slate-700/70 hover:bg-sky-500/80 hover:text-slate-900 text-[10px] transition-opacity"
           title="下载到本地"
           @click.stop="download(e)"
@@ -305,6 +521,44 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+
+    <!-- 右键菜单 -->
+    <Teleport to="body">
+      <div
+        v-if="menu"
+        class="fixed z-50 min-w-[150px] rounded-lg border border-slate-700/60 bg-slate-900/95 py-1 shadow-2xl text-xs"
+        :style="{left: menu.x + 'px', top: menu.y + 'px'}"
+        @contextmenu.prevent
+        @click.stop
+      >
+        <button
+          v-if="menu.entry.isDir"
+          class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+          @click="menuEnter"
+        >
+          进入目录
+        </button>
+        <button
+          v-else
+          class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+          @click="menuDownload"
+        >
+          下载到本地
+        </button>
+        <button
+          class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+          @click="startRename(menu.entry)"
+        >
+          重命名
+        </button>
+        <button
+          class="w-full text-left px-3 py-1.5 text-rose-300 hover:bg-rose-600/70"
+          @click="requestDelete(menu.entry)"
+        >
+          删除
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 

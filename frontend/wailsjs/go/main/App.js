@@ -90,6 +90,10 @@ export function SelectLocalFile() {
   return window['go']['main']['App']['SelectLocalFile']();
 }
 
+export function SelectLocalFiles() {
+  return window['go']['main']['App']['SelectLocalFiles']();
+}
+
 export function SelectSavePath(arg1) {
   return window['go']['main']['App']['SelectSavePath'](arg1);
 }
@@ -104,6 +108,18 @@ export function SftpDownload(arg1, arg2, arg3) {
 
 export function SftpList(arg1, arg2) {
   return window['go']['main']['App']['SftpList'](arg1, arg2);
+}
+
+export function SftpMkdir(arg1, arg2) {
+  return window['go']['main']['App']['SftpMkdir'](arg1, arg2);
+}
+
+export function SftpRemove(arg1, arg2) {
+  return window['go']['main']['App']['SftpRemove'](arg1, arg2);
+}
+
+export function SftpRename(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SftpRename'](arg1, arg2, arg3);
 }
 
 export function SftpUpload(arg1, arg2, arg3) {
