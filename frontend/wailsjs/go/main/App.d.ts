@@ -24,6 +24,8 @@ export function ListSessions():Promise<Array<models.SessionInfo>>;
 
 export function ListTunnels():Promise<Array<models.TunnelInfo>>;
 
+export function Reconnect(arg1:string,arg2:number,arg3:number):Promise<models.ConnectResult>;
+
 export function RemoveGroup(arg1:string):Promise<void>;
 
 export function RemoveTunnel(arg1:string):Promise<void>;
@@ -50,6 +52,8 @@ export function SelectLocalFiles():Promise<Array<string>>;
 
 export function SelectSavePath(arg1:string):Promise<string>;
 
+export function SetSftpPathFromTerminal(arg1:string,arg2:string):Promise<void>;
+
 export function SftpCancelTransfer(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SftpDownload(arg1:string,arg2:string,arg3:string):Promise<void>;
@@ -67,5 +71,7 @@ export function SftpUpload(arg1:string,arg2:string,arg3:string):Promise<void>;
 export function StartTunnel(arg1:models.ServerNode,arg2:string,arg3:number,arg4:string,arg5:number):Promise<models.TunnelInfo>;
 
 export function StopTunnel(arg1:string):Promise<void>;
+
+export function SyncSftpToTerminal(arg1:string,arg2:string):Promise<void>;
 
 export function Write(arg1:string,arg2:string):Promise<void>;

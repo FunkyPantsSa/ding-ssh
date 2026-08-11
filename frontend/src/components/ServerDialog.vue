@@ -115,6 +115,7 @@ function applyCredential(id: string) {
       form.password = c.password || ''
       form.keyPath = c.keyPath || ''
       form.keyContent = c.keyContent || ''
+      keySource.value = c.keyContent ? 'content' : 'file'
     } else {
       form.authType = 'password'
       form.password = c.password || ''
@@ -153,7 +154,7 @@ onMounted(() => {
             :disabled="saving"
             @click="close"
           >
-            <Icon name="close" size="12" />
+            <Icon name="close" :size="12" />
           </button>
         </div>
 

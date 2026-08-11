@@ -25,7 +25,7 @@ import {
   StopTunnel,
   Write,
 } from '../../wailsjs/go/main/App'
-import {EventsOff, EventsOn} from '../../wailsjs/runtime/runtime'
+import {EventsOn, EventsOff} from '../../wailsjs/runtime/runtime'
 import type {
   ConnectResult,
   ProgressEvent,
@@ -73,6 +73,9 @@ export const sshService = {
     Write(sessionId, dataBase64),
   resize: (sessionId: string, cols: number, rows: number): Promise<void> =>
     Resize(sessionId, cols, rows),
+  // Phase 2: SFTP→Shell 目录同步
+  syncSftpToTerminal: (sessionId: string, path: string): Promise<void> =>
+    (window as any)?.go?.main?.App?.SyncSftpToTerminal(sessionId, path),
 }
 
 export function onSessionOutput(sessionId: string, handler: (data: string) => void): () => void {
@@ -111,4 +114,26 @@ export function base64ToBytes(b64: string): Uint8Array {
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
   return bytes
+}
+
+// ---- Phase 2 增量 API ----
+
+// 重新连接已断开的 SSH 会话
+export function reconnect(sessionId: string, cols: number, rows: number): Promise<ConnectResult> {
+  // 使用 window['go']['main']['App']['Reconnect'] 直接调用，避免 Wails 绑定未生成时出错
+  return (window as any)?.go?.main?.App?.Reconnect(sessionId, cols, rows)
+}
+
+// 目录同步事件（Shell -> SFTP）
+export function onSftpSyncPath(sessionId: string, handler: (path: string) => void): () => void {
+  const event = `sftp:sync-path:${sessionId}`
+  EventsOn(event, (payload: { currentPath: string }) => handler(payload.currentPath))
+  return () => EventsOff(event)
+}
+
+// 目录缓存更新事件（SWR 增量推送）
+export function onSftpDirUpdated(sessionId: string, handler: (evt: { path: string; entries: SFTPEntry[] }) => void): () => void {
+  const event = `sftp:dir-updated:${sessionId}`
+  EventsOn(event, (payload: { path: string; entries: SFTPEntry[] }) => handler(payload))
+  return () => EventsOff(event)
 }

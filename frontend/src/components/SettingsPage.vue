@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {onMounted, reactive, ref} from 'vue'
+import {onMounted, reactive, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {sshService} from '../services/ssh'
 import {useCredentialsStore} from '../stores/credentials'
@@ -50,8 +50,9 @@ async function applyTheme() {
   }
 }
 
-function resetTheme() {
+async function resetTheme() {
   Object.assign(themeForm, defaultTheme())
+  await settings.setTheme({...themeForm})
 }
 
 async function pickBgImage() {
@@ -112,6 +113,16 @@ onMounted(async () => {
   // 回填已保存的主题到表单
   Object.assign(themeForm, settings.theme)
 })
+
+// 切换到主题页签时刷新表单
+watch(
+  () => section.value,
+  (s) => {
+    if (s === 'theme') {
+      Object.assign(themeForm, settings.theme)
+    }
+  },
+)
 </script>
 
 <template>
@@ -134,7 +145,7 @@ onMounted(async () => {
           "
           @click="section = item.key"
         >
-          <span class="text-sm"><Icon :name="item.icon" size="16" /></span>
+          <span class="text-sm"><Icon :name="item.icon" :size="16" /></span>
           <span>{{ item.label }}</span>
         </button>
       </nav>

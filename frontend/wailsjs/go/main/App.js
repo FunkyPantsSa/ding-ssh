@@ -46,6 +46,10 @@ export function ListTunnels() {
   return window['go']['main']['App']['ListTunnels']();
 }
 
+export function Reconnect(arg1, arg2, arg3) {
+  return window['go']['main']['App']['Reconnect'](arg1, arg2, arg3);
+}
+
 export function RemoveGroup(arg1) {
   return window['go']['main']['App']['RemoveGroup'](arg1);
 }
@@ -98,6 +102,10 @@ export function SelectSavePath(arg1) {
   return window['go']['main']['App']['SelectSavePath'](arg1);
 }
 
+export function SetSftpPathFromTerminal(arg1, arg2) {
+  return window['go']['main']['App']['SetSftpPathFromTerminal'](arg1, arg2);
+}
+
 export function SftpCancelTransfer(arg1, arg2, arg3) {
   return window['go']['main']['App']['SftpCancelTransfer'](arg1, arg2, arg3);
 }
@@ -132,6 +140,10 @@ export function StartTunnel(arg1, arg2, arg3, arg4, arg5) {
 
 export function StopTunnel(arg1) {
   return window['go']['main']['App']['StopTunnel'](arg1);
+}
+
+export function SyncSftpToTerminal(arg1, arg2) {
+  return window['go']['main']['App']['SyncSftpToTerminal'](arg1, arg2);
 }
 
 export function Write(arg1, arg2) {

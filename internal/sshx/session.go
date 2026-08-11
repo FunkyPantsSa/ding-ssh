@@ -34,6 +34,7 @@ type Session struct {
 	onClosed  func(id string)
 	onOutput  func(id string, data []byte)
 	onStatus  func(id string, status models.SessionStatus, message string)
+	onDirSync func(id string, path string)
 
 	sftpOnce sync.Once
 	sftpErr  error
@@ -48,6 +49,7 @@ func newSession(
 	onOutput func(string, []byte),
 	onStatus func(string, models.SessionStatus, string),
 	onClosed func(string),
+	onDirSync func(string, string),
 	onProgress func(string, string),
 ) (*Session, error) {
 	if onProgress != nil {
@@ -132,7 +134,11 @@ func newSession(
 		onOutput:  onOutput,
 		onStatus:  onStatus,
 		onClosed:  onClosed,
+		onDirSync: onDirSync,
 	}
+
+	// 启动 SSH KeepAlive 心跳 Goroutine
+	go s.keepAliveLoop()
 
 	go s.pump(stdout)
 	go s.pump(stderr)
@@ -149,6 +155,7 @@ func newSession(
 // pump 持续读取输出流并转发为事件。
 func (s *Session) pump(r io.Reader) {
 	buf := make([]byte, 32*1024)
+	acc := make([]byte, 0, 64*1024)
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
@@ -156,6 +163,15 @@ func (s *Session) pump(r io.Reader) {
 			copy(chunk, buf[:n])
 			if s.onOutput != nil {
 				s.onOutput(s.ID, chunk)
+			}
+			acc = append(acc, chunk...)
+			if len(acc) > 64*1024 {
+				acc = acc[len(acc)-64*1024:]
+			}
+			if s.onDirSync != nil {
+				if path, ok := ParseDirFromOutput(acc); ok {
+					s.onDirSync(s.ID, path)
+				}
 			}
 		}
 		if err != nil {
@@ -225,7 +241,8 @@ func (s *Session) close(status models.SessionStatus, message string) {
 		if s.onStatus != nil {
 			s.onStatus(s.ID, status, message)
 		}
-		if s.onClosed != nil {
+		// disconnected 状态保留会话在 Manager 中，支持一键重新连接
+		if s.onClosed != nil && status != models.StatusDisconnected {
 			s.onClosed(s.ID)
 		}
 	})
@@ -340,4 +357,128 @@ func parsePrivateKey(data []byte, passphrase string) (ssh.Signer, error) {
 		return nil, fmt.Errorf("解析私钥失败: %w", err)
 	}
 	return key, nil
+}
+
+// keepAliveLoop 定期发送 SSH keepalive 心跳包，防止 NAT 或防火墙超时断开。
+// 连续失败立即触发连接断开事件，前端保留终端上下文并提供重新连接入口。
+func (s *Session) keepAliveLoop() {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		s.mu.Lock()
+		closed := s.closed
+		client := s.client
+		s.mu.Unlock()
+		if closed || client == nil {
+			return
+		}
+		_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+		if err != nil {
+			logx.Debugf("SSH keepalive 失败，触发断开事件: session=%s err=%v", s.ID, err)
+			s.close(models.StatusDisconnected, "连接已断开（心跳超时）")
+			return
+		}
+	}
+}
+
+// Reconnect 重新建立 SSH 连接，复用原会话配置。
+// 在心跳断开 (disconnected) 或异常断开 (error) 后调用，保留原有的 onOutput/onStatus 回调。
+func (s *Session) Reconnect(cols, rows int) error {
+	s.mu.Lock()
+	wasClosed := s.closed
+	if !wasClosed {
+		s.mu.Unlock()
+		return fmt.Errorf("会话仍在连接中，无需重连")
+	}
+	// 重置关闭状态，复用原会话 ID 和回调
+	s.closed = false
+	s.closeOnce = sync.Once{}
+	server := s.server
+	onStatus := s.onStatus
+	s.mu.Unlock()
+
+	// 如果旧连接未完全关闭，先清理
+	if s.client != nil {
+		_ = s.client.Close()
+	}
+	if s.sftp != nil {
+		_ = s.sftp.Close()
+		s.sftp = nil
+	}
+	s.sftpOnce = sync.Once{}
+	s.sftpErr = nil
+
+	config, err := buildClientConfig(server)
+	if err != nil {
+		return err
+	}
+
+	client, err := dialSSH(server.Host, server.Port, config)
+	if err != nil {
+		return err
+	}
+
+	shell, err := client.NewSession()
+	if err != nil {
+		client.Close()
+		return fmt.Errorf("创建 SSH 会话失败: %w", err)
+	}
+
+	modes := ssh.TerminalModes{
+		ssh.ECHO:          1,
+		ssh.TTY_OP_ISPEED: 14400,
+		ssh.TTY_OP_OSPEED: 14400,
+	}
+	if err := shell.RequestPty("xterm-256color", rows, cols, modes); err != nil {
+		shell.Close()
+		client.Close()
+		return fmt.Errorf("请求 PTY 失败: %w", err)
+	}
+
+	stdin, err := shell.StdinPipe()
+	if err != nil {
+		shell.Close()
+		client.Close()
+		return fmt.Errorf("获取 stdin 失败: %w", err)
+	}
+	stdout, err := shell.StdoutPipe()
+	if err != nil {
+		shell.Close()
+		client.Close()
+		return fmt.Errorf("获取 stdout 失败: %w", err)
+	}
+	stderr, err := shell.StderrPipe()
+	if err != nil {
+		shell.Close()
+		client.Close()
+		return fmt.Errorf("获取 stderr 失败: %w", err)
+	}
+
+	if err := shell.Shell(); err != nil {
+		shell.Close()
+		client.Close()
+		return fmt.Errorf("启动 Shell 失败: %w", err)
+	}
+
+	s.mu.Lock()
+	s.client = client
+	s.shell = shell
+	s.stdin = stdin
+	s.closed = false
+	s.mu.Unlock()
+
+	go s.keepAliveLoop()
+	go s.pump(stdout)
+	go s.pump(stderr)
+
+	go func() {
+		_ = shell.Wait()
+		s.close(models.StatusClosed, "")
+	}()
+
+	if onStatus != nil {
+		onStatus(s.ID, models.StatusConnected, "已重新连接")
+	}
+
+	return nil
 }

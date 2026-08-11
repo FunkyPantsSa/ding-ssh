@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {ref} from 'vue'
+import {onBeforeUnmount, onMounted, ref} from 'vue'
 import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
 
@@ -39,6 +39,14 @@ function closeAll() {
   sessions.closeAll()
   closeTabMenu()
 }
+
+onMounted(() => {
+  window.addEventListener('click', closeTabMenu)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('click', closeTabMenu)
+})
 </script>
 
 <template>
@@ -67,7 +75,7 @@ function closeAll() {
         title="关闭 (中键)"
         @click.stop="close(tab.clientId)"
       >
-        <Icon name="close" size="10" />
+        <Icon name="close" :size="10" />
       </button>
     </div>
 
@@ -106,7 +114,6 @@ function closeAll() {
         <button class="w-full text-left px-3 py-1.5 text-rose-300 hover:bg-rose-600/70" @click="closeAll">关闭全部标签</button>
       </div>
     </Teleport>
-  </div>
 </template>
 
 <style scoped>

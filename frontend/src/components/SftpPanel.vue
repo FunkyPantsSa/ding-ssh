@@ -1,9 +1,13 @@
 <script lang="ts" setup>
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
-import {onSftpTransfer, sshService} from '../services/ssh'
+import {onSftpTransfer, onSftpSyncPath, onSftpDirUpdated, sshService} from '../services/ssh'
 import {useSessionsStore} from '../stores/sessions'
 import type {SFTPEntry, SessionTab} from '../types'
+
+// 文件列表图标
+const FolderIcon = '📁'
+const FileIcon = '📄'
 
 const props = defineProps<{tab: SessionTab}>()
 const sessions = useSessionsStore()
@@ -87,6 +91,10 @@ function enter(entry: SFTPEntry) {
   if (!entry.isDir) return
   path.value = entry.path
   load(entry.path)
+  // Phase 2: SFTP → Shell 双向联动
+  if (props.tab.sessionId) {
+    sshService.syncSftpToTerminal(props.tab.sessionId, entry.path).catch(() => {})
+  }
 }
 
 function go(dir: string) {
@@ -300,6 +308,22 @@ onMounted(() => {
   window.addEventListener('click', closeMenu)
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('scroll', closeMenu, true)
+  // 监听 Shell→SFTP 目录同步事件
+  if (props.tab.sessionId) {
+    disposers.push(onSftpSyncPath(props.tab.sessionId, (newPath) => {
+      if (newPath && newPath !== path.value) {
+        go(newPath)
+      }
+    }))
+    disposers.push(onSftpDirUpdated(props.tab.sessionId, (evt) => {
+      // SWR 增量更新：只替换匹配路径的条目
+      if (evt.path === path.value || evt.path === path.value + '/') {
+        entries.value = evt.entries.sort((a: SFTPEntry, b: SFTPEntry) =>
+          a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
+        )
+      }
+    }))
+  }
 })
 
 watch(
@@ -343,7 +367,7 @@ onBeforeUnmount(() => {
           aria-label="新建文件夹"
           @click="startNewFolder"
         >
-          <Icon name="plus" size="12" class="mr-0.5" /> 新建
+          <Icon name="plus" :size="12" class="mr-0.5" /> 新建
         </button>
         <button
           class="h-6 px-2.5 rounded-md bg-sky-500/80 hover:bg-sky-400 text-slate-900 text-[11px] font-medium"
@@ -351,7 +375,7 @@ onBeforeUnmount(() => {
           aria-label="上传文件"
           @click="upload"
         >
-          <Icon name="upload" size="12" class="mr-0.5" /> 上传
+          <Icon name="upload" :size="12" class="mr-0.5" /> 上传
         </button>
         <button
           class="w-6 h-6 rounded text-slate-400 hover:bg-slate-800 hover:text-slate-200 text-xs"
@@ -359,7 +383,7 @@ onBeforeUnmount(() => {
           aria-label="隐藏 SFTP 面板"
           @click="sessions.sftpVisible = false"
         >
-          <Icon name="close" size="12" />
+          <Icon name="close" :size="12" />
         </button>
       </div>
     </div>
@@ -372,7 +396,7 @@ onBeforeUnmount(() => {
           aria-label="上级目录"
         @click="up"
       >
-        <Icon name="up" size="12" />
+        <Icon name="up" :size="12" />
       </button>
       <button
         class="w-7 h-7 shrink-0 rounded-md bg-slate-800/70 hover:bg-slate-700 text-slate-300 text-xs"
@@ -380,7 +404,7 @@ onBeforeUnmount(() => {
           aria-label="刷新"
         @click="refresh"
       >
-        <Icon name="refresh" size="12" />
+        <Icon name="refresh" :size="12" />
       </button>
       <div
         v-if="editingPath"
@@ -406,7 +430,7 @@ onBeforeUnmount(() => {
           <button class="shrink-0 hover:text-sky-400" @click="go(c.path)">{{ c.label }}</button>
           <span v-if="i < crumbs.length - 1" class="shrink-0 text-slate-600">/</span>
         </template>
-        <span class="shrink-0 ml-auto pl-1 text-slate-600 group-hover:text-slate-400"><Icon name="settings" size="10" /></span>
+        <span class="shrink-0 ml-auto pl-1 text-slate-600 group-hover:text-slate-400"><Icon name="settings" :size="10" /></span>
       </div>
     </div>
 
@@ -482,7 +506,7 @@ onBeforeUnmount(() => {
           aria-label="下载文件"
           @click.stop="download(e)"
         >
-          <Icon name="download" size="10" />
+          <Icon name="download" :size="10" />
         </button>
       </div>
 

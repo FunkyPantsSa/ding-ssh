@@ -477,6 +477,14 @@ func (a *App) Disconnect(sessionID string) error {
 	return a.manager.Disconnect(sessionID)
 }
 
+// Reconnect 重新建立已断开的 SSH 会话，复用原会话配置与回调。
+func (a *App) Reconnect(sessionID string, cols, rows int) (models.ConnectResult, error) {
+	if err := a.manager.Reconnect(sessionID, cols, rows); err != nil {
+		return models.ConnectResult{}, err
+	}
+	return models.ConnectResult{SessionID: sessionID}, nil
+}
+
 // Write 向会话写入终端输入（data 为 base64 编码）。
 func (a *App) Write(sessionID, data string) error {
 	return a.manager.Write(sessionID, data)
@@ -490,4 +498,17 @@ func (a *App) Resize(sessionID string, cols, rows int) error {
 // ListSessions 返回当前活动会话列表。
 func (a *App) ListSessions() []models.SessionInfo {
 	return a.manager.List()
+}
+
+// Reconnect 重新建立已断开的 SSH 会话，复用原会话配置与回调。
+// ---- Phase 2: SFTP 与 Shell 双向同步 ----
+
+// SetSftpPathFromTerminal 当 Shell 侧检测到目录变更时，强制更新 SFTP 面板路径。
+func (a *App) SetSftpPathFromTerminal(sessionID, path string) error {
+	return a.manager.SetSftpPathFromTerminal(sessionID, path)
+}
+
+// SyncSftpToTerminal 在 SFTP 面板双击文件夹时，向终端发送 cd 命令实现目录同步。
+func (a *App) SyncSftpToTerminal(sessionID, path string) error {
+	return a.manager.SyncSftpToTerminal(sessionID, path)
 }

@@ -7,6 +7,7 @@ import {
   onSessionOutput,
   onSessionProgress,
   onSessionStatus,
+  reconnect,
   sshService,
 } from '../services/ssh'
 import {useSessionsStore} from '../stores/sessions'
@@ -201,6 +202,18 @@ async function connect() {
   }
 }
 
+// Phase 2: 重新连接已断开的 SSH 会话（心跳断开 / 异常断开后）
+async function reconnectSession() {
+  if (!props.tab.sessionId || !term) return
+  sessions.setStatus(props.tab.clientId, 'connecting')
+  progress.value = ''
+  try {
+    await reconnect(props.tab.sessionId, term.cols, term.rows)
+  } catch (e) {
+    sessions.setStatus(props.tab.clientId, 'error', String(e))
+  }
+}
+
 async function disconnect() {
   if (props.tab.sessionId) {
     await sshService.disconnect(props.tab.sessionId).catch(() => {})
@@ -256,6 +269,14 @@ watch(
   {deep: true},
 )
 
+// 设置加载完成后重新应用主题
+watch(
+  () => settings.loaded,
+  (loaded) => {
+    if (loaded) applyTheme()
+  },
+)
+
 onBeforeUnmount(() => {
   disposed = true
   disposers.forEach((d) => d())
@@ -296,11 +317,11 @@ onBeforeUnmount(() => {
 
     <!-- 连接失败 / 已断开 遮罩 -->
     <div
-      v-else-if="tab.status === 'error' || tab.status === 'closed'"
+      v-else-if="tab.status === 'error' || tab.status === 'closed' || tab.status === 'disconnected'"
       class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-slate-950/70 backdrop-blur-sm"
     >
       <p class="text-sm text-slate-300 max-w-md text-center px-6 break-all">
-        {{ tab.message || (tab.status === 'closed' ? '连接已断开' : '连接失败') }}
+        {{ tab.message || (tab.status === 'closed' || tab.status === 'disconnected' ? '连接已断开' : '连接失败') }}
       </p>
       <p v-if="progress && tab.status === 'error'" class="text-xs text-slate-500 max-w-md text-center px-6 break-all">
         最后进度：{{ progress }}
@@ -308,7 +329,7 @@ onBeforeUnmount(() => {
       <div class="flex gap-3">
         <button
           class="px-4 py-1.5 rounded-md bg-sky-500/80 hover:bg-sky-400 text-slate-900 text-sm font-medium"
-          @click="connect"
+          @click="reconnectSession"
         >
           重新连接
         </button>

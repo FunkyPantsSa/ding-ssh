@@ -162,7 +162,7 @@ onMounted(() => {
           aria-label="管理分组"
           @click="openGroupManager"
         >
-          <Icon name="folder" size="14" />
+          <Icon name="folder" :size="14" />
         </button>
         <button
           class="w-6 h-6 rounded-md bg-sky-500/80 hover:bg-sky-400 text-slate-900 text-sm leading-none font-bold transition-colors"
@@ -170,7 +170,7 @@ onMounted(() => {
           aria-label="新建服务器"
           @click="openNew"
         >
-          <Icon name="plus" size="14" />
+          <Icon name="plus" :size="14" />
         </button>
       </div>
     </div>

@@ -21,7 +21,7 @@ export interface ConnectResult {
   server: string
 }
 
-export type SessionStatus = 'connecting' | 'connected' | 'closed' | 'error'
+export type SessionStatus = 'connecting' | 'connected' | 'closed' | 'error' | 'disconnected'
 
 export interface SessionInfo {
   sessionId: string
@@ -132,4 +132,26 @@ export interface TunnelStatusEvent {
   id: string
   status: string // running | stopped | error
   message?: string
+}
+
+// ---- Phase 2 增量类型 ----
+
+// 目录同步事件（Shell <-> SFTP 双向联动）
+export interface DirSyncEvent {
+  sessionId: string
+  currentPath: string
+  source: string // "terminal" or "sftp"
+}
+
+// 缓存目录更新事件（SWR 增量推送）
+export interface DirCacheUpdateEvent {
+  sessionId: string
+  path: string
+  entries: SFTPEntry[]
+}
+
+// 限速配置
+export interface RateLimitConfig {
+  enabled: boolean
+  bytesPerSec: number // 字节/秒，默认 10MB = 10 * 1024 * 1024
 }

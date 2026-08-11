@@ -18,7 +18,10 @@ export namespace models {
 	    id: string;
 	    name: string;
 	    user: string;
-	    password: string;
+	    password?: string;
+	    authType: string;
+	    keyPath?: string;
+	    keyContent?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Credential(source);
@@ -30,6 +33,9 @@ export namespace models {
 	        this.name = source["name"];
 	        this.user = source["user"];
 	        this.password = source["password"];
+	        this.authType = source["authType"];
+	        this.keyPath = source["keyPath"];
+	        this.keyContent = source["keyContent"];
 	    }
 	}
 	export class SFTPEntry {

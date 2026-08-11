@@ -43,6 +43,8 @@ type Manager struct {
 
 	transfersMu sync.Mutex
 	transfers   map[string][]*activeTransfer // key: sessionID
+
+	cache *SFTPCacheManager // SWR 目录缓存
 }
 
 // NewManager 创建会话管理器。
@@ -52,6 +54,7 @@ func NewManager(notify Notifier) *Manager {
 		tunnels:   make(map[string]*Tunnel),
 		transfers: make(map[string][]*activeTransfer),
 		notify:    notify,
+		cache:     NewSFTPCacheManager(),
 	}
 }
 
@@ -81,6 +84,13 @@ func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows i
 			m.notify("ssh:progress:"+id, models.ProgressEvent{
 				SessionID: id,
 				Step:      step,
+			})
+		},
+		func(id string, path string) {
+			m.notify("sftp:sync-path:"+id, models.DirSyncEvent{
+				SessionID:   id,
+				CurrentPath: path,
+				Source:      "terminal",
 			})
 		},
 	)
@@ -129,6 +139,16 @@ func (m *Manager) Disconnect(sessionID string) error {
 	return nil
 }
 
+// Reconnect 重新建立已断开的 SSH 会话，复用原会话配置与回调。
+func (m *Manager) Reconnect(sessionID string, cols, rows int) error {
+	s, err := m.get(sessionID)
+	if err != nil {
+		return err
+	}
+	logx.Debugf("重新连接会话: session=%s", sessionID)
+	return s.Reconnect(cols, rows)
+}
+
 // List 返回全部会话摘要。
 func (m *Manager) List() []models.SessionInfo {
 	m.mu.RLock()
@@ -138,6 +158,36 @@ func (m *Manager) List() []models.SessionInfo {
 		infos = append(infos, s.Info())
 	}
 	return infos
+}
+
+// SyncSftpToTerminal 在 SFTP 面板双击文件夹时，向终端发送 cd 命令实现目录同步。
+func (m *Manager) SyncSftpToTerminal(sessionID, path string) error {
+	s, err := m.get(sessionID)
+	if err != nil {
+		return err
+	}
+	cmd := "cd " + escapeShellPath(path) + "\n"
+	return s.Write([]byte(cmd))
+}
+
+// SetSftpPathFromTerminal 当 Shell 侧检测到目录变更时，向前端推送同步事件。
+func (m *Manager) SetSftpPathFromTerminal(sessionID, path string) error {
+	_, err := m.get(sessionID)
+	if err != nil {
+		return err
+	}
+	m.notify("sftp:sync-path:"+sessionID, models.DirSyncEvent{
+		SessionID:   sessionID,
+		CurrentPath: path,
+		Source:      "terminal",
+	})
+	return nil
+}
+
+// escapeShellPath 对路径中的特殊字符进行转义，确保 cd 命令安全执行。
+func escapeShellPath(path string) string {
+	escaped := strings.ReplaceAll(path, "'", "'\"'\"'")
+	return "'" + escaped + "'"
 }
 
 // SftpList 列出指定会话的远程目录条目。
@@ -150,25 +200,53 @@ func (m *Manager) SftpList(sessionID, path string) ([]models.SFTPEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("建立 SFTP 连接失败: %w", err)
 	}
-	infos, err := client.ReadDir(path)
-	if err != nil {
-		return nil, fmt.Errorf("读取远程目录失败: %w", err)
+
+	readDir := func(p string) ([]models.SFTPEntry, error) {
+		infos, err := client.ReadDir(p)
+		if err != nil {
+			return nil, err
+		}
+		base := p
+		if !strings.HasSuffix(base, "/") {
+			base += "/"
+		}
+		entries := make([]models.SFTPEntry, 0, len(infos))
+		for _, fi := range infos {
+			entries = append(entries, models.SFTPEntry{
+				Name:    fi.Name(),
+				Path:    base + fi.Name(),
+				IsDir:   fi.IsDir(),
+				Size:    fi.Size(),
+				ModTime: fi.ModTime().UnixMilli(),
+			})
+		}
+		return entries, nil
 	}
-	base := path
-	if !strings.HasSuffix(base, "/") {
-		base += "/"
+
+	// SWR 模式：优先缓存，后台异步校验
+	var result []models.SFTPEntry
+	m.cache.SWRReadDir(context.Background(), path, readDir,
+		func(entries []models.SFTPEntry) {
+			result = entries
+		},
+		func(diff *entryDiff, entries []models.SFTPEntry) {
+			m.notify("sftp:dir-updated:"+sessionID, map[string]interface{}{
+				"sessionId": sessionID,
+				"path":      path,
+				"entries":   entries,
+			})
+		},
+	)
+	if result == nil {
+		// 缓存未命中且异步尚未完成，降级为同步读取
+		entries, err := readDir(path)
+		if err != nil {
+			return nil, err
+		}
+		m.cache.Set(path, entries)
+		result = entries
 	}
-	entries := make([]models.SFTPEntry, 0, len(infos))
-	for _, fi := range infos {
-		entries = append(entries, models.SFTPEntry{
-			Name:    fi.Name(),
-			Path:    base + fi.Name(),
-			IsDir:   fi.IsDir(),
-			Size:    fi.Size(),
-			ModTime: fi.ModTime().UnixMilli(),
-		})
-	}
-	return entries, nil
+	return result, nil
 }
 
 // SftpRename 重命名远程文件或目录。
@@ -184,6 +262,8 @@ func (m *Manager) SftpRename(sessionID, oldPath, newPath string) error {
 	if err := client.Rename(oldPath, newPath); err != nil {
 		return fmt.Errorf("重命名失败: %w", err)
 	}
+	m.cache.Invalidate(parentDir(oldPath))
+	m.cache.Invalidate(parentDir(newPath))
 	return nil
 }
 
@@ -200,6 +280,7 @@ func (m *Manager) SftpMkdir(sessionID, path string) error {
 	if err := client.Mkdir(path); err != nil {
 		return fmt.Errorf("创建目录失败: %w", err)
 	}
+	m.cache.Invalidate(parentDir(path))
 	return nil
 }
 
@@ -216,6 +297,7 @@ func (m *Manager) SftpRemove(sessionID, path string) error {
 	if err := removeRemote(client, path); err != nil {
 		return fmt.Errorf("删除失败: %w", err)
 	}
+	m.cache.Invalidate(parentDir(path))
 	return nil
 }
 
@@ -285,6 +367,7 @@ func (m *Manager) SftpUpload(sessionID, localPath, remotePath string) error {
 		_ = client.Remove(remotePath) // 清理不完整的上传文件
 		return fmt.Errorf("上传失败: %w", err)
 	}
+	m.cache.Invalidate(parentDir(remotePath))
 	return nil
 }
 
@@ -326,6 +409,7 @@ func (m *Manager) SftpDownload(sessionID, remotePath, localPath string) error {
 		_ = os.Remove(localPath) // 清理不完整的下载文件
 		return fmt.Errorf("下载失败: %w", err)
 	}
+	m.cache.Invalidate(parentDir(remotePath))
 	return nil
 }
 
@@ -363,6 +447,15 @@ func (m *Manager) streamTransfer(
 		}
 		n, rerr := read(buf)
 		if n > 0 {
+			// Phase 2: 令牌桶限速
+			if err := DefaultTransferPool.Limiter().Wait(ctx, n); err != nil {
+				if err == context.Canceled {
+					notify(true, "已取消")
+					return ErrTransferCancelled
+				}
+				notify(true, err.Error())
+				return err
+			}
 			if _, werr := write(buf[:n]); werr != nil {
 				notify(true, werr.Error())
 				return werr
@@ -541,4 +634,23 @@ func (m *Manager) remove(sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.sessions, sessionID)
+}
+
+// parentDir 返回给定路径的父目录路径。
+func parentDir(path string) string {
+	if path == "" || path == "/" {
+		return "/"
+	}
+	// 去掉末尾的 /
+	for len(path) > 1 && path[len(path)-1] == '/' {
+		path = path[:len(path)-1]
+	}
+	idx := strings.LastIndex(path, "/")
+	if idx < 0 {
+		return "/"
+	}
+	if idx == 0 {
+		return "/"
+	}
+	return path[:idx]
 }

@@ -27,6 +27,26 @@ const activeConnected = computed(() =>
   sessions.activeTab?.status === 'connected' ? sessions.activeTab : undefined,
 )
 
+// 侧边栏宽度拖拽
+const sidebarWidth = ref(240)
+const resizing = ref(false)
+function startResize(e: MouseEvent) {
+  resizing.value = true
+  const startX = e.clientX
+  const startW = sidebarWidth.value
+  function onMove(ev: MouseEvent) {
+    const w = Math.max(160, Math.min(480, startW + ev.clientX - startX))
+    sidebarWidth.value = w
+  }
+  function onUp() {
+    resizing.value = false
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
+
 function onGlobalKeydown(e: KeyboardEvent) {
   const meta = e.metaKey || e.ctrlKey
   if (!meta) return
@@ -80,7 +100,7 @@ onBeforeUnmount(() => {
           "
           @click="ui.showWorkspace()"
         >
-          <Icon name="terminal" size="14" class="mr-1" /> 终端
+          <Icon name="terminal" :size="14" class="mr-1" /> 终端
         </button>
         <button
           class="px-3 py-1.5 rounded-md text-xs tracking-wide transition-colors"
@@ -91,7 +111,7 @@ onBeforeUnmount(() => {
           "
           @click="ui.showTunnel()"
         >
-          <Icon name="tunnel" size="14" class="mr-1" /> 隧道
+          <Icon name="tunnel" :size="14" class="mr-1" /> 隧道
         </button>
         <button
           class="px-3 py-1.5 rounded-md text-xs tracking-wide transition-colors"
@@ -102,7 +122,7 @@ onBeforeUnmount(() => {
           "
           @click="ui.showSettings()"
         >
-          <Icon name="gear" size="14" class="mr-1" /> 设置
+          <Icon name="gear" :size="14" class="mr-1" /> 设置
         </button>
       </nav>
     </header>
@@ -145,7 +165,7 @@ onBeforeUnmount(() => {
                 class="absolute inset-0 flex flex-col items-center justify-center gap-4"
               >
                 <div class="flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-800/60 border border-slate-700/40">
-                  <Icon name="terminal" size="32" class="text-slate-500" />
+                  <Icon name="terminal" :size="32" class="text-slate-500" />
                 </div>
                 <p class="text-xl font-light text-slate-500">ding-ssh</p>
                 <p class="text-sm text-slate-600">在左侧选择服务器，点击连接按钮建立 SSH 连接</p>

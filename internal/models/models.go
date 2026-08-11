@@ -32,6 +32,7 @@ const (
 	StatusConnected  SessionStatus = "connected"
 	StatusClosed     SessionStatus = "closed"
 	StatusError      SessionStatus = "error"
+	StatusDisconnected SessionStatus = "disconnected"
 )
 
 // SessionInfo 会话摘要信息。
@@ -146,4 +147,11 @@ type SFTPTransferEvent struct {
 	Total       int64  `json:"total"`
 	Done        bool   `json:"done"`
 	Error       string `json:"error,omitempty"`
+}
+
+// DirSyncEvent 终端与 SFTP 目录同步事件。
+type DirSyncEvent struct {
+	SessionID   string `json:"sessionId"`
+	CurrentPath string `json:"currentPath"`
+	Source      string `json:"source"` // "terminal" or "sftp"
 }
