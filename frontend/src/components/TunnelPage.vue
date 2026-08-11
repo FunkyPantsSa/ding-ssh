@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import {computed, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
+import Icon from './Icon.vue'
 import {onTunnelStatus, sshService} from '../services/ssh'
 import {useServersStore} from '../stores/servers'
 import type {TunnelInfo, TunnelStatusEvent} from '../types'
@@ -229,7 +230,7 @@ onBeforeUnmount(() => {
             <p class="text-xs text-slate-500 mt-1">运行中的隧道随应用退出自动关闭。</p>
           </div>
           <button class="px-3 py-1.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-200 text-xs" @click="refresh">
-            ⟳ 刷新
+            <Icon name="refresh" size="12" class="mr-1" /> 刷新
           </button>
         </div>
 

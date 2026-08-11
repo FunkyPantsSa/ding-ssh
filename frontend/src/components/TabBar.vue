@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import {ref} from 'vue'
+import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
 
 const sessions = useSessionsStore()
@@ -10,8 +12,32 @@ const statusColor: Record<string, string> = {
   error: 'bg-rose-500',
 }
 
+const tabMenu = ref<{x: number; y: number; clientId: string} | null>(null)
+
 function close(clientId: string) {
   sessions.closeTab(clientId)
+}
+
+function openTabMenu(e: MouseEvent, clientId: string) {
+  e.preventDefault()
+  tabMenu.value = {x: Math.min(e.clientX, window.innerWidth - 160), y: Math.min(e.clientY, window.innerHeight - 120), clientId}
+}
+
+function closeTabMenu() {
+  tabMenu.value = null
+}
+
+function closeOthers(clientId: string) {
+  if (sessions.tabs.length <= 1) { closeTabMenu(); return }
+  for (const t of sessions.tabs) {
+    if (t.clientId !== clientId) sessions.closeTab(t.clientId)
+  }
+  closeTabMenu()
+}
+
+function closeAll() {
+  sessions.closeAll()
+  closeTabMenu()
 }
 </script>
 
@@ -28,6 +54,7 @@ function close(clientId: string) {
       "
       @click="sessions.activeId = tab.clientId"
       @auxclick.middle="close(tab.clientId)"
+      @contextmenu.prevent="openTabMenu($event, tab.clientId)"
     >
       <span class="w-2 h-2 rounded-full" :class="statusColor[tab.status] ?? 'bg-slate-500'"></span>
       <span class="max-w-40 truncate">{{ tab.serverName }}</span>
@@ -40,7 +67,7 @@ function close(clientId: string) {
         title="关闭 (中键)"
         @click.stop="close(tab.clientId)"
       >
-        ×
+        <Icon name="close" size="10" />
       </button>
     </div>
 
@@ -63,6 +90,22 @@ function close(clientId: string) {
     >
       全部关闭
     </button>
+  </div>
+    <!-- 右键菜单 -->
+    <Teleport to="body">
+      <div
+        v-if="tabMenu"
+        class="fixed z-50 min-w-[140px] rounded-lg border border-slate-700/60 bg-slate-900/95 py-1 shadow-2xl text-xs"
+        :style="{left: tabMenu.x + 'px', top: tabMenu.y + 'px'}"
+        @contextmenu.prevent
+        @click.stop
+      >
+        <button class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800" @click="sessions.activeId = tabMenu.clientId; closeTabMenu()">切换到此标签</button>
+        <button class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800" @click="close(tabMenu.clientId); closeTabMenu()">关闭标签</button>
+        <button class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800" @click="closeOthers(tabMenu.clientId)">关闭其他标签</button>
+        <button class="w-full text-left px-3 py-1.5 text-rose-300 hover:bg-rose-600/70" @click="closeAll">关闭全部标签</button>
+      </div>
+    </Teleport>
   </div>
 </template>
 

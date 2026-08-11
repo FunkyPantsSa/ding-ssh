@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import {computed, onMounted, reactive, ref, watch} from 'vue'
+import Icon from './Icon.vue'
 import {sshService} from '../services/ssh'
 import {useCredentialsStore} from '../stores/credentials'
 import {useServersStore} from '../stores/servers'
@@ -109,7 +110,15 @@ function applyCredential(id: string) {
   const c = credentials.list.find((x) => x.id === id)
   if (c) {
     form.user = c.user
-    form.password = c.password
+    if (c.authType === 'privateKey') {
+      form.authType = 'privateKey'
+      form.password = c.password || ''
+      form.keyPath = c.keyPath || ''
+      form.keyContent = c.keyContent || ''
+    } else {
+      form.authType = 'password'
+      form.password = c.password || ''
+    }
   }
 }
 
@@ -144,7 +153,7 @@ onMounted(() => {
             :disabled="saving"
             @click="close"
           >
-            ✕
+            <Icon name="close" size="12" />
           </button>
         </div>
 

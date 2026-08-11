@@ -49,7 +49,10 @@ CREATE TABLE IF NOT EXISTS credentials (
 	id       TEXT PRIMARY KEY,
 	name     TEXT NOT NULL,
 	user     TEXT NOT NULL DEFAULT '',
-	password TEXT NOT NULL DEFAULT ''
+	password TEXT NOT NULL DEFAULT '',
+	auth_type TEXT NOT NULL DEFAULT 'password',
+	key_path  TEXT NOT NULL DEFAULT '',
+	key_content TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS groups (
@@ -81,6 +84,14 @@ func OpenSQLite(path string) (*sql.DB, error) {
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("初始化表结构失败: %w", err)
+	}
+	// 凭证表新列迁移（旧数据库可能不含 auth_type / key_path / key_content）。
+	for _, stmt := range []string{
+		`ALTER TABLE credentials ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'password'`,
+		`ALTER TABLE credentials ADD COLUMN key_path TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE credentials ADD COLUMN key_content TEXT NOT NULL DEFAULT ''`,
+	} {
+		_, _ = db.Exec(stmt) // 列已存在时忽略错误
 	}
 	return db, nil
 }
@@ -250,7 +261,7 @@ func NewSQLiteCredentialStore(db *sql.DB) *SQLiteCredentialStore {
 
 // List 返回全部凭证。
 func (s *SQLiteCredentialStore) List() ([]models.Credential, error) {
-	rows, err := s.db.Query(`SELECT id, name, user, password FROM credentials ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, name, user, password, auth_type, key_path, key_content FROM credentials ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +269,7 @@ func (s *SQLiteCredentialStore) List() ([]models.Credential, error) {
 	list := []models.Credential{}
 	for rows.Next() {
 		var c models.Credential
-		if err := rows.Scan(&c.ID, &c.Name, &c.User, &c.Password); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.User, &c.Password, &c.AuthType, &c.KeyPath, &c.KeyContent); err != nil {
 			return nil, err
 		}
 		list = append(list, c)
@@ -268,11 +279,15 @@ func (s *SQLiteCredentialStore) List() ([]models.Credential, error) {
 
 // Save 新增或更新凭证（按 ID 匹配）。
 func (s *SQLiteCredentialStore) Save(c models.Credential) error {
+	if c.AuthType == "" {
+		c.AuthType = "password"
+	}
 	_, err := s.db.Exec(`
-		INSERT INTO credentials (id, name, user, password) VALUES (?, ?, ?, ?)
+		INSERT INTO credentials (id, name, user, password, auth_type, key_path, key_content) VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET name = excluded.name, user = excluded.user,
-			password = excluded.password`,
-		c.ID, c.Name, c.User, c.Password)
+			password = excluded.password, auth_type = excluded.auth_type,
+			key_path = excluded.key_path, key_content = excluded.key_content`,
+		c.ID, c.Name, c.User, c.Password, c.AuthType, c.KeyPath, c.KeyContent)
 	if err != nil {
 		return fmt.Errorf("保存凭证失败: %w", err)
 	}

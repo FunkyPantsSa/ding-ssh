@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import {onMounted, reactive, ref} from 'vue'
+import Icon from './Icon.vue'
 import {sshService} from '../services/ssh'
 import {useCredentialsStore} from '../stores/credentials'
 import {defaultTheme, useSettingsStore} from '../stores/settings'
@@ -12,13 +13,13 @@ const saving = ref(false)
 
 // 一级菜单：通用 / 终端主题 / 保存的凭证
 const menuItems = [
-  {key: 'general', label: '通用', icon: '⚙'},
-  {key: 'theme', label: '终端主题', icon: '🎨'},
-  {key: 'credentials', label: '保存的凭证', icon: '🔑'},
+  {key: 'general', label: '通用', icon: 'gear'},
+  {key: 'theme', label: '终端主题', icon: 'file'},
+  {key: 'credentials', label: '保存的凭证', icon: 'key'},
 ] as const
 const section = ref<'general' | 'theme' | 'credentials'>('general')
 const themeForm = reactive<Theme>(defaultTheme())
-const credForm = reactive({name: '', user: '', password: ''})
+const credForm = reactive({name: '', user: '', password: '', authType: 'password', keySource: 'file' as 'file' | 'content', keyPath: '', keyContent: ''})
 const credError = ref('')
 const confirmCredId = ref('')
 
@@ -62,16 +63,43 @@ async function pickBgImage() {
   }
 }
 
+async function pickCredKeyFile() {
+  try {
+    const path = await sshService.selectKeyFile()
+    if (path) credForm.keyPath = path
+  } catch (e) {
+  }
+}
+
 async function addCredential() {
-  if (!credForm.name.trim() || !credForm.user.trim() || !credForm.password) {
-    credError.value = '请填写凭证名称、用户名和密码'
+  if (!credForm.name.trim() || !credForm.user.trim()) {
+    credError.value = '请填写凭证名称和用户名'
     return
+  }
+  if (credForm.authType === 'password' && !credForm.password) {
+    credError.value = '请填写密码'
+    return
+  }
+  if (credForm.authType === 'privateKey') {
+    if (credForm.keySource === 'file' && !credForm.keyPath) {
+      credError.value = '请选择私钥文件'
+      return
+    }
+    if (credForm.keySource === 'content' && !credForm.keyContent) {
+      credError.value = '请粘贴私钥内容'
+      return
+    }
+    if (credForm.keySource === 'content') credForm.keyPath = ''
+    else credForm.keyContent = ''
   }
   credError.value = ''
   await credentials.save({id: '', ...credForm})
   credForm.name = ''
   credForm.user = ''
   credForm.password = ''
+  credForm.authType = 'password'
+  credForm.keyPath = ''
+  credForm.keyContent = ''
 }
 
 async function removeCredential(id: string) {
@@ -106,7 +134,7 @@ onMounted(async () => {
           "
           @click="section = item.key"
         >
-          <span class="text-sm">{{ item.icon }}</span>
+          <span class="text-sm"><Icon :name="item.icon" size="16" /></span>
           <span>{{ item.label }}</span>
         </button>
       </nav>
@@ -227,7 +255,7 @@ onMounted(async () => {
       <div v-else class="max-w-2xl mx-auto px-8 py-8">
         <div class="mb-6">
           <h2 class="text-lg font-semibold text-slate-100">保存的凭证</h2>
-          <p class="text-xs text-slate-500 mt-1">保存常用用户名密码，新建服务器时可直接选择自动填充。</p>
+          <p class="text-xs text-slate-500 mt-1">保存常用用户名密码或私钥，新建服务器时可直接选择自动填充。</p>
         </div>
 
         <div class="rounded-xl border border-slate-700/60 bg-slate-900/60">
@@ -240,7 +268,11 @@ onMounted(async () => {
             >
               <div class="min-w-0">
                 <p class="text-[13px] text-slate-200 truncate">{{ c.name }}</p>
-                <p class="text-[11px] text-slate-500 truncate">{{ c.user }} · 密码已保存</p>
+                <p class="text-[11px] text-slate-500 truncate">
+                  {{ c.user }}
+                  <template v-if="c.authType === 'privateKey'"> · 私钥已保存</template>
+                  <template v-else> · 密码已保存</template>
+                </p>
               </div>
               <div v-if="confirmCredId !== c.id" class="flex items-center gap-1 shrink-0">
                 <button class="px-2 py-1 rounded bg-slate-700/70 hover:bg-rose-600/80 text-slate-300 text-xs" @click="confirmCredId = c.id">删除</button>
@@ -253,10 +285,53 @@ onMounted(async () => {
 
             <div class="pt-2 border-t border-slate-800/60 space-y-2">
               <p class="text-xs text-slate-400 pt-1">新增凭证</p>
-              <div class="grid grid-cols-3 gap-2">
-                <input v-model="credForm.name" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none focus:border-sky-500/60" placeholder="名称，如：生产 root" />
-                <input v-model="credForm.user" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none focus:border-sky-500/60" placeholder="用户名" />
-                <input v-model="credForm.password" type="password" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none focus:border-sky-500/60" placeholder="密码" />
+              <div class="space-y-3">
+                <div class="grid grid-cols-2 gap-2">
+                  <input v-model="credForm.name" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none focus:border-sky-500/60" placeholder="名称，如：生产 root" />
+                  <input v-model="credForm.user" class="px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none focus:border-sky-500/60" placeholder="用户名" />
+                </div>
+                <div class="flex gap-2">
+                  <button
+                    class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 text-xs transition-colors"
+                    :class="credForm.authType === 'password' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
+                    @click="credForm.authType = 'password'"
+                  >
+                    密码
+                  </button>
+                  <button
+                    class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 text-xs transition-colors"
+                    :class="credForm.authType === 'privateKey' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
+                    @click="credForm.authType = 'privateKey'"
+                  >
+                    私钥
+                  </button>
+                </div>
+                <template v-if="credForm.authType === 'password'">
+                  <input v-model="credForm.password" type="password" class="w-full px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none focus:border-sky-500/60" placeholder="密码" />
+                </template>
+                <template v-else>
+                  <div class="flex gap-2">
+                    <button
+                      class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 text-xs transition-colors"
+                      :class="credForm.keySource === 'file' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
+                      @click="credForm.keySource = 'file'"
+                    >
+                      密钥文件
+                    </button>
+                    <button
+                      class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 text-xs transition-colors"
+                      :class="credForm.keySource === 'content' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
+                      @click="credForm.keySource = 'content'"
+                    >
+                      粘贴内容
+                    </button>
+                  </div>
+                  <div v-if="credForm.keySource === 'file'" class="flex gap-2">
+                    <input v-model="credForm.keyPath" readonly class="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none" placeholder="~/.ssh/id_rsa" />
+                    <button class="px-3 py-1.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-200 text-xs shrink-0" @click="pickCredKeyFile">选择…</button>
+                  </div>
+                  <textarea v-else v-model="credForm.keyContent" rows="4" spellcheck="false" class="w-full px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 font-mono text-xs outline-none focus:border-sky-500/60 resize-y" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."></textarea>
+                </template>
               </div>
               <div class="flex items-center justify-between">
                 <p v-if="credError" class="text-xs text-rose-400 break-all">{{ credError }}</p>

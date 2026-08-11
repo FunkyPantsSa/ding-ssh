@@ -20,7 +20,7 @@
 * **表结构**：
   * `servers(id, name, grp, host, port, user, auth_type, password, key_path, key_content, bg_image, blur_amount, env_vars)` — 服务器节点，`env_vars` 以 JSON 文本存储；
   * `settings(key, value)` — 应用设置键值表（`logEnabled` / `copyOnSelect` / `theme`）；
-  * `credentials(id, name, user, password)` — 保存的常用凭证；
+  * `credentials(id, name, user, password, auth_type, key_path, key_content)` — 保存的常用凭证（支持密码与私钥两种认证方式）；
   * `groups(name)` — 手动创建的空分组。
 * **驱动选型**：`modernc.org/sqlite`（纯 Go 实现，无 CGO，跨平台打包友好）；通过 `database/sql` 访问，`store.Store` / `SettingsStore` / `CredentialStore` / `GroupStore` 接口保持不变，JSON 实现保留为 SQLite 不可用时的兜底。
 * **旧数据迁移**：首次启动时若对应表为空且存在旧版 `servers.json` / `settings.json` / `credentials.json` / `groups.json`，自动导入 SQLite；迁移后 JSON 文件保留作备份，不自动删除。
@@ -166,6 +166,39 @@ echo "===OS==="; uname -a; cat /etc/os-release | grep PRETTY_NAME
 * **实现**：`internal/sshx/tunnel.go` 复用 SSH 连接配置与 10s 超时拨号逻辑；每隧道一个 SSH 连接 + 本地 TCP 监听，连接级双向 `io.Copy` 转发；应用退出（`CloseAll`）时统一停止全部隧道。
 * **后续（Phase 2）**：隧道配置持久化、远程端口转发（反向隧道）、动态端口（SOCKS）。
 
+### 3.10 终端交互增强（快捷键与右键菜单）
+
+* **右键菜单**：终端区域右键弹出菜单，提供「复制 / 粘贴 / 全选 / 清除屏幕 / 放大 / 缩小 / 全屏」操作；粘贴读取系统剪贴板通过 `Write` 绑定写入 SSH 会话。
+* **快捷键**：
+  * `Ctrl+=` / `Ctrl+-`：终端字体缩放，范围 8-32px，缩放后自动 `fit` 重算 PTY 尺寸。
+  * `F11`：终端区全屏/退出全屏。
+  * `Ctrl+0`：重置字体大小为默认 13px。
+  * `Cmd+W`（macOS）/ `Ctrl+W`：关闭当前标签页（仅工作区视图）。
+  * `Cmd+1~9`：切换到第 N 个标签页。
+* **实现**：`TerminalView.vue` 内通过 `keydown` 事件监听 + `contextmenu` 事件，右键菜单使用 `Teleport` 浮层，点击外部自动关闭。
+
+### 3.11 标签页增强
+
+* **右键菜单**：标签页右键弹出菜单，提供「切换到此标签 / 关闭标签 / 关闭其他标签 / 关闭全部标签」操作。
+* **全局快捷键**：`App.vue` 监听全局 `keydown` 事件，`Cmd+W` 关闭当前标签、`Cmd+1~9` 切换标签。
+* **实现**：`TabBar.vue` 内 `@contextmenu.prevent` 触发自定义浮层，通过 `Teleport` 渲染到 `body`。
+
+### 3.12 视觉一致性与可维护性
+
+* **SVG 图标系统**：创建 `Icon.vue` 通用组件，内置 terminal / tunnel / settings / folder / file / upload / download / close / plus / key / refresh / up / gear / search 等 14 种 SVG 图标；替换全应用 emoji 图标（导航栏、SFTP 面板、设置菜单、对话框等），消除跨平台渲染差异。
+* **加载骨架屏**：`ServerList.vue` 加载中显示 4 行脉冲动画骨架屏，替换空白区域。
+* **空状态美化**：终端空状态添加图标 + 描述文字，替代纯文字提示。
+* **侧栏宽度可拖拽**：`App.vue` 左侧服务器列表栏添加拖拽手柄，宽度范围 160-400px，拖拽时 `cursor: col-resize`。
+* **aria-label 可访问性**：全应用图标按钮补充 `aria-label` 属性。
+
+### 3.13 小细节优化
+
+* **分组折叠持久化**：`ServerList.vue` 的分组折叠状态通过 `localStorage`（键 `sftp-collapsed`）持久化，重新打开应用后恢复。
+* **路径编辑**：SFTP 面板点击面包屑区域切换为完整路径输入框，支持手动输入任意远程路径回车跳转。
+* **双击操作**：SFTP 文件行双击：目录进入、文件下载到本地。
+* **选中高亮**：SFTP 文件行单击选中高亮（`bg-sky-500/15`），与右键菜单联动。
+
+---
 ---
 
 ## 4. 数据结构与接口示例 (Golang)
@@ -216,12 +249,15 @@ type Theme struct {
 	ShadowBlur int    `json:"shadowBlur"` // 阴影强度(px)
 }
 
-// 常用凭证（用户名 + 密码），持久化到 credentials.json
+// 常用凭证，持久化到 credentials.json / SQLite（支持密码与私钥两种认证方式）
 type Credential struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	User     string `json:"user"`
-	Password string `json:"password"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	User       string `json:"user"`
+	Password   string `json:"password,omitempty"`
+	AuthType   string `json:"authType"` // password | privateKey
+	KeyPath    string `json:"keyPath,omitempty"`
+	KeyContent string `json:"keyContent,omitempty"`
 }
 
 // SFTP 远程目录条目
@@ -279,6 +315,6 @@ type DirSyncEvent struct {
 ## 5. 项目开发阶段规划
 
 1. **Phase 1 (基础框架与 SSH)**：完成 Wails 项目骨架搭建，实现多标签页切换、基础 SSH 终端连接及 xterm.js 渲染；提供设置页（两级菜单：日志开关 / 主题 / 凭证）、服务器分组、右侧 SFTP 目录浏览 / 上传下载（含传输取消）、独立 SSH 隧道页（本地端口转发）与 SQLite 存储（含旧版 JSON 数据迁移），便于开发期排查问题。
-2. **Phase 2 (SFTP 与同步)**：实现 SFTP 文件管理、高速 LRU 缓存架构及终端与 SFTP 的目录双向联动。
-3. **Phase 3 (进阶终端特性)**：集成 rz/sz 协议支持、命令智能匹配框、终端背景图及 CSS 动态模糊阴影特效。
+2. **Phase 2 (SFTP 与同步)**：实现 SFTP 文件管理（右键菜单、重命名/删除/新建文件夹、路径编辑、多选上传）、高速 LRU 缓存架构及终端与 SFTP 的目录双向联动。
+3. **Phase 3 (进阶终端特性)**：集成 rz/sz 协议支持、命令智能匹配框、终端交互增强（快捷键与右键菜单）、终端背景图及 CSS 动态模糊阴影特效。
 4. **Phase 4 (运维增强与多端构建)**：开发一键系统信息 Dashboard、全平台打包构建 (Windows EXE, macOS DMG, Linux AppImage) 及性能优化。

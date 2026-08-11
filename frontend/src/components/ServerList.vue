@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import {computed, onMounted, reactive, ref} from 'vue'
+import Icon from './Icon.vue'
 import {useGroupsStore} from '../stores/groups'
 import {useServersStore} from '../stores/servers'
 import {useSessionsStore} from '../stores/sessions'
@@ -14,7 +15,23 @@ const keyword = ref('')
 const showDialog = ref(false)
 const editing = ref<ServerNode | null>(null)
 const confirmNode = ref<ServerNode | null>(null)
-const collapsed = reactive<Record<string, boolean>>({})
+const collapsed = reactive<Record<string, boolean>>(loadCollapsed())
+
+function loadCollapsed(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem('sftp-collapsed') || '{}')
+  } catch { return {} }
+}
+
+function saveCollapsed() {
+  try { localStorage.setItem('sftp-collapsed', JSON.stringify(collapsed)) }
+  catch {}
+}
+
+function toggleGroup(name: string) {
+  collapsed[name] = !collapsed[name]
+  saveCollapsed()
+}
 
 // 分组管理弹窗
 const showGroupManager = ref(false)
@@ -59,9 +76,7 @@ const grouped = computed<GroupBucket[]>(() => {
   return buckets
 })
 
-function toggleGroup(name: string) {
-  collapsed[name] = !collapsed[name]
-}
+
 
 function openNew() {
   editing.value = null
@@ -144,16 +159,18 @@ onMounted(() => {
         <button
           class="w-6 h-6 rounded-md bg-slate-700/60 hover:bg-slate-600 text-slate-300 text-xs"
           title="管理分组"
+          aria-label="管理分组"
           @click="openGroupManager"
         >
-          ⌗
+          <Icon name="folder" size="14" />
         </button>
         <button
           class="w-6 h-6 rounded-md bg-sky-500/80 hover:bg-sky-400 text-slate-900 text-sm leading-none font-bold transition-colors"
           title="新建服务器"
+          aria-label="新建服务器"
           @click="openNew"
         >
-          +
+          <Icon name="plus" size="14" />
         </button>
       </div>
     </div>
@@ -163,12 +180,20 @@ onMounted(() => {
         v-model="keyword"
         type="text"
         placeholder="搜索名称 / 地址 / 分组"
+        aria-label="搜索服务器"
         class="w-full px-2.5 py-1 rounded-md bg-slate-800/80 border border-slate-700/60 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-sky-500/60"
       />
     </div>
 
     <div class="flex-1 overflow-y-auto px-2 pb-3 space-y-1">
-      <div v-if="!servers.loading && filtered.length === 0" class="px-3 py-8 text-center text-xs text-slate-500">
+      <div v-if="servers.loading" class="px-3 py-2 space-y-2">
+        <div v-for="i in 4" :key="i" class="flex items-center gap-2 px-2 py-2 rounded-md animate-pulse">
+          <div class="w-2 h-2 rounded-full bg-slate-700/60"></div>
+          <div class="h-3 flex-1 rounded bg-slate-700/40"></div>
+          <div class="w-8 h-3 rounded bg-slate-700/40"></div>
+        </div>
+      </div>
+      <div v-else-if="filtered.length === 0" class="px-3 py-8 text-center text-xs text-slate-500">
         暂无服务器，点击右上角 + 添加
       </div>
 

@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import Icon from './Icon.vue'
 import {onSftpTransfer, sshService} from '../services/ssh'
 import {useSessionsStore} from '../stores/sessions'
 import type {SFTPEntry, SessionTab} from '../types'
@@ -339,23 +340,26 @@ onBeforeUnmount(() => {
         <button
           class="h-6 px-2.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-300 text-[11px]"
           title="在当前目录新建文件夹"
+          aria-label="新建文件夹"
           @click="startNewFolder"
         >
-          ＋ 新建
+          <Icon name="plus" size="12" class="mr-0.5" /> 新建
         </button>
         <button
           class="h-6 px-2.5 rounded-md bg-sky-500/80 hover:bg-sky-400 text-slate-900 text-[11px] font-medium"
           title="上传文件到当前目录"
+          aria-label="上传文件"
           @click="upload"
         >
-          ⬆ 上传
+          <Icon name="upload" size="12" class="mr-0.5" /> 上传
         </button>
         <button
           class="w-6 h-6 rounded text-slate-400 hover:bg-slate-800 hover:text-slate-200 text-xs"
           title="隐藏 SFTP 面板"
+          aria-label="隐藏 SFTP 面板"
           @click="sessions.sftpVisible = false"
         >
-          ✕
+          <Icon name="close" size="12" />
         </button>
       </div>
     </div>
@@ -365,16 +369,18 @@ onBeforeUnmount(() => {
       <button
         class="w-7 h-7 shrink-0 rounded-md bg-slate-800/70 hover:bg-slate-700 text-slate-300 text-xs"
         title="上一级"
+          aria-label="上级目录"
         @click="up"
       >
-        ↑
+        <Icon name="up" size="12" />
       </button>
       <button
         class="w-7 h-7 shrink-0 rounded-md bg-slate-800/70 hover:bg-slate-700 text-slate-300 text-xs"
         title="刷新"
+          aria-label="刷新"
         @click="refresh"
       >
-        ⟳
+        <Icon name="refresh" size="12" />
       </button>
       <div
         v-if="editingPath"
@@ -400,7 +406,7 @@ onBeforeUnmount(() => {
           <button class="shrink-0 hover:text-sky-400" @click="go(c.path)">{{ c.label }}</button>
           <span v-if="i < crumbs.length - 1" class="shrink-0 text-slate-600">/</span>
         </template>
-        <span class="shrink-0 ml-auto pl-1 text-slate-600 group-hover:text-slate-400">✎</span>
+        <span class="shrink-0 ml-auto pl-1 text-slate-600 group-hover:text-slate-400"><Icon name="settings" size="10" /></span>
       </div>
     </div>
 
@@ -435,7 +441,7 @@ onBeforeUnmount(() => {
         @dblclick="onDblClick(e)"
         @contextmenu.prevent="openMenu($event, e)"
       >
-        <span class="shrink-0">{{ e.isDir ? '📁' : '📄' }}</span>
+        <span class="shrink-0">{{ e.isDir ? FolderIcon : FileIcon }}</span>
         <template v-if="renaming?.path === e.path">
           <input
             ref="renameInputEl"
@@ -473,9 +479,10 @@ onBeforeUnmount(() => {
           v-if="!e.isDir && renaming?.path !== e.path && confirmDeletePath !== e.path"
           class="shrink-0 opacity-0 group-hover:opacity-100 w-5 h-5 rounded bg-slate-700/70 hover:bg-sky-500/80 hover:text-slate-900 text-[10px] transition-opacity"
           title="下载到本地"
+          aria-label="下载文件"
           @click.stop="download(e)"
         >
-          ⬇
+          <Icon name="download" size="10" />
         </button>
       </div>
 

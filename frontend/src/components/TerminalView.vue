@@ -20,6 +20,8 @@ const settings = useSettingsStore()
 
 const container = ref<HTMLElement>()
 const progress = ref('')
+const menu = ref<{x: number; y: number} | null>(null)
+const fontSize = ref(13)
 let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let resizeObserver: ResizeObserver | null = null
@@ -72,6 +74,88 @@ function fit() {
   fitAddon.fit()
   if (props.tab.sessionId) {
     sshService.resize(props.tab.sessionId, term.cols, term.rows).catch(() => {})
+  }
+}
+
+function adjustFontSize(delta: number) {
+  if (!term) return
+  fontSize.value = Math.max(8, Math.min(32, fontSize.value + delta))
+  term.options.fontSize = fontSize.value
+  fit()
+}
+
+function toggleFullscreen() {
+  const el = container.value?.closest('.terminal-bg') as HTMLElement | null
+  if (!el) return
+  if (document.fullscreenElement) {
+    document.exitFullscreen()
+  } else {
+    el.requestFullscreen()
+  }
+}
+
+function openMenu(e: MouseEvent) {
+  e.preventDefault()
+  menu.value = {x: Math.min(e.clientX, window.innerWidth - 160), y: Math.min(e.clientY, window.innerHeight - 160)}
+}
+
+function closeMenu() {
+  menu.value = null
+}
+
+function doCopy() {
+  if (!term) return
+  const sel = term.getSelection()
+  if (sel) ClipboardSetText(sel)
+  closeMenu()
+}
+
+function doPaste() {
+  closeMenu()
+  navigator.clipboard.readText().then(text => {
+    if (text && props.tab.sessionId) {
+      sshService.write(props.tab.sessionId, btoa(text)).catch(() => {})
+    }
+  }).catch(() => {})
+}
+
+function doClear() {
+  term?.clear()
+  closeMenu()
+}
+
+function doSelectAll() {
+  term?.selectAll()
+  closeMenu()
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && menu.value) {
+    menu.value = null
+    e.preventDefault()
+    return
+  }
+  if (e.key === 'f' && (e.ctrlKey || e.metaKey)) {
+    // Ctrl+F / Cmd+F: trigger browser find (default behavior, just prevent conflict)
+    return
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
+    e.preventDefault()
+    adjustFontSize(1)
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+    e.preventDefault()
+    adjustFontSize(-1)
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+    e.preventDefault()
+    fontSize.value = 13
+    if (term) term.options.fontSize = 13
+    fit()
+  }
+  if (e.key === 'F11') {
+    e.preventDefault()
+    toggleFullscreen()
   }
 }
 
@@ -160,6 +244,9 @@ onMounted(() => {
   resizeObserver = new ResizeObserver(() => fit())
   resizeObserver.observe(container.value!)
   applyTheme()
+  container.value?.addEventListener('keydown', onKeydown)
+  container.value?.addEventListener('contextmenu', openMenu)
+  window.addEventListener('click', closeMenu)
   void connect()
 })
 
@@ -173,6 +260,7 @@ onBeforeUnmount(() => {
   disposed = true
   disposers.forEach((d) => d())
   resizeObserver?.disconnect()
+  window.removeEventListener('click', closeMenu)
   if (props.tab.sessionId) {
     void sshService.disconnect(props.tab.sessionId).catch(() => {})
   }
@@ -186,7 +274,7 @@ onBeforeUnmount(() => {
     <!-- 背景图图层 -->
     <div v-if="settings.theme.bgImage" class="absolute inset-0 bg-cover bg-center" :style="bgImageStyle"></div>
 
-    <div ref="container" class="absolute inset-0"></div>
+    <div ref="container" class="absolute inset-0" tabindex="0" @focus.self></div>
 
     <!-- 连接中：显示连接过程详细信息 -->
     <div
@@ -232,6 +320,27 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
+  
+    <!-- 右键菜单 -->
+    <Teleport to="body">
+      <div
+        v-if="menu"
+        class="fixed z-50 min-w-[140px] rounded-lg border border-slate-700/60 bg-slate-900/95 py-1 shadow-2xl text-xs"
+        :style="{left: menu.x + 'px', top: menu.y + 'px'}"
+        @contextmenu.prevent
+        @click.stop
+      >
+        <button class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800" @click="doCopy">复制</button>
+        <button class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800" @click="doPaste">粘贴</button>
+        <div class="h-px bg-slate-700/60 my-1"></div>
+        <button class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800" @click="doSelectAll">全选</button>
+        <button class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800" @click="doClear">清除屏幕</button>
+        <div class="h-px bg-slate-700/60 my-1"></div>
+        <button class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800" @click="adjustFontSize(1)">放大 <span class="text-slate-500">Ctrl+=</span></button>
+        <button class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800" @click="adjustFontSize(-1)">缩小 <span class="text-slate-500">Ctrl+-</span></button>
+        <button class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800" @click="toggleFullscreen">全屏 <span class="text-slate-500">F11</span></button>
+      </div>
+    </Teleport>
   </div>
 </template>
 

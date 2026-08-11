@@ -98,10 +98,13 @@ func DefaultTheme() Theme {
 
 // Credential 保存的常用凭证（用户名 + 密码）。
 type Credential struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"` // 凭证名称，如「生产 root」
-	User     string `json:"user"`
-	Password string `json:"password"`
+	ID         string `json:"id"`
+	Name       string `json:"name"` // 凭证名称，如「生产 root」
+	User       string `json:"user"`
+	Password   string `json:"password,omitempty"`
+	AuthType   string `json:"authType"` // password | privateKey
+	KeyPath    string `json:"keyPath,omitempty"`
+	KeyContent string `json:"keyContent,omitempty"`
 }
 
 // TunnelInfo SSH 隧道摘要信息（本地端口转发）。

@@ -81,7 +81,10 @@ export interface Credential {
   id: string
   name: string
   user: string
-  password: string
+  password?: string
+  authType: string // 'password' | 'privateKey'
+  keyPath?: string
+  keyContent?: string
 }
 
 // SFTP 远程目录条目（对应 Go 端 models.SFTPEntry）。

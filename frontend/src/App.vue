@@ -1,5 +1,6 @@
 <script lang="ts" setup>
-import {computed, onMounted} from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import Icon from './components/Icon.vue'
 import ServerList from './components/ServerList.vue'
 import SettingsPage from './components/SettingsPage.vue'
 import SftpPanel from './components/SftpPanel.vue'
@@ -26,9 +27,38 @@ const activeConnected = computed(() =>
   sessions.activeTab?.status === 'connected' ? sessions.activeTab : undefined,
 )
 
+function onGlobalKeydown(e: KeyboardEvent) {
+  const meta = e.metaKey || e.ctrlKey
+  if (!meta) return
+
+  // Cmd+T / Ctrl+T: 激活左侧服务器列表搜索框
+  if (e.key === 't') {
+    // 默认浏览器行为是新建标签页，在桌面应用中不冲突
+    // 聚焦到搜索框由 ServerList 自己处理 (通过事件或自动聚焦)
+    return
+  }
+
+  // Cmd+W / Ctrl+W: 关闭当前标签
+  if (e.key === 'w' && ui.view === 'workspace') {
+    e.preventDefault()
+    if (sessions.activeId) sessions.closeTab(sessions.activeId)
+  }
+
+  // Cmd+1~9: 切换到第 N 个标签
+  const n = parseInt(e.key)
+  if (n >= 1 && n <= 9 && sessions.tabs.length >= n) {
+    e.preventDefault()
+    sessions.activeId = sessions.tabs[n - 1].clientId
+  }
+}
+
 onMounted(() => {
-  // 启动即加载设置与凭证
   void settings.load()
+  window.addEventListener('keydown', onGlobalKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKeydown)
 })
 </script>
 
@@ -50,7 +80,7 @@ onMounted(() => {
           "
           @click="ui.showWorkspace()"
         >
-          ▣ 终端
+          <Icon name="terminal" size="14" class="mr-1" /> 终端
         </button>
         <button
           class="px-3 py-1.5 rounded-md text-xs tracking-wide transition-colors"
@@ -61,7 +91,7 @@ onMounted(() => {
           "
           @click="ui.showTunnel()"
         >
-          ⛓ 隧道
+          <Icon name="tunnel" size="14" class="mr-1" /> 隧道
         </button>
         <button
           class="px-3 py-1.5 rounded-md text-xs tracking-wide transition-colors"
@@ -72,7 +102,7 @@ onMounted(() => {
           "
           @click="ui.showSettings()"
         >
-          ⚙ 设置
+          <Icon name="gear" size="14" class="mr-1" /> 设置
         </button>
       </nav>
     </header>
@@ -81,9 +111,16 @@ onMounted(() => {
       <!-- 左侧：仅工作区显示服务器列表，隧道/设置页不占用左侧空间 -->
       <aside
         v-if="ui.view === 'workspace'"
-        class="w-64 shrink-0 border-r border-slate-700/60 bg-slate-900/70 backdrop-blur-md flex flex-col"
+        class="shrink-0 border-r border-slate-700/60 bg-slate-900/70 backdrop-blur-md flex flex-col relative"
+        :style="{width: sidebarWidth + 'px'}"
       >
         <ServerList />
+        <!-- 拖拽手柄 -->
+        <div
+          class="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-sky-500/40 active:bg-sky-500/60 transition-colors z-10"
+          :class="resizing ? 'bg-sky-500/60' : ''"
+          @mousedown.prevent="startResize"
+        ></div>
       </aside>
 
       <!-- 右侧：设置页 / 隧道页 / 标签 + 终端（v-show 保持 SSH 会话不中断） -->
@@ -105,10 +142,13 @@ onMounted(() => {
 
               <div
                 v-if="!sessions.tabs.length"
-                class="absolute inset-0 flex flex-col items-center justify-center gap-3"
+                class="absolute inset-0 flex flex-col items-center justify-center gap-4"
               >
-                <p class="text-2xl font-light text-slate-500">ding-ssh</p>
-                <p class="text-sm text-slate-600">在左侧选择服务器，点击 ▶ 建立 SSH 连接</p>
+                <div class="flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-800/60 border border-slate-700/40">
+                  <Icon name="terminal" size="32" class="text-slate-500" />
+                </div>
+                <p class="text-xl font-light text-slate-500">ding-ssh</p>
+                <p class="text-sm text-slate-600">在左侧选择服务器，点击连接按钮建立 SSH 连接</p>
               </div>
             </div>
 
