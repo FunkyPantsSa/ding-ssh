@@ -73,7 +73,18 @@ export interface Theme {
 export interface Settings {
   logEnabled: boolean
   copyOnSelect: boolean // 终端选中内容自动复制到剪贴板
+  webGLEnabled: boolean // 优先 WebGL 渲染
+  completionEnabled: boolean // 智能命令补全
+  completionNavHotkey: string // 补全导航开/关热键，如 Alt+ArrowDown
+  completionPanelLimit: number // 补全面板最多条数，默认 8
   theme: Theme
+}
+
+// 命令补全候选（对应 Go 端 models.CommandSuggestion）。
+export interface CommandSuggestion {
+  command: string
+  count: number
+  source: string // history | dict | screen
 }
 
 // 常用凭证（对应 Go 端 models.Credential）。
@@ -119,6 +130,7 @@ export interface TunnelInfo {
   name: string
   serverId: string
   serverName: string
+  mode: string // local | remote | dynamic
   localPort: number
   remoteHost: string
   remotePort: number
@@ -132,6 +144,47 @@ export interface TunnelStatusEvent {
   id: string
   status: string // running | stopped | error
   message?: string
+}
+
+// 系统监控快照。
+export interface DiskInfo {
+  mountPoint: string
+  totalGb: number
+  usedGb: number
+  usagePct: number
+}
+
+export interface NetIface {
+  name: string
+  ip?: string
+  rxMbps: number
+  txMbps: number
+}
+
+export interface SysInfoSnapshot {
+  sessionId: string
+  cpuUsage: number
+  memUsedMb: number
+  memTotalMb: number
+  diskUsage: DiskInfo[]
+  netIfaces: NetIface[]
+  uptime: string
+  collectedAt: number
+  error?: string
+}
+
+// 安全状态。
+export interface SecurityStatus {
+  unlocked: boolean
+  masterPasswordEnabled: boolean
+  keyringAvailable: boolean
+  needsUnlock: boolean
+}
+
+export interface ImportConfigResult {
+  servers: number
+  credentials: number
+  groups: number
 }
 
 // ---- Phase 2 增量类型 ----

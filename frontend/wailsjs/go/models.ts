@@ -1,5 +1,21 @@
 export namespace models {
 	
+	export class CommandSuggestion {
+	    command: string;
+	    count: number;
+	    source: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSuggestion(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.command = source["command"];
+	        this.count = source["count"];
+	        this.source = source["source"];
+	    }
+	}
 	export class ConnectResult {
 	    sessionId: string;
 	    server: string;
@@ -38,6 +54,22 @@ export namespace models {
 	        this.keyContent = source["keyContent"];
 	    }
 	}
+	export class ImportConfigResult {
+	    servers: number;
+	    credentials: number;
+	    groups: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportConfigResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.servers = source["servers"];
+	        this.credentials = source["credentials"];
+	        this.groups = source["groups"];
+	    }
+	}
 	export class SFTPEntry {
 	    name: string;
 	    path: string;
@@ -56,6 +88,24 @@ export namespace models {
 	        this.isDir = source["isDir"];
 	        this.size = source["size"];
 	        this.modTime = source["modTime"];
+	    }
+	}
+	export class SecurityStatus {
+	    unlocked: boolean;
+	    masterPasswordEnabled: boolean;
+	    keyringAvailable: boolean;
+	    needsUnlock: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SecurityStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.unlocked = source["unlocked"];
+	        this.masterPasswordEnabled = source["masterPasswordEnabled"];
+	        this.keyringAvailable = source["keyringAvailable"];
+	        this.needsUnlock = source["needsUnlock"];
 	    }
 	}
 	export class ServerNode {
@@ -145,6 +195,10 @@ export namespace models {
 	export class Settings {
 	    logEnabled: boolean;
 	    copyOnSelect: boolean;
+	    webGLEnabled: boolean;
+	    completionEnabled: boolean;
+	    completionNavHotkey: string;
+	    completionPanelLimit: number;
 	    theme: Theme;
 	
 	    static createFrom(source: any = {}) {
@@ -155,6 +209,10 @@ export namespace models {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.logEnabled = source["logEnabled"];
 	        this.copyOnSelect = source["copyOnSelect"];
+	        this.webGLEnabled = source["webGLEnabled"];
+	        this.completionEnabled = source["completionEnabled"];
+	        this.completionNavHotkey = source["completionNavHotkey"];
+	        this.completionPanelLimit = source["completionPanelLimit"];
 	        this.theme = this.convertValues(source["theme"], Theme);
 	    }
 	
@@ -182,6 +240,7 @@ export namespace models {
 	    name: string;
 	    serverId: string;
 	    serverName: string;
+	    mode: string;
 	    localPort: number;
 	    remoteHost: string;
 	    remotePort: number;
@@ -199,6 +258,7 @@ export namespace models {
 	        this.name = source["name"];
 	        this.serverId = source["serverId"];
 	        this.serverName = source["serverName"];
+	        this.mode = source["mode"];
 	        this.localPort = source["localPort"];
 	        this.remoteHost = source["remoteHost"];
 	        this.remotePort = source["remotePort"];

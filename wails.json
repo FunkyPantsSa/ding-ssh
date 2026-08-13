@@ -9,5 +9,12 @@
   "author": {
     "name": "FunkyPantsSa",
     "email": "mqjmqj2014@outlook.com"
+  },
+  "info": {
+    "companyName": "FunkyPantsSa",
+    "productName": "ding-ssh",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2026 FunkyPantsSa",
+    "comments": "Local-first SSH workstation"
   }
 }

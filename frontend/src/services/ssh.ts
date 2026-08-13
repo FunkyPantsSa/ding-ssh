@@ -60,8 +60,14 @@ export const sshService = {
     SftpRemove(sessionID, path),
   sftpCancelTransfer: (sessionID: string, direction: string, name: string): Promise<void> =>
     SftpCancelTransfer(sessionID, direction, name),
-  startTunnel: (node: ServerNode, name: string, localPort: number, remoteHost: string, remotePort: number): Promise<TunnelInfo> =>
-    StartTunnel(node, name, localPort, remoteHost, remotePort),
+  startTunnel: (
+    node: ServerNode,
+    name: string,
+    mode: string,
+    localPort: number,
+    remoteHost: string,
+    remotePort: number,
+  ): Promise<TunnelInfo> => StartTunnel(node, name, mode, localPort, remoteHost, remotePort),
   stopTunnel: (id: string): Promise<void> => StopTunnel(id),
   restartTunnel: (id: string): Promise<void> => RestartTunnel(id),
   removeTunnel: (id: string): Promise<void> => RemoveTunnel(id),

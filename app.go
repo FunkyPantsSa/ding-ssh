@@ -3,11 +3,17 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
+	"ding-ssh/internal/cryptox"
 	"ding-ssh/internal/logx"
 	"ding-ssh/internal/models"
 	"ding-ssh/internal/sshx"
@@ -26,6 +32,12 @@ type App struct {
 	settings    store.SettingsStore
 	credentials store.CredentialStore
 	groups      store.GroupStore
+	history     store.HistoryStore
+	vault       *cryptox.Vault
+
+	unlockMu       sync.Mutex
+	unlockFails    int
+	unlockLockedUntil time.Time
 }
 
 // NewApp 创建 App 实例。
@@ -39,6 +51,22 @@ func (a *App) startup(ctx context.Context) {
 	a.manager = sshx.NewManager(func(eventName string, payload interface{}) {
 		runtime.EventsEmit(a.ctx, eventName, payload)
 	})
+
+	// 安全保险库（主密钥 / 主密码）
+	configDir := filepath.Join(func() string {
+		d, err := os.UserConfigDir()
+		if err != nil {
+			return "."
+		}
+		return d
+	}(), "ding-ssh")
+	vault, err := cryptox.OpenVault(configDir)
+	if err != nil {
+		logx.Errorf("初始化安全保险库失败: %v", err)
+	} else {
+		a.vault = vault
+	}
+
 	// 存储层：优先 SQLite（含旧版 JSON 数据一次性迁移），失败时回退 JSON。
 	db, err := store.OpenSQLite(store.DefaultSQLitePath())
 	if err != nil {
@@ -50,10 +78,32 @@ func (a *App) startup(ctx context.Context) {
 	if err := store.MigrateLegacyJSON(db); err != nil {
 		logx.Errorf("迁移旧版 JSON 数据到 SQLite 失败: %v", err)
 	}
-	a.store = store.NewSQLiteStore(db)
+	sqlStore := store.NewSQLiteStore(db)
+	sqlCreds := store.NewSQLiteCredentialStore(db)
+	if a.vault != nil && a.vault.Status().Unlocked {
+		sqlStore.SetCipher(a.vault)
+		sqlCreds.SetCipher(a.vault)
+		if a.vault.NeedsMigration() {
+			if n, err := store.MigratePlaintextSecrets(db, a.vault); err != nil {
+				logx.Errorf("明文敏感字段加密迁移失败: %v", err)
+			} else {
+				_ = a.vault.MarkMigrated()
+				if n > 0 {
+					logx.Infof("已加密迁移 %d 条敏感字段", n)
+				}
+			}
+		}
+	}
+	a.store = sqlStore
 	a.settings = store.NewSQLiteSettingsStore(db)
-	a.credentials = store.NewSQLiteCredentialStore(db)
+	a.credentials = sqlCreds
 	a.groups = store.NewSQLiteGroupStore(db)
+	if err := store.EnsureHistorySchema(db); err != nil {
+		logx.Errorf("初始化命令历史表失败: %v", err)
+		a.history = store.NoopHistoryStore{}
+	} else {
+		a.history = store.NewSQLiteHistoryStore(db)
+	}
 
 	// 加载设置并应用日志开关（默认关闭）。
 	settings, err := a.settings.Get()
@@ -62,6 +112,29 @@ func (a *App) startup(ctx context.Context) {
 	}
 	logx.SetEnabled(settings.LogEnabled)
 	logx.Infof("应用启动，日志开关: %v", settings.LogEnabled)
+}
+
+func (a *App) attachCipher() {
+	if a.vault == nil || !a.vault.Status().Unlocked {
+		return
+	}
+	if s, ok := a.store.(*store.SQLiteStore); ok {
+		s.SetCipher(a.vault)
+	}
+	if c, ok := a.credentials.(*store.SQLiteCredentialStore); ok {
+		c.SetCipher(a.vault)
+	}
+}
+
+func (a *App) ensureUnlocked() error {
+	if a.vault == nil {
+		return nil
+	}
+	st := a.vault.Status()
+	if st.NeedsUnlock || !st.Unlocked {
+		return fmt.Errorf("请先解锁主密码")
+	}
+	return nil
 }
 
 // initJSONStores 使用 JSON 文件存储兜底（SQLite 不可用时）。
@@ -99,6 +172,7 @@ func (a *App) initJSONStores() {
 		groupStore, _ = store.NewJSONGroupStore("")
 	}
 	a.groups = groupStore
+	a.history = store.NoopHistoryStore{}
 }
 
 // shutdown 在应用退出时清理资源。
@@ -116,6 +190,9 @@ func (a *App) shutdown(ctx context.Context) {
 
 // GetServers 返回已保存的服务器节点列表。
 func (a *App) GetServers() []models.ServerNode {
+	if err := a.ensureUnlocked(); err != nil {
+		return []models.ServerNode{}
+	}
 	nodes, err := a.store.List()
 	if err != nil {
 		logx.Errorf("读取服务器列表失败: %v", err)
@@ -126,6 +203,9 @@ func (a *App) GetServers() []models.ServerNode {
 
 // SaveServer 新增或更新服务器节点，ID 为空时自动生成。
 func (a *App) SaveServer(node models.ServerNode) (models.ServerNode, error) {
+	if err := a.ensureUnlocked(); err != nil {
+		return models.ServerNode{}, err
+	}
 	if node.ID == "" {
 		node.ID = uuid.NewString()
 	}
@@ -195,6 +275,9 @@ func (a *App) SaveSettings(settings models.Settings) error {
 
 // GetCredentials 返回已保存的常用凭证列表。
 func (a *App) GetCredentials() []models.Credential {
+	if err := a.ensureUnlocked(); err != nil {
+		return []models.Credential{}
+	}
 	list, err := a.credentials.List()
 	if err != nil {
 		logx.Errorf("读取凭证列表失败: %v", err)
@@ -205,6 +288,9 @@ func (a *App) GetCredentials() []models.Credential {
 
 // SaveCredential 新增或更新常用凭证，ID 为空时自动生成。
 func (a *App) SaveCredential(c models.Credential) (models.Credential, error) {
+	if err := a.ensureUnlocked(); err != nil {
+		return models.Credential{}, err
+	}
 	if c.ID == "" {
 		c.ID = uuid.NewString()
 	}
@@ -320,11 +406,14 @@ func (a *App) SftpRemove(sessionID, path string) error {
 
 // ---- SSH 隧道 ----
 
-// StartTunnel 创建并启动一条 SSH 隧道（本地端口转发）。
-func (a *App) StartTunnel(node models.ServerNode, name string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
-	info, err := a.manager.StartTunnel(node, name, localPort, remoteHost, remotePort)
+// StartTunnel 创建并启动一条 SSH 隧道（mode: local | remote | dynamic）。
+func (a *App) StartTunnel(node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
+	if err := a.ensureUnlocked(); err != nil {
+		return models.TunnelInfo{}, err
+	}
+	info, err := a.manager.StartTunnel(node, name, mode, localPort, remoteHost, remotePort)
 	if err != nil {
-		logx.Errorf("启动 SSH 隧道失败: name=%s local=%d remote=%s:%d err=%v", name, localPort, remoteHost, remotePort, err)
+		logx.Errorf("启动 SSH 隧道失败: mode=%s name=%s local=%d remote=%s:%d err=%v", mode, name, localPort, remoteHost, remotePort, err)
 		return models.TunnelInfo{}, err
 	}
 	return info, nil
@@ -512,3 +601,288 @@ func (a *App) SetSftpPathFromTerminal(sessionID, path string) error {
 func (a *App) SyncSftpToTerminal(sessionID, path string) error {
 	return a.manager.SyncSftpToTerminal(sessionID, path)
 }
+
+// ---- Phase 3: 命令历史 ----
+
+// AddCommandHistory 记录一条已执行命令（写库失败静默忽略，不影响终端）。
+func (a *App) AddCommandHistory(serverID, command string) {
+	if a.history == nil {
+		return
+	}
+	if err := a.history.Add(serverID, command); err != nil {
+		logx.Debugf("写入命令历史失败: server=%s err=%v", serverID, err)
+	}
+}
+
+// ClearCommandHistory 清理命令历史；serverID 为空则清空全部。
+func (a *App) ClearCommandHistory(serverID string) error {
+	if a.history == nil {
+		return nil
+	}
+	if err := a.history.Clear(serverID); err != nil {
+		logx.Errorf("清理命令历史失败: %v", err)
+		return err
+	}
+	return nil
+}
+
+// QueryCommandHistory 按前缀查询高频历史命令，供智能补全使用。
+func (a *App) QueryCommandHistory(serverID, prefix string, limit int) []models.CommandSuggestion {
+	if a.history == nil {
+		return []models.CommandSuggestion{}
+	}
+	if limit <= 0 {
+		limit = 8
+	}
+	list, err := a.history.Query(serverID, prefix, limit)
+	if err != nil {
+		logx.Debugf("查询命令历史失败: server=%s err=%v", serverID, err)
+		return []models.CommandSuggestion{}
+	}
+	return list
+}
+
+// ---- Phase 3: 本地文件读写（Zmodem） ----
+
+// ReadLocalFileBase64 读取本地文件并返回 base64 内容。
+func (a *App) ReadLocalFileBase64(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", errors.New("文件路径为空")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("读取本地文件失败: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(data), nil
+}
+
+// WriteLocalFileBase64 将 base64 内容写入本地文件。
+func (a *App) WriteLocalFileBase64(path, dataBase64 string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return errors.New("文件路径为空")
+	}
+	data, err := base64.StdEncoding.DecodeString(dataBase64)
+	if err != nil {
+		return fmt.Errorf("解码文件内容失败: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("写入本地文件失败: %w", err)
+	}
+	return nil
+}
+
+// ---- Phase 4: 安全 / SysInfo / dingpack ----
+
+// GetSecurityStatus 返回加密保险库状态。
+func (a *App) GetSecurityStatus() models.SecurityStatus {
+	if a.vault == nil {
+		return models.SecurityStatus{Unlocked: true, KeyringAvailable: false}
+	}
+	st := a.vault.Status()
+	return models.SecurityStatus{
+		Unlocked:              st.Unlocked,
+		MasterPasswordEnabled: st.MasterPasswordEnabled,
+		KeyringAvailable:      st.KeyringAvailable,
+		NeedsUnlock:           st.NeedsUnlock,
+	}
+}
+
+// UnlockWithMasterPassword 使用主密码解锁（错误三次短锁 30s）。
+func (a *App) UnlockWithMasterPassword(password string) error {
+	if a.vault == nil {
+		return errors.New("保险库未初始化")
+	}
+	a.unlockMu.Lock()
+	if time.Now().Before(a.unlockLockedUntil) {
+		remain := int(time.Until(a.unlockLockedUntil).Seconds())
+		a.unlockMu.Unlock()
+		return fmt.Errorf("尝试过多，请 %d 秒后再试", remain)
+	}
+	a.unlockMu.Unlock()
+
+	if err := a.vault.Unlock(password); err != nil {
+		a.unlockMu.Lock()
+		a.unlockFails++
+		if a.unlockFails >= 3 {
+			a.unlockLockedUntil = time.Now().Add(30 * time.Second)
+			a.unlockFails = 0
+		}
+		a.unlockMu.Unlock()
+		return err
+	}
+	a.unlockMu.Lock()
+	a.unlockFails = 0
+	a.unlockMu.Unlock()
+	a.attachCipher()
+	if a.db != nil && a.vault.NeedsMigration() {
+		if _, err := store.MigratePlaintextSecrets(a.db, a.vault); err == nil {
+			_ = a.vault.MarkMigrated()
+		}
+	}
+	return nil
+}
+
+// EnableMasterPassword 开启启动主密码。
+func (a *App) EnableMasterPassword(password string) error {
+	if a.vault == nil {
+		return errors.New("保险库未初始化")
+	}
+	if err := a.ensureUnlocked(); err != nil {
+		return err
+	}
+	oldKey, newKey, err := a.vault.EnableMasterPassword(password)
+	if err != nil {
+		return err
+	}
+	if a.db != nil {
+		if err := store.ReencryptAllSecrets(a.db, oldKey, newKey); err != nil {
+			return fmt.Errorf("重加密敏感字段失败: %w", err)
+		}
+	}
+	a.attachCipher()
+	return nil
+}
+
+// DisableMasterPassword 关闭主密码（需验证当前密码）。
+func (a *App) DisableMasterPassword(password string) error {
+	if a.vault == nil {
+		return errors.New("保险库未初始化")
+	}
+	oldKey, newKey, err := a.vault.DisableMasterPassword(password)
+	if err != nil {
+		return err
+	}
+	if a.db != nil {
+		if err := store.ReencryptAllSecrets(a.db, oldKey, newKey); err != nil {
+			return fmt.Errorf("重加密敏感字段失败: %w", err)
+		}
+	}
+	a.attachCipher()
+	return nil
+}
+
+// ChangeMasterPassword 更换主密码。
+func (a *App) ChangeMasterPassword(oldPassword, newPassword string) error {
+	if a.vault == nil {
+		return errors.New("保险库未初始化")
+	}
+	oldKey, newKey, err := a.vault.ChangeMasterPassword(oldPassword, newPassword)
+	if err != nil {
+		return err
+	}
+	if a.db != nil {
+		if err := store.ReencryptAllSecrets(a.db, oldKey, newKey); err != nil {
+			return fmt.Errorf("重加密敏感字段失败: %w", err)
+		}
+	}
+	a.attachCipher()
+	return nil
+}
+
+// StartSysInfoCollector 启动会话系统监控采集。
+func (a *App) StartSysInfoCollector(sessionID string) error {
+	return a.manager.StartSysInfoCollector(sessionID)
+}
+
+// StopSysInfoCollector 停止会话系统监控采集。
+func (a *App) StopSysInfoCollector(sessionID string) error {
+	return a.manager.StopSysInfoCollector(sessionID)
+}
+
+// SetSysInfoIdle 切换监控采集频率（后台降频）。
+func (a *App) SetSysInfoIdle(sessionID string, idle bool) {
+	a.manager.SetSysInfoIdle(sessionID, idle)
+}
+
+// ExportConfig 导出加密 .dingpack 到用户选择的路径。
+func (a *App) ExportConfig(passphrase string) (string, error) {
+	if err := a.ensureUnlocked(); err != nil {
+		return "", err
+	}
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "导出配置包",
+		DefaultFilename: "ding-ssh.dingpack",
+		Filters:         []runtime.FileFilter{{DisplayName: "dingpack", Pattern: "*.dingpack"}},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	servers, err := a.store.List()
+	if err != nil {
+		return "", err
+	}
+	creds, err := a.credentials.List()
+	if err != nil {
+		return "", err
+	}
+	groups, _ := a.groups.List()
+	if err := store.WriteDingpackFile(path, passphrase, servers, creds, groups); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// ImportConfig 从用户选择的 .dingpack 导入配置；overwrite=true 时同 ID 覆盖。
+func (a *App) ImportConfig(passphrase string, overwrite bool) (models.ImportConfigResult, error) {
+	var empty models.ImportConfigResult
+	if err := a.ensureUnlocked(); err != nil {
+		return empty, err
+	}
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:   "导入配置包",
+		Filters: []runtime.FileFilter{{DisplayName: "dingpack", Pattern: "*.dingpack"}},
+	})
+	if err != nil || path == "" {
+		return empty, err
+	}
+	payload, err := store.ReadDingpackFile(path, passphrase)
+	if err != nil {
+		return empty, err
+	}
+	existingServers, _ := a.store.List()
+	existIDs := map[string]bool{}
+	for _, s := range existingServers {
+		existIDs[s.ID] = true
+	}
+	result := models.ImportConfigResult{}
+	for _, s := range payload.Servers {
+		if s.ID == "" {
+			s.ID = uuid.NewString()
+		}
+		if existIDs[s.ID] && !overwrite {
+			continue
+		}
+		if err := a.store.Save(s); err != nil {
+			return result, err
+		}
+		result.Servers++
+	}
+	existingCreds, _ := a.credentials.List()
+	existCred := map[string]bool{}
+	for _, c := range existingCreds {
+		existCred[c.ID] = true
+	}
+	for _, c := range payload.Credentials {
+		if c.ID == "" {
+			c.ID = uuid.NewString()
+		}
+		if existCred[c.ID] && !overwrite {
+			continue
+		}
+		if err := a.credentials.Save(c); err != nil {
+			return result, err
+		}
+		result.Credentials++
+	}
+	for _, g := range payload.Groups {
+		if g == "" {
+			continue
+		}
+		_ = a.groups.Add(g)
+		result.Groups++
+	}
+	return result, nil
+}
+

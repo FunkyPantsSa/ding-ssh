@@ -8,6 +8,7 @@ export const useSessionsStore = defineStore('sessions', {
     tabs: [] as SessionTab[],
     activeId: '',
     sftpVisible: true, // 右侧 SFTP 面板显隐
+    rightPanel: 'sftp' as 'sftp' | 'sysinfo', // 右侧面板模式
   }),
   getters: {
     activeTab(): SessionTab | undefined {
@@ -56,6 +57,10 @@ export const useSessionsStore = defineStore('sessions', {
     },
     toggleSftp() {
       this.sftpVisible = !this.sftpVisible
+    },
+    showRightPanel(panel: 'sftp' | 'sysinfo') {
+      this.rightPanel = panel
+      this.sftpVisible = true
     },
   },
 })

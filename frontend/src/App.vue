@@ -4,9 +4,13 @@ import Icon from './components/Icon.vue'
 import ServerList from './components/ServerList.vue'
 import SettingsPage from './components/SettingsPage.vue'
 import SftpPanel from './components/SftpPanel.vue'
+import SysInfoPanel from './components/SysInfoPanel.vue'
+import ServerStatusBar from './components/ServerStatusBar.vue'
 import TabBar from './components/TabBar.vue'
 import TerminalView from './components/TerminalView.vue'
 import TunnelPage from './components/TunnelPage.vue'
+import {securityService} from './services/security'
+import {useServersStore} from './stores/servers'
 import {useSessionsStore} from './stores/sessions'
 import {useSettingsStore} from './stores/settings'
 import {useUIStore} from './stores/ui'
@@ -14,29 +18,39 @@ import {useUIStore} from './stores/ui'
 const sessions = useSessionsStore()
 const ui = useUIStore()
 const settings = useSettingsStore()
+const servers = useServersStore()
 
-// 顶部标题栏副标题：按当前页面展示。
-const pageSubtitle = computed(() => {
-  if (ui.view === 'tunnel') return 'SSH 隧道'
-  if (ui.view === 'settings') return '应用设置'
-  return '服务器列表'
-})
+const needsUnlock = ref(false)
+const unlockPassword = ref('')
+const unlockError = ref('')
+const unlocking = ref(false)
+const cmdQuery = ref('')
+const cmdIndex = ref(0)
+const cmdInput = ref<HTMLInputElement>()
 
-// 当前处于已连接状态的会话（用于右侧 SFTP 面板）。
+const pageMeta: Record<string, [string, string]> = {
+  workspace: ['工作区', '服务器 · 终端 · 文件'],
+  tunnel: ['SSH 隧道', '本地 / 远程 / 动态转发'],
+  settings: ['设置', '通用 · 主题 · 安全 · 迁移'],
+}
+
+const pageTitle = computed(() => pageMeta[ui.view]?.[0] ?? '工作区')
+const pageSub = computed(() => pageMeta[ui.view]?.[1] ?? '')
+
+const onlineCount = computed(() => sessions.tabs.filter((t) => t.status === 'connected').length)
+
 const activeConnected = computed(() =>
   sessions.activeTab?.status === 'connected' ? sessions.activeTab : undefined,
 )
 
-// 侧边栏宽度拖拽
-const sidebarWidth = ref(240)
+const sidebarWidth = ref(268)
 const resizing = ref(false)
 function startResize(e: MouseEvent) {
   resizing.value = true
   const startX = e.clientX
   const startW = sidebarWidth.value
   function onMove(ev: MouseEvent) {
-    const w = Math.max(160, Math.min(480, startW + ev.clientX - startX))
-    sidebarWidth.value = w
+    sidebarWidth.value = Math.max(200, Math.min(420, startW + ev.clientX - startX))
   }
   function onUp() {
     resizing.value = false
@@ -47,24 +61,95 @@ function startResize(e: MouseEvent) {
   document.addEventListener('mouseup', onUp)
 }
 
+interface CmdItem {
+  id: string
+  label: string
+  hint: string
+  run: () => void
+}
+
+const cmdItems = computed<CmdItem[]>(() => {
+  const items: CmdItem[] = [
+    {id: 'workspace', label: '打开工作区', hint: '导航', run: () => ui.showWorkspace()},
+    {id: 'tunnel', label: '打开隧道页', hint: '导航', run: () => ui.showTunnel()},
+    {id: 'settings', label: '打开设置', hint: '导航', run: () => ui.showSettings()},
+    {id: 'new', label: '新建服务器', hint: '操作', run: () => ui.requestNewServer()},
+  ]
+  if (sessions.sftpVisible) {
+    items.push({id: 'hide-tool', label: '收起侧栏工具', hint: '工作区', run: () => { sessions.sftpVisible = false }})
+  } else {
+    items.push({id: 'show-sftp', label: '打开 SFTP', hint: '工作区', run: () => sessions.showRightPanel('sftp')})
+    items.push({id: 'show-sys', label: '打开系统看板', hint: '工作区', run: () => sessions.showRightPanel('sysinfo')})
+  }
+  for (const s of servers.servers) {
+    items.push({
+      id: 'connect-' + s.id,
+      label: '连接 ' + (s.name || `${s.user}@${s.host}`),
+      hint: '工作区',
+      run: () => {
+        ui.showWorkspace()
+        sessions.openTab(s)
+      },
+    })
+  }
+  const q = cmdQuery.value.trim().toLowerCase()
+  if (!q) return items
+  return items.filter((x) => x.label.toLowerCase().includes(q) || x.hint.toLowerCase().includes(q))
+})
+
+function openCmd() {
+  cmdQuery.value = ''
+  cmdIndex.value = 0
+  ui.openCommandPalette()
+  requestAnimationFrame(() => cmdInput.value?.focus())
+}
+
+function closeCmd() {
+  ui.closeCommandPalette()
+}
+
+function runCmd(item?: CmdItem) {
+  const target = item ?? cmdItems.value[cmdIndex.value]
+  closeCmd()
+  target?.run()
+}
+
 function onGlobalKeydown(e: KeyboardEvent) {
   const meta = e.metaKey || e.ctrlKey
-  if (!meta) return
-
-  // Cmd+T / Ctrl+T: 激活左侧服务器列表搜索框
-  if (e.key === 't') {
-    // 默认浏览器行为是新建标签页，在桌面应用中不冲突
-    // 聚焦到搜索框由 ServerList 自己处理 (通过事件或自动聚焦)
+  if (meta && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    if (!needsUnlock.value) {
+      if (ui.cmdOpen) closeCmd()
+      else openCmd()
+    }
     return
   }
-
-  // Cmd+W / Ctrl+W: 关闭当前标签
+  if (e.key === 'Escape') {
+    closeCmd()
+    return
+  }
+  if (ui.cmdOpen) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      cmdIndex.value = cmdItems.value.length ? (cmdIndex.value + 1) % cmdItems.value.length : 0
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      cmdIndex.value = cmdItems.value.length
+        ? (cmdIndex.value - 1 + cmdItems.value.length) % cmdItems.value.length
+        : 0
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      runCmd()
+    }
+    return
+  }
+  if (!meta) return
   if (e.key === 'w' && ui.view === 'workspace') {
     e.preventDefault()
     if (sessions.activeId) sessions.closeTab(sessions.activeId)
   }
-
-  // Cmd+1~9: 切换到第 N 个标签
   const n = parseInt(e.key)
   if (n >= 1 && n <= 9 && sessions.tabs.length >= n) {
     e.preventDefault()
@@ -72,10 +157,35 @@ function onGlobalKeydown(e: KeyboardEvent) {
   }
 }
 
-onMounted(() => {
-  void settings.load()
+onMounted(async () => {
+  try {
+    const st = await securityService.getStatus()
+    needsUnlock.value = st.needsUnlock
+  } catch {
+    needsUnlock.value = false
+  }
+  if (!needsUnlock.value) {
+    void settings.load()
+    void servers.load()
+  }
   window.addEventListener('keydown', onGlobalKeydown)
 })
+
+async function doUnlock() {
+  unlockError.value = ''
+  unlocking.value = true
+  try {
+    await securityService.unlock(unlockPassword.value)
+    needsUnlock.value = false
+    unlockPassword.value = ''
+    await settings.load()
+    await servers.load()
+  } catch (e) {
+    unlockError.value = String(e)
+  } finally {
+    unlocking.value = false
+  }
+}
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
@@ -83,100 +193,245 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col min-h-0">
-    <!-- 顶部标题栏：应用标题 + 页面副标题 + 主导航 -->
-    <header
-      class="h-12 shrink-0 flex items-center gap-3 px-4 border-b border-slate-700/60 bg-slate-900/70 backdrop-blur-md"
-    >
-      <p class="text-sm font-semibold text-slate-100">ding-ssh</p>
-      <p class="text-[11px] text-slate-500">{{ pageSubtitle }}</p>
-      <nav class="ml-auto flex items-center gap-1">
-        <button
-          class="px-3 py-1.5 rounded-md text-xs tracking-wide transition-colors"
-          :class="
-            ui.view === 'workspace'
-              ? 'text-sky-400 bg-slate-800/60'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-          "
-          @click="ui.showWorkspace()"
-        >
-          <Icon name="terminal" :size="14" class="mr-1" /> 终端
-        </button>
-        <button
-          class="px-3 py-1.5 rounded-md text-xs tracking-wide transition-colors"
-          :class="
-            ui.view === 'tunnel'
-              ? 'text-sky-400 bg-slate-800/60'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-          "
-          @click="ui.showTunnel()"
-        >
-          <Icon name="tunnel" :size="14" class="mr-1" /> 隧道
-        </button>
-        <button
-          class="px-3 py-1.5 rounded-md text-xs tracking-wide transition-colors"
-          :class="
-            ui.view === 'settings'
-              ? 'text-sky-400 bg-slate-800/60'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-          "
-          @click="ui.showSettings()"
-        >
-          <Icon name="gear" :size="14" class="mr-1" /> 设置
-        </button>
-      </nav>
-    </header>
+  <div class="app-shell">
+    <!-- 解锁页 -->
+    <div v-if="needsUnlock" class="absolute inset-0 z-50 grid place-items-center p-8">
+      <div class="w-full max-w-[920px] grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+        <div class="relative h-[280px] md:h-[420px] grid place-items-center" aria-hidden="true">
+          <div
+            class="absolute w-[280px] h-[280px] rounded-full"
+            style="background: radial-gradient(circle, var(--signal-glow), transparent 68%); animation: pulseSoft 4.5s ease-in-out infinite"
+          ></div>
+          <svg width="340" height="300" viewBox="0 0 340 300" fill="none">
+            <defs>
+              <linearGradient id="gRing" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#3ec4b4"/>
+                <stop offset="100%" stop-color="#c97a4a"/>
+              </linearGradient>
+              <linearGradient id="gBody" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#2a3444"/>
+                <stop offset="100%" stop-color="#121820"/>
+              </linearGradient>
+            </defs>
+            <circle cx="170" cy="150" r="118" stroke="url(#gRing)" stroke-opacity="0.18" stroke-width="1"/>
+            <circle cx="170" cy="150" r="96" stroke="url(#gRing)" stroke-opacity="0.28" stroke-width="1.2" stroke-dasharray="4 8"/>
+            <circle cx="170" cy="150" r="72" stroke="#3ec4b4" stroke-opacity="0.35" stroke-width="1.5"/>
+            <rect x="118" y="98" width="104" height="104" rx="22" fill="url(#gBody)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+            <rect x="128" y="108" width="84" height="56" rx="10" fill="#0a0e14" stroke="rgba(62,196,180,0.25)"/>
+            <path d="M138 122h28M138 132h44M138 142h34" stroke="#3ec4b4" stroke-width="1.6" stroke-linecap="round" opacity="0.85"/>
+            <path d="M170 168v18" stroke="#e0925e" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="170" cy="196" r="10" fill="#c97a4a" stroke="#f0b07a" stroke-width="1.5"/>
+            <circle cx="170" cy="196" r="3.5" fill="#1a1008"/>
+            <path d="M214 120c14 8 22 22 22 38s-8 30-22 38" stroke="#3ec4b4" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+            <path d="M126 120c-14 8-22 22-22 38s8 30 22 38" stroke="#e0925e" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+            <circle cx="78" cy="86" r="4" fill="#3ec4b4" opacity="0.7"/>
+            <circle cx="268" cy="210" r="3.5" fill="#e0925e" opacity="0.7"/>
+          </svg>
+        </div>
+        <div class="neo p-8 max-w-[400px] w-full mx-auto">
+          <div class="flex items-center gap-3 mb-5">
+            <div class="brand-mark">
+              <Icon name="zap" :size="22" extra-class="text-signal" />
+            </div>
+            <div>
+              <div class="brand-name">ding<span>-ssh</span></div>
+              <div class="text-[11px] tracking-widest text-mist">SIGNAL DESK</div>
+            </div>
+          </div>
+          <h1 class="text-[28px] font-semibold tracking-tight text-white leading-tight mb-2">解锁工作台</h1>
+          <p class="text-[13px] leading-relaxed text-mist mb-6">
+            主密码已启用。输入后解密服务器节点、凭证与隧道配置，进入本机会话。
+          </p>
+          <form class="flex flex-col gap-4" @submit.prevent="doUnlock">
+            <div class="field">
+              <label for="masterPwd">主密码</label>
+              <input
+                id="masterPwd"
+                v-model="unlockPassword"
+                class="input"
+                type="password"
+                placeholder="输入主密码"
+                autofocus
+              />
+            </div>
+            <p class="text-[12px] text-danger min-h-4">{{ unlockError }}</p>
+            <button class="btn btn-primary w-full" style="height:42px" type="submit" :disabled="unlocking || !unlockPassword">
+              {{ unlocking ? '解密中…' : '解锁并进入' }}
+            </button>
+            <div class="flex justify-between items-center text-[12px] text-mist">
+              <span>AES-256-GCM · Keyring</span>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
 
-    <div class="flex-1 min-h-0 flex">
-      <!-- 左侧：仅工作区显示服务器列表，隧道/设置页不占用左侧空间 -->
-      <aside
-        v-if="ui.view === 'workspace'"
-        class="shrink-0 border-r border-slate-700/60 bg-slate-900/70 backdrop-blur-md flex flex-col relative"
-        :style="{width: sidebarWidth + 'px'}"
-      >
-        <ServerList />
-        <!-- 拖拽手柄 -->
-        <div
-          class="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-sky-500/40 active:bg-sky-500/60 transition-colors z-10"
-          :class="resizing ? 'bg-sky-500/60' : ''"
-          @mousedown.prevent="startResize"
-        ></div>
+    <!-- 主壳 -->
+    <div v-else class="flex-1 min-h-0 grid" style="grid-template-columns: var(--rail-w) 1fr">
+      <aside class="rail" aria-label="主导航">
+        <button class="rail-logo" title="ding-ssh" aria-label="首页" @click="ui.showWorkspace()">
+          <Icon name="zap" :size="20" extra-class="text-signal" />
+        </button>
+        <nav class="flex flex-col gap-1.5 w-full items-center flex-1">
+          <button
+            class="rail-btn"
+            :class="ui.view === 'workspace' ? 'active' : ''"
+            title="工作区"
+            @click="ui.showWorkspace()"
+          >
+            <Icon name="activity" :size="18" />
+          </button>
+          <button
+            class="rail-btn"
+            :class="ui.view === 'tunnel' ? 'active' : ''"
+            title="隧道"
+            @click="ui.showTunnel()"
+          >
+            <Icon name="tunnel" :size="18" />
+          </button>
+          <button
+            class="rail-btn"
+            :class="ui.view === 'settings' ? 'active' : ''"
+            title="设置"
+            @click="ui.showSettings()"
+          >
+            <Icon name="settings" :size="18" />
+          </button>
+        </nav>
+        <div class="mt-auto flex flex-col gap-1.5 items-center">
+          <button class="rail-btn" title="命令面板 ⌘K" @click="openCmd">
+            <Icon name="command" :size="18" />
+          </button>
+        </div>
       </aside>
 
-      <!-- 右侧：设置页 / 隧道页 / 标签 + 终端（v-show 保持 SSH 会话不中断） -->
-      <main class="flex-1 min-w-0 flex flex-col">
-        <SettingsPage v-show="ui.view === 'settings'" />
-        <TunnelPage v-show="ui.view === 'tunnel'" />
-
-        <div v-show="ui.view === 'workspace'" class="flex-1 min-h-0 flex flex-col">
-          <TabBar v-if="sessions.tabs.length" />
-
-          <div class="flex-1 min-h-0 flex">
-            <div class="flex-1 min-w-0 relative terminal-bg">
-              <TerminalView
-                v-for="tab in sessions.tabs"
-                v-show="tab.clientId === sessions.activeId"
-                :key="tab.clientId"
-                :tab="tab"
-              />
-
-              <div
-                v-if="!sessions.tabs.length"
-                class="absolute inset-0 flex flex-col items-center justify-center gap-4"
-              >
-                <div class="flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-800/60 border border-slate-700/40">
-                  <Icon name="terminal" :size="32" class="text-slate-500" />
-                </div>
-                <p class="text-xl font-light text-slate-500">ding-ssh</p>
-                <p class="text-sm text-slate-600">在左侧选择服务器，点击连接按钮建立 SSH 连接</p>
-              </div>
-            </div>
-
-            <!-- 右侧 SFTP 面板 -->
-            <SftpPanel v-if="activeConnected && sessions.sftpVisible" :tab="activeConnected" />
+      <div class="min-w-0 min-h-0 flex flex-col">
+        <header class="titlebar">
+          <h2>{{ pageTitle }}</h2>
+          <span class="sub">{{ pageSub }}</span>
+          <div class="ml-auto flex items-center gap-2">
+            <span v-if="ui.view === 'workspace'" class="chip">
+              <span class="dot"></span>
+              {{ onlineCount }} 会话在线
+            </span>
+            <button
+              v-if="ui.view === 'workspace'"
+              class="btn btn-ghost btn-sm"
+              @click="sessions.sftpVisible = !sessions.sftpVisible"
+            >
+              <Icon name="panel-right" :size="14" />
+              侧栏工具
+            </button>
+            <button
+              v-if="ui.view === 'workspace'"
+              class="btn btn-copper btn-sm"
+              @click="ui.requestNewServer()"
+            >
+              <Icon name="plus" :size="14" />
+              新建服务器
+            </button>
           </div>
+        </header>
+
+        <div class="flex-1 min-h-0 flex">
+          <aside
+            v-if="ui.view === 'workspace'"
+            class="sidebar relative shrink-0"
+            :style="{width: sidebarWidth + 'px'}"
+          >
+            <ServerList />
+            <div
+              class="absolute top-0 right-0 w-1.5 h-full cursor-col-resize z-10 transition-colors"
+              :class="resizing ? 'bg-[var(--signal-500)]/50' : 'hover:bg-[var(--signal-500)]/30'"
+              @mousedown.prevent="startResize"
+            ></div>
+          </aside>
+
+          <main class="flex-1 min-w-0 flex flex-col fade-rise">
+            <SettingsPage v-show="ui.view === 'settings'" />
+            <TunnelPage v-show="ui.view === 'tunnel'" />
+
+            <div v-show="ui.view === 'workspace'" class="flex-1 min-h-0 flex flex-col">
+              <TabBar v-if="sessions.tabs.length" />
+
+              <div class="flex-1 min-h-0 flex">
+                <div class="flex-1 min-w-0 relative terminal-bg">
+                  <TerminalView
+                    v-for="tab in sessions.tabs"
+                    v-show="tab.clientId === sessions.activeId"
+                    :key="tab.clientId"
+                    :tab="tab"
+                  />
+
+                  <div v-if="!sessions.tabs.length" class="empty">
+                    <div class="empty-inner">
+                      <svg class="empty-art" viewBox="0 0 280 160" fill="none" aria-hidden="true">
+                        <defs>
+                          <linearGradient id="eg1" x1="0" y1="0" x2="1" y2="1">
+                            <stop stop-color="#3ec4b4" stop-opacity="0.5"/>
+                            <stop offset="1" stop-color="#c97a4a" stop-opacity="0.4"/>
+                          </linearGradient>
+                        </defs>
+                        <rect x="40" y="36" width="200" height="100" rx="16" fill="#121820" stroke="url(#eg1)" stroke-width="1.2"/>
+                        <rect x="52" y="50" width="176" height="52" rx="8" fill="#0a0e14"/>
+                        <path d="M64 64h40M64 76h72M64 88h56" stroke="#3ec4b4" stroke-width="1.5" stroke-linecap="round" opacity="0.45"/>
+                        <circle cx="220" cy="118" r="18" fill="none" stroke="#e0925e" stroke-width="1.5" stroke-dasharray="3 4" opacity="0.7"/>
+                        <path d="M214 118h12M220 112v12" stroke="#e0925e" stroke-width="1.5" stroke-linecap="round"/>
+                      </svg>
+                      <h3>尚未打开会话</h3>
+                      <p>从左侧选择服务器并连接，或新建节点。连接后终端、SFTP 与系统看板将同步就绪。</p>
+                      <div class="flex gap-2">
+                        <button class="btn btn-primary" @click="ui.requestNewServer()">新建服务器</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <SftpPanel
+                  v-if="activeConnected && sessions.sftpVisible && sessions.rightPanel === 'sftp'"
+                  :tab="activeConnected"
+                />
+                <SysInfoPanel
+                  v-if="activeConnected && sessions.sftpVisible && sessions.rightPanel === 'sysinfo'"
+                  :tab="activeConnected"
+                />
+              </div>
+
+              <ServerStatusBar :tab="sessions.activeTab" />
+            </div>
+          </main>
         </div>
-      </main>
+      </div>
+    </div>
+
+    <!-- 命令面板 -->
+    <div v-if="ui.cmdOpen" class="modal-root" @click.self="closeCmd">
+      <div class="modal neo" style="width:min(520px,100%);padding:12px;">
+        <div class="search mb-2">
+          <Icon name="search" :size="14" extra-class="search-ico" />
+          <input
+            ref="cmdInput"
+            v-model="cmdQuery"
+            class="input"
+            placeholder="连接服务器、打开隧道、跳转设置…"
+            @input="cmdIndex = 0"
+          />
+        </div>
+        <div class="max-h-72 overflow-y-auto">
+          <button
+            v-for="(item, i) in cmdItems"
+            :key="item.id"
+            class="w-full grid grid-cols-[1fr_auto] gap-2 items-center px-2.5 py-2 rounded-[6px] font-mono text-xs text-left"
+            :class="i === cmdIndex ? 'bg-[rgba(42,168,154,0.12)] shadow-[inset_0_0_0_1px_rgba(62,196,180,0.2)]' : 'hover:bg-white/5'"
+            @mouseenter="cmdIndex = i"
+            @click="runCmd(item)"
+          >
+            <span>{{ item.label }}</span>
+            <span class="text-mist font-sans text-[11px]">{{ item.hint }}</span>
+          </button>
+          <p v-if="!cmdItems.length" class="px-2.5 py-4 text-xs text-mist text-center">无匹配命令</p>
+        </div>
+      </div>
     </div>
   </div>
 </template>

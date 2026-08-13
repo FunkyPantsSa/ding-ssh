@@ -1,6 +1,6 @@
 # ding-ssh
 
-基于 **Wails (Go + Vue 3)** 的跨平台 SSH 客户端。设计文档见 [`docs/design.md`](docs/design.md)。
+基于 **Wails (Go + Vue 3)** 的跨平台 SSH 客户端。技术设计见 [`docs/design.md`](docs/design.md)，产品需求见 [`docs/prd.md`](docs/prd.md)。
 
 ## 技术栈
 
@@ -35,21 +35,25 @@
 - [x] 并发传输 Worker Pool + 令牌桶限速（golang.org/x/time/rate）
 - [x] SSH 链路保活与自动重连（KeepAlive Ticker 15s + 一键重新连接）
 
-### Phase 3 📋 (终端极客特性与智能补全)
-- [ ] rz/sz (Zmodem) 协议全自动接管
-- [ ] Trie + FZF 智能命令提示面板
-- [ ] GPU 硬件加速渲染（xterm-addon-webgl，自动降级）
-- [ ] 命令历史记录存储与查询
+### Phase 3 ✅ (终端极客特性与智能补全)
+- [x] rz/sz (Zmodem) 协议全自动接管
+- [x] Trie + FZF 智能命令提示面板
+- [x] GPU 硬件加速渲染（xterm-addon-webgl，自动降级）
+- [x] 命令历史记录存储与查询
 
-### Phase 4 📋 (运维 Dashboard 与配置迁移)
-- [ ] 静默系统分析看板（SysInfo Dashboard）
-- [ ] SSH 隧道高级模式（Remote Forward / Dynamic Forward SOCKS5）
-- [ ] 数据库敏感字段加密（AES-256-GCM + OS Keyring）
-- [ ] 配置导出与迁移（.dingpack 加密打包/导入）
+### Phase 4 ✅ (运维 Dashboard 与配置迁移)
+- [x] 静默系统分析看板（SysInfo Dashboard）
+- [x] 底部服务器状态栏（CPU / 内存 / 磁盘 / 网卡，可选）
+- [x] SSH 隧道高级模式（Remote Forward / Dynamic Forward SOCKS5）
+- [x] 数据库敏感字段加密（AES-256-GCM + OS Keyring）
+- [x] 配置导出与迁移（.dingpack 加密打包/导入）
+- [x] 命令历史清理 / 补全导航热键可配置
 
-### Phase 5 📋 (CI/CD 与持续交付)
-- [ ] GitHub Actions 多平台自动化构建矩阵
-- [ ] 自动化测试与发布流程
+### Phase 5 ✅ (CI/CD 与持续交付)
+- [x] GitHub Actions 多平台自动化构建矩阵
+- [x] 自动化测试（Go `internal` + 前端 typecheck）
+- [x] 推送 `v*` 标签自动构建并上传 GitHub Release
+- [x] 多平台打包（Windows NSIS/zip，macOS DMG/zip，Linux AppImage/deb/tar.gz）
 
 ## 目录结构
 
@@ -59,22 +63,26 @@ ding-ssh/
 ├── app.go                     # Wails 绑定 API（服务器管理 / SSH 会话）
 ├── internal/
 │   ├── models/                # 前后端共享数据结构
-│   ├── store/                 # 持久化存储（SQLite 主实现 + JSON 兜底/迁移）
-│   ├── sshx/                  # SSH 会话管理器与终端会话
+│   ├── store/                 # 持久化存储（SQLite + dingpack / 加密迁移）
+│   ├── cryptox/               # AES-256-GCM + Argon2id + Keyring
+│   ├── sshx/                  # SSH 会话 / SFTP / 隧道 / SysInfo
 │   ├── logx/                  # 受日志开关控制的应用日志
 │   └── logfilter/             # Wails 日志过滤（噪音 + 开关）
+├── scripts/                   # 版本写入与各平台二次打包
+├── .github/workflows/         # CI 测试 + Release 多平台构建
 └── frontend/
     ├── src/
-    │   ├── components/        # ServerList / ServerDialog / TabBar / TerminalView / TunnelPage / SftpPanel / SettingsPage
-    │   ├── stores/            # Pinia: servers / sessions / settings / ui / credentials / groups
-    │   ├── services/          # Wails 绑定与事件封装（ssh / settings / credentials / groups）
-    │   └── types.ts           # 前端类型定义
+    │   ├── components/        # ServerList / TerminalView / TunnelPage / SftpPanel / SysInfoPanel / SettingsPage
+    │   ├── completion/        # Trie + FZF 智能补全
+    │   ├── stores/            # Pinia stores
+    │   ├── services/          # ssh / settings / history / zmodem / security / sysinfo
+    │   └── types.ts
     └── wailsjs/               # Wails 自动生成绑定（勿手改）
 ```
 
 ## 开发运行
 
-前置要求：Go 1.22+、Node.js 18+、Wails CLI。
+前置要求：Go 1.25+、Node.js 18+、Wails CLI v2.13。
 
 ```bash
 # 安装 Wails CLI（首次）
@@ -88,6 +96,24 @@ wails build
 ```
 
 产物位于 `build/bin/`。
+
+## 发布（GitHub Release）
+
+推送语义化版本标签后，Actions 会在 macOS / Windows / Ubuntu 上并行构建，并把安装包挂到该 tag 的 Release：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+| 产物 | 说明 |
+| --- | --- |
+| `ding-ssh-*-macos-universal.dmg` / `.app.zip` | macOS Universal（未签名，首次请右键打开） |
+| `ding-ssh-*-windows-amd64-setup.exe` / `.zip` | Windows x64（NSIS 安装包内嵌 WebView2 bootstrap） |
+| `ding-ssh-*-linux-amd64.AppImage` / `.deb` / `.tar.gz` | Linux x64，需 `libgtk-3-0` 与 `libwebkit2gtk-4.1-0` |
+| `SHA256SUMS.txt` | 校验和 |
+
+也可在 Actions 里手动运行 **Release** 工作流，仅上传 artifacts、不创建 Release。
 
 ## 已知问题
 
@@ -119,14 +145,18 @@ runtime bundle 会发送内部消息 `runtime:ready`，而 devserver 未像桌�
 - `SftpList` / `SftpUpload` / `SftpDownload` / `SftpCancelTransfer` / `SftpRename` / `SftpMkdir` / `SftpRemove` / `SelectLocalFiles` / `SelectSavePath`
 
 **SSH 隧道：**
-- `StartTunnel` / `StopTunnel` / `RestartTunnel` / `RemoveTunnel` / `ListTunnels`
+- `StartTunnel(node, name, mode, localPort, remoteHost, remotePort)` — mode: `local` | `remote` | `dynamic`
+- `StopTunnel` / `RestartTunnel` / `RemoveTunnel` / `ListTunnels`
 
 **Phase 2+ 增量 API：**
 - `SetSftpPathFromTerminal(sessionID, path)` — Shell → SFTP 目录同步
 - `SyncSftpToTerminal(sessionID, path)` — SFTP → Shell 目录同步
-- `StartZmodemUpload(sessionID)` / `StartZmodemDownload(sessionID, fileName)` — Zmodem 传输
-- `StartSysInfoCollector(sessionID)` / `StopSysInfoCollector(sessionID)` — 系统监控
-- `ExportConfig(passphrase)` / `ImportConfig(data, passphrase)` — 配置迁移
+- `StartSysInfoCollector(sessionID)` / `StopSysInfoCollector(sessionID)` / `SetSysInfoIdle` — 系统监控
+- `ClearCommandHistory(serverID)` — 清理本地命令历史（空字符串=全部）
+- `ExportConfig(passphrase)` / `ImportConfig(passphrase, overwrite)` — .dingpack 配置迁移
+
+**安全：**
+- `GetSecurityStatus` / `UnlockWithMasterPassword` / `EnableMasterPassword` / `DisableMasterPassword` / `ChangeMasterPassword`
 
 ### 事件
 

@@ -5,10 +5,6 @@ import {onSftpTransfer, onSftpSyncPath, onSftpDirUpdated, sshService} from '../s
 import {useSessionsStore} from '../stores/sessions'
 import type {SFTPEntry, SessionTab} from '../types'
 
-// 文件列表图标
-const FolderIcon = '📁'
-const FileIcon = '📄'
-
 const props = defineProps<{tab: SessionTab}>()
 const sessions = useSessionsStore()
 
@@ -357,93 +353,55 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="w-72 shrink-0 border-l border-slate-700/60 bg-slate-900/70 backdrop-blur-md flex flex-col">
-    <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-800/60">
-      <p class="text-xs font-semibold text-slate-200">SFTP</p>
-      <div class="flex items-center gap-1">
-        <button
-          class="h-6 px-2.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-300 text-[11px]"
-          title="在当前目录新建文件夹"
-          aria-label="新建文件夹"
-          @click="startNewFolder"
-        >
-          <Icon name="plus" :size="12" class="mr-0.5" /> 新建
-        </button>
-        <button
-          class="h-6 px-2.5 rounded-md bg-sky-500/80 hover:bg-sky-400 text-slate-900 text-[11px] font-medium"
-          title="上传文件到当前目录"
-          aria-label="上传文件"
-          @click="upload"
-        >
-          <Icon name="upload" :size="12" class="mr-0.5" /> 上传
-        </button>
-        <button
-          class="w-6 h-6 rounded text-slate-400 hover:bg-slate-800 hover:text-slate-200 text-xs"
-          title="隐藏 SFTP 面板"
-          aria-label="隐藏 SFTP 面板"
-          @click="sessions.sftpVisible = false"
-        >
-          <Icon name="close" :size="12" />
-        </button>
+  <div class="tool">
+    <div class="tool-head">
+      <div class="seg">
+        <button class="active">SFTP</button>
+        <button @click="sessions.showRightPanel('sysinfo')">看板</button>
       </div>
+      <button class="btn-icon btn-sm ml-auto" title="收起" @click="sessions.sftpVisible = false">
+        <Icon name="close" :size="14" />
+      </button>
     </div>
 
-    <!-- 导航行：上一级 / 刷新 / 面包屑 -->
-    <div class="flex items-center gap-1 px-2 py-1.5 border-b border-slate-800/60">
-      <button
-        class="w-7 h-7 shrink-0 rounded-md bg-slate-800/70 hover:bg-slate-700 text-slate-300 text-xs"
-        title="上一级"
-          aria-label="上级目录"
-        @click="up"
-      >
-        <Icon name="up" :size="12" />
+    <div class="flex items-center gap-1.5 p-3" style="box-shadow: inset 0 -1px 0 rgba(255,255,255,0.05)">
+      <button class="btn-icon btn-sm" title="上级" @click="up">
+        <Icon name="up" :size="14" />
       </button>
-      <button
-        class="w-7 h-7 shrink-0 rounded-md bg-slate-800/70 hover:bg-slate-700 text-slate-300 text-xs"
-        title="刷新"
-          aria-label="刷新"
-        @click="refresh"
-      >
-        <Icon name="refresh" :size="12" />
+      <button class="btn-icon btn-sm" title="刷新" @click="refresh">
+        <Icon name="refresh" :size="14" />
       </button>
-      <div
+      <input
         v-if="editingPath"
-        class="flex-1 min-w-0 flex items-center px-1"
-      >
-        <input
-          ref="pathInputEl"
-          v-model="pathInput"
-          class="w-full min-w-0 px-2 py-1 rounded-md bg-slate-800 border border-sky-500/60 text-slate-200 text-[11px] font-mono outline-none"
-          spellcheck="false"
-          @keyup.enter="doPathEdit"
-          @keyup.esc="editingPath = false"
-          @blur="doPathEdit"
-        />
-      </div>
+        ref="pathInputEl"
+        v-model="pathInput"
+        class="input input-sm flex-1 font-mono text-[11px]"
+        spellcheck="false"
+        @keyup.enter="doPathEdit"
+        @keyup.esc="editingPath = false"
+        @blur="doPathEdit"
+      />
       <div
         v-else
-        class="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar px-1 text-[11px] text-slate-400 cursor-text"
+        class="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar text-[11px] font-mono text-mist cursor-text"
         title="点击编辑完整路径"
         @click="startPathEdit"
       >
         <template v-for="(c, i) in crumbs" :key="c.path">
-          <button class="shrink-0 hover:text-sky-400" @click="go(c.path)">{{ c.label }}</button>
-          <span v-if="i < crumbs.length - 1" class="shrink-0 text-slate-600">/</span>
+          <button class="shrink-0 hover:text-signal" @click.stop="go(c.path)">{{ c.label }}</button>
+          <span v-if="i < crumbs.length - 1" class="shrink-0 opacity-40">/</span>
         </template>
-        <span class="shrink-0 ml-auto pl-1 text-slate-600 group-hover:text-slate-400"><Icon name="settings" :size="10" /></span>
       </div>
+      <button class="btn btn-ghost btn-sm" @click="startNewFolder">新建</button>
+      <button class="btn btn-ghost btn-sm" @click="upload">上传</button>
     </div>
 
-    <!-- 新建文件夹输入行 -->
-    <div
-      v-if="newFolderActive"
-      class="flex items-center gap-2 px-3 py-1.5 border-b border-slate-800/60"
-    >
-      <span class="text-[11px] text-slate-400 shrink-0">名称</span>
+    <div v-if="newFolderActive" class="flex items-center gap-2 px-3 py-2" style="box-shadow: inset 0 -1px 0 rgba(255,255,255,0.05)">
+      <span class="text-[11px] text-mist shrink-0">名称</span>
       <input
         ref="newFolderInputEl"
         v-model="newFolderName"
-        class="flex-1 min-w-0 px-2 py-1 rounded-md bg-slate-800 border border-sky-500/60 text-slate-200 text-[11px] outline-none"
+        class="input input-sm flex-1"
         placeholder="新文件夹名称"
         @keyup.enter="doNewFolder"
         @keyup.esc="newFolderActive = false"
@@ -451,26 +409,23 @@ onBeforeUnmount(() => {
       />
     </div>
 
-    <div class="flex-1 overflow-y-auto px-1.5 py-1.5">
-      <div v-if="!entries.length && !loading && !error" class="py-6 text-center text-xs text-slate-500">
-        空目录
-      </div>
+    <div class="flex-1 overflow-y-auto px-2 py-1.5">
+      <div v-if="!entries.length && !loading && !error" class="py-6 text-center text-xs text-mist">空目录</div>
       <div
         v-for="e in entries"
         :key="e.path"
-        class="group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[12px] text-slate-300 transition-colors"
-        :class="selected === e.path ? 'bg-sky-500/15' : 'hover:bg-slate-800/60'"
-        :title="e.isDir ? '双击进入目录，右键更多操作' : '双击下载到本地，右键更多操作'"
+        class="grid grid-cols-[20px_1fr_auto] items-center gap-2 h-9 px-2 rounded-[6px] text-xs cursor-pointer"
+        :class="selected === e.path ? 'bg-[rgba(42,168,154,0.12)]' : 'hover:bg-white/[0.04]'"
         @click="selected = e.path"
         @dblclick="onDblClick(e)"
         @contextmenu.prevent="openMenu($event, e)"
       >
-        <span class="shrink-0">{{ e.isDir ? FolderIcon : FileIcon }}</span>
+        <Icon :name="e.isDir ? 'folder' : 'file'" :size="14" :extra-class="e.isDir ? 'text-copper' : 'text-mist'" />
         <template v-if="renaming?.path === e.path">
           <input
             ref="renameInputEl"
             v-model="renameInput"
-            class="min-w-0 flex-1 px-1.5 py-0.5 rounded bg-slate-800 border border-sky-500/60 text-slate-200 text-[11px] outline-none"
+            class="input input-sm col-span-2"
             spellcheck="false"
             @click.stop
             @keyup.enter="doRename"
@@ -479,122 +434,54 @@ onBeforeUnmount(() => {
           />
         </template>
         <template v-else-if="confirmDeletePath === e.path">
-          <span class="text-[11px] text-rose-300 truncate">删除「{{ e.name }}」？</span>
-          <button
-            class="shrink-0 px-2 py-0.5 rounded bg-rose-600/80 hover:bg-rose-500 text-white text-[10px]"
-            @click.stop="doDelete"
-          >
-            确认
-          </button>
-          <button
-            class="shrink-0 px-2 py-0.5 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 text-[10px]"
-            @click.stop="confirmDeletePath = ''"
-          >
-            取消
-          </button>
+          <span class="text-[11px] text-danger truncate">删除「{{ e.name }}」？</span>
+          <div class="flex gap-1">
+            <button class="btn btn-danger btn-sm" @click.stop="doDelete">确认</button>
+            <button class="btn btn-ghost btn-sm" @click.stop="confirmDeletePath = ''">取消</button>
+          </div>
         </template>
         <template v-else>
-          <span class="min-w-0 truncate">{{ e.name }}</span>
-          <span class="ml-auto shrink-0 text-[10px] text-slate-500">
-            {{ e.isDir ? '目录' : fmtSize(e.size) }}
-          </span>
+          <span class="truncate text-[var(--mist-200)]">{{ e.name }}</span>
+          <span class="font-mono text-[10px] text-mist">{{ e.isDir ? '—' : fmtSize(e.size) }}</span>
         </template>
-        <button
-          v-if="!e.isDir && renaming?.path !== e.path && confirmDeletePath !== e.path"
-          class="shrink-0 opacity-0 group-hover:opacity-100 w-5 h-5 rounded bg-slate-700/70 hover:bg-sky-500/80 hover:text-slate-900 text-[10px] transition-opacity"
-          title="下载到本地"
-          aria-label="下载文件"
-          @click.stop="download(e)"
-        >
-          <Icon name="download" :size="10" />
-        </button>
       </div>
-
-      <!-- 加载提示置底，不遮挡列表 -->
-      <div
-        v-if="loading"
-        class="sticky bottom-0 flex items-center justify-center gap-2 py-2 text-[11px] text-slate-400 bg-slate-900/80"
-      >
-        <span class="w-3 h-3 border-2 border-sky-400 border-t-transparent rounded-full animate-spin"></span>
+      <div v-if="loading" class="sticky bottom-0 flex items-center justify-center gap-2 py-2 text-[11px] text-mist">
         加载中…
       </div>
-      <div v-if="error" class="sticky bottom-0 px-2 py-2 text-[11px] text-rose-400 break-all bg-slate-900/80">
+      <div v-if="error" class="sticky bottom-0 px-2 py-2 text-[11px] text-danger break-all">
         {{ error }}
-        <button class="ml-1 underline hover:text-sky-300" @click="refresh">重试</button>
+        <button class="ml-1 underline hover:text-signal" @click="refresh">重试</button>
       </div>
     </div>
 
-    <!-- 传输进度（面板最底部） -->
-    <div v-if="transfers.length" class="shrink-0 border-t border-slate-800/60 divide-y divide-slate-800/60">
-      <div v-for="t in transfers" :key="t.key" class="px-3 py-2">
-        <div class="flex items-center justify-between gap-2 text-[11px]">
-          <span class="text-slate-300 truncate">
-            {{ t.direction === 'upload' ? '上传' : '下载' }} · {{ t.name }}
-          </span>
-          <span class="flex items-center gap-2 shrink-0">
-            <button
-              v-if="!t.done && !t.error"
-              class="px-2 py-0.5 rounded bg-rose-500/70 hover:bg-rose-500 text-white text-[10px]"
-              title="取消传输"
-              @click="cancelTransfer(t)"
-            >
-              取消
-            </button>
-            <span class="text-slate-500">{{ percent(t) }}%</span>
-          </span>
-        </div>
-        <div class="mt-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-          <div class="h-full bg-sky-500 transition-all" :style="{width: percent(t) + '%'}"></div>
-        </div>
-        <div v-if="t.error" class="mt-1 flex items-start justify-between gap-2 text-[11px] text-rose-400 break-all">
-          <span>{{ t.error }}</span>
-          <button class="shrink-0 text-slate-500 hover:text-slate-300" @click="dismissTransfer(t.key)">✕</button>
+    <div v-if="transfers.length" class="shrink-0 p-3 flex flex-col gap-2" style="box-shadow: inset 0 1px 0 rgba(255,255,255,0.05)">
+      <div v-for="t in transfers" :key="t.key" class="grid grid-cols-[1fr_auto] gap-1 text-[11px]">
+        <span class="truncate text-[var(--mist-200)]">{{ t.direction === 'upload' ? '↑' : '↓' }} {{ t.name }}</span>
+        <span class="flex items-center gap-2">
+          <button v-if="!t.done && !t.error" class="btn btn-ghost btn-sm" @click="cancelTransfer(t)">取消</button>
+          <span class="font-mono text-signal">{{ percent(t) }}%</span>
+        </span>
+        <div class="prog col-span-2"><i :style="{width: percent(t) + '%'}"></i></div>
+        <div v-if="t.error" class="col-span-2 flex justify-between text-danger">
+          <span class="break-all">{{ t.error }}</span>
+          <button @click="dismissTransfer(t.key)"><Icon name="close" :size="12" /></button>
         </div>
       </div>
     </div>
 
-    <!-- 右键菜单 -->
     <Teleport to="body">
       <div
         v-if="menu"
-        class="fixed z-50 min-w-[150px] rounded-lg border border-slate-700/60 bg-slate-900/95 py-1 shadow-2xl text-xs"
+        class="menu-pop neo fixed z-50"
         :style="{left: menu.x + 'px', top: menu.y + 'px'}"
         @contextmenu.prevent
         @click.stop
       >
-        <button
-          v-if="menu.entry.isDir"
-          class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
-          @click="menuEnter"
-        >
-          进入目录
-        </button>
-        <button
-          v-else
-          class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
-          @click="menuDownload"
-        >
-          下载到本地
-        </button>
-        <button
-          class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800"
-          @click="startRename(menu.entry)"
-        >
-          重命名
-        </button>
-        <button
-          class="w-full text-left px-3 py-1.5 text-rose-300 hover:bg-rose-600/70"
-          @click="requestDelete(menu.entry)"
-        >
-          删除
-        </button>
+        <button v-if="menu.entry.isDir" @click="menuEnter">进入目录</button>
+        <button v-else @click="menuDownload">下载到本地</button>
+        <button @click="startRename(menu.entry)">重命名</button>
+        <button class="danger" @click="requestDelete(menu.entry)">删除</button>
       </div>
     </Teleport>
   </div>
 </template>
-
-<style scoped>
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-</style>

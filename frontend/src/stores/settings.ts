@@ -1,14 +1,15 @@
 import {defineStore} from 'pinia'
+import {DEFAULT_COMPLETION_NAV_HOTKEY} from '../completion/hotkey'
 import {settingsService} from '../services/settings'
 import type {Theme} from '../types'
 
 // 默认终端主题（与 Go 端 models.DefaultTheme 保持一致）。
 export function defaultTheme(): Theme {
   return {
-    background: '#0b1120',
-    foreground: '#dbe4f0',
-    cursor: '#38bdf8',
-    selection: 'rgba(56, 189, 248, 0.25)',
+    background: '#0c1016',
+    foreground: '#d4dae3',
+    cursor: '#3ec4b4',
+    selection: 'rgba(42, 168, 154, 0.28)',
     bgImage: '',
     blurAmount: 12,
     textShadow: false,
@@ -20,6 +21,10 @@ export const useSettingsStore = defineStore('settings', {
   state: () => ({
     logEnabled: false,
     copyOnSelect: false,
+    webGLEnabled: true,
+    completionEnabled: true,
+    completionNavHotkey: DEFAULT_COMPLETION_NAV_HOTKEY,
+    completionPanelLimit: 8,
     theme: defaultTheme() as Theme,
     loaded: false,
   }),
@@ -28,6 +33,10 @@ export const useSettingsStore = defineStore('settings', {
       const settings = await settingsService.getSettings()
       this.logEnabled = settings.logEnabled
       this.copyOnSelect = settings.copyOnSelect ?? false
+      this.webGLEnabled = settings.webGLEnabled ?? true
+      this.completionEnabled = settings.completionEnabled ?? true
+      this.completionNavHotkey = settings.completionNavHotkey || DEFAULT_COMPLETION_NAV_HOTKEY
+      this.completionPanelLimit = clampPanelLimit(settings.completionPanelLimit)
       this.theme = {...defaultTheme(), ...(settings.theme ?? {})}
       this.loaded = true
     },
@@ -39,6 +48,22 @@ export const useSettingsStore = defineStore('settings', {
       this.copyOnSelect = v
       await this.save()
     },
+    async setWebGLEnabled(v: boolean) {
+      this.webGLEnabled = v
+      await this.save()
+    },
+    async setCompletionEnabled(v: boolean) {
+      this.completionEnabled = v
+      await this.save()
+    },
+    async setCompletionNavHotkey(v: string) {
+      this.completionNavHotkey = v || DEFAULT_COMPLETION_NAV_HOTKEY
+      await this.save()
+    },
+    async setCompletionPanelLimit(v: number) {
+      this.completionPanelLimit = clampPanelLimit(v)
+      await this.save()
+    },
     async setTheme(theme: Theme) {
       this.theme = theme
       await this.save()
@@ -47,8 +72,18 @@ export const useSettingsStore = defineStore('settings', {
       await settingsService.saveSettings({
         logEnabled: this.logEnabled,
         copyOnSelect: this.copyOnSelect,
+        webGLEnabled: this.webGLEnabled,
+        completionEnabled: this.completionEnabled,
+        completionNavHotkey: this.completionNavHotkey || DEFAULT_COMPLETION_NAV_HOTKEY,
+        completionPanelLimit: clampPanelLimit(this.completionPanelLimit),
         theme: this.theme,
       })
     },
   },
 })
+
+function clampPanelLimit(v: number | undefined): number {
+  const n = Number(v)
+  if (!Number.isFinite(n) || n <= 0) return 8
+  return Math.max(3, Math.min(30, Math.round(n)))
+}
