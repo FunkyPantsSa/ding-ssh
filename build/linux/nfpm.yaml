@@ -1,0 +1,25 @@
+name: ding-ssh
+arch: amd64
+platform: linux
+version: ${NFPM_VERSION}
+section: utils
+priority: optional
+maintainer: FunkyPantsSa <mqjmqj2014@outlook.com>
+description: |
+  Local-first SSH workstation built with Wails (Go + Vue).
+  Terminal, SFTP, tunnels and host metrics in one desktop app.
+vendor: FunkyPantsSa
+homepage: https://github.com/FunkyPantsSa/ding-ssh
+license: MIT
+depends:
+  - libgtk-3-0
+  - libwebkit2gtk-4.1-0
+contents:
+  - src: ./build/bin/ding-ssh
+    dst: /usr/bin/ding-ssh
+    file_info:
+      mode: 0755
+  - src: ./build/linux/ding-ssh.desktop
+    dst: /usr/share/applications/ding-ssh.desktop
+  - src: ./build/appicon.png
+    dst: /usr/share/icons/hicolor/256x256/apps/ding-ssh.png

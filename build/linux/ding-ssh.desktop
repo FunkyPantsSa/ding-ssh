@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=ding-ssh
+GenericName=SSH Workstation
+Comment=Local-first SSH workstation
+Exec=ding-ssh
+Icon=ding-ssh
+Terminal=false
+Categories=Network;System;Utility;
+StartupWMClass=ding-ssh
+Keywords=ssh;sftp;terminal;

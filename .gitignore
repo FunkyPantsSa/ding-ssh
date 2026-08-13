@@ -1,3 +1,10 @@
 build/bin
+build/dmg-stage
+build/linux-stage
+build/AppDir
+dist/
 node_modules
 frontend/dist
+.DS_Store
+**/.DS_Store
+*.AppImage

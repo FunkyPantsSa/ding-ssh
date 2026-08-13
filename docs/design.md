@@ -158,9 +158,9 @@ type SFTPCacheManager struct {
 
 * **三级词库构建**：
   * **静态字典**：内嵌 500+ 常见 Linux/DevOps CLI 命令树。
-  * **历史记录**：从 SQLite `command_history` 表拉取该 ServerNode 下高频执行成功的命令。
-  * **屏幕上下文**：提取 `xterm.buffer.active` 当前可视区域中的文件名与路径词汇。
-* **交互设计**：监听键盘输入，利用 Trie 树进行前缀筛选，引入 fzf 算法实现模糊匹配。提示框使用 Teleport 定位到光标物理坐标下侧，按 Tab / Enter 补全。
+  * **历史记录**：从 SQLite `command_history` 表拉取该 ServerNode 下高频执行成功的**整行命令**。
+  * **屏幕上下文**：提取 `xterm.buffer.active` 当前可视区域中的**路径 / Pod 名 / 主机名**等 token（非整行命令）。
+* **交互设计**：监听键盘输入，利用 Trie 树进行前缀筛选，引入 fzf 算法实现模糊匹配。提示框使用 Teleport 定位到光标物理坐标下侧，按 Tab / Enter 补全。面板条数可在设置中配置（3–30，默认 8）。
 
 ### 3.6 GPU 硬件加速渲染
 
@@ -186,24 +186,36 @@ type SFTPCacheManager struct {
 
 ## 4. 运维 Dashboard 与配置迁移
 
-### 4.1 静默系统分析看板 (SysInfo Dashboard)
+### 4.1 静默系统分析看板 (SysInfo Dashboard) 与底部状态栏
 
 ```go
 type SysInfoSnapshot struct {
-    CPUUsage   float64   `json:"cpuUsage"`
-    MemUsedMB  uint64    `json:"memUsedMb"`
-    MemTotalMB uint64    `json:"memTotalMb"`
-    DiskUsage  []DiskInfo`json:"diskUsage"`
-    Uptime     string    `json:"uptime"`
+    CPUUsage   float64    `json:"cpuUsage"`
+    MemUsedMB  uint64     `json:"memUsedMb"`
+    MemTotalMB uint64     `json:"memTotalMb"`
+    DiskUsage  []DiskInfo `json:"diskUsage"`
+    NetIfaces  []NetIface `json:"netIfaces"` // Name / IP / RxMbps / TxMbps（采样差分）
+    Uptime     string     `json:"uptime"`
 }
 ```
 
-* **静默通道**：SSH 主连接建立后，在后台打开一个独立的 `ssh.Session`（不分配 PTY）。
-* **轻量脚本执行**：每 3 秒循环发送组合分析指令（使用 `LANG=C` 确保输出格式一致）：
+* **静默通道**：SSH 主连接建立后自动启动独立无 PTY Session 采集器（右栏监控与底栏共用）。
+* **稳采集脚本**（每 3s，后台降频 10s；优先 `/proc`，避免依赖 `top` 输出格式）：
   ```bash
-  LC_ALL=C top -bn1 | grep "Cpu(s)" ; free -m ; df -h -P
+  cat /proc/stat ; cat /proc/meminfo ; df -k -P
+  cat /proc/net/dev ; ip -o -4 addr ; cat /proc/uptime
   ```
-* **前端呈现**：Go 解析纯文本为 `SysInfoSnapshot` 结构体，推送给前端通过 SVG / Lightweight Charts 渲染 CPU/内存/磁盘动态折线图。
+* **解析策略**：分段宽松解析，成功字段照常展示，失败字段显示 `—`。
+* **右栏 Dashboard**：CPU/内存折线、磁盘用量条。
+* **底部状态栏（ServerStatusBar）**：CPU%、内存%、可选磁盘分区使用率、可选网卡（名称+IP+上下行 Mbps）；磁盘/网卡选择按服务器持久化到 localStorage。
+* **异常**：非 Linux / 全无输出 → 状态栏提示；部分失败不阻断其余指标。
+
+### 4.1.1 智能补全交互与历史
+
+* **导航模式**：未导航时 Tab/↑↓ 交给终端；自定义热键（默认 Alt+↓）或悬停进入导航后，↑↓ 切换、Tab/Enter 仅插入。
+* **历史来源**：本地 SQLite `command_history`（回车时优先从屏上行去 prompt 提取整行，兼容 shell ↑ 召回与 Tab 补全；lineBuf 兜底），**非**远端 `~/.bash_history`。
+* **清理**：设置页可一键清空全部本地命令历史（`ClearCommandHistory`）。
+* **补全面板**：条数可配置；优先置于光标行上方并按实际 DOM 高度校准，避免遮挡输入行。
 
 ### 4.2 SSH 隧道高级模式
 
@@ -223,13 +235,27 @@ type SysInfoSnapshot struct {
 
 ### 5.1 CI/CD 构建矩阵 (GitHub Actions)
 
-通过 GitHub Actions 实现多平台自动化打包，自动化流程如下：
+通过 GitHub Actions 实现多平台自动化打包。工作流：
+
+* **CI**（`.github/workflows/ci.yml`）：`main` / PR 上跑 `go test ./internal/...` 与前端 `vue-tsc` + Vite 构建。
+* **Release**（`.github/workflows/release.yml`）：推送 `v*` 标签后先跑同样测试，再在三平台并行 `wails build`，打包后上传 GitHub Release（含 `SHA256SUMS.txt`）。也可 `workflow_dispatch` 仅产出 Actions artifacts，不发版。
 
 | 目标平台 | 打包产物 | 依赖环境与架构 |
 | --- | --- | --- |
-| macOS | `.dmg` / `.app` | macOS-latest (Universal Binary: darwin/amd64 + darwin/arm64) |
-| Windows | `.exe` (NSIS) / `.zip` | windows-latest (windows/amd64) |
-| Linux | `.AppImage` / `.deb` | ubuntu-latest (linux/amd64, 依赖 libgtk-3-dev, libwebkit2gtk-4.0-dev) |
+| macOS | `.dmg` / `.app.zip` | `macos-latest`，`darwin/universal`（amd64 + arm64） |
+| Windows | NSIS `setup.exe` / `.zip` | `windows-latest`，`windows/amd64`，WebView2 embed |
+| Linux | `.AppImage` / `.deb` / `.tar.gz` | `ubuntu-24.04`，`linux/amd64`，`libgtk-3-dev` + `libwebkit2gtk-4.1-dev`，构建 tag `webkit2_41` |
+
+Linux 运行时依赖 `libgtk-3-0` 与 `libwebkit2gtk-4.1-0`。AppImage 为瘦包，不内嵌 WebKit（系统需已安装上述库）。macOS 默认未签名，用户需右键打开。
+
+本地辅助脚本：`scripts/set-version.py`、`scripts/package-macos.sh`、`scripts/package-linux.sh`、`scripts/package-windows.ps1`。Linux deb 由 `build/linux/nfpm.yaml` 生成。
+
+发版：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
 
 ---
 
@@ -412,31 +438,35 @@ func (a *AppBridge) ImportConfig(data []byte, passphrase string) error
 - SSH 隧道页（本地端口转发）
 - SQLite 存储（含旧版 JSON 数据迁移）
 
-### Phase 2 (SFTP 深度联动与高并发引擎)
-- [ ] SFTP 文件管理增强（右键菜单、重命名/删除/新建文件夹、路径编辑、多选上传）
-- [x] **已部分完成**：右键菜单、多选上传
-- [ ] Shell <-> SFTP 双向目录同步（OSC 7 解析 + Prompt 备选）
-- [ ] SWR 目录缓存引擎（sync.Map 内存缓存 + 异步 Revalidate + 增量 Push）
-- [ ] 并发传输 Worker Pool（runtime.NumCPU() * 2）
-- [ ] 令牌桶限速（golang.org/x/time/rate）
+### Phase 2 ✅ (SFTP 深度联动与高并发引擎)
+> 进度以代码与 README 为准；产品需求见 [`prd.md`](prd.md)。
 
-### Phase 3 (终端极客特性与智能补全)
-- [ ] rz/sz (Zmodem) 协议全自动接管（xterm-addon-zmodem + 二进制流切换）
-- [ ] Trie + FZF 智能命令提示面板（三级词库 + 模糊匹配）
-- [ ] GPU 硬件加速渲染（xterm-addon-webgl，自动降级）
-- [ ] 命令历史记录存储与查询（SQLite command_history 表）
+- [x] SFTP 文件管理增强（右键菜单、重命名/删除/新建文件夹、路径编辑、多选上传）
+- [x] Shell <-> SFTP 双向目录同步（OSC 7 解析 + Prompt 备选）
+- [x] SWR 目录缓存引擎（sync.Map 内存缓存 + 异步 Revalidate + 增量 Push）
+- [x] 并发传输 Worker Pool（runtime.NumCPU() * 2）
+- [x] 令牌桶限速（golang.org/x/time/rate）
+- [x] SSH 链路保活与自动重连（KeepAlive Ticker 15s + 一键重新连接）
 
-### Phase 4 (运维 Dashboard 与配置迁移)
-- [ ] 静默系统分析看板（SysInfo Dashboard，轻量脚本 + 折线图）
-- [ ] SSH 隧道高级模式（Remote Forward / Dynamic Forward SOCKS5）
-- [ ] 数据库敏感字段加密（AES-256-GCM + OS Keyring / Argon2id 主密码）
-- [ ] 配置导出与迁移（.dingpack 加密打包/导入）
-- [ ] 多平台打包构建（Windows EXE, macOS DMG, Linux AppImage）
+### Phase 3 ✅ (终端极客特性与智能补全)
+- [x] rz/sz (Zmodem) 协议全自动接管（xterm + zmodem.js Sentry + 二进制流切换）
+- [x] Trie + FZF 智能命令提示面板（三级词库 + 模糊匹配）
+- [x] GPU 硬件加速渲染（xterm-addon-webgl，自动降级）
+- [x] 命令历史记录存储与查询（SQLite command_history 表）
 
-### Phase 5 (CI/CD 与持续交付)
-- [ ] GitHub Actions 多平台自动化构建矩阵
-- [ ] 自动化测试集成
-- [ ] 发布流程自动化（Release Drafter + 自动上传 artifacts）
+### Phase 4 ✅ (运维 Dashboard 与配置迁移)
+- [x] 静默系统分析看板（SysInfo Dashboard，轻量脚本 + 折线图）
+- [x] 底部服务器状态栏（CPU / MEM / DISK / NET，磁盘与网卡可选）
+- [x] SSH 隧道高级模式（Remote Forward / Dynamic Forward SOCKS5）
+- [x] 数据库敏感字段加密（AES-256-GCM + OS Keyring / Argon2id 主密码）
+- [x] 配置导出与迁移（.dingpack 加密打包/导入）
+- [x] 命令历史清理与补全导航热键可配置
+
+### Phase 5 ✅ (CI/CD 与持续交付)
+- [x] GitHub Actions 多平台自动化构建矩阵
+- [x] 自动化测试集成（Go `internal` 单测 + 前端 typecheck）
+- [x] 发布流程自动化（`v*` 标签 → 三平台产物 + GitHub Release + SHA256）
+- [x] 多平台打包构建（Windows NSIS/zip，macOS DMG/zip，Linux AppImage/deb/tar.gz）
 
 ---
 
