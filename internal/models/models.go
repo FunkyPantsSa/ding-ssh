@@ -64,11 +64,30 @@ type ProgressEvent struct {
 	Step      string `json:"step"`
 }
 
-// Settings 应用设置（持久化到 settings.json）。
+// Settings 应用设置（持久化到 settings.json / SQLite settings 表）。
 type Settings struct {
-	LogEnabled   bool  `json:"logEnabled"`   // 是否输出调试日志（默认关闭）
-	CopyOnSelect bool  `json:"copyOnSelect"` // 终端选中内容自动复制到剪贴板
-	Theme        Theme `json:"theme"`        // 终端主题
+	LogEnabled            bool   `json:"logEnabled"`                      // 是否输出调试日志（默认关闭）
+	CopyOnSelect          bool   `json:"copyOnSelect"`                    // 终端选中内容自动复制到剪贴板
+	WebGLEnabled          bool   `json:"webGLEnabled"`                    // 优先使用 WebGL 渲染（失败自动降级）
+	CompletionEnabled     bool   `json:"completionEnabled"`               // 智能命令补全
+	CompletionNavHotkey   string `json:"completionNavHotkey"`             // 补全导航开关键键，如 Alt+ArrowDown
+	CompletionPanelLimit  int    `json:"completionPanelLimit"`            // 补全面板最多展示条数，默认 8
+	Theme                 Theme  `json:"theme"`                           // 终端主题
+}
+
+// CommandHistory 命令历史记录（SQLite command_history 表）。
+type CommandHistory struct {
+	ID         int64  `json:"id"`
+	ServerID   string `json:"serverId"`
+	Command    string `json:"command"`
+	ExecutedAt int64  `json:"executedAt"`
+}
+
+// CommandSuggestion 补全候选（含频次与来源，供前端排序展示）。
+type CommandSuggestion struct {
+	Command string `json:"command"`
+	Count   int    `json:"count"`
+	Source  string `json:"source"` // history | dict | screen
 }
 
 // Theme 终端主题设置。
@@ -86,10 +105,10 @@ type Theme struct {
 // DefaultTheme 返回默认终端主题。
 func DefaultTheme() Theme {
 	return Theme{
-		Background: "#0b1120",
-		Foreground: "#dbe4f0",
-		Cursor:     "#38bdf8",
-		Selection:  "rgba(56, 189, 248, 0.25)",
+		Background: "#0c1016",
+		Foreground: "#d4dae3",
+		Cursor:     "#3ec4b4",
+		Selection:  "rgba(42, 168, 154, 0.28)",
 		BgImage:    "",
 		BlurAmount: 12,
 		TextShadow: false,
@@ -108,15 +127,16 @@ type Credential struct {
 	KeyContent string `json:"keyContent,omitempty"`
 }
 
-// TunnelInfo SSH 隧道摘要信息（本地端口转发）。
+// TunnelInfo SSH 隧道摘要信息。
 type TunnelInfo struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
 	ServerID   string `json:"serverId"`
 	ServerName string `json:"serverName"`
-	LocalPort  int    `json:"localPort"`  // 本地监听端口
-	RemoteHost string `json:"remoteHost"` // 远程目标主机
-	RemotePort int    `json:"remotePort"` // 远程目标端口
+	Mode       string `json:"mode"`       // local | remote | dynamic
+	LocalPort  int    `json:"localPort"`  // 本地监听端口（local/dynamic）或本地目标端口（remote）
+	RemoteHost string `json:"remoteHost"` // 远程目标主机（local）或远程监听地址（remote）
+	RemotePort int    `json:"remotePort"` // 远程目标/监听端口（dynamic 可为 0）
 	Status     string `json:"status"`     // running | stopped | error
 	Message    string `json:"message,omitempty"`
 	StartedAt  int64  `json:"startedAt"`
@@ -127,6 +147,50 @@ type TunnelStatusEvent struct {
 	ID      string `json:"id"`
 	Status  string `json:"status"` // running | stopped | error
 	Message string `json:"message,omitempty"`
+}
+
+// SysInfoSnapshot 系统信息快照（SysInfo Dashboard / 状态栏）。
+type SysInfoSnapshot struct {
+	SessionID   string      `json:"sessionId"`
+	CPUUsage    float64     `json:"cpuUsage"`
+	MemUsedMB   uint64      `json:"memUsedMb"`
+	MemTotalMB  uint64      `json:"memTotalMb"`
+	DiskUsage   []DiskInfo  `json:"diskUsage"`
+	NetIfaces   []NetIface  `json:"netIfaces"`
+	Uptime      string      `json:"uptime"`
+	CollectedAt int64       `json:"collectedAt"`
+	Error       string      `json:"error,omitempty"`
+}
+
+// DiskInfo 磁盘分区用量。
+type DiskInfo struct {
+	MountPoint string  `json:"mountPoint"`
+	TotalGB    uint64  `json:"totalGb"`
+	UsedGB     uint64  `json:"usedGb"`
+	UsagePct   float64 `json:"usagePct"`
+}
+
+// NetIface 网卡流量（速率由相邻两次采样差分得到；可附带 IPv4）。
+type NetIface struct {
+	Name   string  `json:"name"`
+	IP     string  `json:"ip,omitempty"`
+	RxMbps float64 `json:"rxMbps"`
+	TxMbps float64 `json:"txMbps"`
+}
+
+// SecurityStatus 敏感字段加密 / 主密码状态。
+type SecurityStatus struct {
+	Unlocked              bool `json:"unlocked"`
+	MasterPasswordEnabled bool `json:"masterPasswordEnabled"`
+	KeyringAvailable      bool `json:"keyringAvailable"`
+	NeedsUnlock           bool `json:"needsUnlock"`
+}
+
+// ImportConfigResult 配置导入结果。
+type ImportConfigResult struct {
+	Servers     int `json:"servers"`
+	Credentials int `json:"credentials"`
+	Groups      int `json:"groups"`
 }
 
 // SFTPEntry 远程目录条目。

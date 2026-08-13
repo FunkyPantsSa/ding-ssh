@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ding-ssh · Signal Desk 设计规范</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --ink-950:#07090c; --ink-900:#0c1016; --ink-800:#171e28;
+  --mist-400:#8b97a8; --mist-200:#d4dae3; --mist-100:#eef1f5;
+  --copper:#c97a4a; --signal:#2aa89a; --signal-bright:#3ec4b4;
+  --font:"Sora",system-ui,sans-serif; --mono:"IBM Plex Mono",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--ink-950);color:var(--mist-200);line-height:1.6;padding:48px 24px 80px}
+.wrap{max-width:880px;margin:0 auto}
+h1{font-size:28px;color:#fff;letter-spacing:-.03em;margin-bottom:8px}
+.lead{color:var(--mist-400);margin-bottom:40px;font-size:14px}
+h2{font-size:16px;color:#fff;margin:36px 0 14px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.08)}
+p,li{font-size:13px;color:var(--mist-400)}
+ul{padding-left:18px;margin:8px 0 16px}
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;margin:16px 0}
+.sw{height:72px;border-radius:10px;padding:10px;display:flex;flex-direction:column;justify-content:flex-end;font-size:11px;color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 8px 20px rgba(0,0,0,.35)}
+.sw code{font-family:var(--mono);opacity:.85;font-size:10px}
+.neo{background:linear-gradient(155deg,rgba(255,255,255,.055),rgba(0,0,0,.18)),#11171f;border-radius:14px;padding:20px;margin:16px 0;box-shadow:inset 0 1px 0 rgba(255,255,255,.1),inset 0 -1px 0 rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.25),0 10px 28px rgba(0,0,0,.38),0 0 0 1px rgba(255,255,255,.055)}
+.space{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;margin:12px 0}
+.space i{display:block;background:rgba(42,168,154,.35);border-radius:2px}
+a{color:var(--signal-bright)}
+.mono{font-family:var(--mono);font-size:12px;color:var(--signal-bright)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Signal Desk · 设计规范</h1>
+  <p class="lead">配套成品：<a href="./ding-ssh-signal-desk.html">ding-ssh-signal-desk.html</a> · 品牌隐喻「信号锁扣」——连接即锁合，运维如坐席。</p>
+
+  <h2>1. 品牌调性</h2>
+  <div class="neo">
+    <p>墨黑仪器外壳 + 信号青绿 + 氧化铜点缀。拒绝通用紫蓝 SaaS、拒绝扁平线框。肌理：全局噪点叠层 + 径向氛围光 + 细线网格。</p>
+  </div>
+
+  <h2>2. 色彩</h2>
+  <div class="swatches">
+    <div class="sw" style="background:#07090c"><span>Ink 950</span><code>#07090C</code></div>
+    <div class="sw" style="background:#0c1016"><span>Ink 900</span><code>#0C1016</code></div>
+    <div class="sw" style="background:#171e28"><span>Ink 800</span><code>#171E28</code></div>
+    <div class="sw" style="background:#2aa89a"><span>Signal</span><code>#2AA89A</code></div>
+    <div class="sw" style="background:#c97a4a"><span>Copper</span><code>#C97A4A</code></div>
+    <div class="sw" style="background:#8b97a8"><span>Mist 400</span><code>#8B97A8</code></div>
+  </div>
+
+  <h2>3. 字体</h2>
+  <p>UI：<span class="mono">Sora</span> · 终端/路径：<span class="mono">IBM Plex Mono</span></p>
+
+  <h2>4. 间距归一（4px 基线）</h2>
+  <div class="space">
+    <i style="width:4px;height:24px" title="4"></i>
+    <i style="width:8px;height:28px" title="8"></i>
+    <i style="width:12px;height:32px" title="12"></i>
+    <i style="width:16px;height:36px" title="16"></i>
+    <i style="width:20px;height:40px" title="20"></i>
+    <i style="width:24px;height:44px" title="24"></i>
+    <i style="width:32px;height:48px" title="32"></i>
+  </div>
+  <p>同级按钮高度 36 / 30；列表行 44；标题栏 52；标签栏 40；状态栏 36；侧栏 268；工具栏 320；导航轨 68。</p>
+
+  <h2>5. 五层拟物卡片 <code class="mono">.neo</code></h2>
+  <div class="neo"><p>① 顶缘高光 inset · ② 底缘内阴影 · ③ 接触阴影 · ④ 环境投影 · ⑤ 1px 描边 rim。悬浮时 rim 转为 signal 色。</p></div>
+
+  <h2>6. 信息架构（已落地页面）</h2>
+  <ul>
+    <li>解锁页（主密码 / 演示跳过）+ 叙事插画</li>
+    <li>工作区：服务器分组列表 · 多标签 · 终端 · FZF 补全 · 连接五步进度 · 空状态 · SFTP · SysInfo · 底部指标栏</li>
+    <li>隧道：本地 / 远程 / SOCKS5 切换 · 卡片启停删 · 创建表单 · 空状态</li>
+    <li>设置：通用 · 主题 · 安全 · 导入导出（含结果反馈）</li>
+    <li>全局：新建/编辑服务器弹窗 · ⌘K 命令面板 · Toast 反馈</li>
+  </ul>
+
+  <h2>7. 动效原则</h2>
+  <p>时长 ~220ms · 曲线 <span class="mono">cubic-bezier(0.22,1,0.36,1)</span>。按钮四态、卡片悬浮、页面 fadeRise、在线呼吸灯、连接步骤推进。禁止弹跳夸张。</p>
+
+  <h2>8. 图标</h2>
+  <p>统一 1.6 描边圆角 SVG（Lucide 语汇），禁止 Emoji。尺寸 14 / 18 / 22。</p>
+</div>
+</body>
+</html>

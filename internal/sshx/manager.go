@@ -39,6 +39,7 @@ type Manager struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
 	tunnels  map[string]*Tunnel
+	sysinfo  map[string]*SysInfoCollector
 	notify   Notifier
 
 	transfersMu sync.Mutex
@@ -52,6 +53,7 @@ func NewManager(notify Notifier) *Manager {
 	return &Manager{
 		sessions:  make(map[string]*Session),
 		tunnels:   make(map[string]*Tunnel),
+		sysinfo:   make(map[string]*SysInfoCollector),
 		transfers: make(map[string][]*activeTransfer),
 		notify:    notify,
 		cache:     NewSFTPCacheManager(),
@@ -525,13 +527,20 @@ func (m *Manager) CloseAll() {
 	m.mu.RLock()
 	sessions := make([]*Session, 0, len(m.sessions))
 	tunnels := make([]*Tunnel, 0, len(m.tunnels))
+	collectors := make([]*SysInfoCollector, 0, len(m.sysinfo))
 	for _, s := range m.sessions {
 		sessions = append(sessions, s)
 	}
 	for _, t := range m.tunnels {
 		tunnels = append(tunnels, t)
 	}
+	for _, c := range m.sysinfo {
+		collectors = append(collectors, c)
+	}
 	m.mu.RUnlock()
+	for _, c := range collectors {
+		c.Stop()
+	}
 	for _, s := range sessions {
 		s.close(models.StatusClosed, "应用退出")
 	}
@@ -542,20 +551,44 @@ func (m *Manager) CloseAll() {
 
 // ---- SSH 隧道 ----
 
-// StartTunnel 创建并启动一条 SSH 隧道（本地端口转发），
+// StartTunnel 创建并启动一条 SSH 隧道（local / remote / dynamic），
 // 状态变更通过 tunnel:status 事件上报。
-func (m *Manager) StartTunnel(node models.ServerNode, name string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
+func (m *Manager) StartTunnel(node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
+	tm := TunnelMode(mode)
+	if tm == "" {
+		tm = TunnelLocal
+	}
+	switch tm {
+	case TunnelLocal, TunnelRemote, TunnelDynamic:
+	default:
+		return models.TunnelInfo{}, fmt.Errorf("不支持的隧道模式: %s", mode)
+	}
 	if localPort < 1 || localPort > 65535 {
 		return models.TunnelInfo{}, fmt.Errorf("本地端口无效: %d", localPort)
 	}
-	if remotePort < 1 || remotePort > 65535 {
-		return models.TunnelInfo{}, fmt.Errorf("远程端口无效: %d", remotePort)
+	if tm != TunnelDynamic {
+		if remotePort < 1 || remotePort > 65535 {
+			return models.TunnelInfo{}, fmt.Errorf("远程端口无效: %d", remotePort)
+		}
+	}
+	if tm == TunnelRemote && remoteHost == "" {
+		remoteHost = "127.0.0.1"
+	}
+	if tm == TunnelLocal && remoteHost == "" {
+		remoteHost = "127.0.0.1"
 	}
 	if name == "" {
-		name = fmt.Sprintf("%s:%d", node.Name, localPort)
+		switch tm {
+		case TunnelDynamic:
+			name = fmt.Sprintf("SOCKS5:%d", localPort)
+		case TunnelRemote:
+			name = fmt.Sprintf("R:%d→%d", remotePort, localPort)
+		default:
+			name = fmt.Sprintf("%s:%d", node.Name, localPort)
+		}
 	}
 	id := fmt.Sprintf("tunnel-%d", time.Now().UnixMilli())
-	t := newTunnel(id, name, node, localPort, remoteHost, remotePort, func(id string, status TunnelStatus, message string) {
+	t := newTunnel(id, name, tm, node, localPort, remoteHost, remotePort, func(id string, status TunnelStatus, message string) {
 		m.notify("tunnel:status", models.TunnelStatusEvent{ID: id, Status: string(status), Message: message})
 	})
 	if err := t.Start(); err != nil {
@@ -632,8 +665,68 @@ func (m *Manager) get(sessionID string) (*Session, error) {
 
 func (m *Manager) remove(sessionID string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	c := m.sysinfo[sessionID]
+	delete(m.sysinfo, sessionID)
 	delete(m.sessions, sessionID)
+	m.mu.Unlock()
+	if c != nil {
+		c.Stop()
+	}
+}
+
+// ---- SysInfo Dashboard ----
+
+// StartSysInfoCollector 为已连接会话启动系统指标采集。
+func (m *Manager) StartSysInfoCollector(sessionID string) error {
+	s, err := m.get(sessionID)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	if existing, ok := m.sysinfo[sessionID]; ok {
+		m.mu.Unlock()
+		return existing.Start()
+	}
+	c := newSysInfoCollector(sessionID, s.client,
+		func(snap models.SysInfoSnapshot) {
+			m.notify("sysinfo:snapshot:"+sessionID, snap)
+		},
+		func(msg string) {
+			m.notify("sysinfo:snapshot:"+sessionID, models.SysInfoSnapshot{
+				SessionID:   sessionID,
+				Error:       msg,
+				CollectedAt: time.Now().UnixMilli(),
+			})
+		},
+	)
+	m.sysinfo[sessionID] = c
+	m.mu.Unlock()
+	return c.Start()
+}
+
+// StopSysInfoCollector 停止系统指标采集。
+func (m *Manager) StopSysInfoCollector(sessionID string) error {
+	m.mu.Lock()
+	c, ok := m.sysinfo[sessionID]
+	if ok {
+		delete(m.sysinfo, sessionID)
+	}
+	m.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	c.Stop()
+	return nil
+}
+
+// SetSysInfoIdle 切换采集频率（前台 3s / 后台 10s）。
+func (m *Manager) SetSysInfoIdle(sessionID string, idle bool) {
+	m.mu.RLock()
+	c := m.sysinfo[sessionID]
+	m.mu.RUnlock()
+	if c != nil {
+		c.SetIdle(idle)
+	}
 }
 
 // parentDir 返回给定路径的父目录路径。

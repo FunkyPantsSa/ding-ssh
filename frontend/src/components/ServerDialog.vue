@@ -20,6 +20,11 @@ const groups = computed(() =>
   [...new Set(servers.servers.map((s) => s.group.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
 )
 
+/** select = 从已有分组选择；create = 手动输入新建分组名 */
+const groupMode = ref<'select' | 'create'>('select')
+const selectedGroup = ref('')
+const newGroupName = ref('')
+
 const form = reactive<ServerNode>({
   id: '',
   name: '',
@@ -34,6 +39,50 @@ const form = reactive<ServerNode>({
   bgImage: '',
   blurAmount: 12,
   envVars: {},
+})
+
+function syncGroupFromForm(group: string) {
+  const g = (group || '').trim()
+  if (!g) {
+    groupMode.value = 'select'
+    selectedGroup.value = ''
+    newGroupName.value = ''
+    return
+  }
+  if (groups.value.includes(g)) {
+    groupMode.value = 'select'
+    selectedGroup.value = g
+    newGroupName.value = ''
+  } else {
+    groupMode.value = 'create'
+    selectedGroup.value = ''
+    newGroupName.value = g
+  }
+}
+
+function applyGroupToForm() {
+  if (groupMode.value === 'create') {
+    form.group = newGroupName.value.trim()
+  } else {
+    form.group = selectedGroup.value.trim()
+  }
+}
+
+watch(groupMode, (mode) => {
+  if (mode === 'select') {
+    newGroupName.value = ''
+    form.group = selectedGroup.value.trim()
+  } else {
+    form.group = newGroupName.value.trim()
+  }
+})
+
+watch(selectedGroup, () => {
+  if (groupMode.value === 'select') form.group = selectedGroup.value.trim()
+})
+
+watch(newGroupName, () => {
+  if (groupMode.value === 'create') form.group = newGroupName.value.trim()
 })
 
 watch(
@@ -58,6 +107,7 @@ watch(
       blurAmount: editing?.blurAmount ?? 12,
       envVars: {},
     })
+    syncGroupFromForm(editing?.group ?? '')
   },
 )
 
@@ -97,7 +147,8 @@ async function save() {
   saving.value = true
   errorMsg.value = ''
   try {
-    await servers.save({...form})
+    applyGroupToForm()
+    await servers.save({...form, group: form.group.trim()})
     show.value = false
   } catch (e) {
     errorMsg.value = String(e)
@@ -134,37 +185,25 @@ onMounted(() => {
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="show"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-      @click.self="close"
-    >
-      <div
-        class="w-[560px] max-w-[92vw] max-h-[85vh] flex flex-col rounded-xl border border-slate-700/60 bg-slate-900/95 shadow-2xl"
-      >
-        <div
-          class="flex items-center justify-between px-5 py-4 border-b border-slate-800/80"
-        >
-          <h2 class="text-sm font-semibold text-slate-100">
-            {{ editing ? '编辑服务器' : '新建服务器' }}
-          </h2>
-          <button
-            class="w-7 h-7 rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-            title="关闭"
-            :disabled="saving"
-            @click="close"
-          >
-            <Icon name="close" :size="12" />
+    <div v-if="show" class="modal-root" @click.self="close">
+      <div class="modal neo wide" style="width:min(560px,92vw);max-height:85vh;display:flex;flex-direction:column">
+        <div class="flex items-center justify-between px-6 pt-6 pb-4">
+          <div>
+            <h3>{{ editing ? '编辑服务器' : '新建服务器' }}</h3>
+            <p class="mdesc !mb-0">配置主机、认证方式与分组。私钥内容本地加密存储。</p>
+          </div>
+          <button class="btn-icon" title="关闭" :disabled="saving" @click="close">
+            <Icon name="close" :size="14" />
           </button>
         </div>
 
-        <div class="flex-1 overflow-y-auto px-5 py-4 space-y-3 text-[13px]">
+        <div class="flex-1 overflow-y-auto px-6 pb-2 flex flex-col gap-4">
           <div class="grid grid-cols-2 gap-3">
             <label class="block">
               <span class="text-slate-400">名称 *</span>
               <input
                 v-model="form.name"
-                class="mt-1 w-full px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 outline-none focus:border-sky-500/60"
+                class="input"
                 placeholder="例如：生产服务器"
               />
             </label>
@@ -173,30 +212,64 @@ onMounted(() => {
               <input
                 v-model.number="form.port"
                 type="number"
-                class="mt-1 w-full px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 outline-none focus:border-sky-500/60"
+                class="input"
               />
             </label>
           </div>
 
-          <label class="block">
-            <span class="text-slate-400">分组（可选）</span>
+          <div class="block">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-slate-400">分组（可选）</span>
+              <div class="flex rounded-md border border-slate-700/60 overflow-hidden text-[11px]">
+                <button
+                  type="button"
+                  class="px-2 py-0.5 transition-colors"
+                  :class="groupMode === 'select' ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800/60 text-slate-500 hover:text-slate-300'"
+                  @click="groupMode = 'select'"
+                >
+                  选择已有
+                </button>
+                <button
+                  type="button"
+                  class="px-2 py-0.5 transition-colors border-l border-slate-700/60"
+                  :class="groupMode === 'create' ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800/60 text-slate-500 hover:text-slate-300'"
+                  @click="groupMode = 'create'"
+                >
+                  新建分组
+                </button>
+              </div>
+            </div>
+            <select
+              v-if="groupMode === 'select'"
+              v-model="selectedGroup"
+              class="select"
+            >
+              <option value="">未分组</option>
+              <option v-for="g in groups" :key="g" :value="g">{{ g }}</option>
+            </select>
             <input
-              v-model="form.group"
-              list="server-groups"
-              class="mt-1 w-full px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 outline-none focus:border-sky-500/60"
-              placeholder="未分组"
+              v-else
+              v-model="newGroupName"
+              type="text"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+              name="ding-ssh-new-group"
+              class="input"
+              placeholder="输入新分组名称"
             />
-            <datalist id="server-groups">
-              <option v-for="g in groups" :key="g" :value="g" />
-            </datalist>
-          </label>
+            <p class="mt-1 text-[11px] text-slate-500">
+              {{ groupMode === 'select' ? '从已有分组中选择；无合适项可切换到「新建分组」。' : '输入新名称保存后即出现在分组列表中。' }}
+            </p>
+          </div>
 
           <div class="grid grid-cols-2 gap-3">
             <label class="block">
               <span class="text-slate-400">主机 / IP *</span>
               <input
                 v-model="form.host"
-                class="mt-1 w-full px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 outline-none focus:border-sky-500/60"
+                class="input"
                 placeholder="example.com"
               />
             </label>
@@ -204,7 +277,7 @@ onMounted(() => {
               <span class="text-slate-400">用户名 *</span>
               <input
                 v-model="form.user"
-                class="mt-1 w-full px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 outline-none focus:border-sky-500/60"
+                class="input"
                 placeholder="root"
               />
             </label>
@@ -212,21 +285,9 @@ onMounted(() => {
 
           <div>
             <span class="text-slate-400">认证方式</span>
-            <div class="mt-1 flex gap-2">
-              <button
-                class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 transition-colors"
-                :class="form.authType === 'password' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
-                @click="form.authType = 'password'"
-              >
-                密码
-              </button>
-              <button
-                class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 transition-colors"
-                :class="form.authType === 'privateKey' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
-                @click="form.authType = 'privateKey'"
-              >
-                私钥
-              </button>
+            <div class="seg">
+              <button :class="form.authType === 'password' ? 'active' : ''" @click="form.authType = 'password'">密码</button>
+              <button :class="form.authType === 'privateKey' ? 'active' : ''" @click="form.authType = 'privateKey'">私钥</button>
             </div>
           </div>
 
@@ -236,7 +297,7 @@ onMounted(() => {
               <input
                 v-model="form.password"
                 type="password"
-                class="mt-1 w-full px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 outline-none focus:border-sky-500/60"
+                class="input"
                 placeholder="登录密码"
               />
             </label>
@@ -244,7 +305,7 @@ onMounted(() => {
               <span class="text-slate-400">使用已保存凭证（可选）</span>
               <select
                 v-model="selectedCred"
-                class="mt-1 w-full px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none focus:border-sky-500/60"
+                class="select"
                 @change="applyCredential(selectedCred)"
               >
                 <option value="">— 不使用 —</option>
@@ -310,7 +371,7 @@ onMounted(() => {
               <input
                 v-model="form.password"
                 type="password"
-                class="mt-1 w-full px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 outline-none focus:border-sky-500/60"
+                class="input"
                 placeholder="加密私钥的 passphrase"
               />
             </label>
@@ -319,19 +380,9 @@ onMounted(() => {
           <p v-if="errorMsg" class="text-xs text-rose-400 break-all">{{ errorMsg }}</p>
         </div>
 
-        <div class="flex justify-end gap-2 px-5 py-4 border-t border-slate-800/80">
-          <button
-            class="px-4 py-1.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-200"
-            :disabled="saving"
-            @click="close"
-          >
-            取消
-          </button>
-          <button
-            class="px-4 py-1.5 rounded-md bg-sky-500/80 hover:bg-sky-400 text-slate-900 font-medium"
-            :disabled="saving"
-            @click="save"
-          >
+        <div class="flex justify-end gap-2 px-6 py-5">
+          <button class="btn btn-ghost" :disabled="saving" @click="close">取消</button>
+          <button class="btn btn-primary" :disabled="saving" @click="save">
             {{ saving ? '保存中…' : '保存' }}
           </button>
         </div>

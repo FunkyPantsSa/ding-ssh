@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"ding-ssh/internal/models"
@@ -49,7 +50,12 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	defer s.mu.Unlock()
 	data, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
-		return models.Settings{}, nil
+		return models.Settings{
+			WebGLEnabled:         true,
+			CompletionEnabled:    true,
+			CompletionNavHotkey:  "Alt+ArrowDown",
+			CompletionPanelLimit: 8,
+		}, nil
 	}
 	if err != nil {
 		return models.Settings{}, err
@@ -58,7 +64,24 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return models.Settings{}, err
 	}
+	// 旧配置文件可能缺少新字段：缺省开启 WebGL / 补全
+	if !bytesContains(data, []byte(`"webGLEnabled"`)) {
+		settings.WebGLEnabled = true
+	}
+	if !bytesContains(data, []byte(`"completionEnabled"`)) {
+		settings.CompletionEnabled = true
+	}
+	if settings.CompletionNavHotkey == "" {
+		settings.CompletionNavHotkey = "Alt+ArrowDown"
+	}
+	if settings.CompletionPanelLimit <= 0 {
+		settings.CompletionPanelLimit = 8
+	}
 	return settings, nil
+}
+
+func bytesContains(haystack, needle []byte) bool {
+	return strings.Contains(string(haystack), string(needle))
 }
 
 // Save 保存设置（原子写入）。

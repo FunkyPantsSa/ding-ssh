@@ -1,15 +1,24 @@
 <script lang="ts" setup>
-import {computed, onMounted, reactive, ref} from 'vue'
+import {computed, onMounted, reactive, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {useGroupsStore} from '../stores/groups'
 import {useServersStore} from '../stores/servers'
 import {useSessionsStore} from '../stores/sessions'
+import {useUIStore} from '../stores/ui'
 import ServerDialog from './ServerDialog.vue'
 import type {ServerNode} from '../types'
 
 const servers = useServersStore()
 const sessions = useSessionsStore()
 const groups = useGroupsStore()
+const ui = useUIStore()
+
+watch(
+  () => ui.newServerTick,
+  (n, old) => {
+    if (n && n !== old) openNew()
+  },
+)
 
 const keyword = ref('')
 const showDialog = ref(false)
@@ -92,6 +101,18 @@ function connect(node: ServerNode) {
   sessions.openTab(node)
 }
 
+function nodeStatus(node: ServerNode): 'on' | 'err' | 'connecting' | '' {
+  const tabs = sessions.tabs.filter((t) => t.node.id === node.id)
+  if (tabs.some((t) => t.status === 'connected')) return 'on'
+  if (tabs.some((t) => t.status === 'connecting')) return 'connecting'
+  if (tabs.some((t) => t.status === 'error')) return 'err'
+  return ''
+}
+
+function isActiveNode(node: ServerNode): boolean {
+  return sessions.activeTab?.node.id === node.id
+}
+
 async function remove() {
   if (!confirmNode.value) return
   const node = confirmNode.value
@@ -152,211 +173,141 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
-    <div class="flex items-center justify-between px-3 py-2">
-      <h1 class="text-sm font-semibold tracking-wide text-slate-200">服务器</h1>
-      <div class="flex items-center gap-1">
-        <button
-          class="w-6 h-6 rounded-md bg-slate-700/60 hover:bg-slate-600 text-slate-300 text-xs"
-          title="管理分组"
-          aria-label="管理分组"
-          @click="openGroupManager"
-        >
-          <Icon name="folder" :size="14" />
-        </button>
-        <button
-          class="w-6 h-6 rounded-md bg-sky-500/80 hover:bg-sky-400 text-slate-900 text-sm leading-none font-bold transition-colors"
-          title="新建服务器"
-          aria-label="新建服务器"
-          @click="openNew"
-        >
-          <Icon name="plus" :size="14" />
-        </button>
-      </div>
-    </div>
-
-    <div class="px-3 pb-2">
-      <input
-        v-model="keyword"
-        type="text"
-        placeholder="搜索名称 / 地址 / 分组"
-        aria-label="搜索服务器"
-        class="w-full px-2.5 py-1 rounded-md bg-slate-800/80 border border-slate-700/60 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-sky-500/60"
-      />
-    </div>
-
-    <div class="flex-1 overflow-y-auto px-2 pb-3 space-y-1">
-      <div v-if="servers.loading" class="px-3 py-2 space-y-2">
-        <div v-for="i in 4" :key="i" class="flex items-center gap-2 px-2 py-2 rounded-md animate-pulse">
-          <div class="w-2 h-2 rounded-full bg-slate-700/60"></div>
-          <div class="h-3 flex-1 rounded bg-slate-700/40"></div>
-          <div class="w-8 h-3 rounded bg-slate-700/40"></div>
+  <div class="flex flex-col h-full min-h-0">
+    <div class="p-4 flex flex-col gap-3" style="box-shadow: inset 0 -1px 0 rgba(255,255,255,0.05)">
+      <div class="flex items-center justify-between">
+        <h3 class="text-[12px] font-semibold tracking-[0.08em] uppercase text-mist">Nodes</h3>
+        <div class="flex items-center gap-0.5">
+          <button class="btn-icon btn-sm" title="管理分组" aria-label="管理分组" @click="openGroupManager">
+            <Icon name="folder-cog" :size="14" />
+          </button>
+          <button class="btn-icon btn-sm" title="刷新" aria-label="刷新" @click="servers.load()">
+            <Icon name="refresh" :size="14" />
+          </button>
         </div>
       </div>
-      <div v-else-if="filtered.length === 0" class="px-3 py-8 text-center text-xs text-slate-500">
-        暂无服务器，点击右上角 + 添加
+      <div class="search">
+        <Icon name="search" :size="14" extra-class="search-ico" />
+        <input
+          v-model="keyword"
+          type="text"
+          class="input input-sm"
+          placeholder="搜索主机 / 分组…"
+          aria-label="搜索服务器"
+        />
+      </div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+      <div v-if="servers.loading" class="space-y-2">
+        <div v-for="i in 4" :key="i" class="flex items-center gap-2 px-2.5 py-2">
+          <div class="skel w-2 h-2 rounded-full"></div>
+          <div class="skel h-3 flex-1"></div>
+        </div>
+      </div>
+      <div v-else-if="filtered.length === 0" class="px-3 py-8 text-center text-xs text-mist">
+        暂无服务器，点击右上角新建
       </div>
 
-      <div v-for="bucket in grouped" :key="bucket.name">
-        <button
-          class="w-full flex items-center gap-1.5 px-1.5 py-1 text-left rounded-md hover:bg-slate-800/50"
-          @click="toggleGroup(bucket.name)"
-        >
-          <span class="text-[9px] text-slate-500 transition-transform" :class="collapsed[bucket.name] ? '' : 'rotate-90'">▶</span>
-          <span class="text-[11px] font-medium text-slate-400 truncate">{{ bucket.name }}</span>
-          <span class="ml-auto text-[10px] text-slate-600">{{ bucket.items.length }}</span>
+      <div v-for="bucket in grouped" :key="bucket.name" class="flex flex-col gap-1">
+        <button class="group-h" @click="toggleGroup(bucket.name)">
+          <Icon
+            name="chevron-down"
+            :size="14"
+            extra-class="transition-transform"
+            :class="collapsed[bucket.name] ? '-rotate-90' : ''"
+          />
+          {{ bucket.name }} · {{ bucket.items.length }}
         </button>
 
-        <div v-if="!collapsed[bucket.name]" class="space-y-1 mt-0.5">
+        <div v-if="!collapsed[bucket.name]" class="flex flex-col gap-0.5">
           <div
             v-for="node in bucket.items"
             :key="node.id"
-            class="group rounded-md px-2 py-1.5 bg-slate-800/50 border border-slate-700/40 hover:border-sky-500/40 transition-colors"
+            class="server-item group"
+            :class="isActiveNode(node) ? 'active' : ''"
+            @click="connect(node)"
           >
-            <div class="flex items-center justify-between gap-2">
-              <div class="min-w-0">
-                <p class="text-xs font-medium text-slate-200 truncate leading-tight">{{ node.name }}</p>
-                <p class="text-[10px] text-slate-500 truncate leading-tight mt-0.5">
-                  {{ node.user }}@{{ node.host }}:{{ node.port }}
-                </p>
-              </div>
-              <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                <button
-                  class="w-5 h-5 rounded bg-emerald-500/70 hover:bg-emerald-400 text-slate-900 text-[10px]"
-                  title="连接"
-                  @click="connect(node)"
-                >
-                  ▶
-                </button>
-                <button
-                  class="w-5 h-5 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 text-[10px]"
-                  title="编辑"
-                  @click="openEdit(node)"
-                >
-                  ✎
-                </button>
-                <button
-                  class="w-5 h-5 rounded bg-slate-700/70 hover:bg-rose-600/80 text-slate-300 text-[10px]"
-                  title="删除"
-                  @click="confirmNode = node"
-                >
-                  ✕
-                </button>
-              </div>
+            <span class="status" :class="nodeStatus(node)"></span>
+            <div class="min-w-0">
+              <div class="text-[13px] font-medium text-[var(--mist-100)] truncate">{{ node.name }}</div>
+              <div class="font-mono text-[11px] text-mist truncate">{{ node.user }}@{{ node.host }}:{{ node.port }}</div>
+            </div>
+            <div class="hidden group-hover:flex gap-0.5">
+              <button class="btn-icon btn-sm" title="连接" @click.stop="connect(node)">
+                <Icon name="arrow-right" :size="14" />
+              </button>
+              <button class="btn-icon btn-sm" title="编辑" @click.stop="openEdit(node)">
+                <Icon name="pencil" :size="14" />
+              </button>
+              <button class="btn-icon btn-sm" title="删除" @click.stop="confirmNode = node">
+                <Icon name="trash" :size="14" />
+              </button>
             </div>
           </div>
         </div>
       </div>
     </div>
 
+    <div class="p-3 flex gap-2" style="box-shadow: inset 0 1px 0 rgba(255,255,255,0.05)">
+      <button class="btn btn-ghost btn-sm flex-1" @click="openGroupManager">分组</button>
+      <button class="btn btn-primary btn-sm flex-1" @click="openNew">新建</button>
+    </div>
+
     <ServerDialog v-model="showDialog" :editing="editing" />
 
-    <!-- 删除服务器确认 -->
     <Teleport to="body">
-      <div
-        v-if="confirmNode"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-        @click.self="confirmNode = null"
-      >
-        <div class="w-[360px] rounded-xl border border-slate-700/60 bg-slate-900/95 p-5 shadow-2xl">
-          <h3 class="text-sm font-semibold text-slate-100">删除服务器</h3>
-          <p class="mt-2 text-xs text-slate-400 leading-relaxed break-all">
-            确认删除服务器「{{ confirmNode.name }}」？此操作不可恢复。
-          </p>
-          <div class="mt-5 flex justify-end gap-2">
-            <button
-              class="px-4 py-1.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-200 text-xs"
-              @click="confirmNode = null"
-            >
-              取消
-            </button>
-            <button
-              class="px-4 py-1.5 rounded-md bg-rose-600/80 hover:bg-rose-500 text-white text-xs font-medium"
-              @click="remove"
-            >
-              删除
-            </button>
+      <div v-if="confirmNode" class="modal-root" @click.self="confirmNode = null">
+        <div class="modal neo">
+          <h3>删除服务器</h3>
+          <p class="mdesc">确认删除服务器「{{ confirmNode.name }}」？此操作不可恢复。</p>
+          <div class="flex justify-end gap-2">
+            <button class="btn btn-ghost" @click="confirmNode = null">取消</button>
+            <button class="btn btn-danger" @click="remove">删除</button>
           </div>
         </div>
       </div>
     </Teleport>
 
-    <!-- 分组管理 -->
     <Teleport to="body">
-      <div
-        v-if="showGroupManager"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-        @click.self="showGroupManager = false"
-      >
-        <div class="w-[400px] max-h-[80vh] flex flex-col rounded-xl border border-slate-700/60 bg-slate-900/95 shadow-2xl">
-          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800/80">
-            <h3 class="text-sm font-semibold text-slate-100">分组管理</h3>
-            <button
-              class="w-7 h-7 rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-              @click="showGroupManager = false"
-            >
-              ✕
+      <div v-if="showGroupManager" class="modal-root" @click.self="showGroupManager = false">
+        <div class="modal neo" style="width:min(400px,100%);padding:0;display:flex;flex-direction:column;max-height:80vh">
+          <div class="flex items-center justify-between px-5 py-4" style="box-shadow: inset 0 -1px 0 rgba(255,255,255,0.05)">
+            <h3 class="!mb-0">分组管理</h3>
+            <button class="btn-icon btn-sm" @click="showGroupManager = false">
+              <Icon name="close" :size="14" />
             </button>
           </div>
-
           <div class="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-            <div>
-              <div class="flex gap-2">
-                <input
-                  v-model="newGroupName"
-                  class="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none focus:border-sky-500/60"
-                  placeholder="新分组名称"
-                  @keyup.enter="addGroup"
-                />
-                <button
-                  class="px-3 py-1.5 rounded-md bg-sky-500/80 hover:bg-sky-400 text-slate-900 text-xs font-medium"
-                  @click="addGroup"
-                >
-                  添加
-                </button>
-              </div>
-              <p v-if="groupError" class="mt-1.5 text-xs text-rose-400">{{ groupError }}</p>
+            <div class="flex gap-2">
+              <input v-model="newGroupName" class="input input-sm flex-1" placeholder="新分组名称" @keyup.enter="addGroup" />
+              <button class="btn btn-primary btn-sm" @click="addGroup">添加</button>
             </div>
-
-            <div v-if="!groups.list.length" class="text-xs text-slate-500 py-2 text-center">
+            <p v-if="groupError" class="text-xs text-danger">{{ groupError }}</p>
+            <div v-if="!groups.list.length" class="text-xs text-mist py-2 text-center">
               暂无手动分组，服务器节点使用的分组会自动出现。
             </div>
-
             <div
               v-for="g in groups.list"
               :key="g"
-              class="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-slate-800/50 border border-slate-700/40"
+              class="neo-flat flex items-center justify-between gap-2 px-3 py-2"
             >
               <template v-if="renameTarget === g">
-                <input
-                  v-model="renameInput"
-                  class="flex-1 min-w-0 px-2 py-1 rounded-md bg-slate-800 border border-sky-500/60 text-slate-200 text-xs outline-none"
-                  @keyup.enter="doRename"
-                />
-                <button class="px-2 py-1 rounded bg-sky-500/80 hover:bg-sky-400 text-slate-900 text-xs" @click="doRename">确定</button>
-                <button class="px-2 py-1 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 text-xs" @click="renameTarget = ''">取消</button>
+                <input v-model="renameInput" class="input input-sm flex-1" @keyup.enter="doRename" />
+                <button class="btn btn-primary btn-sm" @click="doRename">确定</button>
+                <button class="btn btn-ghost btn-sm" @click="renameTarget = ''">取消</button>
               </template>
               <template v-else>
-                <span class="min-w-0 truncate text-[13px] text-slate-200">{{ g }}</span>
+                <span class="min-w-0 truncate text-[13px] text-[var(--mist-100)]">{{ g }}</span>
                 <div class="flex items-center gap-1 shrink-0">
-                  <button
-                    v-if="confirmGroupDelete !== g"
-                    class="px-2 py-1 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 text-xs"
-                    @click="startRename(g)"
-                  >
-                    重命名
-                  </button>
-                  <button
-                    v-if="confirmGroupDelete !== g"
-                    class="px-2 py-1 rounded bg-slate-700/70 hover:bg-rose-600/80 text-slate-300 text-xs"
-                    @click="confirmGroupDelete = g"
-                  >
-                    删除
-                  </button>
+                  <template v-if="confirmGroupDelete !== g">
+                    <button class="btn btn-ghost btn-sm" @click="startRename(g)">重命名</button>
+                    <button class="btn btn-ghost btn-sm" @click="confirmGroupDelete = g">删除</button>
+                  </template>
                   <template v-else>
-                    <span class="text-[11px] text-slate-400">删除后其中服务器将变为未分组</span>
-                    <button class="px-2 py-1 rounded bg-rose-600/80 hover:bg-rose-500 text-white text-xs" @click="removeGroup(g)">确认</button>
-                    <button class="px-2 py-1 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 text-xs" @click="confirmGroupDelete = ''">取消</button>
+                    <span class="text-[11px] text-mist">删除后其中服务器将变为未分组</span>
+                    <button class="btn btn-danger btn-sm" @click="removeGroup(g)">确认</button>
+                    <button class="btn btn-ghost btn-sm" @click="confirmGroupDelete = ''">取消</button>
                   </template>
                 </div>
               </template>

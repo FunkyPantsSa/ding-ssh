@@ -5,11 +5,11 @@ import {useSessionsStore} from '../stores/sessions'
 
 const sessions = useSessionsStore()
 
-const statusColor: Record<string, string> = {
-  connecting: 'bg-amber-400',
-  connected: 'bg-emerald-400',
-  closed: 'bg-slate-500',
-  error: 'bg-rose-500',
+const statusDot: Record<string, string> = {
+  connecting: 'bg-[var(--warn-500)]',
+  connected: 'bg-[var(--signal-400)] shadow-[0_0_8px_var(--signal-glow)]',
+  closed: 'bg-[var(--mist-400)]',
+  error: 'bg-[var(--danger-500)]',
 }
 
 const tabMenu = ref<{x: number; y: number; clientId: string} | null>(null)
@@ -50,74 +50,66 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex items-center gap-1 px-2 py-1.5 border-b border-slate-700/60 bg-slate-900/60 overflow-x-auto no-scrollbar shrink-0">
-    <div
+  <div class="tabs no-scrollbar">
+    <button
       v-for="tab in sessions.tabs"
       :key="tab.clientId"
-      class="group flex items-center gap-2 pl-3 pr-1.5 py-1 rounded-md text-[13px] cursor-pointer select-none shrink-0 transition-colors"
-      :class="
-        tab.clientId === sessions.activeId
-          ? 'bg-slate-700/70 text-slate-100'
-          : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200'
-      "
+      class="tab group"
+      :class="tab.clientId === sessions.activeId ? 'active' : ''"
       @click="sessions.activeId = tab.clientId"
       @auxclick.middle="close(tab.clientId)"
       @contextmenu.prevent="openTabMenu($event, tab.clientId)"
     >
-      <span class="w-2 h-2 rounded-full" :class="statusColor[tab.status] ?? 'bg-slate-500'"></span>
-      <span class="max-w-40 truncate">{{ tab.serverName }}</span>
+      <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot[tab.status] ?? 'bg-[var(--mist-400)]'"></span>
+      <span class="truncate">{{ tab.serverName }}</span>
       <span
-        v-if="tab.status === 'connecting'"
-        class="w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"
-      ></span>
-      <button
-        class="ml-1 px-1 rounded text-slate-500 hover:bg-slate-600/60 hover:text-slate-100"
-        title="关闭 (中键)"
+        class="w-4 h-4 rounded grid place-items-center opacity-0 group-hover:opacity-100 text-mist hover:bg-white/10 hover:text-[var(--mist-100)]"
+        :class="tab.clientId === sessions.activeId ? '!opacity-100' : ''"
+        title="关闭"
         @click.stop="close(tab.clientId)"
       >
         <Icon name="close" :size="10" />
-      </button>
-    </div>
+      </span>
+    </button>
 
     <div class="flex-1"></div>
-    <button
-      v-if="sessions.activeTab"
-      class="px-2 py-1 rounded-md text-xs transition-colors"
-      :class="sessions.activeTab.status === 'connected' ? 'text-slate-400 hover:text-sky-300' : 'text-slate-600 cursor-default'"
-      :disabled="sessions.activeTab.status !== 'connected'"
-      :title="sessions.activeTab.status === 'connected' ? '切换右侧 SFTP 面板' : '连接后可显示 SFTP 面板'"
-      @click="sessions.toggleSftp()"
-    >
-      {{ sessions.sftpVisible ? '隐藏 SFTP' : '显示 SFTP' }}
-    </button>
-    <button
-      v-if="sessions.tabs.length > 1"
-      class="px-2 py-1 rounded-md text-xs text-slate-400 hover:text-rose-300 hover:bg-slate-800"
-      title="关闭全部标签页"
-      @click="sessions.closeAll()"
-    >
-      全部关闭
-    </button>
-  </div>
-    <!-- 右键菜单 -->
-    <Teleport to="body">
-      <div
-        v-if="tabMenu"
-        class="fixed z-50 min-w-[140px] rounded-lg border border-slate-700/60 bg-slate-900/95 py-1 shadow-2xl text-xs"
-        :style="{left: tabMenu.x + 'px', top: tabMenu.y + 'px'}"
-        @contextmenu.prevent
-        @click.stop
-      >
-        <button class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800" @click="sessions.activeId = tabMenu.clientId; closeTabMenu()">切换到此标签</button>
-        <button class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800" @click="close(tabMenu.clientId); closeTabMenu()">关闭标签</button>
-        <button class="w-full text-left px-3 py-1.5 text-slate-200 hover:bg-slate-800" @click="closeOthers(tabMenu.clientId)">关闭其他标签</button>
-        <button class="w-full text-left px-3 py-1.5 text-rose-300 hover:bg-rose-600/70" @click="closeAll">关闭全部标签</button>
+    <div v-if="sessions.activeTab?.status === 'connected'" class="flex items-center gap-1 self-center mr-1">
+      <div class="seg">
+        <button
+          :class="sessions.sftpVisible && sessions.rightPanel === 'sftp' ? 'active' : ''"
+          @click="sessions.showRightPanel('sftp')"
+        >
+          SFTP
+        </button>
+        <button
+          :class="sessions.sftpVisible && sessions.rightPanel === 'sysinfo' ? 'active' : ''"
+          @click="sessions.showRightPanel('sysinfo')"
+        >
+          看板
+        </button>
       </div>
-    </Teleport>
+      <button
+        v-if="sessions.sftpVisible"
+        class="btn-icon btn-sm"
+        title="收起侧栏"
+        @click="sessions.sftpVisible = false"
+      >
+        <Icon name="close" :size="14" />
+      </button>
+    </div>
+  </div>
+  <Teleport to="body">
+    <div
+      v-if="tabMenu"
+      class="menu-pop neo fixed"
+      :style="{left: tabMenu.x + 'px', top: tabMenu.y + 'px'}"
+      @contextmenu.prevent
+      @click.stop
+    >
+      <button @click="sessions.activeId = tabMenu.clientId; closeTabMenu()">切换到此标签</button>
+      <button @click="close(tabMenu.clientId); closeTabMenu()">关闭标签</button>
+      <button @click="closeOthers(tabMenu.clientId)">关闭其他标签</button>
+      <button class="danger" @click="closeAll">关闭全部标签</button>
+    </div>
+  </Teleport>
 </template>
-
-<style scoped>
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-</style>

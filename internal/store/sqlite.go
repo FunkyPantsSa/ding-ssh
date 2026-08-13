@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"ding-ssh/internal/cryptox"
 	"ding-ssh/internal/models"
 
 	_ "modernc.org/sqlite"
@@ -58,6 +59,17 @@ CREATE TABLE IF NOT EXISTS credentials (
 CREATE TABLE IF NOT EXISTS groups (
 	name TEXT PRIMARY KEY
 );
+
+CREATE TABLE IF NOT EXISTS command_history (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	server_id   TEXT NOT NULL,
+	command     TEXT NOT NULL,
+	executed_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_command_history_server
+	ON command_history(server_id, executed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_command_history_cmd
+	ON command_history(server_id, command);
 `
 
 // OpenSQLite 打开（必要时创建）SQLite 数据库并初始化表结构。
@@ -98,12 +110,18 @@ func OpenSQLite(path string) (*sql.DB, error) {
 
 // SQLiteStore 基于 SQLite 的服务器节点存储。
 type SQLiteStore struct {
-	db *sql.DB
+	db     *sql.DB
+	cipher cryptox.FieldCipher
 }
 
 // NewSQLiteStore 基于已打开的数据库创建服务器存储。
 func NewSQLiteStore(db *sql.DB) *SQLiteStore {
 	return &SQLiteStore{db: db}
+}
+
+// SetCipher 注入敏感字段加解密器（Phase 4A）。
+func (s *SQLiteStore) SetCipher(c cryptox.FieldCipher) {
+	s.cipher = c
 }
 
 func scanServer(row interface{ Scan(...any) error }) (models.ServerNode, error) {
@@ -141,6 +159,9 @@ func (s *SQLiteStore) List() ([]models.ServerNode, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := s.decryptServer(&n); err != nil {
+			return nil, err
+		}
 		nodes = append(nodes, n)
 	}
 	return nodes, rows.Err()
@@ -151,6 +172,14 @@ func (s *SQLiteStore) Save(node models.ServerNode) error {
 	env, err := json.Marshal(node.EnvVars)
 	if err != nil {
 		return fmt.Errorf("序列化环境变量失败: %w", err)
+	}
+	password, err := cryptox.SealPlain(s.cipher, node.Password)
+	if err != nil {
+		return fmt.Errorf("加密密码失败: %w", err)
+	}
+	keyContent, err := cryptox.SealPlain(s.cipher, node.KeyContent)
+	if err != nil {
+		return fmt.Errorf("加密私钥失败: %w", err)
 	}
 	_, err = s.db.Exec(`
 		INSERT INTO servers (id, name, grp, host, port, user, auth_type, password,
@@ -163,12 +192,26 @@ func (s *SQLiteStore) Save(node models.ServerNode) error {
 			key_content = excluded.key_content, bg_image = excluded.bg_image,
 			blur_amount = excluded.blur_amount, env_vars = excluded.env_vars`,
 		node.ID, node.Name, node.Group, node.Host, node.Port, node.User,
-		node.AuthType, node.Password, node.KeyPath, node.KeyContent,
+		node.AuthType, password, node.KeyPath, keyContent,
 		node.BgImage, node.BlurAmount, string(env),
 	)
 	if err != nil {
 		return fmt.Errorf("保存服务器失败: %w", err)
 	}
+	return nil
+}
+
+func (s *SQLiteStore) decryptServer(n *models.ServerNode) error {
+	pw, err := cryptox.OpenField(s.cipher, n.Password)
+	if err != nil {
+		return fmt.Errorf("解密服务器密码失败: %w", err)
+	}
+	kc, err := cryptox.OpenField(s.cipher, n.KeyContent)
+	if err != nil {
+		return fmt.Errorf("解密服务器私钥失败: %w", err)
+	}
+	n.Password = pw
+	n.KeyContent = kc
 	return nil
 }
 
@@ -208,12 +251,33 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	if err := rows.Err(); err != nil {
 		return models.Settings{}, err
 	}
-	st := models.Settings{Theme: models.DefaultTheme()}
+	st := models.Settings{
+		Theme:                models.DefaultTheme(),
+		WebGLEnabled:         true, // 默认开启 WebGL
+		CompletionEnabled:    true, // 默认开启智能补全
+		CompletionNavHotkey:  "Alt+ArrowDown",
+		CompletionPanelLimit: 8,
+	}
 	if v, ok := values["logEnabled"]; ok {
 		st.LogEnabled = v == "true"
 	}
 	if v, ok := values["copyOnSelect"]; ok {
 		st.CopyOnSelect = v == "true"
+	}
+	if v, ok := values["webGLEnabled"]; ok {
+		st.WebGLEnabled = v == "true"
+	}
+	if v, ok := values["completionEnabled"]; ok {
+		st.CompletionEnabled = v == "true"
+	}
+	if v, ok := values["completionNavHotkey"]; ok && v != "" {
+		st.CompletionNavHotkey = v
+	}
+	if v, ok := values["completionPanelLimit"]; ok && v != "" {
+		var n int
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
+			st.CompletionPanelLimit = n
+		}
 	}
 	if v, ok := values["theme"]; ok && v != "" {
 		_ = json.Unmarshal([]byte(v), &st.Theme)
@@ -227,9 +291,19 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 	if err != nil {
 		return fmt.Errorf("序列化主题失败: %w", err)
 	}
+	if st.CompletionNavHotkey == "" {
+		st.CompletionNavHotkey = "Alt+ArrowDown"
+	}
+	if st.CompletionPanelLimit <= 0 {
+		st.CompletionPanelLimit = 8
+	}
 	entries := []struct{ k, v string }{
 		{"logEnabled", boolStr(st.LogEnabled)},
 		{"copyOnSelect", boolStr(st.CopyOnSelect)},
+		{"webGLEnabled", boolStr(st.WebGLEnabled)},
+		{"completionEnabled", boolStr(st.CompletionEnabled)},
+		{"completionNavHotkey", st.CompletionNavHotkey},
+		{"completionPanelLimit", fmt.Sprintf("%d", st.CompletionPanelLimit)},
 		{"theme", string(theme)},
 	}
 	for _, e := range entries {
@@ -251,12 +325,18 @@ func boolStr(v bool) string {
 
 // SQLiteCredentialStore 基于 SQLite 的凭证存储。
 type SQLiteCredentialStore struct {
-	db *sql.DB
+	db     *sql.DB
+	cipher cryptox.FieldCipher
 }
 
 // NewSQLiteCredentialStore 基于已打开的数据库创建凭证存储。
 func NewSQLiteCredentialStore(db *sql.DB) *SQLiteCredentialStore {
 	return &SQLiteCredentialStore{db: db}
+}
+
+// SetCipher 注入敏感字段加解密器。
+func (s *SQLiteCredentialStore) SetCipher(c cryptox.FieldCipher) {
+	s.cipher = c
 }
 
 // List 返回全部凭证。
@@ -272,6 +352,16 @@ func (s *SQLiteCredentialStore) List() ([]models.Credential, error) {
 		if err := rows.Scan(&c.ID, &c.Name, &c.User, &c.Password, &c.AuthType, &c.KeyPath, &c.KeyContent); err != nil {
 			return nil, err
 		}
+		pw, err := cryptox.OpenField(s.cipher, c.Password)
+		if err != nil {
+			return nil, fmt.Errorf("解密凭证密码失败: %w", err)
+		}
+		kc, err := cryptox.OpenField(s.cipher, c.KeyContent)
+		if err != nil {
+			return nil, fmt.Errorf("解密凭证私钥失败: %w", err)
+		}
+		c.Password = pw
+		c.KeyContent = kc
 		list = append(list, c)
 	}
 	return list, rows.Err()
@@ -282,12 +372,20 @@ func (s *SQLiteCredentialStore) Save(c models.Credential) error {
 	if c.AuthType == "" {
 		c.AuthType = "password"
 	}
-	_, err := s.db.Exec(`
+	password, err := cryptox.SealPlain(s.cipher, c.Password)
+	if err != nil {
+		return fmt.Errorf("加密凭证密码失败: %w", err)
+	}
+	keyContent, err := cryptox.SealPlain(s.cipher, c.KeyContent)
+	if err != nil {
+		return fmt.Errorf("加密凭证私钥失败: %w", err)
+	}
+	_, err = s.db.Exec(`
 		INSERT INTO credentials (id, name, user, password, auth_type, key_path, key_content) VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET name = excluded.name, user = excluded.user,
 			password = excluded.password, auth_type = excluded.auth_type,
 			key_path = excluded.key_path, key_content = excluded.key_content`,
-		c.ID, c.Name, c.User, c.Password, c.AuthType, c.KeyPath, c.KeyContent)
+		c.ID, c.Name, c.User, password, c.AuthType, c.KeyPath, keyContent)
 	if err != nil {
 		return fmt.Errorf("保存凭证失败: %w", err)
 	}

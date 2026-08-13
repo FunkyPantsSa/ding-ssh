@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import {computed, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
-import Icon from './Icon.vue'
 import {onTunnelStatus, sshService} from '../services/ssh'
 import {useServersStore} from '../stores/servers'
 import type {TunnelInfo, TunnelStatusEvent} from '../types'
@@ -13,6 +12,7 @@ const error = ref('')
 const form = reactive({
   serverId: '',
   name: '',
+  mode: 'local' as 'local' | 'remote' | 'dynamic',
   localPort: 13306,
   remoteHost: '127.0.0.1',
   remotePort: 3306,
@@ -21,7 +21,16 @@ const disposers: Array<() => void> = []
 
 const selectedServer = computed(() => servers.servers.find((s) => s.id === form.serverId))
 
-// 切换服务器时自动填充隧道名称
+const hint = computed(() => {
+  if (form.mode === 'dynamic') {
+    return `SOCKS5 代理：127.0.0.1:${form.localPort || '?'}`
+  }
+  if (form.mode === 'remote') {
+    return `远程转发：远端 ${form.remoteHost || '127.0.0.1'}:${form.remotePort || '?'} → 本机 127.0.0.1:${form.localPort || '?'}`
+  }
+  return `本地转发：127.0.0.1:${form.localPort || '?'} → ${form.remoteHost || '?'}:${form.remotePort || '?'}`
+})
+
 watch(
   () => form.serverId,
   (id, old) => {
@@ -30,6 +39,14 @@ watch(
     if (!form.name || form.name === servers.servers.find((x) => x.id === old)?.name) {
       form.name = s.name
     }
+  },
+)
+
+watch(
+  () => form.mode,
+  (mode) => {
+    if (mode === 'dynamic' && form.localPort === 13306) form.localPort = 1080
+    if (mode === 'local' && form.localPort === 1080) form.localPort = 13306
   },
 )
 
@@ -58,18 +75,21 @@ async function create() {
     error.value = '本地端口无效（1-65535）'
     return
   }
-  if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) {
-    error.value = '远程端口无效（1-65535）'
-    return
+  if (form.mode !== 'dynamic') {
+    if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) {
+      error.value = '远程端口无效（1-65535）'
+      return
+    }
   }
   busy.value = true
   try {
     await sshService.startTunnel(
       node,
       form.name.trim() || node.name,
+      form.mode,
       localPort,
       form.remoteHost.trim() || '127.0.0.1',
-      remotePort,
+      form.mode === 'dynamic' ? 0 : remotePort,
     )
     await refresh()
   } catch (e) {
@@ -116,10 +136,14 @@ function onStatus(evt: TunnelStatusEvent) {
   if (evt.message) t.message = evt.message
 }
 
-const statusText: Record<string, string> = {
-  running: '运行中',
-  stopped: '已停止',
-  error: '异常',
+const filteredTunnels = computed(() => tunnels.value.filter((t) => t.mode === form.mode))
+
+function tunnelDesc(t: TunnelInfo): string {
+  if (t.mode === 'dynamic') return `socks5://127.0.0.1:${t.localPort}\nvia ${t.serverName}`
+  if (t.mode === 'remote') {
+    return `remote:${t.remotePort} → ${t.remoteHost}:${t.localPort}\nvia ${t.serverName}`
+  }
+  return `127.0.0.1:${t.localPort} → ${t.remoteHost}:${t.remotePort}\nvia ${t.serverName}`
 }
 
 onMounted(async () => {
@@ -135,164 +159,90 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="h-full overflow-y-auto">
-    <div class="max-w-3xl mx-auto px-8 py-8 space-y-6">
-      <div>
-        <h2 class="text-lg font-semibold text-slate-100">SSH 隧道</h2>
-        <p class="text-xs text-slate-500 mt-1">
-          基于已保存服务器建立本地端口转发，访问 <code class="text-sky-400">127.0.0.1:本地端口</code> 即相当于访问远程目标。
-        </p>
+  <div class="h-full flex flex-col min-h-0">
+    <div class="page-pad">
+      <div class="page-hero grid grid-cols-[1fr_auto] gap-6 items-end mb-6">
+        <div>
+          <h2>SSH 隧道</h2>
+          <p>本地转发、远程转发与动态 SOCKS5。把内网服务安全映射到本机，或让远端走本地出口。</p>
+        </div>
+        <svg class="w-[200px] h-[100px]" viewBox="0 0 200 100" fill="none" aria-hidden="true">
+          <path d="M20 50h40l10-20 10 40 10-20h40" stroke="#3ec4b4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="30" cy="50" r="8" fill="#121820" stroke="#e0925e" stroke-width="1.4"/>
+          <circle cx="170" cy="50" r="8" fill="#121820" stroke="#3ec4b4" stroke-width="1.4"/>
+        </svg>
       </div>
 
-      <!-- 新建隧道 -->
-      <div class="rounded-xl border border-slate-700/60 bg-slate-900/60">
-        <div class="px-5 py-4 border-b border-slate-800/60">
-          <p class="text-sm font-medium text-slate-200">新建隧道</p>
-          <p class="text-xs text-slate-500 mt-1">选择服务器作为跳板，指定本地端口与远程目标。</p>
-        </div>
-
-        <div class="px-5 py-4 space-y-4 text-[13px]">
-          <div class="grid grid-cols-2 gap-4">
-            <label class="block col-span-2">
-              <span class="text-slate-400">跳板服务器</span>
-              <select
-                v-model="form.serverId"
-                class="mt-1 w-full px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none focus:border-sky-500/60"
-              >
-                <option v-for="s in servers.servers" :key="s.id" :value="s.id">
-                  {{ s.name }}（{{ s.user }}@{{ s.host }}:{{ s.port }}）
-                </option>
-              </select>
-            </label>
-
-            <label class="block">
-              <span class="text-slate-400">隧道名称</span>
-              <input
-                v-model="form.name"
-                class="mt-1 w-full px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none focus:border-sky-500/60"
-                placeholder="自动填充为服务器名"
-              />
-            </label>
-
-            <label class="block">
-              <span class="text-slate-400">本地端口</span>
-              <input
-                v-model.number="form.localPort"
-                type="number"
-                min="1"
-                max="65535"
-                class="mt-1 w-full px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 font-mono text-xs outline-none focus:border-sky-500/60"
-              />
-            </label>
-
-            <label class="block">
-              <span class="text-slate-400">远程目标主机</span>
-              <input
-                v-model="form.remoteHost"
-                class="mt-1 w-full px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 font-mono text-xs outline-none focus:border-sky-500/60"
-                placeholder="127.0.0.1"
-              />
-            </label>
-
-            <label class="block">
-              <span class="text-slate-400">远程目标端口</span>
-              <input
-                v-model.number="form.remotePort"
-                type="number"
-                min="1"
-                max="65535"
-                class="mt-1 w-full px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 font-mono text-xs outline-none focus:border-sky-500/60"
-              />
-            </label>
-          </div>
-
-          <div class="flex items-center justify-between gap-4">
-            <p v-if="error" class="text-xs text-rose-400 break-all">{{ error }}</p>
-            <p v-else class="text-[11px] text-slate-500">
-              转发：127.0.0.1:{{ form.localPort || '?' }} → {{ form.remoteHost || '?' }}:{{ form.remotePort || '?' }}
-            </p>
-            <button
-              class="ml-auto shrink-0 px-4 py-1.5 rounded-md bg-sky-500/80 hover:bg-sky-400 text-slate-900 font-medium text-xs"
-              :disabled="busy"
-              @click="create"
-            >
-              {{ busy ? '创建中…' : '创建并启动' }}
-            </button>
-          </div>
-        </div>
+      <div class="inline-flex gap-1 mb-5 p-1 rounded-[10px]" style="background:rgba(0,0,0,0.28);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.05)">
+        <button
+          v-for="m in (['local', 'remote', 'dynamic'] as const)"
+          :key="m"
+          class="h-[34px] px-4 rounded-[6px] text-xs font-medium"
+          :class="form.mode === m ? 'text-[var(--mist-100)] bg-white/8' : 'text-mist'"
+          @click="form.mode = m"
+        >
+          {{ m === 'local' ? '本地转发 -L' : m === 'remote' ? '远程转发 -R' : '动态 SOCKS5 -D' }}
+        </button>
       </div>
 
-      <!-- 隧道列表 -->
-      <div class="rounded-xl border border-slate-700/60 bg-slate-900/60">
-        <div class="px-5 py-4 border-b border-slate-800/60 flex items-center justify-between">
-          <div>
-            <p class="text-sm font-medium text-slate-200">隧道列表</p>
-            <p class="text-xs text-slate-500 mt-1">运行中的隧道随应用退出自动关闭。</p>
-          </div>
-          <button class="px-3 py-1.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-200 text-xs" @click="refresh">
-            <Icon name="refresh" :size="12" class="mr-1" /> 刷新
-          </button>
-        </div>
-
-        <div class="px-5 py-4 space-y-2">
-          <div v-if="!tunnels.length && !loading" class="text-xs text-slate-500 py-2">暂无隧道，在上方创建。</div>
-
-          <div
-            v-for="t in tunnels"
-            :key="t.id"
-            class="flex items-center gap-3 px-3 py-2.5 rounded-md bg-slate-800/50 border border-slate-700/40"
-          >
-            <span
-              class="w-2 h-2 shrink-0 rounded-full"
-              :class="t.status === 'running' ? 'bg-emerald-400' : t.status === 'error' ? 'bg-rose-400' : 'bg-slate-500'"
-            ></span>
-
-            <div class="min-w-0 flex-1">
-              <p class="text-[13px] text-slate-200 truncate">{{ t.name }}</p>
-              <p class="text-[11px] text-slate-500 truncate">
-                {{ t.serverName }} · 127.0.0.1:{{ t.localPort }} → {{ t.remoteHost }}:{{ t.remotePort }}
-              </p>
-              <p v-if="t.status === 'error' && t.message" class="text-[11px] text-rose-400 break-all mt-0.5">{{ t.message }}</p>
+      <div v-if="filteredTunnels.length" class="grid gap-4 mb-6" style="grid-template-columns: repeat(auto-fill, minmax(300px, 1fr))">
+        <div v-for="t in filteredTunnels" :key="t.id" class="neo neo-hover p-5 flex flex-col gap-3">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-semibold text-[var(--mist-100)]">{{ t.name }}</h3>
+              <div class="font-mono text-[11px] text-mist leading-relaxed whitespace-pre-line mt-1">{{ tunnelDesc(t) }}</div>
             </div>
-
-            <span
-              class="shrink-0 px-2 py-0.5 rounded-full text-[10px]"
-              :class="
-                t.status === 'running'
-                  ? 'bg-emerald-500/15 text-emerald-300'
-                  : t.status === 'error'
-                    ? 'bg-rose-500/15 text-rose-300'
-                    : 'bg-slate-700/50 text-slate-400'
-              "
-            >
-              {{ statusText[t.status] }}
+            <span class="badge" :class="t.status === 'running' ? 'live' : t.status === 'error' ? 'err' : 'stop'">
+              {{ t.status === 'running' ? 'LIVE' : t.status === 'error' ? 'ERROR' : 'STOPPED' }}
             </span>
+          </div>
+          <p v-if="t.status === 'error' && t.message" class="text-[11px] text-danger break-all">{{ t.message }}</p>
+          <div class="flex gap-1.5">
+            <button v-if="t.status === 'running'" class="btn btn-ghost btn-sm" @click="stop(t.id)">停止</button>
+            <button v-else class="btn btn-primary btn-sm" @click="restart(t.id)">启动</button>
+            <button v-if="t.status === 'running'" class="btn btn-ghost btn-sm" @click="restart(t.id)">重启</button>
+            <button class="btn btn-ghost btn-sm" @click="remove(t.id)">删除</button>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="!loading" class="empty py-10">
+        <div class="empty-inner">
+          <h3>暂无此类隧道</h3>
+          <p>使用下方表单创建一条转发规则，或切换到其他类型查看。</p>
+        </div>
+      </div>
 
-            <div class="shrink-0 flex items-center gap-1">
-              <button
-                v-if="t.status === 'running'"
-                class="px-2 py-1 rounded bg-amber-500/70 hover:bg-amber-400 text-slate-900 text-xs"
-                title="停止隧道"
-                @click="stop(t.id)"
-              >
-                停止
-              </button>
-              <button
-                v-else
-                class="px-2 py-1 rounded bg-sky-500/70 hover:bg-sky-400 text-slate-900 text-xs"
-                title="重新启动隧道"
-                @click="restart(t.id)"
-              >
-                启动
-              </button>
-              <button
-                class="px-2 py-1 rounded bg-slate-700/70 hover:bg-rose-600/80 text-slate-300 text-xs"
-                title="移除隧道"
-                @click="remove(t.id)"
-              >
-                删除
-              </button>
-            </div>
+      <div class="neo p-5 grid gap-4 items-end" style="grid-template-columns: repeat(4, 1fr)">
+        <div class="field">
+          <label>名称</label>
+          <input v-model="form.name" class="input" placeholder="例如 Postgres 本地入口" />
+        </div>
+        <div class="field">
+          <label>跳板服务器</label>
+          <select v-model="form.serverId" class="select">
+            <option v-for="s in servers.servers" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>{{ form.mode === 'remote' ? '本机目标端口' : '本地绑定' }}</label>
+          <input v-model.number="form.localPort" type="number" min="1" max="65535" class="input font-mono" />
+        </div>
+        <div v-if="form.mode !== 'dynamic'" class="field">
+          <label>{{ form.mode === 'remote' ? '远程监听' : '远端目标' }}</label>
+          <input v-model="form.remoteHost" class="input font-mono" placeholder="127.0.0.1" />
+        </div>
+        <div v-if="form.mode !== 'dynamic'" class="field">
+          <label>{{ form.mode === 'remote' ? '远程端口' : '远端端口' }}</label>
+          <input v-model.number="form.remotePort" type="number" min="1" max="65535" class="input font-mono" />
+        </div>
+        <div class="col-span-full flex items-center justify-between gap-4 pt-2">
+          <p v-if="error" class="text-xs text-danger break-all">{{ error }}</p>
+          <p v-else class="text-[11px] text-mist">{{ hint }}</p>
+          <div class="flex gap-2 ml-auto">
+            <button class="btn btn-ghost" type="button" @click="refresh">刷新</button>
+            <button class="btn btn-primary" :disabled="busy" @click="create">
+              {{ busy ? '创建中…' : '创建隧道' }}
+            </button>
           </div>
         </div>
       </div>
