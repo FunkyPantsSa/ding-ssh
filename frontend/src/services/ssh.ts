@@ -110,8 +110,51 @@ export function onTunnelStatus(handler: (evt: TunnelStatusEvent) => void): () =>
 
 export function onSftpTransfer(sessionId: string, handler: (evt: SFTPTransferEvent) => void): () => void {
   const event = `sftp:transfer:${sessionId}`
-  EventsOn(event, (payload: SFTPTransferEvent) => handler(payload))
+  EventsOn(event, (...args: unknown[]) => {
+    const evt = normalizeTransferEvent(args.length === 1 ? args[0] : args)
+    if (evt) handler(evt)
+  })
   return () => EventsOff(event)
+}
+
+function normalizeTransferEvent(payload: unknown): SFTPTransferEvent | null {
+  if (Array.isArray(payload) && payload.length >= 3 && (payload[1] === 'upload' || payload[1] === 'download')) {
+    return {
+      sessionId: String(payload[0] ?? ''),
+      direction: payload[1],
+      name: String(payload[2] ?? ''),
+      transferred: Number(payload[3] ?? 0) || 0,
+      total: Number(payload[4] ?? 0) || 0,
+      done: Boolean(payload[5]),
+      error: payload[6] ? String(payload[6]) : undefined,
+    }
+  }
+  const obj = unwrapEventObject(payload)
+  if (!obj) return null
+  const direction = String(obj.direction ?? obj.Direction ?? '')
+  const name = String(obj.name ?? obj.Name ?? '')
+  if ((direction !== 'upload' && direction !== 'download') || !name) return null
+  return {
+    sessionId: String(obj.sessionId ?? obj.SessionID ?? ''),
+    direction,
+    name,
+    transferred: Number(obj.transferred ?? obj.Transferred ?? 0) || 0,
+    total: Number(obj.total ?? obj.Total ?? 0) || 0,
+    done: Boolean(obj.done ?? obj.Done),
+    error: obj.error || obj.Error ? String(obj.error ?? obj.Error) : undefined,
+  }
+}
+
+function unwrapEventObject(payload: unknown): Record<string, unknown> | null {
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const obj = unwrapEventObject(item)
+      if (obj) return obj
+    }
+    return null
+  }
+  if (payload && typeof payload === 'object') return payload as Record<string, unknown>
+  return null
 }
 
 // base64 -> Uint8Array，用于 xterm.write
