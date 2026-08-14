@@ -242,7 +242,7 @@ function fmtSize(n: number): string {
 }
 
 function percent(t: TransferItem): number {
-  if (!t.total) return 0
+  if (!t.total) return t.done && !t.error ? 100 : 0
   return Math.min(100, Math.round((t.transferred / t.total) * 100))
 }
 
@@ -250,14 +250,16 @@ function onTransfer(evt: {direction: 'upload' | 'download'; name: string; transf
   const key = `${evt.direction}:${evt.name}`
   let t = transfers.value.find((x) => x.key === key)
   if (!t) {
-    if (evt.done) return
+    if (evt.done && !evt.error) return
     t = {key, direction: evt.direction, name: evt.name, transferred: 0, total: 0, done: false, error: ''}
     transfers.value.push(t)
   }
+  if (!evt.done && evt.transferred < t.transferred) return
   t.transferred = evt.transferred
-  t.total = evt.total
+  t.total = evt.total || t.total
   if (evt.done) {
     t.done = true
+    if (t.total > 0) t.transferred = Math.max(t.transferred, t.total)
     if (evt.error) t.error = evt.error
   }
 }
@@ -269,16 +271,19 @@ async function runTransfer(direction: 'upload' | 'download', name: string, task:
   transfers.value.push(t)
   try {
     await task()
+    if (!t.error) {
+      t.done = true
+      if (t.total > 0) t.transferred = t.total
+    }
   } catch (e) {
     t.error = String(e)
     t.done = true
   }
-  // 等待后端最终进度事件后清理并刷新目录
   setTimeout(() => {
     const idx = transfers.value.findIndex((x) => x.key === key)
     if (idx >= 0 && !transfers.value[idx].error) transfers.value.splice(idx, 1)
     void refresh()
-  }, 500)
+  }, 800)
 }
 
 async function upload() {
@@ -328,8 +333,21 @@ async function cancelTransfer(t: TransferItem) {
   }
 }
 
+function bindSessionEvents(sessionId: string) {
+  while (disposers.length) disposers.pop()?.()
+  if (!sessionId) return
+  disposers.push(onSftpTransfer(sessionId, onTransfer))
+  disposers.push(onSftpDirUpdated(sessionId, (evt) => {
+    if (evt.path === path.value || evt.path === path.value + '/') {
+      entries.value = evt.entries.sort((a: SFTPEntry, b: SFTPEntry) =>
+        a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
+      )
+    }
+  }))
+}
+
 onMounted(() => {
-  disposers.push(onSftpTransfer(props.tab.sessionId, onTransfer))
+  bindSessionEvents(props.tab.sessionId)
   window.addEventListener('click', closeMenu)
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('scroll', closeMenu, true)
@@ -338,16 +356,12 @@ onMounted(() => {
     dragOver.value = false
     if (paths?.length) void uploadPaths(paths)
   }, true)
-  if (props.tab.sessionId) {
-    disposers.push(onSftpDirUpdated(props.tab.sessionId, (evt) => {
-      if (evt.path === path.value || evt.path === path.value + '/') {
-        entries.value = evt.entries.sort((a: SFTPEntry, b: SFTPEntry) =>
-          a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
-        )
-      }
-    }))
-  }
 })
+
+watch(
+  () => props.tab.sessionId,
+  (sid) => bindSessionEvents(sid),
+)
 
 watch(
   () => [props.tab.sftpPath, props.tab.status, props.tab.sessionId] as const,
@@ -497,7 +511,12 @@ onBeforeUnmount(() => {
           <button v-if="!t.done && !t.error" class="btn btn-ghost btn-sm" @click="cancelTransfer(t)">取消</button>
           <span class="font-mono text-signal">{{ percent(t) }}%</span>
         </span>
-        <div class="prog col-span-2"><i :style="{width: percent(t) + '%'}"></i></div>
+        <div class="prog col-span-2" :class="{indeterminate: !t.done && !t.error && percent(t) === 0}">
+          <i :style="{width: (percent(t) === 0 && !t.done ? 30 : percent(t)) + '%'}"></i>
+        </div>
+        <div class="col-span-2 font-mono text-[11px] text-mist">
+          {{ t.total ? `${fmtSize(t.transferred)} / ${fmtSize(t.total)}` : t.done ? '完成' : '传输中…' }}
+        </div>
         <div v-if="t.error" class="col-span-2 flex justify-between text-danger">
           <span class="break-all">{{ t.error }}</span>
           <button @click="dismissTransfer(t.key)"><Icon name="close" :size="12" /></button>

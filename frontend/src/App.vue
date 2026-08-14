@@ -390,6 +390,7 @@ onBeforeUnmount(() => {
                 <SftpPanel
                   v-if="activeConnected && sessions.sftpVisible"
                   v-show="sessions.rightPanel === 'sftp'"
+                  :key="activeConnected.clientId"
                   :tab="activeConnected"
                 />
                 <SysInfoPanel

@@ -85,6 +85,19 @@ function sanitizeHistoryCommand(cmd: string): string {
   return s
 }
 
+function currentUIZoom(): number {
+  const n = (settings.uiScale || 100) / 100
+  return n > 0 ? n : 1
+}
+
+function xtermCore(t: Terminal): {
+  _renderService?: {dimensions?: {css?: {cell?: {width: number; height: number}}}}
+} | undefined {
+  return (t as unknown as {_core?: {
+    _renderService?: {dimensions?: {css?: {cell?: {width: number; height: number}}}}
+  }})._core
+}
+
 function hexToRgba(hex: string, alpha: number): string {
   const m = hex.replace('#', '')
   const full = m.length === 3 ? m.split('').map((c) => c + c).join('') : m
@@ -103,11 +116,17 @@ const bgImageStyle = computed(() => {
   }
 })
 
-const terminalStyle = computed(() => ({
-  '--xterm-text-shadow': settings.theme.textShadow
-    ? `0 1px 3px rgba(0, 0, 0, 0.8), 0 0 ${settings.theme.shadowBlur}px rgba(0, 0, 0, 0.5)`
-    : 'none',
-}))
+const terminalStyle = computed(() => {
+  const z = currentUIZoom()
+  return {
+    '--xterm-text-shadow': settings.theme.textShadow
+      ? `0 1px 3px rgba(0, 0, 0, 0.8), 0 0 ${settings.theme.shadowBlur}px rgba(0, 0, 0, 0.5)`
+      : 'none',
+    // xterm 不支持位于 CSS zoom 祖先中：仅反向抵消全局缩放。
+    // 父级 zoom 已改变布局视口，额外按 z 缩宽高会让画布再次缩小。
+    zoom: 1 / z,
+  }
+})
 
 const sourceLabel: Record<string, string> = {
   history: '历史',
@@ -166,11 +185,20 @@ function fit() {
   }
 }
 
+function effectiveFontSize(): number {
+  return Math.max(8, Math.min(40, Math.round(fontSize.value * currentUIZoom() * 10) / 10))
+}
+
+function applyFontSize() {
+  if (!term) return
+  term.options.fontSize = effectiveFontSize()
+  fit()
+}
+
 function adjustFontSize(delta: number) {
   if (!term) return
   fontSize.value = Math.max(8, Math.min(32, fontSize.value + delta))
-  term.options.fontSize = fontSize.value
-  fit()
+  applyFontSize()
 }
 
 function toggleFullscreen() {
@@ -284,8 +312,7 @@ function handleCompletionKey(e: KeyboardEvent): boolean {
 
 async function updatePanelPosition() {
   if (!term || !container.value) return
-  const dims = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { width: number; height: number } } } } } })._core
-    ?._renderService?.dimensions?.css?.cell
+  const dims = xtermCore(term)?._renderService?.dimensions?.css?.cell
   const cellW = dims?.width ?? 8
   const cellH = dims?.height ?? 16
   const buf = term.buffer.active
@@ -622,8 +649,7 @@ function onKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === '0') {
     e.preventDefault()
     fontSize.value = 13
-    if (term) term.options.fontSize = 13
-    fit()
+    applyFontSize()
   }
   if (e.key === 'F11') {
     e.preventDefault()
@@ -805,7 +831,7 @@ onMounted(() => {
     allowProposedApi: true,
     allowTransparency: !!settings.theme.bgImage,
     cursorBlink: true,
-    fontSize: 13,
+    fontSize: effectiveFontSize(),
     fontFamily: '"IBM Plex Mono", Menlo, Monaco, "Cascadia Mono", "JetBrains Mono", Consolas, monospace',
     theme: {
       background: settings.theme.background,
@@ -820,6 +846,7 @@ onMounted(() => {
   term.loadAddon(fitAddon)
   term.open(container.value!)
   tryEnableWebGL()
+  applyFontSize()
 
   // 在 xterm 处理按键前拦截补全快捷键
   term.attachCustomKeyEventHandler((e) => {
@@ -893,6 +920,14 @@ watch(
   () => settings.completionEnabled,
   (enabled) => {
     if (!enabled) hideSuggestions()
+  },
+)
+
+watch(
+  () => settings.uiScale,
+  () => {
+    if (!term || disposed) return
+    nextTick(() => applyFontSize())
   },
 )
 

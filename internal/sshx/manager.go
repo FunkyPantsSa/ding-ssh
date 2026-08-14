@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ding-ssh/internal/logx"
@@ -421,7 +422,8 @@ func (m *Manager) SftpDownload(sessionID, remotePath, localPath string) error {
 }
 
 // streamTransfer 通用流式拷贝并上报进度（限频 100ms）。
-// 每轮拷贝前检查 ctx，取消时上报「已取消」事件并返回 ErrTransferCancelled。
+// 进度由独立 goroutine 推送：Wails 绑定方法执行期间，同协程 EventsEmit 会被排到调用返回之后，
+// 前端 await SftpUpload 时就看不到中间进度。
 func (m *Manager) streamTransfer(
 	ctx context.Context,
 	sessionID, direction, name string,
@@ -429,56 +431,80 @@ func (m *Manager) streamTransfer(
 	read func([]byte) (int, error),
 	write func([]byte) (int, error),
 ) error {
-	transferred := int64(0)
-	last := time.Now()
-	notify := func(done bool, errMsg string) {
-		if !done && time.Since(last) < transferNotifyInterval {
-			return
+	var transferred atomic.Int64
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		emit := func() {
+			m.notify("sftp:transfer:"+sessionID, models.SFTPTransferEvent{
+				SessionID:   sessionID,
+				Direction:   direction,
+				Name:        name,
+				Transferred: transferred.Load(),
+				Total:       total,
+				Done:        false,
+			})
 		}
-		last = time.Now()
+		emit()
+		ticker := time.NewTicker(transferNotifyInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				emit()
+			case <-stop:
+				return
+			}
+		}
+	}()
+
+	finish := func(errMsg string) {
+		close(stop)
+		wg.Wait()
 		m.notify("sftp:transfer:"+sessionID, models.SFTPTransferEvent{
 			SessionID:   sessionID,
 			Direction:   direction,
 			Name:        name,
-			Transferred: transferred,
+			Transferred: transferred.Load(),
 			Total:       total,
-			Done:        done,
+			Done:        true,
 			Error:       errMsg,
 		})
 	}
+
 	buf := make([]byte, 64*1024)
 	for {
 		if err := ctx.Err(); err != nil {
-			notify(true, "已取消")
+			finish("已取消")
 			return ErrTransferCancelled
 		}
 		n, rerr := read(buf)
 		if n > 0 {
-			// Phase 2: 令牌桶限速
 			if err := DefaultTransferPool.Limiter().Wait(ctx, n); err != nil {
 				if err == context.Canceled {
-					notify(true, "已取消")
+					finish("已取消")
 					return ErrTransferCancelled
 				}
-				notify(true, err.Error())
+				finish(err.Error())
 				return err
 			}
 			if _, werr := write(buf[:n]); werr != nil {
-				notify(true, werr.Error())
+				finish(werr.Error())
 				return werr
 			}
-			transferred += int64(n)
-			notify(false, "")
+			transferred.Add(int64(n))
 		}
 		if rerr == io.EOF {
 			break
 		}
 		if rerr != nil {
-			notify(true, rerr.Error())
+			finish(rerr.Error())
 			return rerr
 		}
 	}
-	notify(true, "")
+	finish("")
 	return nil
 }
 
