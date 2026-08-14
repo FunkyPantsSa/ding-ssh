@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,10 +36,12 @@ type Session struct {
 	onOutput  func(id string, data []byte)
 	onStatus  func(id string, status models.SessionStatus, message string)
 	onDirSync func(id string, path string)
+	lastDir   string // 最近一次同步的路径，用于去重避免重复事件
 
 	sftpOnce sync.Once
 	sftpErr  error
 	sftp     *sftp.Client
+	home     string // 远程 home，用于把提示符里的 ~ 展开成绝对路径
 }
 
 // newSession 建立 SSH 连接并打开交互式 Shell。
@@ -49,8 +52,8 @@ func newSession(
 	onOutput func(string, []byte),
 	onStatus func(string, models.SessionStatus, string),
 	onClosed func(string),
-	onDirSync func(string, string),
-	onProgress func(string, string),
+	onDirSync func(string, string), // 终端 cwd 变化（绝对路径）
+	onProgress func(string, string), // 连接进度文案
 ) (*Session, error) {
 	if onProgress != nil {
 		onProgress(id, "正在初始化连接…")
@@ -142,6 +145,7 @@ func newSession(
 
 	go s.pump(stdout)
 	go s.pump(stderr)
+	go s.prefetchHomeAndSync()
 
 	// 等待 Shell 退出，统一触发清理。
 	go func() {
@@ -169,8 +173,23 @@ func (s *Session) pump(r io.Reader) {
 				acc = acc[len(acc)-64*1024:]
 			}
 			if s.onDirSync != nil {
-				if path, ok := ParseDirFromOutput(acc); ok {
-					s.onDirSync(s.ID, path)
+				if dir, src, ok := ParseDirFromOutput(acc); ok {
+					if dir = s.expandPath(dir); dir != "" {
+						s.mu.Lock()
+						same := dir == s.lastDir
+						s.lastDir = dir
+						s.mu.Unlock()
+						if same {
+							if containsNewline(chunk) {
+								logx.Debugf("目录同步跳过(未变化): session=%s path=%s src=%s", s.ID, dir, src)
+							}
+						} else {
+							logx.Infof("目录同步: session=%s path=%s src=%s", s.ID, dir, src)
+							s.onDirSync(s.ID, dir)
+						}
+					}
+				} else if containsNewline(chunk) {
+					logx.Debugf("目录同步未解析: session=%s tail=%q", s.ID, previewTail(acc, 120))
 				}
 			}
 		}
@@ -207,6 +226,63 @@ func (s *Session) SftpClient() (*sftp.Client, error) {
 		s.sftp, s.sftpErr = sftp.NewClient(s.client)
 	})
 	return s.sftp, s.sftpErr
+}
+
+// guessHome 在尚未探测到远程 home 时给出常见默认值。
+func (s *Session) guessHome() string {
+	s.mu.Lock()
+	if s.home != "" {
+		h := s.home
+		s.mu.Unlock()
+		return h
+	}
+	s.mu.Unlock()
+	u := s.server.User
+	if u == "root" || u == "" {
+		return "/root"
+	}
+	return "/home/" + u
+}
+
+// expandPath 把 ~ 展开为绝对路径；非绝对路径返回空。
+func (s *Session) expandPath(p string) string {
+	p = strings.TrimSpace(p)
+	if strings.HasPrefix(p, "/") {
+		return path.Clean(p)
+	}
+	if p == "~" {
+		return path.Clean(s.guessHome())
+	}
+	if strings.HasPrefix(p, "~/") {
+		return path.Join(s.guessHome(), p[2:])
+	}
+	return ""
+}
+
+// prefetchHomeAndSync 用 SFTP Getwd 校正 home，并在尚未同步过目录时推一次，
+// 避免登录提示符是 ~ 时 SFTP 停在 /。
+func (s *Session) prefetchHomeAndSync() {
+	c, err := s.SftpClient()
+	if err == nil && c != nil {
+		if wd, werr := c.Getwd(); werr == nil && strings.HasPrefix(wd, "/") {
+			s.mu.Lock()
+			s.home = path.Clean(wd)
+			s.mu.Unlock()
+		}
+	}
+	home := s.guessHome()
+	if home == "" || s.onDirSync == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.lastDir != "" {
+		s.mu.Unlock()
+		return
+	}
+	s.lastDir = home
+	s.mu.Unlock()
+	logx.Infof("目录同步: session=%s path=%s src=sftp-home", s.ID, home)
+	s.onDirSync(s.ID, home)
 }
 
 // Info 返回会话摘要信息。

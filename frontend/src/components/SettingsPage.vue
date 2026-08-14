@@ -91,6 +91,33 @@ async function toggleCompletion(v: boolean) {
   }
 }
 
+async function toggleSftpSync(v: boolean) {
+  saving.value = true
+  try {
+    await settings.setSftpToTerminalSync(v)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function toggleTerminalSftpSync(v: boolean) {
+  saving.value = true
+  try {
+    await settings.setTerminalToSftpSync(v)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function setUIScale(v: number) {
+  saving.value = true
+  try {
+    await settings.setUIScale(v)
+  } finally {
+    saving.value = false
+  }
+}
+
 async function onPanelLimitChange(e: Event) {
   const raw = Number((e.target as HTMLInputElement).value)
   saving.value = true
@@ -470,7 +497,7 @@ watch(
               </div>
             </div>
             <p v-if="hotkeyCaptureError" class="text-xs text-rose-400">{{ hotkeyCaptureError }}</p>
-            <p v-else-if="capturingHotkey" class="text-[11px] text-slate-500">Esc 取消录制</p>
+            <p v-else-if="capturingHotkey" class="text-[12px] text-slate-500">Esc 取消录制</p>
             <div class="flex items-start justify-between gap-4 pt-1">
               <div class="min-w-0">
                 <p class="text-sm text-slate-300">补全面板条数</p>
@@ -488,6 +515,76 @@ watch(
                 :disabled="saving"
                 @change="onPanelLimitChange"
               />
+            </div>
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="flex items-center justify-between gap-4 px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">终端→SFTP 目录同步</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                终端执行 cd 或提示符路径变化时，SFTP 面板跟随跳转到同一目录。
+              </p>
+            </div>
+            <ToggleSwitch
+              :model-value="settings.terminalToSftpSync"
+              :disabled="saving"
+              @update:model-value="toggleTerminalSftpSync"
+            />
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="flex items-center justify-between gap-4 px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">SFTP→终端目录同步</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                在 SFTP 面板进入目录时，自动向终端发送 cd 命令同步当前路径。
+              </p>
+            </div>
+            <ToggleSwitch
+              :model-value="settings.sftpToTerminalSync"
+              :disabled="saving"
+              @update:model-value="toggleSftpSync"
+            />
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="flex items-center justify-between gap-4 px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">界面缩放</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                整体等比缩放界面（含布局与字号），适配不同屏幕尺寸；范围 80%–150%，默认 100%。
+              </p>
+            </div>
+            <div class="shrink-0 flex items-center gap-2">
+              <button
+                type="button"
+                class="px-2.5 py-1.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-300 text-xs"
+                :disabled="saving || settings.uiScale <= 80"
+                @click="setUIScale(settings.uiScale - 10)"
+              >
+                −
+              </button>
+              <span class="w-14 text-center text-xs font-mono text-slate-200">{{ settings.uiScale }}%</span>
+              <button
+                type="button"
+                class="px-2.5 py-1.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-300 text-xs"
+                :disabled="saving || settings.uiScale >= 150"
+                @click="setUIScale(settings.uiScale + 10)"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                class="px-2.5 py-1.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-300 text-xs"
+                :disabled="saving || settings.uiScale === 100"
+                @click="setUIScale(100)"
+              >
+                默认
+              </button>
             </div>
           </div>
         </div>
@@ -629,7 +726,7 @@ watch(
             >
               <div class="min-w-0">
                 <p class="text-[13px] text-slate-200 truncate">{{ c.name }}</p>
-                <p class="text-[11px] text-slate-500 truncate">
+                <p class="text-[12px] text-slate-500 truncate">
                   {{ c.user }}
                   <template v-if="c.authType === 'privateKey'"> · 私钥已保存</template>
                   <template v-else> · 密码已保存</template>

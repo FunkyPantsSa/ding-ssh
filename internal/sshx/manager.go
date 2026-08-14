@@ -82,17 +82,22 @@ func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows i
 		func(id string) {
 			m.remove(id)
 		},
-		func(id string, step string) {
-			m.notify("ssh:progress:"+id, models.ProgressEvent{
-				SessionID: id,
-				Step:      step,
-			})
-		},
 		func(id string, path string) {
+			if !strings.HasPrefix(path, "/") {
+				logx.Debugf("忽略非绝对路径的目录同步: session=%s path=%q", id, path)
+				return
+			}
+			logx.Debugf("推送 sftp:sync-path: session=%s path=%s", id, path)
 			m.notify("sftp:sync-path:"+id, models.DirSyncEvent{
 				SessionID:   id,
 				CurrentPath: path,
 				Source:      "terminal",
+			})
+		},
+		func(id string, step string) {
+			m.notify("ssh:progress:"+id, models.ProgressEvent{
+				SessionID: id,
+				Step:      step,
 			})
 		},
 	)

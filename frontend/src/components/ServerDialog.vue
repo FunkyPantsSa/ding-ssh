@@ -220,7 +220,7 @@ onMounted(() => {
           <div class="block">
             <div class="flex items-center justify-between gap-2">
               <span class="text-slate-400">分组（可选）</span>
-              <div class="flex rounded-md border border-slate-700/60 overflow-hidden text-[11px]">
+              <div class="flex rounded-md border border-slate-700/60 overflow-hidden text-[12px]">
                 <button
                   type="button"
                   class="px-2 py-0.5 transition-colors"
@@ -259,7 +259,7 @@ onMounted(() => {
               class="input"
               placeholder="输入新分组名称"
             />
-            <p class="mt-1 text-[11px] text-slate-500">
+            <p class="mt-1 text-[12px] text-slate-500">
               {{ groupMode === 'select' ? '从已有分组中选择；无合适项可切换到「新建分组」。' : '输入新名称保存后即出现在分组列表中。' }}
             </p>
           </div>

@@ -1,12 +1,15 @@
 <script lang="ts" setup>
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
-import {onSftpTransfer, onSftpSyncPath, onSftpDirUpdated, sshService} from '../services/ssh'
+import {onSftpTransfer, onSftpDirUpdated, sshService} from '../services/ssh'
 import {useSessionsStore} from '../stores/sessions'
+import {useSettingsStore} from '../stores/settings'
+import {OnFileDrop, OnFileDropOff} from '../../wailsjs/runtime/runtime'
 import type {SFTPEntry, SessionTab} from '../types'
 
 const props = defineProps<{tab: SessionTab}>()
 const sessions = useSessionsStore()
+const settings = useSettingsStore()
 
 const entries = ref<SFTPEntry[]>([])
 const loading = ref(false)
@@ -86,16 +89,29 @@ async function load(dir: string) {
 function enter(entry: SFTPEntry) {
   if (!entry.isDir) return
   path.value = entry.path
-  load(entry.path)
-  // Phase 2: SFTP → Shell 双向联动
-  if (props.tab.sessionId) {
+  // SFTP → 终端目录同步（受配置项控制，默认开启）
+  if (settings.sftpToTerminalSync && props.tab.sessionId) {
     sshService.syncSftpToTerminal(props.tab.sessionId, entry.path).catch(() => {})
   }
 }
 
 function go(dir: string) {
   path.value = dir
-  load(dir)
+}
+
+// 终端写入 tab.sftpPath 后，由 watch 加载目录；失败不打断用户
+async function loadFromSync(dir: string) {
+  if (!props.tab.sessionId || props.tab.status !== 'connected') return
+  try {
+    const list = await sshService.sftpList(props.tab.sessionId, dir)
+    entries.value = list.sort((a, b) =>
+      a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
+    )
+    error.value = ''
+    console.info('[sftp-sync] 面板已切换', dir, '条目', list.length)
+  } catch (e) {
+    console.warn('[sftp-sync] 列出失败，保持当前列表', dir, e)
+  }
 }
 
 function up() {
@@ -277,6 +293,20 @@ async function upload() {
   }
 }
 
+// 拖拽上传：Wails OnFileDrop 回调拿到本地文件路径数组，逐个上传到当前目录
+const dragOver = ref(false)
+
+async function uploadPaths(localPaths: string[]) {
+  if (!props.tab.sessionId || !localPaths.length) return
+  for (const localPath of localPaths) {
+    const name = localPath.split(/[/\\]/).pop() || 'file'
+    const remotePath = joinPath(path.value, name)
+    await runTransfer('upload', name, () =>
+      sshService.sftpUpload(props.tab.sessionId, localPath, remotePath),
+    )
+  }
+}
+
 async function download(entry: SFTPEntry) {
   const localPath = await sshService.selectSavePath(entry.name)
   if (!localPath) return
@@ -299,20 +329,17 @@ async function cancelTransfer(t: TransferItem) {
 }
 
 onMounted(() => {
-  if (props.tab.status === 'connected') void load(path.value)
   disposers.push(onSftpTransfer(props.tab.sessionId, onTransfer))
   window.addEventListener('click', closeMenu)
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('scroll', closeMenu, true)
-  // 监听 Shell→SFTP 目录同步事件
+  // 注册 Wails 文件拖放：仅在 SFTP 面板（带 --wails-drop-target 标识）内松开时上传
+  OnFileDrop((_x, _y, paths) => {
+    dragOver.value = false
+    if (paths?.length) void uploadPaths(paths)
+  }, true)
   if (props.tab.sessionId) {
-    disposers.push(onSftpSyncPath(props.tab.sessionId, (newPath) => {
-      if (newPath && newPath !== path.value) {
-        go(newPath)
-      }
-    }))
     disposers.push(onSftpDirUpdated(props.tab.sessionId, (evt) => {
-      // SWR 增量更新：只替换匹配路径的条目
       if (evt.path === path.value || evt.path === path.value + '/') {
         entries.value = evt.entries.sort((a: SFTPEntry, b: SFTPEntry) =>
           a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
@@ -323,23 +350,20 @@ onMounted(() => {
 })
 
 watch(
+  () => [props.tab.sftpPath, props.tab.status, props.tab.sessionId] as const,
+  ([dir, status, sid]) => {
+    if (!sid || status !== 'connected' || !dir) return
+    void loadFromSync(dir)
+  },
+  {immediate: true},
+)
+
+watch(
   () => props.tab.status,
   (status) => {
     if (status === 'connecting') {
       entries.value = []
       error.value = ''
-    } else if (status === 'connected') {
-      void load(path.value)
-    }
-  },
-)
-
-watch(
-  () => props.tab.sessionId,
-  (sid, old) => {
-    if (sid && sid !== old) {
-      path.value = '/'
-      void load('/')
     }
   },
 )
@@ -349,6 +373,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('click', closeMenu)
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('scroll', closeMenu, true)
+  OnFileDropOff()
 })
 </script>
 
@@ -375,7 +400,7 @@ onBeforeUnmount(() => {
         v-if="editingPath"
         ref="pathInputEl"
         v-model="pathInput"
-        class="input input-sm flex-1 font-mono text-[11px]"
+        class="input input-sm flex-1 font-mono text-[12px]"
         spellcheck="false"
         @keyup.enter="doPathEdit"
         @keyup.esc="editingPath = false"
@@ -383,7 +408,7 @@ onBeforeUnmount(() => {
       />
       <div
         v-else
-        class="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar text-[11px] font-mono text-mist cursor-text"
+        class="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar text-[12px] font-mono text-mist cursor-text"
         title="点击编辑完整路径"
         @click="startPathEdit"
       >
@@ -397,7 +422,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="newFolderActive" class="flex items-center gap-2 px-3 py-2" style="box-shadow: inset 0 -1px 0 rgba(255,255,255,0.05)">
-      <span class="text-[11px] text-mist shrink-0">名称</span>
+      <span class="text-[12px] text-mist shrink-0">名称</span>
       <input
         ref="newFolderInputEl"
         v-model="newFolderName"
@@ -409,7 +434,18 @@ onBeforeUnmount(() => {
       />
     </div>
 
-    <div class="flex-1 overflow-y-auto px-2 py-1.5">
+    <div
+      class="flex-1 overflow-y-auto px-2 py-1.5 relative transition-colors"
+      style="--wails-drop-target: drop"
+      :class="dragOver ? 'bg-[rgba(42,168,154,0.10)]' : ''"
+      @dragenter.prevent="dragOver = true"
+      @dragover.prevent="dragOver = true"
+      @dragleave.prevent="dragOver = false"
+      @drop.prevent="dragOver = false"
+    >
+      <div v-if="dragOver" class="absolute inset-2 rounded-[10px] border-2 border-dashed border-[var(--signal-400)] bg-[rgba(42,168,154,0.06)] grid place-items-center pointer-events-none z-10">
+        <p class="text-xs text-[var(--signal-300)]">松开以上传到当前目录</p>
+      </div>
       <div v-if="!entries.length && !loading && !error" class="py-6 text-center text-xs text-mist">空目录</div>
       <div
         v-for="e in entries"
@@ -434,7 +470,7 @@ onBeforeUnmount(() => {
           />
         </template>
         <template v-else-if="confirmDeletePath === e.path">
-          <span class="text-[11px] text-danger truncate">删除「{{ e.name }}」？</span>
+          <span class="text-[12px] text-danger truncate">删除「{{ e.name }}」？</span>
           <div class="flex gap-1">
             <button class="btn btn-danger btn-sm" @click.stop="doDelete">确认</button>
             <button class="btn btn-ghost btn-sm" @click.stop="confirmDeletePath = ''">取消</button>
@@ -442,20 +478,20 @@ onBeforeUnmount(() => {
         </template>
         <template v-else>
           <span class="truncate text-[var(--mist-200)]">{{ e.name }}</span>
-          <span class="font-mono text-[10px] text-mist">{{ e.isDir ? '—' : fmtSize(e.size) }}</span>
+          <span class="font-mono text-[11px] text-mist">{{ e.isDir ? '—' : fmtSize(e.size) }}</span>
         </template>
       </div>
-      <div v-if="loading" class="sticky bottom-0 flex items-center justify-center gap-2 py-2 text-[11px] text-mist">
+      <div v-if="loading" class="sticky bottom-0 flex items-center justify-center gap-2 py-2 text-[12px] text-mist">
         加载中…
       </div>
-      <div v-if="error" class="sticky bottom-0 px-2 py-2 text-[11px] text-danger break-all">
+      <div v-if="error" class="sticky bottom-0 px-2 py-2 text-[12px] text-danger break-all">
         {{ error }}
         <button class="ml-1 underline hover:text-signal" @click="refresh">重试</button>
       </div>
     </div>
 
     <div v-if="transfers.length" class="shrink-0 p-3 flex flex-col gap-2" style="box-shadow: inset 0 1px 0 rgba(255,255,255,0.05)">
-      <div v-for="t in transfers" :key="t.key" class="grid grid-cols-[1fr_auto] gap-1 text-[11px]">
+      <div v-for="t in transfers" :key="t.key" class="grid grid-cols-[1fr_auto] gap-1 text-[12px]">
         <span class="truncate text-[var(--mist-200)]">{{ t.direction === 'upload' ? '↑' : '↓' }} {{ t.name }}</span>
         <span class="flex items-center gap-2">
           <button v-if="!t.done && !t.error" class="btn btn-ghost btn-sm" @click="cancelTransfer(t)">取消</button>

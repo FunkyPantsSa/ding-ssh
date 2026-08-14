@@ -73,30 +73,6 @@ onBeforeUnmount(() => {
     </button>
 
     <div class="flex-1"></div>
-    <div v-if="sessions.activeTab?.status === 'connected'" class="flex items-center gap-1 self-center mr-1">
-      <div class="seg">
-        <button
-          :class="sessions.sftpVisible && sessions.rightPanel === 'sftp' ? 'active' : ''"
-          @click="sessions.showRightPanel('sftp')"
-        >
-          SFTP
-        </button>
-        <button
-          :class="sessions.sftpVisible && sessions.rightPanel === 'sysinfo' ? 'active' : ''"
-          @click="sessions.showRightPanel('sysinfo')"
-        >
-          看板
-        </button>
-      </div>
-      <button
-        v-if="sessions.sftpVisible"
-        class="btn-icon btn-sm"
-        title="收起侧栏"
-        @click="sessions.sftpVisible = false"
-      >
-        <Icon name="close" :size="14" />
-      </button>
-    </div>
   </div>
   <Teleport to="body">
     <div

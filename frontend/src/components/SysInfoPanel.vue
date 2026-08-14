@@ -125,12 +125,12 @@ onBeforeUnmount(() => {
     <div class="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3">
       <div v-if="error && !snap?.cpuUsage && !snap?.memTotalMb" class="neo-flat p-4 text-center">
         <p class="text-xs text-warn">{{ error }}</p>
-        <p class="text-[11px] text-mist mt-2">仅 Linux 主机支持；也可改用 SFTP 面板。</p>
+        <p class="text-[12px] text-mist mt-2">仅 Linux 主机支持；也可改用 SFTP 面板。</p>
       </div>
 
       <template v-else>
         <div class="sys-card neo-flat p-4">
-          <h4 class="text-[11px] font-semibold tracking-widest uppercase text-mist mb-3">CPU</h4>
+          <h4 class="text-[12px] font-semibold tracking-widest uppercase text-mist mb-3">CPU</h4>
           <div class="text-[22px] font-semibold tracking-tight text-[var(--mist-100)] tabular-nums">
             {{ (snap?.cpuUsage ?? 0).toFixed(1) }}<small class="text-xs font-medium text-mist ml-1">%</small>
           </div>
@@ -147,7 +147,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="sys-card neo-flat p-4">
-          <h4 class="text-[11px] font-semibold tracking-widest uppercase text-mist mb-3">Memory</h4>
+          <h4 class="text-[12px] font-semibold tracking-widest uppercase text-mist mb-3">Memory</h4>
           <div class="text-[22px] font-semibold tracking-tight text-[var(--mist-100)] tabular-nums">
             {{ snap?.memUsedMb ?? 0 }}<small class="text-xs font-medium text-mist ml-1">/ {{ snap?.memTotalMb ?? 0 }} MB</small>
           </div>
@@ -158,10 +158,10 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="sys-card neo-flat p-4">
-          <h4 class="text-[11px] font-semibold tracking-widest uppercase text-mist mb-3">Disk</h4>
-          <div v-if="!snap?.diskUsage?.length" class="text-[11px] text-mist">暂无数据</div>
+          <h4 class="text-[12px] font-semibold tracking-widest uppercase text-mist mb-3">Disk</h4>
+          <div v-if="!snap?.diskUsage?.length" class="text-[12px] text-mist">暂无数据</div>
           <div v-for="d in snap?.diskUsage ?? []" :key="d.mountPoint" class="mb-3 last:mb-0">
-            <div class="flex justify-between text-[11px] mb-1">
+            <div class="flex justify-between text-[12px] mb-1">
               <span class="truncate font-mono">{{ d.mountPoint }}</span>
               <span class="text-mist shrink-0 ml-2">{{ d.usedGb }}/{{ d.totalGb }} GB</span>
             </div>
@@ -174,10 +174,10 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div v-if="snap?.uptime" class="text-[11px] text-mist px-1">
+        <div v-if="snap?.uptime" class="text-[12px] text-mist px-1">
           uptime · {{ snap.uptime }}
         </div>
-        <p v-if="error" class="text-[11px] text-warn px-1">{{ error }}</p>
+        <p v-if="error" class="text-[12px] text-warn px-1">{{ error }}</p>
       </template>
     </div>
   </aside>

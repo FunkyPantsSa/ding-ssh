@@ -199,6 +199,9 @@ export namespace models {
 	    completionEnabled: boolean;
 	    completionNavHotkey: string;
 	    completionPanelLimit: number;
+	    sftpToTerminalSync: boolean;
+	    terminalToSftpSync: boolean;
+	    uiScale: number;
 	    theme: Theme;
 	
 	    static createFrom(source: any = {}) {
@@ -213,6 +216,9 @@ export namespace models {
 	        this.completionEnabled = source["completionEnabled"];
 	        this.completionNavHotkey = source["completionNavHotkey"];
 	        this.completionPanelLimit = source["completionPanelLimit"];
+	        this.sftpToTerminalSync = source["sftpToTerminalSync"];
+	        this.terminalToSftpSync = source["terminalToSftpSync"];
+	        this.uiScale = source["uiScale"];
 	        this.theme = this.convertValues(source["theme"], Theme);
 	    }
 	
