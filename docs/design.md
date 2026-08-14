@@ -101,13 +101,24 @@
 
 #### A. Shell -> SFTP 路径捕获
 
-* **OSC 7 转义序列解析**：在 Go 端读取 PTY 输出流的字节管道中叠加 OSC7 Scanner，识别 `\033]7;file://[hostname]/[path]\007` 模式。
-* **Prompt 备选解析**：未开启 OSC 7 时，匹配常见 Shell 提示符（如 `[user@host /path]$`）提取路径。
-* **事件驱动**：Go 端提取到绝对路径后，向前端触发 `sftp:sync-path:{sessionID}`，SFTP 面板无感更新到目标目录。
+* **解析优先级**（避免缓冲区中过期 OSC 7 挡住当前目录）：末行 Prompt 路径 → 回显的 `cd` 绝对路径 → 缓冲区中**最后一次** OSC 7。
+* **OSC 7**：识别 `\033]7;file://[hostname]/path\007` 或 ST 终止；hostname 可为空（`file:///path`）；取最后一次匹配而非首次。
+* **Prompt**：剥离 CSI/OSC 但保留换行后取末行，匹配 `[user@host /path]$`、`user@host:/path$`、`/path$`（`#/%/$` 提示符）。
+* **cd 回退**：ECHO 回显的 `cd /abs/path`（须已换行）作为 Prompt 无法识别时的兜底。
+* **配置项**：`Settings.terminalToSftpSync`（默认开启）。关闭后终端 cd 不再驱动 SFTP 面板。
+* **事件驱动**：Go 端提取到绝对路径后，向前端触发 `sftp:sync-path:{sessionID}`。监听挂在终端组件（会话存活期间始终存在），写入 `tab.sftpPath`，SFTP 面板 watch 后加载；避免面板 `v-if` 拆装导致漏事件。路径无效时前端静默保持当前列表。
+* **排查日志**：设置中开启「输出调试日志」后，后端输出 `[INFO] 目录同步 path= src=prompt|cd|osc7`；浏览器控制台输出 `[sftp-sync]` 收包/写入/切换/失败。
 
-#### B. SFTP -> Shell 联动
+#### B. SFTP -> Shell 联动（受配置项控制）
 
 * 在 SFTP 面板双击文件夹或点击面包屑跳转时，前端触发 `SendTerminalInput(sessionID, "cd \"" + targetPath + "\"\n")`。
+* **配置项**：`Settings.sftpToTerminalSync`（默认开启）。关闭后 SFTP 目录变化不再向终端发送 cd 命令。
+
+#### C. SFTP 拖拽上传
+
+* 通过 Wails `DragAndDrop.EnableFileDrop` 开启原生文件拖放；前端 `OnFileDrop` 回调拿到本地文件绝对路径数组。
+* 仅在带 `--wails-drop-target: drop` 标识的 SFTP 文件列表区域松开时触发，逐个上传到当前目录，复用 `SftpUpload` 传输通道与进度上报。
+* 拖拽悬停时显示虚线高亮覆盖层作为视觉反馈。
 
 ### 3.2 SWR (Stale-While-Revalidate) 目录缓存引擎
 
@@ -313,9 +324,16 @@ type ProgressEvent struct { SessionID string `json:"sessionId"`; Step string `js
 
 // 设置与主题
 type Settings struct {
-    LogEnabled   bool  `json:"logEnabled"`
-    CopyOnSelect bool  `json:"copyOnSelect"`
-    Theme        Theme `json:"theme"`
+    LogEnabled            bool   `json:"logEnabled"`
+    CopyOnSelect          bool   `json:"copyOnSelect"`
+    WebGLEnabled          bool   `json:"webGLEnabled"`
+    CompletionEnabled     bool   `json:"completionEnabled"`
+    CompletionNavHotkey   string `json:"completionNavHotkey"`
+    CompletionPanelLimit  int    `json:"completionPanelLimit"`
+    SftpToTerminalSync    bool   `json:"sftpToTerminalSync"`  // 默认开启
+    TerminalToSftpSync    bool   `json:"terminalToSftpSync"`  // 默认开启
+    UIScale               int    `json:"uiScale"`              // 80–150，默认 100
+    Theme                 Theme  `json:"theme"`
 }
 type Theme struct {
     Background string `json:"background"`
@@ -424,6 +442,14 @@ func (a *AppBridge) StopSysInfoCollector(sessionID string) error
 func (a *AppBridge) ExportConfig(passphrase string) ([]byte, error)
 func (a *AppBridge) ImportConfig(data []byte, passphrase string) error
 ```
+
+---
+
+## 6.5 界面缩放
+
+* **配置项**：`Settings.uiScale`（百分比，范围 80–150，默认 100），在设置页「通用」区以步进按钮调节。
+* **实现**：在 `App.vue` 根容器 `.app-shell` 上应用 `style="zoom: uiScale/100"`，利用 CSS `zoom` 整体等比缩放界面（含布局与字号），Wails 的 WebKit / WebView2 均原生支持。
+* **目的**：适配不同物理尺寸的屏幕与分辨率，保证显示正常、合理、美观。
 
 ---
 

@@ -231,17 +231,17 @@ onMounted(() => {
             <span class="status" :class="nodeStatus(node)"></span>
             <div class="min-w-0">
               <div class="text-[13px] font-medium text-[var(--mist-100)] truncate">{{ node.name }}</div>
-              <div class="font-mono text-[11px] text-mist truncate">{{ node.user }}@{{ node.host }}:{{ node.port }}</div>
+              <div class="font-mono text-[12px] text-mist truncate">{{ node.user }}@{{ node.host }}:{{ node.port }}</div>
             </div>
             <div class="hidden group-hover:flex gap-0.5">
               <button class="btn-icon btn-sm" title="连接" @click.stop="connect(node)">
-                <Icon name="arrow-right" :size="14" />
+                <Icon name="arrow-right" :size="16" />
               </button>
               <button class="btn-icon btn-sm" title="编辑" @click.stop="openEdit(node)">
-                <Icon name="pencil" :size="14" />
+                <Icon name="pencil" :size="16" />
               </button>
               <button class="btn-icon btn-sm" title="删除" @click.stop="confirmNode = node">
-                <Icon name="trash" :size="14" />
+                <Icon name="trash" :size="16" />
               </button>
             </div>
           </div>
@@ -305,7 +305,7 @@ onMounted(() => {
                     <button class="btn btn-ghost btn-sm" @click="confirmGroupDelete = g">删除</button>
                   </template>
                   <template v-else>
-                    <span class="text-[11px] text-mist">删除后其中服务器将变为未分组</span>
+                    <span class="text-[12px] text-mist">删除后其中服务器将变为未分组</span>
                     <button class="btn btn-danger btn-sm" @click="removeGroup(g)">确认</button>
                     <button class="btn btn-ghost btn-sm" @click="confirmGroupDelete = ''">取消</button>
                   </template>

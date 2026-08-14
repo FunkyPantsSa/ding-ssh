@@ -20,6 +20,7 @@ import {
   onSessionOutput,
   onSessionProgress,
   onSessionStatus,
+  onSftpSyncPath,
   reconnect,
   sshService,
 } from '../services/ssh'
@@ -698,6 +699,25 @@ async function connect() {
       if (evt.status !== 'connected') hideSuggestions()
     }),
   )
+  // 终端→SFTP 目录同步：监听挂在终端上（会话存活期间始终在），避免 SFTP 面板 v-if 拆装漏事件
+  disposers.push(
+    onSftpSyncPath(sid, (newPath) => {
+      if (!settings.terminalToSftpSync) {
+        console.info('[sftp-sync] 开关已关，忽略', newPath)
+        return
+      }
+      if (!newPath) {
+        console.info('[sftp-sync] 空路径，忽略')
+        return
+      }
+      if (newPath === props.tab.sftpPath) {
+        console.info('[sftp-sync] 已在该目录，忽略', newPath)
+        return
+      }
+      console.info('[sftp-sync] 写入 sftpPath', props.tab.sftpPath, '→', newPath)
+      sessions.setSftpPath(props.tab.clientId, newPath)
+    }),
+  )
 
   try {
     const result = await sshService.connect(sid, props.tab.node, term?.cols ?? 80, term?.rows ?? 24)
@@ -1009,12 +1029,12 @@ onBeforeUnmount(() => {
           @click="acceptSuggestion(i)"
         >
           <span class="flex-1 truncate">{{ item.command }}</span>
-          <span class="shrink-0 text-[11px] text-mist font-sans">
+          <span class="shrink-0 text-[12px] text-mist font-sans">
             {{ sourceLabel[item.source] || item.source }}
             <template v-if="item.count && item.count > 1"> · {{ item.count }}</template>
           </span>
         </button>
-        <div class="flex gap-3 px-2.5 pt-1.5 mt-1 text-[10px] text-mist" style="border-top: 1px solid rgba(255,255,255,0.06)">
+        <div class="flex gap-3 px-2.5 pt-1.5 mt-1 text-[11px] text-mist" style="border-top: 1px solid rgba(255,255,255,0.06)">
           <span v-if="navigating"><span class="kbd">↑↓</span> 选择 · <span class="kbd">Tab</span> 采纳 · <span class="kbd">Esc</span> 关闭</span>
           <span v-else><span class="kbd">{{ formatHotkeyLabel(settings.completionNavHotkey || DEFAULT_COMPLETION_NAV_HOTKEY) }}</span> 进入 · <span class="kbd">Esc</span> 关闭</span>
         </div>

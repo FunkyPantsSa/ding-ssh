@@ -190,13 +190,13 @@ onBeforeUnmount(() => {
           <div class="flex items-start justify-between gap-3">
             <div>
               <h3 class="text-sm font-semibold text-[var(--mist-100)]">{{ t.name }}</h3>
-              <div class="font-mono text-[11px] text-mist leading-relaxed whitespace-pre-line mt-1">{{ tunnelDesc(t) }}</div>
+              <div class="font-mono text-[12px] text-mist leading-relaxed whitespace-pre-line mt-1">{{ tunnelDesc(t) }}</div>
             </div>
             <span class="badge" :class="t.status === 'running' ? 'live' : t.status === 'error' ? 'err' : 'stop'">
               {{ t.status === 'running' ? 'LIVE' : t.status === 'error' ? 'ERROR' : 'STOPPED' }}
             </span>
           </div>
-          <p v-if="t.status === 'error' && t.message" class="text-[11px] text-danger break-all">{{ t.message }}</p>
+          <p v-if="t.status === 'error' && t.message" class="text-[12px] text-danger break-all">{{ t.message }}</p>
           <div class="flex gap-1.5">
             <button v-if="t.status === 'running'" class="btn btn-ghost btn-sm" @click="stop(t.id)">停止</button>
             <button v-else class="btn btn-primary btn-sm" @click="restart(t.id)">启动</button>
@@ -237,7 +237,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="col-span-full flex items-center justify-between gap-4 pt-2">
           <p v-if="error" class="text-xs text-danger break-all">{{ error }}</p>
-          <p v-else class="text-[11px] text-mist">{{ hint }}</p>
+          <p v-else class="text-[12px] text-mist">{{ hint }}</p>
           <div class="flex gap-2 ml-auto">
             <button class="btn btn-ghost" type="button" @click="refresh">刷新</button>
             <button class="btn btn-primary" :disabled="busy" @click="create">

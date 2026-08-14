@@ -193,7 +193,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :style="{zoom: (settings.uiScale || 100) / 100}">
     <!-- 解锁页 -->
     <div v-if="needsUnlock" class="absolute inset-0 z-50 grid place-items-center p-8">
       <div class="w-full max-w-[920px] grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
@@ -235,7 +235,7 @@ onBeforeUnmount(() => {
             </div>
             <div>
               <div class="brand-name">ding<span>-ssh</span></div>
-              <div class="text-[11px] tracking-widest text-mist">SIGNAL DESK</div>
+              <div class="text-[12px] tracking-widest text-mist">SIGNAL DESK</div>
             </div>
           </div>
           <h1 class="text-[28px] font-semibold tracking-tight text-white leading-tight mb-2">解锁工作台</h1>
@@ -388,7 +388,8 @@ onBeforeUnmount(() => {
                 </div>
 
                 <SftpPanel
-                  v-if="activeConnected && sessions.sftpVisible && sessions.rightPanel === 'sftp'"
+                  v-if="activeConnected && sessions.sftpVisible"
+                  v-show="sessions.rightPanel === 'sftp'"
                   :tab="activeConnected"
                 />
                 <SysInfoPanel
@@ -427,7 +428,7 @@ onBeforeUnmount(() => {
             @click="runCmd(item)"
           >
             <span>{{ item.label }}</span>
-            <span class="text-mist font-sans text-[11px]">{{ item.hint }}</span>
+            <span class="text-mist font-sans text-[12px]">{{ item.hint }}</span>
           </button>
           <p v-if="!cmdItems.length" class="px-2.5 py-4 text-xs text-mist text-center">无匹配命令</p>
         </div>

@@ -242,8 +242,8 @@ function fmtMbps(v: number): string {
             <span class="truncate max-w-16">{{ selectedNet?.name }}</span>
             <Icon name="chevron-down" :size="10" />
           </button>
-          <span class="text-signal">↓{{ fmtMbps(selectedNet?.rxMbps ?? 0) }}</span>
-          <span class="text-copper">↑{{ fmtMbps(selectedNet?.txMbps ?? 0) }}</span>
+          <span class="text-signal">↓{{ fmtMbps(selectedNet?.rxMbps ?? 0) }}Mb/s</span>
+          <span class="text-copper">↑{{ fmtMbps(selectedNet?.txMbps ?? 0) }}Mb/s</span>
         </template>
         <strong v-else>—</strong>
       </div>

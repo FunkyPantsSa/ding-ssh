@@ -72,6 +72,9 @@ type Settings struct {
 	CompletionEnabled     bool   `json:"completionEnabled"`               // 智能命令补全
 	CompletionNavHotkey   string `json:"completionNavHotkey"`             // 补全导航开关键键，如 Alt+ArrowDown
 	CompletionPanelLimit  int    `json:"completionPanelLimit"`            // 补全面板最多展示条数，默认 8
+	SftpToTerminalSync    bool   `json:"sftpToTerminalSync"`              // SFTP 目录变化是否同步到终端（发 cd 命令），默认开启
+	TerminalToSftpSync    bool   `json:"terminalToSftpSync"`              // 终端目录变化是否同步到 SFTP 面板，默认开启
+	UIScale               int    `json:"uiScale"`                         // 界面缩放百分比，默认 100（80–150）
 	Theme                 Theme  `json:"theme"`                           // 终端主题
 }
 

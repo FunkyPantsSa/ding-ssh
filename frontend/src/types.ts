@@ -77,6 +77,9 @@ export interface Settings {
   completionEnabled: boolean // 智能命令补全
   completionNavHotkey: string // 补全导航开/关热键，如 Alt+ArrowDown
   completionPanelLimit: number // 补全面板最多条数，默认 8
+  sftpToTerminalSync: boolean // SFTP 目录变化是否同步到终端（发 cd 命令），默认开启
+  terminalToSftpSync: boolean // 终端目录变化是否同步到 SFTP 面板，默认开启
+  uiScale: number // 界面缩放百分比，默认 100（80–150）
   theme: Theme
 }
 

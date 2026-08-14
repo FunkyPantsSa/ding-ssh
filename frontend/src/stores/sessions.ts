@@ -43,6 +43,10 @@ export const useSessionsStore = defineStore('sessions', {
         if (message !== undefined) tab.message = message
       }
     },
+    setSftpPath(clientId: string, dir: string) {
+      const tab = this.tabs.find((t) => t.clientId === clientId)
+      if (tab) tab.sftpPath = dir
+    },
     closeTab(clientId: string) {
       const idx = this.tabs.findIndex((t) => t.clientId === clientId)
       if (idx < 0) return

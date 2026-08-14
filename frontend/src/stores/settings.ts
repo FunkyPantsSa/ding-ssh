@@ -25,6 +25,9 @@ export const useSettingsStore = defineStore('settings', {
     completionEnabled: true,
     completionNavHotkey: DEFAULT_COMPLETION_NAV_HOTKEY,
     completionPanelLimit: 8,
+    sftpToTerminalSync: true,
+    terminalToSftpSync: true,
+    uiScale: 100,
     theme: defaultTheme() as Theme,
     loaded: false,
   }),
@@ -37,6 +40,9 @@ export const useSettingsStore = defineStore('settings', {
       this.completionEnabled = settings.completionEnabled ?? true
       this.completionNavHotkey = settings.completionNavHotkey || DEFAULT_COMPLETION_NAV_HOTKEY
       this.completionPanelLimit = clampPanelLimit(settings.completionPanelLimit)
+      this.sftpToTerminalSync = settings.sftpToTerminalSync ?? true
+      this.terminalToSftpSync = settings.terminalToSftpSync ?? true
+      this.uiScale = clampUIScale(settings.uiScale)
       this.theme = {...defaultTheme(), ...(settings.theme ?? {})}
       this.loaded = true
     },
@@ -64,6 +70,18 @@ export const useSettingsStore = defineStore('settings', {
       this.completionPanelLimit = clampPanelLimit(v)
       await this.save()
     },
+    async setSftpToTerminalSync(v: boolean) {
+      this.sftpToTerminalSync = v
+      await this.save()
+    },
+    async setTerminalToSftpSync(v: boolean) {
+      this.terminalToSftpSync = v
+      await this.save()
+    },
+    async setUIScale(v: number) {
+      this.uiScale = clampUIScale(v)
+      await this.save()
+    },
     async setTheme(theme: Theme) {
       this.theme = theme
       await this.save()
@@ -76,6 +94,9 @@ export const useSettingsStore = defineStore('settings', {
         completionEnabled: this.completionEnabled,
         completionNavHotkey: this.completionNavHotkey || DEFAULT_COMPLETION_NAV_HOTKEY,
         completionPanelLimit: clampPanelLimit(this.completionPanelLimit),
+        sftpToTerminalSync: this.sftpToTerminalSync,
+        terminalToSftpSync: this.terminalToSftpSync,
+        uiScale: clampUIScale(this.uiScale),
         theme: this.theme,
       })
     },
@@ -86,4 +107,10 @@ function clampPanelLimit(v: number | undefined): number {
   const n = Number(v)
   if (!Number.isFinite(n) || n <= 0) return 8
   return Math.max(3, Math.min(30, Math.round(n)))
+}
+
+function clampUIScale(v: number | undefined): number {
+  const n = Number(v)
+  if (!Number.isFinite(n) || n <= 0) return 100
+  return Math.max(80, Math.min(150, Math.round(n)))
 }

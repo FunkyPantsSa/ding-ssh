@@ -55,6 +55,9 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 			CompletionEnabled:    true,
 			CompletionNavHotkey:  "Alt+ArrowDown",
 			CompletionPanelLimit: 8,
+			SftpToTerminalSync:   true,
+			TerminalToSftpSync:   true,
+			UIScale:              100,
 		}, nil
 	}
 	if err != nil {
@@ -76,6 +79,15 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	}
 	if settings.CompletionPanelLimit <= 0 {
 		settings.CompletionPanelLimit = 8
+	}
+	if !bytesContains(data, []byte(`"sftpToTerminalSync"`)) {
+		settings.SftpToTerminalSync = true
+	}
+	if !bytesContains(data, []byte(`"terminalToSftpSync"`)) {
+		settings.TerminalToSftpSync = true
+	}
+	if settings.UIScale <= 0 {
+		settings.UIScale = 100
 	}
 	return settings, nil
 }

@@ -133,8 +133,44 @@ export function reconnect(sessionId: string, cols: number, rows: number): Promis
 // 目录同步事件（Shell -> SFTP）
 export function onSftpSyncPath(sessionId: string, handler: (path: string) => void): () => void {
   const event = `sftp:sync-path:${sessionId}`
-  EventsOn(event, (payload: { currentPath: string }) => handler(payload.currentPath))
+  EventsOn(event, (...args: unknown[]) => {
+    const p = extractSyncPath(args.length === 1 ? args[0] : args)
+    console.info('[sftp-sync] 收到事件', event, args, '→', p)
+    handler(p)
+  })
   return () => EventsOff(event)
+}
+
+function extractSyncPath(payload: unknown): string {
+  if (typeof payload === 'string') {
+    const s = payload.trim()
+    if (s.startsWith('/')) return s
+    try {
+      const parsed: unknown = JSON.parse(s)
+      if (parsed && typeof parsed === 'object') return extractSyncPath(parsed)
+    } catch {
+      return ''
+    }
+    return ''
+  }
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const p = extractSyncPath(item)
+      if (p) return p
+    }
+    return ''
+  }
+  if (payload && typeof payload === 'object') {
+    const o = payload as Record<string, unknown>
+    for (const key of ['currentPath', 'CurrentPath', 'path', 'Path']) {
+      const v = o[key]
+      if (typeof v === 'string' && (v.startsWith('/') || v.startsWith('~'))) return v
+    }
+    for (const v of Object.values(o)) {
+      if (typeof v === 'string' && v.startsWith('/')) return v
+    }
+  }
+  return ''
 }
 
 // 目录缓存更新事件（SWR 增量推送）
