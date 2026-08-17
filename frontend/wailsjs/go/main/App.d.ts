@@ -102,6 +102,8 @@ export function SyncSftpToTerminal(arg1:string,arg2:string):Promise<void>;
 
 export function UnlockWithMasterPassword(arg1:string):Promise<void>;
 
+export function UpdateTunnel(arg1:string,arg2:models.ServerNode,arg3:string,arg4:string,arg5:number,arg6:string,arg7:number):Promise<models.TunnelInfo>;
+
 export function Write(arg1:string,arg2:string):Promise<void>;
 
 export function WriteLocalFileBase64(arg1:string,arg2:string):Promise<void>;

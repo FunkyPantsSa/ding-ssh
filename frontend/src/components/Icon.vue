@@ -9,6 +9,7 @@ import {
   CircleAlert,
   Clock,
   Command,
+  Copy,
   FileText,
   Folder,
   FolderCog,
@@ -56,6 +57,7 @@ const map: Record<string, Component> = {
   clock: Clock,
   zap: Zap,
   check: Check,
+  copy: Copy,
 }
 
 const props = defineProps<{name: string; size?: number; extraClass?: string}>()

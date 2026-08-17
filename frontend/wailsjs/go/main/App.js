@@ -202,6 +202,10 @@ export function UnlockWithMasterPassword(arg1) {
   return window['go']['main']['App']['UnlockWithMasterPassword'](arg1);
 }
 
+export function UpdateTunnel(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['UpdateTunnel'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+
 export function Write(arg1, arg2) {
   return window['go']['main']['App']['Write'](arg1, arg2);
 }

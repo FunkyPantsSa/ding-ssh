@@ -419,6 +419,19 @@ func (a *App) StartTunnel(node models.ServerNode, name, mode string, localPort i
 	return info, nil
 }
 
+// UpdateTunnel 修改已有隧道的配置，运行中的隧道会按新配置重启。
+func (a *App) UpdateTunnel(id string, node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
+	if err := a.ensureUnlocked(); err != nil {
+		return models.TunnelInfo{}, err
+	}
+	info, err := a.manager.UpdateTunnel(id, node, name, mode, localPort, remoteHost, remotePort)
+	if err != nil {
+		logx.Errorf("修改 SSH 隧道失败: id=%s mode=%s name=%s local=%d remote=%s:%d err=%v", id, mode, name, localPort, remoteHost, remotePort, err)
+		return info, err
+	}
+	return info, nil
+}
+
 // StopTunnel 停止指定隧道（保留条目，可重新启动）。
 func (a *App) StopTunnel(id string) error {
 	if err := a.manager.StopTunnel(id); err != nil {

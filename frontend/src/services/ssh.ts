@@ -23,6 +23,7 @@ import {
   SftpUpload,
   StartTunnel,
   StopTunnel,
+  UpdateTunnel,
   Write,
 } from '../../wailsjs/go/main/App'
 import {EventsOn, EventsOff} from '../../wailsjs/runtime/runtime'
@@ -68,6 +69,15 @@ export const sshService = {
     remoteHost: string,
     remotePort: number,
   ): Promise<TunnelInfo> => StartTunnel(node, name, mode, localPort, remoteHost, remotePort),
+  updateTunnel: (
+    id: string,
+    node: ServerNode,
+    name: string,
+    mode: string,
+    localPort: number,
+    remoteHost: string,
+    remotePort: number,
+  ): Promise<TunnelInfo> => UpdateTunnel(id, node, name, mode, localPort, remoteHost, remotePort),
   stopTunnel: (id: string): Promise<void> => StopTunnel(id),
   restartTunnel: (id: string): Promise<void> => RestartTunnel(id),
   removeTunnel: (id: string): Promise<void> => RemoveTunnel(id),

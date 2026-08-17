@@ -106,6 +106,13 @@ func (t *Tunnel) Info() models.TunnelInfo {
 	}
 }
 
+// Status 返回当前运行状态。
+func (t *Tunnel) Status() TunnelStatus {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.status
+}
+
 // Start 建立 SSH 连接并按模式启动转发。
 func (t *Tunnel) Start() error {
 	t.mu.Lock()

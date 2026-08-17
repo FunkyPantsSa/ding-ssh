@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -582,9 +583,8 @@ func (m *Manager) CloseAll() {
 
 // ---- SSH 隧道 ----
 
-// StartTunnel 创建并启动一条 SSH 隧道（local / remote / dynamic），
-// 状态变更通过 tunnel:status 事件上报。
-func (m *Manager) StartTunnel(node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
+// normalizeTunnelConfig 校验隧道参数，并补齐默认的远端地址与名称。
+func normalizeTunnelConfig(node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int) (TunnelMode, string, string, error) {
 	tm := TunnelMode(mode)
 	if tm == "" {
 		tm = TunnelLocal
@@ -592,21 +592,18 @@ func (m *Manager) StartTunnel(node models.ServerNode, name, mode string, localPo
 	switch tm {
 	case TunnelLocal, TunnelRemote, TunnelDynamic:
 	default:
-		return models.TunnelInfo{}, fmt.Errorf("不支持的隧道模式: %s", mode)
+		return "", "", "", fmt.Errorf("不支持的隧道模式: %s", mode)
 	}
 	if localPort < 1 || localPort > 65535 {
-		return models.TunnelInfo{}, fmt.Errorf("本地端口无效: %d", localPort)
+		return "", "", "", fmt.Errorf("本地端口无效: %d", localPort)
 	}
 	if tm != TunnelDynamic {
 		if remotePort < 1 || remotePort > 65535 {
-			return models.TunnelInfo{}, fmt.Errorf("远程端口无效: %d", remotePort)
+			return "", "", "", fmt.Errorf("远程端口无效: %d", remotePort)
 		}
-	}
-	if tm == TunnelRemote && remoteHost == "" {
-		remoteHost = "127.0.0.1"
-	}
-	if tm == TunnelLocal && remoteHost == "" {
-		remoteHost = "127.0.0.1"
+		if remoteHost == "" {
+			remoteHost = "127.0.0.1"
+		}
 	}
 	if name == "" {
 		switch tm {
@@ -618,10 +615,18 @@ func (m *Manager) StartTunnel(node models.ServerNode, name, mode string, localPo
 			name = fmt.Sprintf("%s:%d", node.Name, localPort)
 		}
 	}
+	return tm, remoteHost, name, nil
+}
+
+// StartTunnel 创建并启动一条 SSH 隧道（local / remote / dynamic），
+// 状态变更通过 tunnel:status 事件上报。
+func (m *Manager) StartTunnel(node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
+	tm, remoteHost, name, err := normalizeTunnelConfig(node, name, mode, localPort, remoteHost, remotePort)
+	if err != nil {
+		return models.TunnelInfo{}, err
+	}
 	id := fmt.Sprintf("tunnel-%d", time.Now().UnixMilli())
-	t := newTunnel(id, name, tm, node, localPort, remoteHost, remotePort, func(id string, status TunnelStatus, message string) {
-		m.notify("tunnel:status", models.TunnelStatusEvent{ID: id, Status: string(status), Message: message})
-	})
+	t := newTunnel(id, name, tm, node, localPort, remoteHost, remotePort, m.tunnelStatusNotifier())
 	if err := t.Start(); err != nil {
 		return models.TunnelInfo{}, err
 	}
@@ -629,6 +634,39 @@ func (m *Manager) StartTunnel(node models.ServerNode, name, mode string, localPo
 	m.tunnels[id] = t
 	m.mu.Unlock()
 	return t.Info(), nil
+}
+
+// UpdateTunnel 以新配置替换已有隧道；原本处于运行状态的隧道会按新配置重新启动。
+// 隧道 ID 保持不变，列表中的位置与既有引用因此得以保留。
+func (m *Manager) UpdateTunnel(id string, node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
+	tm, remoteHost, name, err := normalizeTunnelConfig(node, name, mode, localPort, remoteHost, remotePort)
+	if err != nil {
+		return models.TunnelInfo{}, err
+	}
+	old, err := m.getTunnel(id)
+	if err != nil {
+		return models.TunnelInfo{}, err
+	}
+	wasRunning := old.Status() == TunnelRunning
+	old.Stop()
+
+	t := newTunnel(id, name, tm, node, localPort, remoteHost, remotePort, m.tunnelStatusNotifier())
+	m.mu.Lock()
+	m.tunnels[id] = t
+	m.mu.Unlock()
+	// 启动失败时保留新配置的停止态条目，避免隧道从列表中消失。
+	if wasRunning {
+		if err := t.Start(); err != nil {
+			return t.Info(), err
+		}
+	}
+	return t.Info(), nil
+}
+
+func (m *Manager) tunnelStatusNotifier() func(string, TunnelStatus, string) {
+	return func(id string, status TunnelStatus, message string) {
+		m.notify("tunnel:status", models.TunnelStatusEvent{ID: id, Status: string(status), Message: message})
+	}
 }
 
 // StopTunnel 停止指定隧道（保留条目，可重新启动）。
@@ -663,14 +701,15 @@ func (m *Manager) RemoveTunnel(id string) error {
 	return nil
 }
 
-// ListTunnels 返回全部隧道摘要。
+// ListTunnels 返回全部隧道摘要，按创建顺序（ID）排序，避免列表顺序在刷新之间跳动。
 func (m *Manager) ListTunnels() []models.TunnelInfo {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
 	infos := make([]models.TunnelInfo, 0, len(m.tunnels))
 	for _, t := range m.tunnels {
 		infos = append(infos, t.Info())
 	}
+	m.mu.RUnlock()
+	sort.Slice(infos, func(i, j int) bool { return infos[i].ID < infos[j].ID })
 	return infos
 }
 
