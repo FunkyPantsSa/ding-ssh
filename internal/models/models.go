@@ -76,6 +76,8 @@ type Settings struct {
 	TerminalToSftpSync    bool   `json:"terminalToSftpSync"`              // 终端目录变化是否同步到 SFTP 面板，默认开启
 	UIScale               int    `json:"uiScale"`                         // 界面缩放百分比，默认 100（80–150）
 	Theme                 Theme  `json:"theme"`                           // 终端主题
+	AutoReconnect         bool   `json:"autoReconnect"`                   // 断开后自动重连（默认开启）
+	KeepAliveEnabled      bool   `json:"keepAliveEnabled"`                // 发送心跳包防止终端超时（默认开启）
 }
 
 // CommandHistory 命令历史记录（SQLite command_history 表）。

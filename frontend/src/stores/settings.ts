@@ -29,6 +29,8 @@ export const useSettingsStore = defineStore('settings', {
     terminalToSftpSync: true,
     uiScale: 100,
     theme: defaultTheme() as Theme,
+    autoReconnect: true,
+    keepAliveEnabled: true,
     loaded: false,
   }),
   actions: {
@@ -44,6 +46,8 @@ export const useSettingsStore = defineStore('settings', {
       this.terminalToSftpSync = settings.terminalToSftpSync ?? true
       this.uiScale = clampUIScale(settings.uiScale)
       this.theme = {...defaultTheme(), ...(settings.theme ?? {})}
+      this.autoReconnect = settings.autoReconnect ?? true
+      this.keepAliveEnabled = settings.keepAliveEnabled ?? true
       this.loaded = true
     },
     async setLogEnabled(v: boolean) {
@@ -86,6 +90,14 @@ export const useSettingsStore = defineStore('settings', {
       this.theme = theme
       await this.save()
     },
+    async setAutoReconnect(v: boolean) {
+      this.autoReconnect = v
+      await this.save()
+    },
+    async setKeepAliveEnabled(v: boolean) {
+      this.keepAliveEnabled = v
+      await this.save()
+    },
     async save() {
       await settingsService.saveSettings({
         logEnabled: this.logEnabled,
@@ -98,6 +110,8 @@ export const useSettingsStore = defineStore('settings', {
         terminalToSftpSync: this.terminalToSftpSync,
         uiScale: clampUIScale(this.uiScale),
         theme: this.theme,
+        autoReconnect: this.autoReconnect,
+        keepAliveEnabled: this.keepAliveEnabled,
       })
     },
   },

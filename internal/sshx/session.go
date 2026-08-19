@@ -42,6 +42,8 @@ type Session struct {
 	sftpErr  error
 	sftp     *sftp.Client
 	home     string // 远程 home，用于把提示符里的 ~ 展开成绝对路径
+
+	keepAliveEnabled bool // 是否发送心跳包（由应用设置控制）
 }
 
 // newSession 建立 SSH 连接并打开交互式 Shell。
@@ -54,6 +56,7 @@ func newSession(
 	onClosed func(string),
 	onDirSync func(string, string), // 终端 cwd 变化（绝对路径）
 	onProgress func(string, string), // 连接进度文案
+	keepAliveEnabled bool,
 ) (*Session, error) {
 	if onProgress != nil {
 		onProgress(id, "正在初始化连接…")
@@ -128,16 +131,17 @@ func newSession(
 	}
 
 	s := &Session{
-		ID:        id,
-		client:    client,
-		shell:     shell,
-		stdin:     stdin,
-		server:    node,
-		createdAt: time.Now().UnixMilli(),
-		onOutput:  onOutput,
-		onStatus:  onStatus,
-		onClosed:  onClosed,
-		onDirSync: onDirSync,
+		ID:               id,
+		client:           client,
+		shell:            shell,
+		stdin:            stdin,
+		server:           node,
+		createdAt:        time.Now().UnixMilli(),
+		onOutput:         onOutput,
+		onStatus:         onStatus,
+		onClosed:         onClosed,
+		onDirSync:        onDirSync,
+		keepAliveEnabled: keepAliveEnabled,
 	}
 
 	// 启动 SSH KeepAlive 心跳 Goroutine
@@ -436,6 +440,7 @@ func parsePrivateKey(data []byte, passphrase string) (ssh.Signer, error) {
 }
 
 // keepAliveLoop 定期发送 SSH keepalive 心跳包，防止 NAT 或防火墙超时断开。
+// 当 keepAliveEnabled 为 false 时仅发送空请求保持终端活跃，不做失败检测。
 // 连续失败立即触发连接断开事件，前端保留终端上下文并提供重新连接入口。
 func (s *Session) keepAliveLoop() {
 	ticker := time.NewTicker(15 * time.Second)
@@ -444,9 +449,15 @@ func (s *Session) keepAliveLoop() {
 		s.mu.Lock()
 		closed := s.closed
 		client := s.client
+		kaEnabled := s.keepAliveEnabled
 		s.mu.Unlock()
 		if closed || client == nil {
 			return
+		}
+		if !kaEnabled {
+			// 心跳关闭时仍发送 no-op 请求防止服务端终端超时，但不处理错误
+			_, _, _ = client.SendRequest("keepalive@openssh.com", false, nil)
+			continue
 		}
 		_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
 		if err != nil {
@@ -457,9 +468,17 @@ func (s *Session) keepAliveLoop() {
 	}
 }
 
+// SetKeepAliveEnabled 动态更新心跳检测开关（不影响终端 no-op 心跳）。
+func (s *Session) SetKeepAliveEnabled(enabled bool) {
+	s.mu.Lock()
+	s.keepAliveEnabled = enabled
+	s.mu.Unlock()
+}
+
 // Reconnect 重新建立 SSH 连接，复用原会话配置。
 // 在心跳断开 (disconnected) 或异常断开 (error) 后调用，保留原有的 onOutput/onStatus 回调。
-func (s *Session) Reconnect(cols, rows int) error {
+// keepAliveEnabled 用于更新心跳开关设置。
+func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 	s.mu.Lock()
 	wasClosed := s.closed
 	if !wasClosed {
@@ -541,6 +560,7 @@ func (s *Session) Reconnect(cols, rows int) error {
 	s.shell = shell
 	s.stdin = stdin
 	s.closed = false
+	s.keepAliveEnabled = keepAliveEnabled
 	s.mu.Unlock()
 
 	go s.keepAliveLoop()

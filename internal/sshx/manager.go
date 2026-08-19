@@ -36,6 +36,9 @@ type activeTransfer struct {
 	cancel    context.CancelFunc
 }
 
+// SettingsGetter 由 App 注入，用于在建立会话时读取当前应用设置。
+type SettingsGetter func() models.Settings
+
 // Manager 会话管理器：维护全部活动的 SSH 会话与隧道。
 type Manager struct {
 	mu       sync.RWMutex
@@ -47,7 +50,8 @@ type Manager struct {
 	transfersMu sync.Mutex
 	transfers   map[string][]*activeTransfer // key: sessionID
 
-	cache *SFTPCacheManager // SWR 目录缓存
+	cache          *SFTPCacheManager // SWR 目录缓存
+	getSettings    SettingsGetter    // 读取应用设置（可为 nil，使用默认值）
 }
 
 // NewManager 创建会话管理器。
@@ -62,10 +66,24 @@ func NewManager(notify Notifier) *Manager {
 	}
 }
 
+// SetSettingsGetter 注入应用设置读取函数，用于建立会话时获取 keepAliveEnabled 等配置。
+func (m *Manager) SetSettingsGetter(fn SettingsGetter) {
+	m.getSettings = fn
+}
+
+// currentSettings 返回当前应用设置，若未注入则返回默认值。
+func (m *Manager) currentSettings() models.Settings {
+	if m.getSettings != nil {
+		return m.getSettings()
+	}
+	return models.Settings{KeepAliveEnabled: true, AutoReconnect: true}
+}
+
 // Connect 建立新会话。
 func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows int) error {
 	logx.Debugf("发起 SSH 连接: session=%s server=%s host=%s:%d user=%s",
 		sessionID, node.Name, node.Host, node.Port, node.User)
+	cfg := m.currentSettings()
 	s, err := newSession(sessionID, node, cols, rows,
 		func(id string, data []byte) {
 			// 事件按会话粒度命名，便于前端独立注册/注销监听。
@@ -102,6 +120,7 @@ func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows i
 				Step:      step,
 			})
 		},
+		cfg.KeepAliveEnabled,
 	)
 	if err != nil {
 		logx.Errorf("SSH 连接失败: session=%s server=%s err=%v", sessionID, node.Name, err)
@@ -155,7 +174,17 @@ func (m *Manager) Reconnect(sessionID string, cols, rows int) error {
 		return err
 	}
 	logx.Debugf("重新连接会话: session=%s", sessionID)
-	return s.Reconnect(cols, rows)
+	cfg := m.currentSettings()
+	return s.Reconnect(cols, rows, cfg.KeepAliveEnabled)
+}
+
+// SetKeepAliveEnabled 动态更新所有会话的心跳开关。
+func (m *Manager) SetKeepAliveEnabled(enabled bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, s := range m.sessions {
+		s.SetKeepAliveEnabled(enabled)
+	}
 }
 
 // List 返回全部会话摘要。

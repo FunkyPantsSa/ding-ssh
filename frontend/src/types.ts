@@ -81,6 +81,8 @@ export interface Settings {
   terminalToSftpSync: boolean // 终端目录变化是否同步到 SFTP 面板，默认开启
   uiScale: number // 界面缩放百分比，默认 100（80–150）
   theme: Theme
+  autoReconnect: boolean // 断开后自动重连，默认开启
+  keepAliveEnabled: boolean // 心跳包防终端超时，默认开启
 }
 
 // 命令补全候选（对应 Go 端 models.CommandSuggestion）。

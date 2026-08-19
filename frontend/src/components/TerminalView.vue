@@ -61,6 +61,10 @@ let lineBuf = ''
 let composing = false
 let suggestTimer: ReturnType<typeof setTimeout> | null = null
 let inputLocked = false // Zmodem 进行中挂起键盘
+let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null
+let autoReconnectAttempt = 0
+const autoReconnectCountdown = ref(0)
+let countdownTimer: ReturnType<typeof setInterval> | null = null
 /** trackLineInput 解析 ANSI/方向键转义，避免 [A [B 写入历史 */
 type EscState = 'none' | 'esc' | 'csi' | 'osc'
 let escState: EscState = 'none'
@@ -698,6 +702,7 @@ async function setupZmodem(sessionId: string) {
 }
 
 async function connect() {
+  cancelAutoReconnect()
   disposers.forEach((d) => d())
   disposers.length = 0
   sessions.setStatus(props.tab.clientId, 'connecting')
@@ -723,6 +728,9 @@ async function connect() {
     onSessionStatus(sid, (evt) => {
       sessions.setStatus(props.tab.clientId, evt.status, evt.message)
       if (evt.status !== 'connected') hideSuggestions()
+      if (evt.status === 'disconnected' && settings.autoReconnect && !disposed) {
+        scheduleAutoReconnect()
+      }
     }),
   )
   // 终端→SFTP 目录同步：监听挂在终端上（会话存活期间始终在），避免 SFTP 面板 v-if 拆装漏事件
@@ -773,8 +781,62 @@ async function connect() {
   }
 }
 
+function cancelAutoReconnect() {
+  if (autoReconnectTimer !== null) {
+    clearTimeout(autoReconnectTimer)
+    autoReconnectTimer = null
+  }
+  if (countdownTimer !== null) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+  autoReconnectCountdown.value = 0
+  autoReconnectAttempt = 0
+}
+
+const AUTO_RECONNECT_DELAYS = [2000, 5000, 10000, 20000, 30000]
+
+function scheduleAutoReconnect() {
+  if (disposed || autoReconnectTimer !== null) return
+  const delay = AUTO_RECONNECT_DELAYS[Math.min(autoReconnectAttempt, AUTO_RECONNECT_DELAYS.length - 1)]
+  autoReconnectAttempt++
+
+  // 启动倒计时显示
+  autoReconnectCountdown.value = Math.round(delay / 1000)
+  if (countdownTimer !== null) clearInterval(countdownTimer)
+  countdownTimer = setInterval(() => {
+    if (autoReconnectCountdown.value > 0) autoReconnectCountdown.value--
+    else {
+      clearInterval(countdownTimer!)
+      countdownTimer = null
+    }
+  }, 1000)
+
+  autoReconnectTimer = setTimeout(async () => {
+    autoReconnectTimer = null
+    if (countdownTimer !== null) {
+      clearInterval(countdownTimer)
+      countdownTimer = null
+    }
+    autoReconnectCountdown.value = 0
+    if (disposed || !settings.autoReconnect) return
+    if (props.tab.status !== 'disconnected') return
+    term?.write(`\r\n\x1b[33m[自动重连] 第 ${autoReconnectAttempt} 次尝试…\x1b[0m\r\n`)
+    try {
+      await reconnectSession()
+      const status: string = props.tab.status
+      if (status === 'connected') {
+        autoReconnectAttempt = 0
+      }
+    } catch {
+      // reconnectSession 内部已更新状态，断开状态会再次触发 scheduleAutoReconnect
+    }
+  }, delay)
+}
+
 async function reconnectSession() {
   if (!term) return
+  cancelAutoReconnect()
   const prevStatus = props.tab.status
   // closed / error：后端会话已移除，走完整 connect；disconnected：复用会话重连
   if (prevStatus === 'disconnected' && props.tab.sessionId) {
@@ -783,6 +845,7 @@ async function reconnectSession() {
     try {
       await reconnect(props.tab.sessionId, term.cols, term.rows)
       sessions.setStatus(props.tab.clientId, 'connected')
+      autoReconnectAttempt = 0
       await setupZmodem(props.tab.sessionId)
       fit()
     } catch (e) {
@@ -933,6 +996,7 @@ watch(
 
 onBeforeUnmount(() => {
   disposed = true
+  cancelAutoReconnect()
   if (suggestTimer) clearTimeout(suggestTimer)
   if (lineBufSyncTimer) clearTimeout(lineBufSyncTimer)
   disposers.forEach((d) => d())
@@ -1001,8 +1065,24 @@ onBeforeUnmount(() => {
         <p v-if="progress && tab.status === 'error'" class="text-xs text-mist mt-2 break-all">
           最后进度：{{ progress }}
         </p>
+        <!-- 自动重连倒计时 -->
+        <div
+          v-if="tab.status === 'disconnected' && settings.autoReconnect && autoReconnectCountdown > 0"
+          class="mt-3 text-xs text-amber-400/80 flex items-center justify-center gap-1.5"
+        >
+          <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+          {{ autoReconnectAttempt > 1 ? `第 ${autoReconnectAttempt - 1} 次失败，` : '' }}{{ autoReconnectCountdown }}s 后自动重连…
+        </div>
         <div class="flex justify-center gap-2 mt-5">
-          <button class="btn btn-primary" @click.stop="reconnectSession">重新连接</button>
+          <button class="btn btn-primary" @click.stop="reconnectSession">立即重连</button>
+          <button
+            v-if="tab.status === 'disconnected' && settings.autoReconnect && autoReconnectCountdown > 0"
+            class="btn btn-ghost"
+            @click.stop="cancelAutoReconnect"
+          >取消自动重连</button>
           <button class="btn btn-ghost" @click.stop="closeTab">关闭标签页</button>
         </div>
       </div>

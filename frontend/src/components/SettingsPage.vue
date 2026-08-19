@@ -109,6 +109,24 @@ async function toggleTerminalSftpSync(v: boolean) {
   }
 }
 
+async function toggleAutoReconnect(v: boolean) {
+  saving.value = true
+  try {
+    await settings.setAutoReconnect(v)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function toggleKeepAlive(v: boolean) {
+  saving.value = true
+  try {
+    await settings.setKeepAliveEnabled(v)
+  } finally {
+    saving.value = false
+  }
+}
+
 async function setUIScale(v: number) {
   saving.value = true
   try {
@@ -586,6 +604,38 @@ watch(
                 默认
               </button>
             </div>
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="flex items-center justify-between gap-4 px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">自动重连</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                检测到 SSH 连接断开后自动重新连接（网络抖动、NAT 超时等情况）。
+              </p>
+            </div>
+            <ToggleSwitch
+              :model-value="settings.autoReconnect"
+              :disabled="saving"
+              @update:model-value="toggleAutoReconnect"
+            />
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="flex items-center justify-between gap-4 px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">终端保活心跳</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                每 15 秒向服务器发送心跳包，防止 NAT / 防火墙或服务端 ClientAliveInterval 超时断开终端。
+              </p>
+            </div>
+            <ToggleSwitch
+              :model-value="settings.keepAliveEnabled"
+              :disabled="saving"
+              @update:model-value="toggleKeepAlive"
+            />
           </div>
         </div>
 

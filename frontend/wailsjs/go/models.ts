@@ -203,6 +203,8 @@ export namespace models {
 	    terminalToSftpSync: boolean;
 	    uiScale: number;
 	    theme: Theme;
+	    autoReconnect: boolean;
+	    keepAliveEnabled: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -220,6 +222,8 @@ export namespace models {
 	        this.terminalToSftpSync = source["terminalToSftpSync"];
 	        this.uiScale = source["uiScale"];
 	        this.theme = this.convertValues(source["theme"], Theme);
+	        this.autoReconnect = source["autoReconnect"];
+	        this.keepAliveEnabled = source["keepAliveEnabled"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

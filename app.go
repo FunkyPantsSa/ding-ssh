@@ -112,6 +112,12 @@ func (a *App) startup(ctx context.Context) {
 	}
 	logx.SetEnabled(settings.LogEnabled)
 	logx.Infof("应用启动，日志开关: %v", settings.LogEnabled)
+
+	// 注入设置读取器，供 Manager 在建立会话时获取最新配置。
+	a.manager.SetSettingsGetter(func() models.Settings {
+		s, _ := a.settings.Get()
+		return s
+	})
 }
 
 func (a *App) attachCipher() {
@@ -268,6 +274,8 @@ func (a *App) SaveSettings(settings models.Settings) error {
 	}
 	logx.SetEnabled(settings.LogEnabled)
 	logx.Infof("设置已更新，日志开关: %v", settings.LogEnabled)
+	// 立即同步所有活跃会话的心跳开关
+	a.manager.SetKeepAliveEnabled(settings.KeepAliveEnabled)
 	return nil
 }
 
