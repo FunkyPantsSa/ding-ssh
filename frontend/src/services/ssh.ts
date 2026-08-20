@@ -23,6 +23,8 @@ import {
   SftpUpload,
   StartTunnel,
   StopTunnel,
+  TestServer,
+  TestServers,
   UpdateTunnel,
   Write,
 } from '../../wailsjs/go/main/App'
@@ -31,6 +33,7 @@ import type {
   ConnectResult,
   ProgressEvent,
   ServerNode,
+  ServerTestResult,
   SFTPEntry,
   SFTPTransferEvent,
   StatusEvent,
@@ -42,6 +45,8 @@ export const sshService = {
   getServers: (): Promise<ServerNode[]> => GetServers(),
   saveServer: (node: ServerNode): Promise<ServerNode> => SaveServer(node),
   deleteServer: (id: string): Promise<void> => DeleteServer(id),
+  testServer: (node: ServerNode): Promise<ServerTestResult> => TestServer(node),
+  testServers: (nodes: ServerNode[]): Promise<ServerTestResult[]> => TestServers(nodes),
   selectKeyFile: (): Promise<string> => SelectKeyFile(),
   selectImageFile: (): Promise<string> => SelectImageFile(),
   sftpList: (sessionID: string, path: string): Promise<SFTPEntry[]> =>

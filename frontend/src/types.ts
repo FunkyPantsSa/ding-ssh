@@ -21,6 +21,14 @@ export interface ConnectResult {
   server: string
 }
 
+// 服务器在线状态测试结果（对应 Go 端 models.ServerTestResult）。
+export interface ServerTestResult {
+  nodeId: string
+  latencyMs: number // -1 表示连接失败
+  reachable: boolean // SSH 端口是否畅通
+  error?: string
+}
+
 export type SessionStatus = 'connecting' | 'connected' | 'closed' | 'error' | 'disconnected'
 
 export interface SessionInfo {
@@ -123,10 +131,14 @@ export interface SFTPTransferEvent {
   error?: string
 }
 
-// SSH 连接过程进度事件。
+// SSH 连接过程进度事件：每个事件代表一次步骤状态变更或一条步骤内详细日志，
+// 前端按 step 聚合日志，支持展开排查卡住原因。
 export interface ProgressEvent {
   sessionId: string
-  step: string
+  step: string // dns | tcp | auth | pty | ready
+  status: string // running | done | error
+  log?: string // 追加到该步骤的一条详细日志
+  message?: string // 步骤结束/失败时的摘要（错误时用于错误提示）
 }
 
 // SSH 隧道信息（对应 Go 端 models.TunnelInfo）。

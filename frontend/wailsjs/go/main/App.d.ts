@@ -100,6 +100,10 @@ export function StopTunnel(arg1:string):Promise<void>;
 
 export function SyncSftpToTerminal(arg1:string,arg2:string):Promise<void>;
 
+export function TestServer(arg1:models.ServerNode):Promise<models.ServerTestResult>;
+
+export function TestServers(arg1:Array<models.ServerNode>):Promise<Array<models.ServerTestResult>>;
+
 export function UnlockWithMasterPassword(arg1:string):Promise<void>;
 
 export function UpdateTunnel(arg1:string,arg2:models.ServerNode,arg3:string,arg4:string,arg5:number,arg6:string,arg7:number):Promise<models.TunnelInfo>;

@@ -24,6 +24,14 @@ type ConnectResult struct {
 	Server    string `json:"server"`
 }
 
+// ServerTestResult 服务器在线状态测试结果（TCP 延迟 + SSH 端口连通性）。
+type ServerTestResult struct {
+	NodeID    string `json:"nodeId"`          // 对应服务器节点 ID（批量测试时回填）
+	LatencyMS int64  `json:"latencyMs"`       // TCP 握手延迟（毫秒），-1 表示连接失败
+	Reachable bool   `json:"reachable"`       // SSH 端口是否畅通
+	Error     string `json:"error,omitempty"` // 失败原因（超时 / 拒绝 / 不可达等）
+}
+
 // SessionStatus 会话状态。
 type SessionStatus string
 
@@ -58,10 +66,23 @@ type StatusEvent struct {
 	Message   string        `json:"message,omitempty"`
 }
 
-// ProgressEvent SSH 连接过程进度事件。
+// 连接步骤标识，对应前端连接面板的五步展示。
+const (
+	ConnectStepDNS   = "dns"   // 1 DNS / 直连
+	ConnectStepTCP   = "tcp"   // 2 TCP 握手
+	ConnectStepAuth  = "auth"  // 3 SSH 鉴权
+	ConnectStepPTY   = "pty"   // 4 分配 PTY
+	ConnectStepReady = "ready" // 5 会话就绪
+)
+
+// ProgressEvent SSH 连接过程进度事件：每个事件代表一次步骤状态变更或一条步骤内详细日志，
+// 前端按 step 聚合日志并支持展开排查卡住原因。
 type ProgressEvent struct {
 	SessionID string `json:"sessionId"`
-	Step      string `json:"step"`
+	Step      string `json:"step"`              // dns | tcp | auth | pty | ready
+	Status    string `json:"status"`            // running | done | error
+	Log       string `json:"log,omitempty"`     // 追加到该步骤的一条详细日志
+	Message   string `json:"message,omitempty"` // 步骤结束/失败时的摘要（错误时用于错误提示）
 }
 
 // Settings 应用设置（持久化到 settings.json / SQLite settings 表）。

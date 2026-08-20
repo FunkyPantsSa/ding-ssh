@@ -198,6 +198,14 @@ export function SyncSftpToTerminal(arg1, arg2) {
   return window['go']['main']['App']['SyncSftpToTerminal'](arg1, arg2);
 }
 
+export function TestServer(arg1) {
+  return window['go']['main']['App']['TestServer'](arg1);
+}
+
+export function TestServers(arg1) {
+  return window['go']['main']['App']['TestServers'](arg1);
+}
+
 export function UnlockWithMasterPassword(arg1) {
   return window['go']['main']['App']['UnlockWithMasterPassword'](arg1);
 }

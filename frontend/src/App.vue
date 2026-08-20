@@ -9,6 +9,7 @@ import ServerStatusBar from './components/ServerStatusBar.vue'
 import TabBar from './components/TabBar.vue'
 import TerminalView from './components/TerminalView.vue'
 import TunnelPage from './components/TunnelPage.vue'
+import QuickConnectPanel from './components/QuickConnectPanel.vue'
 import {securityService} from './services/security'
 import {useServersStore} from './stores/servers'
 import {useSessionsStore} from './stores/sessions'
@@ -29,7 +30,8 @@ const cmdIndex = ref(0)
 const cmdInput = ref<HTMLInputElement>()
 
 const pageMeta: Record<string, [string, string]> = {
-  workspace: ['工作区', '服务器 · 终端 · 文件'],
+  workspace: ['工作区', '终端 · 会话 · 文件'],
+  servers: ['服务器管理', '节点 · 分组 · 在线状态'],
   tunnel: ['SSH 隧道', '本地 / 远程 / 动态转发'],
   settings: ['设置', '通用 · 主题 · 安全 · 迁移'],
 }
@@ -43,24 +45,6 @@ const activeConnected = computed(() =>
   sessions.activeTab?.status === 'connected' ? sessions.activeTab : undefined,
 )
 
-const sidebarWidth = ref(268)
-const resizing = ref(false)
-function startResize(e: MouseEvent) {
-  resizing.value = true
-  const startX = e.clientX
-  const startW = sidebarWidth.value
-  function onMove(ev: MouseEvent) {
-    sidebarWidth.value = Math.max(200, Math.min(420, startW + ev.clientX - startX))
-  }
-  function onUp() {
-    resizing.value = false
-    document.removeEventListener('mousemove', onMove)
-    document.removeEventListener('mouseup', onUp)
-  }
-  document.addEventListener('mousemove', onMove)
-  document.addEventListener('mouseup', onUp)
-}
-
 interface CmdItem {
   id: string
   label: string
@@ -71,6 +55,7 @@ interface CmdItem {
 const cmdItems = computed<CmdItem[]>(() => {
   const items: CmdItem[] = [
     {id: 'workspace', label: '打开工作区', hint: '导航', run: () => ui.showWorkspace()},
+    {id: 'servers', label: '打开服务器管理', hint: '导航', run: () => ui.showServers()},
     {id: 'tunnel', label: '打开隧道页', hint: '导航', run: () => ui.showTunnel()},
     {id: 'settings', label: '打开设置', hint: '导航', run: () => ui.showSettings()},
     {id: 'new', label: '新建服务器', hint: '操作', run: () => ui.requestNewServer()},
@@ -126,6 +111,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
   }
   if (e.key === 'Escape') {
     closeCmd()
+    if (ui.terminalSidebarOpen) ui.closeTerminalSidebar()
     return
   }
   if (ui.cmdOpen) {
@@ -283,6 +269,14 @@ onBeforeUnmount(() => {
           </button>
           <button
             class="rail-btn"
+            :class="ui.view === 'servers' ? 'active' : ''"
+            title="服务器管理"
+            @click="ui.showServers()"
+          >
+            <Icon name="server" :size="18" />
+          </button>
+          <button
+            class="rail-btn"
             :class="ui.view === 'tunnel' ? 'active' : ''"
             title="隧道"
             @click="ui.showTunnel()"
@@ -334,20 +328,8 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="flex-1 min-h-0 flex">
-          <aside
-            v-if="ui.view === 'workspace'"
-            class="sidebar relative shrink-0"
-            :style="{width: sidebarWidth + 'px'}"
-          >
-            <ServerList />
-            <div
-              class="absolute top-0 right-0 w-1.5 h-full cursor-col-resize z-10 transition-colors"
-              :class="resizing ? 'bg-[var(--signal-500)]/50' : 'hover:bg-[var(--signal-500)]/30'"
-              @mousedown.prevent="startResize"
-            ></div>
-          </aside>
-
           <main class="flex-1 min-w-0 flex flex-col fade-rise">
+            <ServerList v-show="ui.view === 'servers'" />
             <SettingsPage v-show="ui.view === 'settings'" />
             <TunnelPage v-show="ui.view === 'tunnel'" />
 
@@ -379,9 +361,12 @@ onBeforeUnmount(() => {
                         <path d="M214 118h12M220 112v12" stroke="#e0925e" stroke-width="1.5" stroke-linecap="round"/>
                       </svg>
                       <h3>尚未打开会话</h3>
-                      <p>从左侧选择服务器并连接，或新建节点。连接后终端、SFTP 与系统看板将同步就绪。</p>
+                      <p>点击左侧箭头展开服务器列表快速连接，或在服务器管理页新建节点。连接后终端、SFTP 与系统看板将同步就绪。</p>
                       <div class="flex gap-2">
-                        <button class="btn btn-primary" @click="ui.requestNewServer()">新建服务器</button>
+                        <button class="btn btn-primary" @click="ui.openTerminalSidebar()">
+                          <Icon name="panel-left" :size="14" />
+                          打开服务器列表
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -405,6 +390,8 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+
+    <QuickConnectPanel />
 
     <!-- 命令面板 -->
     <div v-if="ui.cmdOpen" class="modal-root" @click.self="closeCmd">

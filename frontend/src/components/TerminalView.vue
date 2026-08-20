@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import {WebglAddon} from '@xterm/addon-webgl'
@@ -27,6 +27,7 @@ import {
 import {historyService} from '../services/history'
 import {sysInfoService} from '../services/sysinfo'
 import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../services/zmodem'
+import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
 import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
@@ -37,7 +38,6 @@ const sessions = useSessionsStore()
 const settings = useSettingsStore()
 
 const container = ref<HTMLElement>()
-const progress = ref('')
 const menu = ref<{x: number; y: number} | null>(null)
 const fontSize = ref(13)
 const suggestions = ref<Suggestion[]>([])
@@ -706,7 +706,7 @@ async function connect() {
   disposers.forEach((d) => d())
   disposers.length = 0
   sessions.setStatus(props.tab.clientId, 'connecting')
-  progress.value = ''
+  resetSteps()
   hideSuggestions()
   lineBuf = ''
   escState = 'none'
@@ -721,7 +721,18 @@ async function connect() {
 
   disposers.push(
     onSessionProgress(sid, (evt) => {
-      progress.value = evt.step
+      const st = steps[evt.step]
+      if (!st) return
+      if (evt.log) {
+        st.logs.push(evt.log)
+        st.expanded = true
+      }
+      if (evt.status) {
+        st.status = evt.status as StepStatus
+        if (evt.message) st.message = evt.message
+        // 进行中/失败自动展开，方便实时查看与定位卡住原因
+        if (evt.status === 'running' || evt.status === 'error') st.expanded = true
+      }
     }),
   )
   disposers.push(
@@ -841,7 +852,7 @@ async function reconnectSession() {
   // closed / error：后端会话已移除，走完整 connect；disconnected：复用会话重连
   if (prevStatus === 'disconnected' && props.tab.sessionId) {
     sessions.setStatus(props.tab.clientId, 'connecting')
-    progress.value = ''
+    resetSteps()
     try {
       await reconnect(props.tab.sessionId, term.cols, term.rows)
       sessions.setStatus(props.tab.clientId, 'connected')
@@ -856,19 +867,56 @@ async function reconnectSession() {
   await connect()
 }
 
-const CONNECT_STEPS = ['DNS / 直连', 'TCP 握手', 'SSH 鉴权', '分配 PTY', '会话就绪']
+const CONNECT_STEPS: {key: string; label: string}[] = [
+  {key: 'dns', label: 'DNS / 直连'},
+  {key: 'tcp', label: 'TCP 握手'},
+  {key: 'auth', label: 'SSH 鉴权'},
+  {key: 'pty', label: '分配 PTY'},
+  {key: 'ready', label: '会话就绪'},
+]
 
-function connectStepIndex(step: string): number {
-  if (!step) return 0
-  if (step.includes('初始化')) return 0
-  if (step.includes('连接主机') || step.includes('TCP')) return 1
-  if (step.includes('握手成功') || step.includes('请求 PTY')) return 2
-  if (step.includes('PTY 已就绪') || step.includes('启动 Shell')) return 3
-  if (step.includes('连接完成') || step.includes('Shell 已启动')) return 4
-  return 1
+type StepStatus = 'pending' | 'running' | 'done' | 'error'
+
+interface StepState {
+  status: StepStatus
+  logs: string[]
+  message: string
+  expanded: boolean
 }
 
-const activeConnectStep = computed(() => connectStepIndex(progress.value))
+function makeStepState(): StepState {
+  return {status: 'pending', logs: [], message: '', expanded: false}
+}
+
+// 五步连接过程的实时状态与详细日志（后端按 step 推送增量事件）。
+const steps = reactive<Record<string, StepState>>(
+  Object.fromEntries(CONNECT_STEPS.map((s) => [s.key, makeStepState()])),
+)
+
+function resetSteps() {
+  for (const s of CONNECT_STEPS) {
+    steps[s.key] = makeStepState()
+  }
+}
+
+function toggleStep(key: string) {
+  steps[key].expanded = !steps[key].expanded
+}
+
+// 当前正在执行或已失败的步骤（用于顶部摘要）。
+const activeStepKey = computed(() => {
+  const found = CONNECT_STEPS.find((s) => {
+    const st = steps[s.key].status
+    return st === 'running' || st === 'error'
+  })
+  return found?.key ?? ''
+})
+
+const activeStepLabel = computed(
+  () => CONNECT_STEPS.find((s) => s.key === activeStepKey.value)?.label ?? '',
+)
+
+const anyStepError = computed(() => CONNECT_STEPS.some((s) => steps[s.key].status === 'error'))
 
 function closeTab() {
   sessions.closeTab(props.tab.clientId)
@@ -1028,42 +1076,96 @@ onBeforeUnmount(() => {
       @focus.self
     ></div>
 
-    <!-- 连接中 -->
+    <!-- 连接中 / 连接失败：可展开的分步日志面板 -->
     <div
-      v-if="tab.status === 'connecting'"
+      v-if="tab.status === 'connecting' || tab.status === 'error'"
       class="absolute inset-0 z-30 grid place-items-center pointer-events-auto"
       style="background: rgba(7,9,12,0.72); backdrop-filter: blur(8px)"
     >
-      <div class="neo w-[min(420px,90%)] p-6">
-        <h3 class="text-[15px] font-semibold text-[var(--mist-100)] mb-2">正在连接 {{ tab.serverName }}</h3>
-        <p class="text-xs text-mist mb-5">{{ progress || '解析主机 → 鉴权 → 打开 PTY → 同步环境' }}</p>
-        <div class="flex flex-col gap-2">
+      <div class="neo w-[min(460px,92%)] p-6 max-h-[86vh] overflow-y-auto">
+        <div class="flex items-center justify-between gap-3 mb-1">
+          <h3 class="text-[15px] font-semibold text-[var(--mist-100)] truncate">
+            {{ tab.status === 'connecting' ? `正在连接 ${tab.serverName}` : `连接 ${tab.serverName} 失败` }}
+          </h3>
+          <button class="btn-icon btn-sm shrink-0" title="关闭标签页" aria-label="关闭标签页" @click.stop="closeTab">
+            <Icon name="close" :size="14" />
+          </button>
+        </div>
+        <p v-if="tab.status === 'error' && tab.message" class="text-xs text-[#e57373] break-all mb-3">
+          {{ tab.message }}
+        </p>
+        <p class="text-xs text-mist mb-4">
+          <template v-if="activeStepLabel">
+            当前：<span class="text-[var(--mist-100)]">{{ activeStepLabel }}</span>
+            <span v-if="anyStepError" class="text-[#e57373]"> · 已失败</span>
+          </template>
+          <template v-else-if="tab.status === 'connecting'">解析主机 → 鉴权 → 打开 PTY → 同步环境</template>
+        </p>
+
+        <div class="conn-steps">
           <div
-            v-for="(label, i) in CONNECT_STEPS"
-            :key="label"
-            class="step"
-            :class="i < activeConnectStep ? 'done' : i === activeConnectStep ? 'active' : ''"
+            v-for="(s, i) in CONNECT_STEPS"
+            :key="s.key"
+            class="conn-step"
+            :class="[steps[s.key].status, {open: steps[s.key].expanded}]"
           >
-            <span class="n">{{ i + 1 }}</span>
-            {{ label }}
+            <button
+              class="conn-step-head"
+              @click="toggleStep(s.key)"
+              :aria-expanded="steps[s.key].expanded"
+            >
+              <span class="n">
+                <Icon v-if="steps[s.key].status === 'done'" name="check" :size="12" />
+                <span v-else>{{ i + 1 }}</span>
+              </span>
+              <span class="flex-1 min-w-0 text-left truncate">{{ s.label }}</span>
+              <span v-if="steps[s.key].status === 'running'" class="badge run">进行中</span>
+              <span v-else-if="steps[s.key].status === 'error'" class="badge err">失败</span>
+              <span v-else-if="steps[s.key].status === 'done'" class="badge done">完成</span>
+              <Icon
+                v-if="steps[s.key].logs.length"
+                name="chevron-down"
+                :size="14"
+                extra-class="chev transition-transform"
+                :class="steps[s.key].expanded ? 'open' : ''"
+              />
+            </button>
+            <div v-if="steps[s.key].expanded && steps[s.key].logs.length" class="conn-step-logs">
+              <p
+                v-for="(l, j) in steps[s.key].logs"
+                :key="j"
+                class="log-line"
+                :class="j === steps[s.key].logs.length - 1 && steps[s.key].status === 'error' ? 'err' : ''"
+              >{{ l }}</p>
+              <p v-if="steps[s.key].status === 'error' && steps[s.key].message" class="log-line err">
+                {{ steps[s.key].message }}
+              </p>
+              <p v-else-if="steps[s.key].status === 'running'" class="log-line hint">等待该步骤完成…</p>
+            </div>
           </div>
         </div>
-        <button class="btn btn-ghost btn-sm mt-5" @click.stop="closeTab">关闭标签页</button>
+
+        <div class="flex gap-2 mt-5">
+          <template v-if="tab.status === 'connecting'">
+            <button class="btn btn-ghost btn-sm" @click.stop="closeTab">关闭标签页</button>
+          </template>
+          <template v-else>
+            <button class="btn btn-primary btn-sm" @click.stop="reconnectSession">重试连接</button>
+            <button class="btn btn-ghost btn-sm" @click.stop="closeTab">关闭标签页</button>
+          </template>
+        </div>
       </div>
     </div>
 
-    <!-- 连接失败 / 已断开 -->
+    <!-- 已断开 -->
     <div
-      v-else-if="tab.status === 'error' || tab.status === 'closed' || tab.status === 'disconnected'"
+      v-else-if="tab.status === 'closed' || tab.status === 'disconnected'"
       class="absolute inset-0 z-30 grid place-items-center pointer-events-auto"
       style="background: rgba(7,9,12,0.72); backdrop-filter: blur(8px)"
     >
       <div class="neo w-[min(420px,90%)] p-6 text-center">
         <p class="text-sm text-[var(--mist-100)] break-all">
-          {{ tab.message || (tab.status === 'closed' || tab.status === 'disconnected' ? '连接已断开' : '连接失败') }}
-        </p>
-        <p v-if="progress && tab.status === 'error'" class="text-xs text-mist mt-2 break-all">
-          最后进度：{{ progress }}
+          {{ tab.message || '连接已断开' }}
         </p>
         <!-- 自动重连倒计时 -->
         <div

@@ -255,6 +255,30 @@ func (a *App) DeleteServer(id string) error {
 	return nil
 }
 
+// TestServer 测试单台服务器在线状态（TCP 延迟 + SSH 端口连通性）。
+func (a *App) TestServer(node models.ServerNode) models.ServerTestResult {
+	res := sshx.TestConnectivity(node.Host, node.Port)
+	res.NodeID = node.ID
+	return res
+}
+
+// TestServers 并发测试多台服务器在线状态，结果按传入顺序返回。
+func (a *App) TestServers(nodes []models.ServerNode) []models.ServerTestResult {
+	results := make([]models.ServerTestResult, len(nodes))
+	var wg sync.WaitGroup
+	for i, node := range nodes {
+		wg.Add(1)
+		go func(i int, n models.ServerNode) {
+			defer wg.Done()
+			res := sshx.TestConnectivity(n.Host, n.Port)
+			res.NodeID = n.ID
+			results[i] = res
+		}(i, node)
+	}
+	wg.Wait()
+	return results
+}
+
 // ---- 设置管理 ----
 
 // GetSettings 返回应用设置。

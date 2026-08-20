@@ -133,11 +133,11 @@ func (t *Tunnel) Start() error {
 	t.stopFn = cancel
 	t.mu.Unlock()
 
-	config, err := buildClientConfig(t.node)
+	config, err := buildClientConfig(t.node, noopProgress)
 	if err != nil {
 		return err
 	}
-	client, err := dialSSH(t.node.Host, t.node.Port, config)
+	client, err := dialSSH(t.node.Host, t.node.Port, config, noopProgress)
 	if err != nil {
 		return err
 	}

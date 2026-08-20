@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {computed, onMounted, reactive, ref, watch} from 'vue'
+import {computed, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {useGroupsStore} from '../stores/groups'
 import {useServersStore} from '../stores/servers'
@@ -21,26 +21,10 @@ watch(
 )
 
 const keyword = ref('')
+const activeGroup = ref('all') // 'all' | ''（未分组）| 分组名
 const showDialog = ref(false)
 const editing = ref<ServerNode | null>(null)
 const confirmNode = ref<ServerNode | null>(null)
-const collapsed = reactive<Record<string, boolean>>(loadCollapsed())
-
-function loadCollapsed(): Record<string, boolean> {
-  try {
-    return JSON.parse(localStorage.getItem('sftp-collapsed') || '{}')
-  } catch { return {} }
-}
-
-function saveCollapsed() {
-  try { localStorage.setItem('sftp-collapsed', JSON.stringify(collapsed)) }
-  catch {}
-}
-
-function toggleGroup(name: string) {
-  collapsed[name] = !collapsed[name]
-  saveCollapsed()
-}
 
 // 分组管理弹窗
 const showGroupManager = ref(false)
@@ -50,42 +34,45 @@ const renameInput = ref('')
 const confirmGroupDelete = ref('')
 const groupError = ref('')
 
-const filtered = computed(() => {
-  const kw = keyword.value.trim().toLowerCase()
-  if (!kw) return servers.servers
-  return servers.servers.filter(
-    (s) =>
-      s.name.toLowerCase().includes(kw) ||
-      s.host.toLowerCase().includes(kw) ||
-      s.group.toLowerCase().includes(kw),
-  )
+// 左栏分组列表：全部 / 未分组 / 手动分组（含服务器中使用到的分组）
+const sortedGroups = computed(() => {
+  const set = new Set<string>(groups.list)
+  for (const s of servers.servers) {
+    const g = s.group.trim()
+    if (g) set.add(g)
+  }
+  return [...set].sort((a, b) => a.localeCompare(b))
 })
 
-interface GroupBucket {
-  name: string
-  items: ServerNode[]
+function groupCount(name: string): number {
+  if (name === 'all') return servers.servers.length
+  return servers.servers.filter((s) => s.group.trim() === name).length
 }
 
-// 按分组聚合：未分组在前，其余按名称排序；空分组也展示。
-const grouped = computed<GroupBucket[]>(() => {
-  const map = new Map<string, ServerNode[]>()
-  for (const node of filtered.value) {
-    const key = node.group.trim()
-    if (!map.has(key)) map.set(key, [])
-    map.get(key)!.push(node)
+const filtered = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  let list = servers.servers
+  if (activeGroup.value !== 'all') {
+    list = list.filter((s) => s.group.trim() === activeGroup.value)
   }
-  const buckets: GroupBucket[] = []
-  const keys = new Set<string>(groups.list)
-  for (const k of map.keys()) keys.add(k)
-  const sorted = [...keys].filter((k) => k !== '').sort((a, b) => a.localeCompare(b))
-  if (map.has('')) buckets.push({name: '未分组', items: map.get('')!})
-  for (const key of sorted) {
-    buckets.push({name: key, items: map.get(key) ?? []})
+  if (kw) {
+    list = list.filter(
+      (s) =>
+        s.name.toLowerCase().includes(kw) ||
+        s.host.toLowerCase().includes(kw) ||
+        s.user.toLowerCase().includes(kw) ||
+        s.group.toLowerCase().includes(kw),
+    )
   }
-  return buckets
+  return list
 })
 
-
+const onlineServers = computed(() => {
+  const connected = new Set(
+    sessions.tabs.filter((t) => t.status === 'connected').map((t) => t.node.id),
+  )
+  return connected.size
+})
 
 function openNew() {
   editing.value = null
@@ -98,6 +85,7 @@ function openEdit(node: ServerNode) {
 }
 
 function connect(node: ServerNode) {
+  ui.showWorkspace()
   sessions.openTab(node)
 }
 
@@ -107,6 +95,19 @@ function nodeStatus(node: ServerNode): 'on' | 'err' | 'connecting' | '' {
   if (tabs.some((t) => t.status === 'connecting')) return 'connecting'
   if (tabs.some((t) => t.status === 'error')) return 'err'
   return ''
+}
+
+// ---- 在线状态测试 ----
+function testBadge(node: ServerNode): {dot: string; text: string; textClass: string; tip?: string} | null {
+  if (servers.isTesting(node)) {
+    return {dot: 'bg-[var(--warn-500)] animate-pulse', text: '测试中', textClass: 'text-mist'}
+  }
+  const r = servers.testResults[node.id]
+  if (!r) return null
+  if (r.reachable) {
+    return {dot: 'bg-[var(--ok-500)]', text: `${r.latencyMs}ms`, textClass: 'text-[var(--ok-500)]', tip: 'SSH 端口畅通'}
+  }
+  return {dot: 'bg-[var(--danger-500)]', text: '不通', textClass: 'text-[var(--danger-500)]', tip: r.error || 'SSH 端口不通'}
 }
 
 function isActiveNode(node: ServerNode): boolean {
@@ -157,12 +158,14 @@ async function doRename() {
   groupError.value = ''
   await groups.rename(renameTarget.value, newName)
   renameTarget.value = ''
+  if (activeGroup.value === renameTarget.value) activeGroup.value = newName
   await servers.load()
 }
 
 async function removeGroup(name: string) {
   confirmGroupDelete.value = ''
   await groups.remove(name)
+  if (activeGroup.value === name) activeGroup.value = 'all'
   await servers.load()
 }
 
@@ -173,85 +176,175 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full min-h-0">
-    <div class="p-4 flex flex-col gap-3" style="box-shadow: inset 0 -1px 0 rgba(255,255,255,0.05)">
-      <div class="flex items-center justify-between">
-        <h3 class="text-[12px] font-semibold tracking-[0.08em] uppercase text-mist">Nodes</h3>
-        <div class="flex items-center gap-0.5">
-          <button class="btn-icon btn-sm" title="管理分组" aria-label="管理分组" @click="openGroupManager">
-            <Icon name="folder-cog" :size="14" />
-          </button>
-          <button class="btn-icon btn-sm" title="刷新" aria-label="刷新" @click="servers.load()">
-            <Icon name="refresh" :size="14" />
-          </button>
+  <div class="h-full flex flex-col min-h-0">
+    <div class="page-pad flex flex-col gap-4 min-h-0">
+      <!-- 页面头：标题 + 在线统计 -->
+      <div class="page-hero flex items-end justify-between gap-6 shrink-0">
+        <div>
+          <h2>服务器管理</h2>
+          <p>添加、编辑与删除 SSH 节点，按分组组织并测试在线状态。</p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span class="chip">
+            <span class="dot"></span>
+            {{ onlineServers }}/{{ servers.servers.length }} 台在线
+          </span>
         </div>
       </div>
-      <div class="search">
-        <Icon name="search" :size="14" extra-class="search-ico" />
-        <input
-          v-model="keyword"
-          type="text"
-          class="input input-sm"
-          placeholder="搜索主机 / 分组…"
-          aria-label="搜索服务器"
-        />
-      </div>
-    </div>
 
-    <div class="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
-      <div v-if="servers.loading" class="space-y-2">
-        <div v-for="i in 4" :key="i" class="flex items-center gap-2 px-2.5 py-2">
-          <div class="skel w-2 h-2 rounded-full"></div>
-          <div class="skel h-3 flex-1"></div>
-        </div>
-      </div>
-      <div v-else-if="filtered.length === 0" class="px-3 py-8 text-center text-xs text-mist">
-        暂无服务器，点击右上角新建
-      </div>
+      <div class="flex-1 min-h-0 flex gap-4">
+        <!-- 左：分组栏 -->
+        <aside class="server-sidebar shrink-0 flex flex-col">
+          <div class="flex items-center justify-between px-3 py-2.5 shrink-0" style="box-shadow: inset 0 -1px 0 rgba(255,255,255,0.05)">
+            <span class="text-[12px] font-semibold tracking-[0.08em] uppercase text-mist">分组</span>
+            <button class="btn-icon btn-sm" title="分组管理" aria-label="分组管理" @click="openGroupManager">
+              <Icon name="folder-cog" :size="14" />
+            </button>
+          </div>
 
-      <div v-for="bucket in grouped" :key="bucket.name" class="flex flex-col gap-1">
-        <button class="group-h" @click="toggleGroup(bucket.name)">
-          <Icon
-            name="chevron-down"
-            :size="14"
-            extra-class="transition-transform"
-            :class="collapsed[bucket.name] ? '-rotate-90' : ''"
-          />
-          {{ bucket.name }} · {{ bucket.items.length }}
-        </button>
+          <div class="flex-1 min-h-0 overflow-y-auto p-1.5 flex flex-col gap-0.5">
+            <button
+              class="side-group-item"
+              :class="activeGroup === 'all' ? 'active' : ''"
+              @click="activeGroup = 'all'"
+            >
+              <Icon name="server" :size="14" extra-class="text-mist" />
+              <span class="flex-1 text-left truncate">全部服务器</span>
+              <span class="count">{{ groupCount('all') }}</span>
+            </button>
+            <button
+              v-if="groupCount('')"
+              class="side-group-item"
+              :class="activeGroup === '' ? 'active' : ''"
+              @click="activeGroup = ''"
+            >
+              <Icon name="folder" :size="14" extra-class="text-mist" />
+              <span class="flex-1 text-left truncate">未分组</span>
+              <span class="count">{{ groupCount('') }}</span>
+            </button>
+            <button
+              v-for="g in sortedGroups"
+              :key="g"
+              class="side-group-item"
+              :class="activeGroup === g ? 'active' : ''"
+              @click="activeGroup = g"
+            >
+              <Icon name="folder" :size="14" extra-class="text-mist" />
+              <span class="flex-1 text-left truncate">{{ g }}</span>
+              <span class="count">{{ groupCount(g) }}</span>
+            </button>
+          </div>
 
-        <div v-if="!collapsed[bucket.name]" class="flex flex-col gap-0.5">
-          <div
-            v-for="node in bucket.items"
-            :key="node.id"
-            class="server-item group"
-            :class="isActiveNode(node) ? 'active' : ''"
-            @click="connect(node)"
-          >
-            <span class="status" :class="nodeStatus(node)"></span>
-            <div class="min-w-0">
-              <div class="text-[13px] font-medium text-[var(--mist-100)] truncate">{{ node.name }}</div>
-              <div class="font-mono text-[12px] text-mist truncate">{{ node.user }}@{{ node.host }}:{{ node.port }}</div>
+          <div class="p-2 shrink-0" style="box-shadow: inset 0 1px 0 rgba(255,255,255,0.05)">
+            <button class="btn btn-ghost btn-sm w-full" @click="openGroupManager">
+              <Icon name="plus" :size="14" />
+              新建分组
+            </button>
+          </div>
+        </aside>
+
+        <!-- 右：列表区域 -->
+        <div class="flex-1 min-w-0 flex flex-col gap-3">
+          <!-- 工具栏 -->
+          <div class="flex items-center gap-2 shrink-0">
+            <div class="search" style="max-width: 340px">
+              <Icon name="search" :size="14" extra-class="search-ico" />
+              <input
+                v-model="keyword"
+                type="text"
+                class="input input-sm"
+                placeholder="搜索名称 / 主机 / 分组…"
+                aria-label="搜索服务器"
+              />
             </div>
-            <div class="hidden group-hover:flex gap-0.5">
-              <button class="btn-icon btn-sm" title="连接" @click.stop="connect(node)">
-                <Icon name="arrow-right" :size="16" />
+            <div class="ml-auto flex items-center gap-2">
+              <button
+                class="btn btn-ghost btn-sm"
+                :title="servers.testingAll ? '正在测试全部服务器…' : '测试全部服务器在线状态'"
+                :disabled="servers.testingAll || !servers.servers.length"
+                @click="servers.testAll()"
+              >
+                <Icon name="activity" :size="14" :extra-class="servers.testingAll ? 'animate-spin' : ''" />
+                测试全部
               </button>
-              <button class="btn-icon btn-sm" title="编辑" @click.stop="openEdit(node)">
-                <Icon name="pencil" :size="16" />
+              <button class="btn btn-ghost btn-sm" title="刷新" aria-label="刷新" @click="servers.load()">
+                <Icon name="refresh" :size="14" />
+                刷新
               </button>
-              <button class="btn-icon btn-sm" title="删除" @click.stop="confirmNode = node">
-                <Icon name="trash" :size="16" />
+              <button class="btn btn-copper btn-sm" @click="openNew">
+                <Icon name="plus" :size="14" />
+                新建服务器
               </button>
+            </div>
+          </div>
+
+          <!-- 列表 -->
+          <div class="flex-1 min-h-0 overflow-y-auto server-list-panel">
+            <div v-if="servers.loading" class="flex flex-col">
+              <div v-for="i in 6" :key="i" class="flex items-center gap-3 px-4 py-3">
+                <div class="skel w-2 h-2 rounded-full shrink-0"></div>
+                <div class="skel h-3 w-1/3"></div>
+                <div class="skel h-3 w-24 ml-auto"></div>
+              </div>
+            </div>
+            <div v-else-if="filtered.length === 0" class="py-14 text-center flex flex-col items-center gap-3">
+              <Icon name="server" :size="32" extra-class="text-mist/40" />
+              <div class="text-[14px] font-semibold text-[var(--mist-100)]">
+                {{ servers.servers.length ? '没有匹配的服务器' : '暂无服务器' }}
+              </div>
+              <p class="text-[13px] text-mist">
+                {{ servers.servers.length ? '换个关键词，或切换左侧分组试试。' : '点击「新建服务器」添加节点，之后即可在终端页快速连接。' }}
+              </p>
+              <button v-if="!servers.servers.length" class="btn btn-primary btn-sm" @click="openNew">
+                <Icon name="plus" :size="14" />
+                新建服务器
+              </button>
+            </div>
+
+            <div
+              v-for="node in filtered"
+              :key="node.id"
+              class="server-row group"
+              :class="isActiveNode(node) ? 'active' : ''"
+              :title="`连接 ${node.name}`"
+              @click="connect(node)"
+            >
+              <span class="status shrink-0" :class="nodeStatus(node)"></span>
+
+              <div class="min-w-0 flex-1">
+                <div class="text-[13px] font-medium text-[var(--mist-100)] truncate">{{ node.name }}</div>
+                <div class="font-mono text-[12px] text-mist truncate">{{ node.user }}@{{ node.host }}:{{ node.port }}</div>
+              </div>
+
+              <span
+                v-if="testBadge(node)"
+                class="latency shrink-0 cursor-pointer"
+                :title="(testBadge(node)!.tip || '') + '（点击重新测试）'"
+                @click.stop="servers.testOne(node)"
+              >
+                <span class="w-1.5 h-1.5 rounded-full" :class="testBadge(node)!.dot"></span>
+                <span class="text-[12px] leading-none" :class="testBadge(node)!.textClass">{{ testBadge(node)!.text }}</span>
+              </span>
+              <span v-else class="latency shrink-0 text-mist">未测试</span>
+
+              <div class="row-actions shrink-0">
+                <button class="btn-icon btn-sm" title="连接" aria-label="连接" @click.stop="connect(node)">
+                  <Icon name="arrow-right" :size="15" />
+                </button>
+                <button class="btn-icon btn-sm" title="测试在线状态" aria-label="测试在线状态" @click.stop="servers.testOne(node)">
+                  <Icon name="activity" :size="15" />
+                </button>
+                <button class="btn-icon btn-sm" title="编辑" aria-label="编辑" @click.stop="openEdit(node)">
+                  <Icon name="pencil" :size="15" />
+                </button>
+                <button class="btn-icon btn-sm" title="删除" aria-label="删除" @click.stop="confirmNode = node">
+                  <Icon name="trash" :size="15" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-
-    <div class="p-3 flex gap-2" style="box-shadow: inset 0 1px 0 rgba(255,255,255,0.05)">
-      <button class="btn btn-ghost btn-sm flex-1" @click="openGroupManager">分组</button>
-      <button class="btn btn-primary btn-sm flex-1" @click="openNew">新建</button>
     </div>
 
     <ServerDialog v-model="showDialog" :editing="editing" />

@@ -144,6 +144,24 @@ export namespace models {
 	        this.envVars = source["envVars"];
 	    }
 	}
+	export class ServerTestResult {
+	    nodeId: string;
+	    latencyMs: number;
+	    reachable: boolean;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServerTestResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
+	        this.latencyMs = source["latencyMs"];
+	        this.reachable = source["reachable"];
+	        this.error = source["error"];
+	    }
+	}
 	export class SessionInfo {
 	    sessionId: string;
 	    serverName: string;

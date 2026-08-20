@@ -114,10 +114,13 @@ func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows i
 				Source:      "terminal",
 			})
 		},
-		func(id string, step string) {
+		func(id string, step, status, log, message string) {
 			m.notify("ssh:progress:"+id, models.ProgressEvent{
 				SessionID: id,
 				Step:      step,
+				Status:    status,
+				Log:       log,
+				Message:   message,
 			})
 		},
 		cfg.KeepAliveEnabled,
