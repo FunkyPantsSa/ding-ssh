@@ -257,6 +257,11 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		CompletionEnabled:    true, // 默认开启智能补全
 		CompletionNavHotkey:  "Alt+ArrowDown",
 		CompletionPanelLimit: 8,
+		SftpToTerminalSync:   true,
+		TerminalToSftpSync:   true,
+		UIScale:              100,
+		AutoReconnect:        true,
+		KeepAliveEnabled:     true,
 	}
 	if v, ok := values["logEnabled"]; ok {
 		st.LogEnabled = v == "true"
@@ -278,6 +283,24 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
 			st.CompletionPanelLimit = n
 		}
+	}
+	if v, ok := values["sftpToTerminalSync"]; ok {
+		st.SftpToTerminalSync = v == "true"
+	}
+	if v, ok := values["terminalToSftpSync"]; ok {
+		st.TerminalToSftpSync = v == "true"
+	}
+	if v, ok := values["uiScale"]; ok && v != "" {
+		var n int
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
+			st.UIScale = n
+		}
+	}
+	if v, ok := values["autoReconnect"]; ok {
+		st.AutoReconnect = v == "true"
+	}
+	if v, ok := values["keepAliveEnabled"]; ok {
+		st.KeepAliveEnabled = v == "true"
 	}
 	if v, ok := values["theme"]; ok && v != "" {
 		_ = json.Unmarshal([]byte(v), &st.Theme)
@@ -304,7 +327,12 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"completionEnabled", boolStr(st.CompletionEnabled)},
 		{"completionNavHotkey", st.CompletionNavHotkey},
 		{"completionPanelLimit", fmt.Sprintf("%d", st.CompletionPanelLimit)},
+		{"sftpToTerminalSync", boolStr(st.SftpToTerminalSync)},
+		{"terminalToSftpSync", boolStr(st.TerminalToSftpSync)},
+		{"uiScale", fmt.Sprintf("%d", st.UIScale)},
 		{"theme", string(theme)},
+		{"autoReconnect", boolStr(st.AutoReconnect)},
+		{"keepAliveEnabled", boolStr(st.KeepAliveEnabled)},
 	}
 	for _, e := range entries {
 		if _, err := s.db.Exec(`

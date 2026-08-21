@@ -91,7 +91,7 @@ function isActiveNode(node: ServerNode): boolean {
 
 <template>
   <Teleport to="body">
-    <!-- 左侧贴边箭头：仅在工作区显示，固定在最左缘 -->
+    <!-- 左侧贴边箭头：收起时贴导航轨右缘，展开后跟随侧边栏右缘 -->
     <button
       v-if="ui.view === 'workspace'"
       class="qconn-toggle"

@@ -12,6 +12,8 @@ import {
   Clock,
   Command,
   Copy,
+  Eye,
+  EyeOff,
   FileText,
   Folder,
   FolderCog,
@@ -66,6 +68,8 @@ const map: Record<string, Component> = {
   zap: Zap,
   check: Check,
   copy: Copy,
+  eye: Eye,
+  'eye-off': EyeOff,
 }
 
 const props = defineProps<{name: string; size?: number; extraClass?: string}>()

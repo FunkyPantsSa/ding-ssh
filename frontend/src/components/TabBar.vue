@@ -27,6 +27,12 @@ function closeTabMenu() {
   tabMenu.value = null
 }
 
+function duplicateTab(clientId: string) {
+  const tab = sessions.tabs.find((t) => t.clientId === clientId)
+  if (tab) sessions.openTab(tab.node)
+  closeTabMenu()
+}
+
 function closeOthers(clientId: string) {
   if (sessions.tabs.length <= 1) { closeTabMenu(); return }
   for (const t of sessions.tabs) {
@@ -82,6 +88,11 @@ onBeforeUnmount(() => {
       @contextmenu.prevent
       @click.stop
     >
+      <button class="!flex items-center gap-1.5" @click="duplicateTab(tabMenu.clientId)">
+        <Icon name="copy" :size="13" />
+        复制终端
+      </button>
+      <div class="h-px my-1" style="background: rgba(255,255,255,0.06)"></div>
       <button @click="sessions.activeId = tabMenu.clientId; closeTabMenu()">切换到此标签</button>
       <button @click="close(tabMenu.clientId); closeTabMenu()">关闭标签</button>
       <button @click="closeOthers(tabMenu.clientId)">关闭其他标签</button>

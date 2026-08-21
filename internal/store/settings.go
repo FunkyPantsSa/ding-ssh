@@ -58,6 +58,8 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 			SftpToTerminalSync:   true,
 			TerminalToSftpSync:   true,
 			UIScale:              100,
+			AutoReconnect:        true,
+			KeepAliveEnabled:     true,
 		}, nil
 	}
 	if err != nil {
@@ -88,6 +90,12 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	}
 	if settings.UIScale <= 0 {
 		settings.UIScale = 100
+	}
+	if !bytesContains(data, []byte(`"autoReconnect"`)) {
+		settings.AutoReconnect = true
+	}
+	if !bytesContains(data, []byte(`"keepAliveEnabled"`)) {
+		settings.KeepAliveEnabled = true
 	}
 	return settings, nil
 }

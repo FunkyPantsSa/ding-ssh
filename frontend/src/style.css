@@ -44,6 +44,7 @@
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --dur: 220ms;
   --rail-w: 68px;
+  --qconn-w: 280px;
   --side-w: 268px;
   --tool-w: 320px;
   --title-h: 52px;
@@ -662,10 +663,15 @@ img, svg { display: block; max-width: 100%; }
     inset 0 0 0 1px rgba(255,255,255,0.06),
     6px 0 16px rgba(0,0,0,0.35);
   cursor: pointer;
-  transition: color var(--dur), background var(--dur), box-shadow var(--dur);
+  transition:
+    left .24s cubic-bezier(0.2, 0.8, 0.2, 1),
+    color var(--dur),
+    background var(--dur),
+    box-shadow var(--dur);
 }
 .qconn-toggle:hover { color: var(--signal-300); background: rgba(12,16,22,0.96); }
 .qconn-toggle.active {
+  left: var(--qconn-w);
   color: var(--signal-300);
   box-shadow:
     inset 0 0 0 1px rgba(62,196,180,0.25),
@@ -683,7 +689,7 @@ img, svg { display: block; max-width: 100%; }
   left: 0;
   top: 0;
   bottom: 0;
-  width: 280px;
+  width: var(--qconn-w);
   z-index: 50;
   display: flex;
   flex-direction: column;

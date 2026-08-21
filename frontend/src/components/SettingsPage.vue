@@ -12,7 +12,9 @@ import {sshService} from '../services/ssh'
 import {useCredentialsStore} from '../stores/credentials'
 import {useServersStore} from '../stores/servers'
 import {defaultTheme, useSettingsStore} from '../stores/settings'
-import type {SecurityStatus, Theme} from '../types'
+import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
+import type {Credential, SecurityStatus, Theme} from '../types'
+import CredentialDialog from './CredentialDialog.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
 const settings = useSettingsStore()
@@ -30,9 +32,15 @@ const menuItems = [
 ] as const
 const section = ref<'general' | 'theme' | 'credentials' | 'security' | 'migrate'>('general')
 const themeForm = reactive<Theme>(defaultTheme())
-const credForm = reactive({name: '', user: '', password: '', authType: 'password', keySource: 'file' as 'file' | 'content', keyPath: '', keyContent: ''})
-const credError = ref('')
 const confirmCredId = ref('')
+const showCredDialog = ref(false)
+const editingCred = ref<Credential | null>(null)
+/** 正在就地显示明文的密码类凭证 ID（私钥类走 revealKey 面板） */
+const revealId = ref('')
+/** 正在查看明文的私钥凭证（弹小面板展示全文） */
+const revealKey = ref<Credential | null>(null)
+const copiedCredId = ref('')
+let copiedCredTimer: number | undefined
 
 const security = ref<SecurityStatus | null>(null)
 const secForm = reactive({password: '', confirm: '', oldPassword: '', newPassword: '', newConfirm: ''})
@@ -231,43 +239,39 @@ async function pickBgImage() {
   }
 }
 
-async function pickCredKeyFile() {
-  try {
-    const path = await sshService.selectKeyFile()
-    if (path) credForm.keyPath = path
-  } catch (e) {
-  }
+function openNewCred() {
+  editingCred.value = null
+  showCredDialog.value = true
 }
 
-async function addCredential() {
-  if (!credForm.name.trim() || !credForm.user.trim()) {
-    credError.value = '请填写凭证名称和用户名'
+function openEditCred(c: Credential) {
+  editingCred.value = c
+  showCredDialog.value = true
+}
+
+/** 密码就地显示明文；私钥弹小面板展示全文。 */
+function toggleReveal(c: Credential) {
+  if (c.authType === 'privateKey') {
+    revealKey.value = c
     return
   }
-  if (credForm.authType === 'password' && !credForm.password) {
-    credError.value = '请填写密码'
-    return
+  revealId.value = revealId.value === c.id ? '' : c.id
+}
+
+/** 复制密码 / 私钥明文到剪贴板。 */
+async function copyCred(c: Credential) {
+  const text = c.authType === 'privateKey' ? c.keyContent : c.password
+  if (!text) return
+  try {
+    await ClipboardSetText(text)
+    copiedCredId.value = c.id
+    window.clearTimeout(copiedCredTimer)
+    copiedCredTimer = window.setTimeout(() => {
+      copiedCredId.value = ''
+    }, 1600)
+  } catch {
+    /* ignore */
   }
-  if (credForm.authType === 'privateKey') {
-    if (credForm.keySource === 'file' && !credForm.keyPath) {
-      credError.value = '请选择私钥文件'
-      return
-    }
-    if (credForm.keySource === 'content' && !credForm.keyContent) {
-      credError.value = '请粘贴私钥内容'
-      return
-    }
-    if (credForm.keySource === 'content') credForm.keyPath = ''
-    else credForm.keyContent = ''
-  }
-  credError.value = ''
-  await credentials.save({id: '', ...credForm})
-  credForm.name = ''
-  credForm.user = ''
-  credForm.password = ''
-  credForm.authType = 'password'
-  credForm.keyPath = ''
-  credForm.keyContent = ''
 }
 
 async function removeCredential(id: string) {
@@ -389,6 +393,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onHotkeyCapture, true)
+  window.clearTimeout(copiedCredTimer)
 })
 
 watch(
@@ -761,93 +766,87 @@ watch(
 
       <!-- 保存的凭证 -->
       <div v-else-if="section === 'credentials'" class="max-w-2xl fade-rise">
-        <div class="mb-6">
-          <h3 class="text-[18px] font-semibold text-white tracking-tight">保存的凭证</h3>
-          <p class="text-[13px] text-mist mt-1.5">保存常用用户名密码或私钥，新建服务器时可直接选择自动填充。</p>
+        <div class="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h3 class="text-[18px] font-semibold text-white tracking-tight">保存的凭证</h3>
+            <p class="text-[13px] text-mist mt-1.5">保存常用用户名密码或私钥，新建服务器时可直接选择自动填充。</p>
+          </div>
+          <button class="btn btn-primary btn-sm shrink-0" @click="openNewCred">
+            <Icon name="plus" :size="14" />
+            新增凭证
+          </button>
         </div>
 
         <div class="neo">
           <div class="px-5 py-4 space-y-2">
-            <div v-if="!credentials.list.length" class="text-xs text-slate-500 py-2">暂无凭证，在下方添加。</div>
+            <div v-if="!credentials.list.length" class="text-xs text-slate-500 py-2">暂无凭证，点击右上角「新增凭证」添加。</div>
             <div
               v-for="c in credentials.list"
               :key="c.id"
-              class="flex items-center justify-between gap-3 px-3 py-2 rounded-md bg-slate-800/50 border border-slate-700/40"
+              class="flex items-center gap-3 px-3 py-2 rounded-md bg-slate-800/50 border border-slate-700/40"
             >
-              <div class="min-w-0">
+              <div class="min-w-0 flex-1">
                 <p class="text-[13px] text-slate-200 truncate">{{ c.name }}</p>
                 <p class="text-[12px] text-slate-500 truncate">
-                  {{ c.user }}
-                  <template v-if="c.authType === 'privateKey'"> · 私钥已保存</template>
-                  <template v-else> · 密码已保存</template>
+                  {{ c.user }} · {{ c.authType === 'privateKey' ? 'RSA 私钥' : '密码' }}
+                  <span class="font-mono text-slate-400">
+                    {{ c.authType === 'privateKey' ? '••••••••' : revealId === c.id ? c.password || '' : '••••••••' }}
+                  </span>
                 </p>
               </div>
               <div v-if="confirmCredId !== c.id" class="flex items-center gap-1 shrink-0">
-                <button class="px-2 py-1 rounded-[4px] btn-ghost text-xs h-auto" @click="confirmCredId = c.id">删除</button>
+                <button class="btn-icon btn-sm" :title="revealId === c.id ? '隐藏' : '查看密码'" @click="toggleReveal(c)">
+                  <Icon name="eye" :size="14" extra-class="text-slate-300" />
+                </button>
+                <button class="btn-icon btn-sm" :title="c.authType === 'privateKey' ? '复制私钥' : '复制密码'" @click="copyCred(c)">
+                  <Icon :name="copiedCredId === c.id ? 'check' : 'copy'" :size="14" :extra-class="copiedCredId === c.id ? 'text-emerald-400' : 'text-slate-300'" />
+                </button>
+                <button class="btn-icon btn-sm" title="编辑" @click="openEditCred(c)">
+                  <Icon name="pencil" :size="14" extra-class="text-slate-300" />
+                </button>
+                <button class="btn-icon btn-sm" title="删除" @click="confirmCredId = c.id">
+                  <Icon name="trash" :size="14" extra-class="text-slate-300" />
+                </button>
               </div>
               <div v-else class="flex items-center gap-1 shrink-0">
                 <button class="px-2 py-1 rounded bg-rose-600/80 hover:bg-rose-500 text-white text-xs" @click="removeCredential(c.id)">确认</button>
                 <button class="px-2 py-1 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 text-xs" @click="confirmCredId = ''">取消</button>
               </div>
             </div>
+          </div>
+        </div>
 
-            <div class="pt-2 border-t border-slate-800/60 space-y-2">
-              <p class="text-xs text-slate-400 pt-1">新增凭证</p>
-              <div class="space-y-3">
-                <div class="grid grid-cols-2 gap-2">
-                  <input v-model="credForm.name" class="input input-sm" placeholder="名称，如：生产 root" />
-                  <input v-model="credForm.user" class="input input-sm" placeholder="用户名" />
+        <CredentialDialog v-model="showCredDialog" :editing="editingCred" />
+
+        <!-- 私钥明文查看面板 -->
+        <Teleport to="body">
+          <div v-if="revealKey" class="modal-root" @click.self="revealKey = null">
+            <div class="modal neo" style="width:min(560px,92vw);max-height:82vh;display:flex;flex-direction:column">
+              <div class="flex items-start justify-between gap-4 px-6 pt-6 pb-4">
+                <div>
+                  <h3 class="!mb-1">RSA 私钥内容</h3>
+                  <p class="mdesc !mb-0">「{{ revealKey.name }}」保存的私钥明文，仅保存在本机。</p>
                 </div>
-                <div class="flex gap-2">
-                  <button
-                    class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 text-xs transition-colors"
-                    :class="credForm.authType === 'password' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
-                    @click="credForm.authType = 'password'"
-                  >
-                    密码
-                  </button>
-                  <button
-                    class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 text-xs transition-colors"
-                    :class="credForm.authType === 'privateKey' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
-                    @click="credForm.authType = 'privateKey'"
-                  >
-                    私钥
-                  </button>
-                </div>
-                <template v-if="credForm.authType === 'password'">
-                  <input v-model="credForm.password" type="password" class="input input-sm" placeholder="密码" />
-                </template>
-                <template v-else>
-                  <div class="flex gap-2">
-                    <button
-                      class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 text-xs transition-colors"
-                      :class="credForm.keySource === 'file' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
-                      @click="credForm.keySource = 'file'"
-                    >
-                      密钥文件
-                    </button>
-                    <button
-                      class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 text-xs transition-colors"
-                      :class="credForm.keySource === 'content' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
-                      @click="credForm.keySource = 'content'"
-                    >
-                      粘贴内容
-                    </button>
-                  </div>
-                  <div v-if="credForm.keySource === 'file'" class="flex gap-2">
-                    <input v-model="credForm.keyPath" readonly class="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none" placeholder="~/.ssh/id_rsa" />
-                    <button class="px-3 py-1.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-200 text-xs shrink-0" @click="pickCredKeyFile">选择…</button>
-                  </div>
-                  <textarea v-else v-model="credForm.keyContent" rows="4" spellcheck="false" class="textarea font-mono" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."></textarea>
-                </template>
+                <button class="btn-icon btn-sm" title="关闭" @click="revealKey = null">
+                  <Icon name="close" :size="14" />
+                </button>
               </div>
-              <div class="flex items-center justify-between">
-                <p v-if="credError" class="text-xs text-rose-400 break-all">{{ credError }}</p>
-                <button class="btn btn-primary btn-sm ml-auto" @click="addCredential">保存凭证</button>
+              <div class="flex-1 overflow-y-auto px-6 pb-2">
+                <textarea
+                  readonly
+                  rows="10"
+                  spellcheck="false"
+                  class="w-full px-3 py-2 rounded-md bg-slate-900 border border-slate-700/60 text-slate-200 font-mono text-xs leading-relaxed outline-none resize-none"
+                  :value="revealKey.keyContent || ''"
+                ></textarea>
+              </div>
+              <div class="flex justify-end gap-2 px-6 py-5">
+                <button class="btn btn-ghost" @click="revealKey = null">关闭</button>
+                <button class="btn btn-primary" @click="copyCred(revealKey); revealKey = null">复制私钥</button>
               </div>
             </div>
           </div>
-        </div>
+        </Teleport>
       </div>
 
       <!-- 安全 -->

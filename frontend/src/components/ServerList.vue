@@ -68,10 +68,10 @@ const filtered = computed(() => {
 })
 
 const onlineServers = computed(() => {
-  const connected = new Set(
-    sessions.tabs.filter((t) => t.status === 'connected').map((t) => t.node.id),
+  const reachable = new Set(
+    servers.servers.filter((s) => servers.testResults[s.id]?.reachable).map((s) => s.id),
   )
-  return connected.size
+  return reachable.size
 })
 
 function openNew() {

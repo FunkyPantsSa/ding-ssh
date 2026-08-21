@@ -291,11 +291,21 @@ onBeforeUnmount(() => {
         <button
             v-for="m in (['local', 'remote', 'dynamic'] as const)"
             :key="m"
-            class="neo-flat p-4 text-left transition-colors"
-            :class="form.mode === m ? 'ring-1 ring-[var(--signal-400)]' : 'hover:bg-white/3'"
+            class="relative neo-flat p-4 text-left transition-all"
+            :class="form.mode === m
+              ? 'ring-1 ring-[var(--signal-400)] bg-[rgba(42,168,154,0.10)] shadow-[0_0_20px_rgba(62,196,180,0.20)]'
+              : 'hover:bg-white/3'"
             @click="form.mode = m"
           >
-          <div class="text-[13px] font-semibold text-[var(--mist-100)]">{{ modeDetails[m].title }}</div>
+          <span
+            v-if="form.mode === m"
+            class="absolute top-2.5 right-2.5 w-4 h-4 rounded-full bg-[var(--signal-400)] grid place-items-center"
+          >
+            <Icon name="check" :size="10" extra-class="text-[#071210] font-bold" />
+          </span>
+          <div class="text-[13px] font-semibold" :class="form.mode === m ? 'text-[var(--signal-200)]' : 'text-[var(--mist-100)]'">
+            {{ modeDetails[m].title }}
+          </div>
           <div class="text-[12px] text-mist mt-1">{{ modeDetails[m].summary }}</div>
         </button>
       </div>

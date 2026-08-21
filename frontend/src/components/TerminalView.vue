@@ -952,6 +952,9 @@ onMounted(() => {
       selectionBackground: settings.theme.selection,
     },
     scrollback: 5000,
+    // 关闭「用户输入时强制滚到底部」：浏览历史时按普通键/粘贴不再跳转；
+    // 需要回到底部时按 Enter 即可（见 attachCustomKeyEventHandler）。
+    scrollOnUserInput: false,
   })
   fitAddon = new FitAddon()
   term.loadAddon(fitAddon)
@@ -967,7 +970,19 @@ onMounted(() => {
       return true
     }
     composing = false
-    return handleCompletionKey(e)
+    if (!handleCompletionKey(e)) return false
+    // 浏览历史（视口不在最底部）时按回车：滚动回输入处，方便查看执行结果
+    if (
+      e.key === 'Enter' &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      term &&
+      term.buffer.active.baseY !== term.buffer.active.viewportY
+    ) {
+      term.scrollToBottom()
+    }
+    return true
   })
 
   term.onData((data) => {
