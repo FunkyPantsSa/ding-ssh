@@ -95,11 +95,13 @@ type Settings struct {
 	CompletionPanelLimit  int    `json:"completionPanelLimit"`            // 补全面板最多展示条数，默认 8
 	SftpToTerminalSync    bool   `json:"sftpToTerminalSync"`              // SFTP 目录变化是否同步到终端（发 cd 命令），默认开启
 	TerminalToSftpSync    bool   `json:"terminalToSftpSync"`              // 终端目录变化是否同步到 SFTP 面板，默认开启
-	UIScale               int    `json:"uiScale"`                         // 界面缩放百分比，默认 100（80–150）
-	Theme                 Theme  `json:"theme"`                           // 终端主题
-	AutoReconnect         bool   `json:"autoReconnect"`                   // 断开后自动重连（默认开启）
-	KeepAliveEnabled      bool   `json:"keepAliveEnabled"`                // 发送心跳包防止终端超时（默认开启）
-	LocalShell            string `json:"localShell"`                      // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
+	UIScale               int           `json:"uiScale"`                         // 界面缩放百分比，默认 100（80–150）
+	Theme                 Theme         `json:"theme"`                          // 终端主题（含 ANSI 16 色）
+	Appearance            UIAppearance  `json:"appearance"`                      // UI 外观（品牌色 + 明暗模式）
+	Fonts                 Fonts         `json:"fonts"`                          // 字体设置
+	AutoReconnect         bool          `json:"autoReconnect"`                   // 断开后自动重连（默认开启）
+	KeepAliveEnabled      bool          `json:"keepAliveEnabled"`                // 发送心跳包防止终端超时（默认开启）
+	LocalShell            string        `json:"localShell"`                      // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
 }
 
 // CommandHistory 命令历史记录（SQLite command_history 表）。
@@ -127,6 +129,63 @@ type Theme struct {
 	BlurAmount int    `json:"blurAmount"` // 背景图模糊强度(px)
 	TextShadow bool   `json:"textShadow"` // 是否启用文字阴影
 	ShadowBlur int    `json:"shadowBlur"` // 文字阴影模糊强度(px)
+
+	// ANSI 16 色：终端内程序输出（ls / vim / 提示符等）的颜色映射。
+	Black   string `json:"black"`
+	Red     string `json:"red"`
+	Green   string `json:"green"`
+	Yellow  string `json:"yellow"`
+	Blue    string `json:"blue"`
+	Magenta string `json:"magenta"`
+	Cyan    string `json:"cyan"`
+	White   string `json:"white"`
+	// 亮色变体（ANSI 90–97）。
+	BrightBlack   string `json:"brightBlack"`
+	BrightRed     string `json:"brightRed"`
+	BrightGreen   string `json:"brightGreen"`
+	BrightYellow  string `json:"brightYellow"`
+	BrightBlue    string `json:"brightBlue"`
+	BrightMagenta string `json:"brightMagenta"`
+	BrightCyan    string `json:"brightCyan"`
+	BrightWhite   string `json:"brightWhite"`
+}
+
+// UIAppearance UI 外观：品牌色与明暗模式。
+type UIAppearance struct {
+	Mode      string `json:"mode"`      // preset | custom
+	PresetID  string `json:"presetId"`  // 预设主题 ID（preset 模式）
+	BaseTone  string `json:"baseTone"`  // auto | light | dark
+	Primary   string `json:"primary"`   // custom：主色（hex）
+	Secondary string `json:"secondary"` // custom：辅色（hex）
+	UiText    string `json:"uiText"`    // custom：界面主文字色（hex）
+}
+
+// Fonts 字体设置。
+type Fonts struct {
+	UiFont           string `json:"uiFont"`           // UI 字体名（如 Sora / system）
+	TerminalFont     string `json:"terminalFont"`     // 终端等宽字体名
+	TerminalFontSize int    `json:"terminalFontSize"` // 终端字号（默认 13）
+}
+
+// DefaultAppearance 返回默认外观（信号青绿预设 + 跟随系统明暗）。
+func DefaultAppearance() UIAppearance {
+	return UIAppearance{
+		Mode:      "preset",
+		PresetID:  "signal",
+		BaseTone:  "auto",
+		Primary:   "#3ec4b4",
+		Secondary: "#c97a4a",
+		UiText:    "#eef1f5",
+	}
+}
+
+// DefaultFonts 返回默认字体设置。
+func DefaultFonts() Fonts {
+	return Fonts{
+		UiFont:           "Sora",
+		TerminalFont:     "IBM Plex Mono",
+		TerminalFontSize: 13,
+	}
 }
 
 // DefaultTheme 返回默认终端主题。
@@ -140,6 +199,76 @@ func DefaultTheme() Theme {
 		BlurAmount: 12,
 		TextShadow: false,
 		ShadowBlur: 3,
+
+		Black:         "#0c1016",
+		Red:           "#d45a5a",
+		Green:         "#4caf7a",
+		Yellow:        "#d4a04a",
+		Blue:          "#5c8fe6",
+		Magenta:       "#b26cd9",
+		Cyan:          "#3ec4b4",
+		White:         "#d4dae3",
+		BrightBlack:   "#6b7684",
+		BrightRed:     "#f08080",
+		BrightGreen:   "#7ad8a3",
+		BrightYellow:  "#e8c070",
+		BrightBlue:    "#8fb0f2",
+		BrightMagenta: "#d39cf0",
+		BrightCyan:    "#6dd9cb",
+		BrightWhite:   "#ffffff",
+	}
+}
+
+// FillThemeAnsi 为缺失的 ANSI 16 色字段补齐默认值，保留用户已有的自定义值。
+func FillThemeAnsi(t *Theme) {
+	d := DefaultTheme()
+	if t.Black == "" {
+		t.Black = d.Black
+	}
+	if t.Red == "" {
+		t.Red = d.Red
+	}
+	if t.Green == "" {
+		t.Green = d.Green
+	}
+	if t.Yellow == "" {
+		t.Yellow = d.Yellow
+	}
+	if t.Blue == "" {
+		t.Blue = d.Blue
+	}
+	if t.Magenta == "" {
+		t.Magenta = d.Magenta
+	}
+	if t.Cyan == "" {
+		t.Cyan = d.Cyan
+	}
+	if t.White == "" {
+		t.White = d.White
+	}
+	if t.BrightBlack == "" {
+		t.BrightBlack = d.BrightBlack
+	}
+	if t.BrightRed == "" {
+		t.BrightRed = d.BrightRed
+	}
+	if t.BrightGreen == "" {
+		t.BrightGreen = d.BrightGreen
+	}
+	if t.BrightYellow == "" {
+		t.BrightYellow = d.BrightYellow
+	}
+	if t.BrightBlue == "" {
+		t.BrightBlue = d.BrightBlue
+	}
+	if t.BrightMagenta == "" {
+		t.BrightMagenta = d.BrightMagenta
+	}
+	if t.BrightCyan == "" {
+		t.BrightCyan = d.BrightCyan
+	}
+	if t.BrightWhite == "" {
+		t.BrightWhite = d.BrightWhite
 	}
 }
 

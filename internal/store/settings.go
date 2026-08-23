@@ -60,6 +60,9 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 			UIScale:              100,
 			AutoReconnect:        true,
 			KeepAliveEnabled:     true,
+			Theme:                models.DefaultTheme(),
+			Appearance:           models.DefaultAppearance(),
+			Fonts:                models.DefaultFonts(),
 		}, nil
 	}
 	if err != nil {
@@ -96,6 +99,16 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	}
 	if !bytesContains(data, []byte(`"keepAliveEnabled"`)) {
 		settings.KeepAliveEnabled = true
+	}
+	// 旧配置文件缺少外观 / 字体 / ANSI 色字段：补默认值
+	if !bytesContains(data, []byte(`"appearance"`)) {
+		settings.Appearance = models.DefaultAppearance()
+	}
+	if !bytesContains(data, []byte(`"fonts"`)) {
+		settings.Fonts = models.DefaultFonts()
+	}
+	if !bytesContains(data, []byte(`"black"`)) {
+		models.FillThemeAnsi(&settings.Theme)
 	}
 	return settings, nil
 }

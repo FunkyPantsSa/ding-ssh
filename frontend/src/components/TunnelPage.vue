@@ -293,7 +293,7 @@ onBeforeUnmount(() => {
             :key="m"
             class="relative neo-flat p-4 text-left transition-all"
             :class="form.mode === m
-              ? 'ring-1 ring-[var(--signal-400)] bg-[rgba(42,168,154,0.10)] shadow-[0_0_20px_rgba(62,196,180,0.20)]'
+              ? 'ring-1 ring-[var(--signal-400)] bg-[var(--signal-weak)] shadow-[0_0_20px_var(--signal-glow-soft)]'
               : 'hover:bg-white/3'"
             @click="form.mode = m"
           >

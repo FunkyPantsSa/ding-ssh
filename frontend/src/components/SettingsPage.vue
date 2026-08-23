@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
+import {computed, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {
   DEFAULT_COMPLETION_NAV_HOTKEY,
@@ -11,9 +11,11 @@ import {securityService} from '../services/security'
 import {sshService} from '../services/ssh'
 import {useCredentialsStore} from '../stores/credentials'
 import {useServersStore} from '../stores/servers'
-import {defaultTheme, useSettingsStore} from '../stores/settings'
+import {defaultAppearance, defaultFonts, defaultTheme, useSettingsStore} from '../stores/settings'
+import {defaultPreset, paletteToTheme, presetById, PRESETS} from '../theme/presets'
+import {resolveTone} from '../theme/engine'
 import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
-import type {Credential, LocalShellOption, SecurityStatus, Theme} from '../types'
+import type {Credential, Fonts, LocalShellOption, SecurityStatus, Theme, UIAppearance} from '../types'
 import CredentialDialog from './CredentialDialog.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
@@ -22,18 +24,150 @@ const credentials = useCredentialsStore()
 const servers = useServersStore()
 const saving = ref(false)
 
-// 一级菜单：通用 / 终端主题 / 凭证 / 安全 / 导入导出
+// 一级菜单：通用 / 外观 / 凭证 / 安全 / 导入导出
 const menuItems = [
   {key: 'general', label: '通用', icon: 'clock'},
-  {key: 'theme', label: '终端主题', icon: 'palette'},
+  {key: 'theme', label: '外观', icon: 'palette'},
   {key: 'credentials', label: '保存的凭证', icon: 'key'},
   {key: 'security', label: '安全', icon: 'lock'},
   {key: 'migrate', label: '导入导出', icon: 'package'},
 ] as const
 const section = ref<'general' | 'theme' | 'credentials' | 'security' | 'migrate'>('general')
 const themeForm = reactive<Theme>(defaultTheme())
-const confirmCredId = ref('')
+const appearanceForm = reactive<UIAppearance>(defaultAppearance())
+const fontsForm = reactive<Fonts>(defaultFonts())
+/** 正在同步表单（避免 watcher 立即触发保存） */
+let syncing = false
+
+// 外观：可捆绑选择的字体（对应 style.css 中的 @fontsource 引入）
+const UI_FONT_OPTIONS = ['Sora', 'Inter', 'Manrope', 'Source Sans 3', 'system'] as const
+const TERMINAL_FONT_OPTIONS = ['IBM Plex Mono', 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Cascadia Code', 'system'] as const
+const TONE_OPTIONS = [
+  {key: 'auto', label: '跟随系统'},
+  {key: 'light', label: '浅色'},
+  {key: 'dark', label: '深色'},
+] as const
+const MODE_OPTIONS = [
+  {key: 'preset', label: '预设主题'},
+  {key: 'custom', label: '自定义'},
+] as const
+
+// ANSI 16 色表单字段（名称 → 中文标签）
+type AnsiColorKey =
+  | 'black' | 'red' | 'green' | 'yellow' | 'blue' | 'magenta' | 'cyan' | 'white'
+  | 'brightBlack' | 'brightRed' | 'brightGreen' | 'brightYellow'
+  | 'brightBlue' | 'brightMagenta' | 'brightCyan' | 'brightWhite'
+const ANSI_FIELDS: {key: AnsiColorKey; label: string}[] = [
+  {key: 'black', label: 'Black'},
+  {key: 'red', label: 'Red'},
+  {key: 'green', label: 'Green'},
+  {key: 'yellow', label: 'Yellow'},
+  {key: 'blue', label: 'Blue'},
+  {key: 'magenta', label: 'Magenta'},
+  {key: 'cyan', label: 'Cyan'},
+  {key: 'white', label: 'White'},
+  {key: 'brightBlack', label: '亮黑'},
+  {key: 'brightRed', label: '亮红'},
+  {key: 'brightGreen', label: '亮绿'},
+  {key: 'brightYellow', label: '亮黄'},
+  {key: 'brightBlue', label: '亮蓝'},
+  {key: 'brightMagenta', label: '亮紫'},
+  {key: 'brightCyan', label: '亮青'},
+  {key: 'brightWhite', label: '亮白'},
+]
+
+const currentTone = computed(() => resolveTone(appearanceForm.baseTone))
+const activePreset = computed(() => presetById(appearanceForm.presetId) ?? defaultPreset())
+
+/** 计算在色块上可读的文字颜色 */
+function contrastFor(hex: string): string {
+  const h = (hex || '').trim().replace('#', '')
+  const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16)
+  if (Number.isNaN(n)) return '#ffffff'
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.55 ? '#0c1016' : '#ffffff'
+}
+
+function syncForms() {
+  syncing = true
+  Object.assign(themeForm, settings.theme)
+  Object.assign(appearanceForm, settings.appearance)
+  Object.assign(fontsForm, settings.fonts)
+  syncing = false
+}
+
+// 表单任意修改即保存（本地持久化开销小，预览即时生效）
+watch([themeForm, appearanceForm, fontsForm], () => {
+  if (syncing) return
+  void persistLook()
+}, {deep: true})
+
+async function persistLook() {
+  saving.value = true
+  try {
+    await settings.applyLook({...appearanceForm}, {...themeForm}, {...fontsForm})
+  } finally {
+    saving.value = false
+  }
+}
+
+async function selectPreset(id: string) {
+  syncing = true
+  appearanceForm.mode = 'preset'
+  appearanceForm.presetId = id
+  const preset = presetById(id) ?? defaultPreset()
+  Object.assign(themeForm, paletteToTheme(currentTone.value === 'light' ? preset.light : preset.dark))
+  syncing = false
+  await persistLook()
+}
+
+async function setTone(tone: UIAppearance['baseTone']) {
+  syncing = true
+  appearanceForm.baseTone = tone
+  if (appearanceForm.mode === 'preset') {
+    const preset = activePreset.value
+    Object.assign(themeForm, paletteToTheme(tone === 'light' ? preset.light : preset.dark))
+  }
+  syncing = false
+  await persistLook()
+}
+
+async function setMode(mode: UIAppearance['mode']) {
+  syncing = true
+  appearanceForm.mode = mode
+  if (mode === 'preset') {
+    const preset = activePreset.value
+    Object.assign(themeForm, paletteToTheme(currentTone.value === 'light' ? preset.light : preset.dark))
+  }
+  syncing = false
+  await persistLook()
+}
+
+async function resetTheme() {
+  syncing = true
+  Object.assign(themeForm, defaultTheme())
+  syncing = false
+  await persistLook()
+}
+
+async function resetAppearance() {
+  syncing = true
+  Object.assign(appearanceForm, defaultAppearance())
+  Object.assign(fontsForm, defaultFonts())
+  const preset = defaultPreset()
+  Object.assign(themeForm, paletteToTheme(currentTone.value === 'light' ? preset.light : preset.dark))
+  syncing = false
+  await persistLook()
+}
+
+async function pickBgImage() {
+  const path = await sshService.selectImageFile()
+  if (path) themeForm.bgImage = path
+}
 const showCredDialog = ref(false)
+const confirmCredId = ref('')
 const editingCred = ref<Credential | null>(null)
 /** 正在就地显示明文的密码类凭证 ID（私钥类走 revealKey 面板） */
 const revealId = ref('')
@@ -249,29 +383,6 @@ async function clearAllHistory() {
   }
 }
 
-async function applyTheme() {
-  saving.value = true
-  try {
-    await settings.setTheme({...themeForm})
-  } finally {
-    saving.value = false
-  }
-}
-
-async function resetTheme() {
-  Object.assign(themeForm, defaultTheme())
-  await settings.setTheme({...themeForm})
-}
-
-async function pickBgImage() {
-  try {
-    const path = await sshService.selectImageFile()
-    if (path) themeForm.bgImage = path
-  } catch (e) {
-    // 用户取消或选择失败时静默处理
-  }
-}
-
 function openNewCred() {
   editingCred.value = null
   showCredDialog.value = true
@@ -433,7 +544,7 @@ onBeforeUnmount(() => {
 watch(
   () => section.value,
   (s) => {
-    if (s === 'theme') Object.assign(themeForm, settings.theme)
+    if (s === 'theme') syncForms()
     if (s === 'security') void refreshSecurity()
   },
 )
@@ -531,8 +642,8 @@ watch(
                   class="min-w-[7.5rem] px-3 py-1.5 rounded-md border text-xs font-mono transition-colors"
                   :class="
                     capturingHotkey
-                      ? 'border-sky-500/70 bg-sky-500/15 text-sky-300 animate-pulse'
-                      : 'border-slate-700/60 bg-slate-800/60 text-slate-200 hover:border-sky-500/40'
+                      ? 'border-[var(--signal-strong-border)] bg-[var(--signal-weak)] text-signal animate-pulse'
+                      : 'border-[var(--field-border)] bg-[var(--field-bg)] text-slate-200 hover:border-[var(--signal-border)]'
                   "
                   :disabled="saving"
                   @click="startCaptureHotkey"
@@ -567,7 +678,7 @@ watch(
                 min="3"
                 max="30"
                 step="1"
-                class="w-16 shrink-0 px-2 py-1.5 rounded-md border border-slate-700/60 bg-slate-800/60 text-xs font-mono text-slate-200 outline-none focus:border-sky-500/50"
+                class="w-16 shrink-0 input input-sm text-xs font-mono"
                 :value="settings.completionPanelLimit || 8"
                 :disabled="saving"
                 @change="onPanelLimitChange"
@@ -683,7 +794,7 @@ watch(
             <div class="min-w-0">
               <p class="text-sm font-medium text-slate-200">本机终端 Shell</p>
               <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-                工作区「+ 本地终端」使用的本机 Shell。macOS 可选 zsh / bash，Windows 可选 PowerShell / cmd，Linux 使用系统 $SHELL。
+                工作区「本地终端」使用的本机 Shell。macOS 可选 zsh / bash，Windows 可选 PowerShell / cmd，Linux 使用系统 $SHELL。
               </p>
             </div>
             <select
@@ -745,21 +856,143 @@ watch(
         </div>
       </div>
 
-      <!-- 终端主题 -->
-      <div v-else-if="section === 'theme'" class="max-w-2xl fade-rise">
+      <!-- 外观 -->
+      <div v-else-if="section === 'theme'" class="max-w-3xl fade-rise">
         <div class="mb-6">
-          <h3 class="text-[18px] font-semibold text-white tracking-tight">终端主题</h3>
-          <p class="text-[13px] text-mist mt-1.5">主题仅作用于 xterm 画布，外壳品牌色保持 Signal Desk 不变。</p>
+          <h3 class="text-[18px] font-semibold text-white tracking-tight">外观</h3>
+          <p class="text-[13px] text-mist mt-1.5">
+            选择预设主题一键套用整站配色；也可自定义界面、终端与字体。终端 ANSI 16 色会同步到 ls、vim、提示符等程序输出。
+          </p>
         </div>
 
-        <div class="neo">
-          <div class="px-5 py-4 space-y-4 text-[13px]">
-            <div class="grid grid-cols-2 gap-4">
+        <!-- 明暗模式 -->
+        <div class="neo px-5 py-4 mb-4">
+          <div class="flex items-center justify-between gap-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">界面明暗</p>
+              <p class="text-xs text-slate-500 mt-0.5">「跟随系统」时，界面与预设终端色板随系统明暗自动切换。</p>
+            </div>
+            <div class="seg shrink-0">
+              <button
+                v-for="opt in TONE_OPTIONS"
+                :key="opt.key"
+                :class="appearanceForm.baseTone === opt.key ? 'active' : ''"
+                @click="setTone(opt.key)"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 预设 / 自定义 -->
+        <div class="neo p-5 mb-4">
+          <div class="flex items-center justify-between mb-4">
+            <p class="text-sm font-medium text-slate-200">配色方案</p>
+            <div class="seg shrink-0">
+              <button
+                v-for="m in MODE_OPTIONS"
+                :key="m.key"
+                :class="appearanceForm.mode === m.key ? 'active' : ''"
+                @click="setMode(m.key)"
+              >
+                {{ m.label }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 预设主题卡片 -->
+          <div v-if="appearanceForm.mode === 'preset'" class="grid grid-cols-4 gap-3">
+            <button
+              v-for="p in PRESETS"
+              :key="p.id"
+              class="preset-card"
+              :class="appearanceForm.presetId === p.id ? 'active' : ''"
+              @click="selectPreset(p.id)"
+            >
+              <span
+                class="preset-swatch"
+                :style="{background: `linear-gradient(135deg, ${p.primary} 0%, ${p.secondary} 100%)`}"
+              >
+                <span class="preset-swatch-dark" :style="{background: p.dark.background}"></span>
+                <span class="preset-swatch-cursor" :style="{background: p.dark.cursor}"></span>
+              </span>
+              <span class="preset-name">{{ p.name }}</span>
+              <span class="preset-desc">{{ p.desc }}</span>
+            </button>
+          </div>
+
+          <!-- 自定义：UI 品牌色 -->
+          <div v-else class="grid grid-cols-3 gap-4">
+            <label class="block">
+              <span class="text-slate-400 text-xs">主色（界面强调）</span>
+              <div class="mt-1 flex gap-2 items-center">
+                <input v-model="appearanceForm.primary" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" />
+                <input v-model="appearanceForm.primary" class="input input-sm flex-1 font-mono" />
+              </div>
+            </label>
+            <label class="block">
+              <span class="text-slate-400 text-xs">辅色（点缀）</span>
+              <div class="mt-1 flex gap-2 items-center">
+                <input v-model="appearanceForm.secondary" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" />
+                <input v-model="appearanceForm.secondary" class="input input-sm flex-1 font-mono" />
+              </div>
+            </label>
+            <label class="block">
+              <span class="text-slate-400 text-xs">界面主文字色</span>
+              <div class="mt-1 flex gap-2 items-center">
+                <input v-model="appearanceForm.uiText" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" />
+                <input v-model="appearanceForm.uiText" class="input input-sm flex-1 font-mono" />
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- 终端颜色 -->
+        <div class="neo p-5 mb-4">
+          <div class="flex items-center justify-between mb-1">
+            <p class="text-sm font-medium text-slate-200">终端颜色</p>
+            <span v-if="appearanceForm.mode === 'preset'" class="badge live">
+              预设 · {{ currentTone === 'light' ? '浅色' : '深色' }}色板
+            </span>
+            <span v-else class="badge stop">自定义</span>
+          </div>
+          <p v-if="appearanceForm.mode === 'preset'" class="text-xs text-slate-500 mt-1 mb-4">
+            预设模式下终端色板（含 ANSI 16 色）随明暗自动配置。切到「自定义」可完全手动调整。
+          </p>
+
+          <!-- 预设模式：终端色板只读预览 -->
+          <div v-if="appearanceForm.mode === 'preset'">
+            <div class="grid grid-cols-2 gap-3 text-[12px] text-slate-400">
+              <div class="flex items-center gap-2">
+                <span class="color-dot" :style="{background: themeForm.background}"></span>
+                背景 {{ themeForm.background }}
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="color-dot" :style="{background: themeForm.foreground}"></span>
+                前景 {{ themeForm.foreground }}
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-1.5 mt-3">
+              <span
+                v-for="f in ANSI_FIELDS"
+                :key="f.key"
+                class="ansi-chip"
+                :style="{background: themeForm[f.key], color: contrastFor(themeForm[f.key])}"
+              >
+                {{ f.label }}
+              </span>
+            </div>
+          </div>
+
+          <!-- 自定义模式：完整编辑 -->
+          <template v-else>
+            <div class="grid grid-cols-2 gap-4 text-[13px]">
               <label class="block">
                 <span class="text-slate-400">背景色</span>
                 <div class="mt-1 flex gap-2 items-center">
-                <input v-model="themeForm.background" type="color" class="w-9 h-9 rounded-[6px] bg-[rgba(0,0,0,0.28)] p-1 cursor-pointer" />
-                <input v-model="themeForm.background" class="input input-sm flex-1 font-mono" />
+                  <input v-model="themeForm.background" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" />
+                  <input v-model="themeForm.background" class="input input-sm flex-1 font-mono" />
                 </div>
               </label>
               <label class="block">
@@ -778,12 +1011,26 @@ watch(
               </label>
               <label class="block">
                 <span class="text-slate-400">选中背景色</span>
-                <input v-model="themeForm.selection" class="mt-1 w-full px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 font-mono text-xs outline-none focus:border-sky-500/60" placeholder="rgba(56, 189, 248, 0.25)" />
+                <input v-model="themeForm.selection" class="mt-1 w-full input input-sm font-mono text-xs" placeholder="rgba(42, 168, 154, 0.28)" />
               </label>
             </div>
 
-            <div>
-              <span class="text-slate-400">背景图</span>
+            <div class="mt-5">
+              <p class="text-slate-400 text-xs mb-2">ANSI 16 色 · 程序输出（ls / vim / 提示符）</p>
+              <div class="grid grid-cols-8 gap-2">
+                <label v-for="f in ANSI_FIELDS" :key="f.key" class="block">
+                  <span class="text-[10px] text-slate-400">{{ f.label }}</span>
+                  <input
+                    v-model="themeForm[f.key]"
+                    type="color"
+                    class="mt-0.5 w-full h-7 rounded-[5px] bg-slate-800 border border-slate-700/60 p-0.5 cursor-pointer"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div class="mt-5">
+              <span class="text-slate-400 text-xs">背景图</span>
               <div class="mt-1 flex gap-2">
                 <input v-model="themeForm.bgImage" readonly class="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none" placeholder="无（可选）" />
                 <button class="px-3 py-1.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-200 text-xs shrink-0" @click="pickBgImage">选择…</button>
@@ -791,12 +1038,12 @@ watch(
               </div>
             </div>
 
-            <label class="block">
-              <span class="text-slate-400">背景模糊：{{ themeForm.blurAmount }}px</span>
-              <input v-model.number="themeForm.blurAmount" type="range" min="0" max="30" class="mt-2 w-full accent-sky-500" />
+            <label class="block mt-4">
+              <span class="text-slate-400 text-xs">背景模糊：{{ themeForm.blurAmount }}px</span>
+              <input v-model.number="themeForm.blurAmount" type="range" min="0" max="30" class="mt-2 w-full accent-[var(--signal-400)]" />
             </label>
 
-            <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center justify-between gap-4 mt-4">
               <div>
                 <p class="text-sm text-slate-300">文字阴影</p>
                 <p class="text-xs text-slate-500 mt-0.5">为终端文字添加阴影，提升可读性。</p>
@@ -804,18 +1051,57 @@ watch(
               <ToggleSwitch v-model="themeForm.textShadow" />
             </div>
 
-            <label class="block" :class="themeForm.textShadow ? '' : 'opacity-40 pointer-events-none'">
-              <span class="text-slate-400">阴影强度：{{ themeForm.shadowBlur }}px</span>
-              <input v-model.number="themeForm.shadowBlur" type="range" min="0" max="10" class="mt-2 w-full accent-sky-500" />
+            <label class="block mt-4" :class="themeForm.textShadow ? '' : 'opacity-40 pointer-events-none'">
+              <span class="text-slate-400 text-xs">阴影强度：{{ themeForm.shadowBlur }}px</span>
+              <input v-model.number="themeForm.shadowBlur" type="range" min="0" max="10" class="mt-2 w-full accent-[var(--signal-400)]" />
+            </label>
+          </template>
+        </div>
+
+        <!-- 字体 -->
+        <div class="neo p-5 mb-4">
+          <p class="text-sm font-medium text-slate-200 mb-4">字体</p>
+          <div class="grid grid-cols-2 gap-4">
+            <label class="block">
+              <span class="text-slate-400 text-xs">界面字体</span>
+              <input
+                v-model="fontsForm.uiFont"
+                list="uiFontList"
+                class="input input-sm mt-1 font-mono"
+                placeholder="Sora / Inter / Manrope / system"
+              />
+              <datalist id="uiFontList">
+                <option v-for="f in UI_FONT_OPTIONS" :key="f" :value="f" />
+              </datalist>
+            </label>
+            <label class="block">
+              <span class="text-slate-400 text-xs">终端等宽字体</span>
+              <input
+                v-model="fontsForm.terminalFont"
+                list="termFontList"
+                class="input input-sm mt-1 font-mono"
+                placeholder="IBM Plex Mono / JetBrains Mono / system"
+              />
+              <datalist id="termFontList">
+                <option v-for="f in TERMINAL_FONT_OPTIONS" :key="f" :value="f" />
+              </datalist>
             </label>
           </div>
+          <label class="block mt-4">
+            <span class="text-slate-400 text-xs">终端字号：{{ fontsForm.terminalFontSize }}px</span>
+            <input
+              v-model.number="fontsForm.terminalFontSize"
+              type="range"
+              min="8"
+              max="24"
+              class="mt-2 w-full accent-[var(--signal-400)]"
+            />
+          </label>
+          <p class="text-xs text-slate-500 mt-2">已捆绑的开源字体开箱即用；输入系统已安装字体名亦可生效（字体名需与系统一致）。</p>
+        </div>
 
-          <div class="flex justify-end gap-2 px-5 py-4 border-t border-slate-800/60">
-            <button class="btn btn-ghost btn-sm" @click="resetTheme">恢复默认</button>
-            <button class="btn btn-primary btn-sm" :disabled="saving" @click="applyTheme">
-              {{ saving ? '保存中…' : '保存主题' }}
-            </button>
-          </div>
+        <div class="flex justify-end gap-2">
+          <button class="btn btn-ghost btn-sm" @click="resetAppearance">恢复默认</button>
         </div>
       </div>
 
@@ -1021,3 +1307,82 @@ watch(
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 预设主题卡片 */
+.preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  transition: transform 160ms var(--ease), box-shadow 160ms var(--ease), background 160ms var(--ease);
+}
+.preset-card:hover {
+  background: var(--hover-strong);
+  transform: translateY(-2px);
+}
+.preset-card.active {
+  background: var(--signal-weak);
+  box-shadow:
+    inset 0 0 0 1px var(--signal-strong-border),
+    0 6px 16px var(--signal-glow-soft);
+}
+.preset-swatch {
+  position: relative;
+  width: 100%;
+  height: 44px;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
+}
+.preset-swatch-dark {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+}
+.preset-swatch-cursor {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.preset-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--mist-100);
+}
+.preset-desc {
+  font-size: 11px;
+  color: var(--mist-400);
+  line-height: 1.4;
+}
+/* 终端色板预览 */
+.ansi-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
+}
+.color-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14);
+}
+</style>

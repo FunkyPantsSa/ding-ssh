@@ -109,10 +109,7 @@ function isActiveNode(node: ServerNode): boolean {
 
     <Transition name="qconn">
       <aside v-if="open" class="qconn" aria-label="快速连接">
-        <div
-          class="px-4 h-[52px] flex items-center justify-between shrink-0"
-          style="box-shadow: inset 0 -1px 0 rgba(255,255,255,0.05)"
-        >
+        <div class="px-4 h-[52px] flex items-center justify-between shrink-0 inset-line-b">
           <div class="flex items-center gap-2">
             <Icon name="server" :size="16" extra-class="text-signal" />
             <span class="text-[13px] font-semibold text-[var(--mist-100)]">服务器</span>
@@ -182,7 +179,7 @@ function isActiveNode(node: ServerNode): boolean {
           </div>
         </div>
 
-        <div class="p-2.5 shrink-0" style="box-shadow: inset 0 1px 0 rgba(255,255,255,0.05)">
+        <div class="p-2.5 shrink-0 inset-line-t">
           <button class="btn btn-ghost btn-sm w-full" @click="ui.showServers()">
             <Icon name="server" :size="14" />
             管理服务器

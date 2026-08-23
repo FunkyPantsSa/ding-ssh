@@ -77,6 +77,40 @@ export interface Theme {
   blurAmount: number
   textShadow: boolean
   shadowBlur: number
+  // ANSI 16 色：终端内程序输出（ls / vim / 提示符等）的颜色映射
+  black: string
+  red: string
+  green: string
+  yellow: string
+  blue: string
+  magenta: string
+  cyan: string
+  white: string
+  brightBlack: string
+  brightRed: string
+  brightGreen: string
+  brightYellow: string
+  brightBlue: string
+  brightMagenta: string
+  brightCyan: string
+  brightWhite: string
+}
+
+// UI 外观（对应 Go 端 models.UIAppearance）：品牌色 + 明暗模式。
+export interface UIAppearance {
+  mode: 'preset' | 'custom' // preset 预设 / custom 自定义
+  presetId: string // 预设主题 ID（preset 模式）
+  baseTone: 'auto' | 'light' | 'dark' // 明暗模式
+  primary: string // custom：主色（hex）
+  secondary: string // custom：辅色（hex）
+  uiText: string // custom：界面主文字色（hex）
+}
+
+// 字体设置（对应 Go 端 models.Fonts）。
+export interface Fonts {
+  uiFont: string // UI 字体名（如 Sora / system）
+  terminalFont: string // 终端等宽字体名
+  terminalFontSize: number // 终端字号（默认 13）
 }
 
 // 应用设置（对应 Go 端 models.Settings）。
@@ -91,6 +125,8 @@ export interface Settings {
   terminalToSftpSync: boolean // 终端目录变化是否同步到 SFTP 面板，默认开启
   uiScale: number // 界面缩放百分比，默认 100（80–150）
   theme: Theme
+  appearance: UIAppearance
+  fonts: Fonts
   autoReconnect: boolean // 断开后自动重连，默认开启
   keepAliveEnabled: boolean // 心跳包防终端超时，默认开启
   localShell: string // 本机终端：darwin zsh|bash；windows powershell|cmd；linux default

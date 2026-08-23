@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './components/Icon.vue'
 import ServerList from './components/ServerList.vue'
 import SettingsPage from './components/SettingsPage.vue'
@@ -15,11 +15,41 @@ import {useServersStore} from './stores/servers'
 import {useSessionsStore} from './stores/sessions'
 import {useSettingsStore} from './stores/settings'
 import {useUIStore} from './stores/ui'
+import {computeUiCssVars, applyRootTheme, clearRootTheme, resolveTone, type Tone} from './theme/engine'
+import {defaultPreset, paletteToTheme, presetById} from './theme/presets'
 
 const sessions = useSessionsStore()
 const ui = useUIStore()
 const settings = useSettingsStore()
 const servers = useServersStore()
+
+// 系统明暗监听：auto 模式下跟随 prefers-color-scheme
+const systemTone = ref<Tone>(resolveTone('auto'))
+
+// 当前实际明暗模式（auto → 跟随系统）
+const tone = computed<Tone>(() => {
+  if (settings.appearance.baseTone !== 'auto') return settings.appearance.baseTone
+  return systemTone.value
+})
+
+// 根节点注入的 CSS 变量（品牌色 + 字体栈）
+const cssVars = computed(() => computeUiCssVars(settings.appearance, settings.fonts, tone.value))
+
+// 预设模式下，明暗切换自动同步对应终端色板
+watch(tone, (t) => {
+  if (settings.appearance.mode !== 'preset') return
+  const preset = presetById(settings.appearance.presetId) ?? defaultPreset()
+  void settings.setTheme(paletteToTheme(t === 'dark' ? preset.dark : preset.light))
+})
+
+function onSchemeChange() {
+  systemTone.value = resolveTone('auto')
+}
+
+// 同步主题到 <html>：Teleport 到 body 的浮层（快速连接侧栏、对话框等）才能继承变量
+watch([tone, cssVars], ([t, vars]) => {
+  applyRootTheme(t, vars)
+}, {immediate: true})
 
 const needsUnlock = ref(false)
 const unlockPassword = ref('')
@@ -158,6 +188,7 @@ onMounted(async () => {
     void servers.load()
   }
   window.addEventListener('keydown', onGlobalKeydown)
+  window.matchMedia?.('(prefers-color-scheme: light)').addEventListener?.('change', onSchemeChange)
 })
 
 async function doUnlock() {
@@ -178,6 +209,8 @@ async function doUnlock() {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
+  window.matchMedia?.('(prefers-color-scheme: light)').removeEventListener?.('change', onSchemeChange)
+  clearRootTheme()
 })
 </script>
 
@@ -194,8 +227,8 @@ onBeforeUnmount(() => {
           <svg width="340" height="300" viewBox="0 0 340 300" fill="none">
             <defs>
               <linearGradient id="gRing" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#3ec4b4"/>
-                <stop offset="100%" stop-color="#c97a4a"/>
+                <stop offset="0%" stop-color="var(--signal-400)"/>
+                <stop offset="100%" stop-color="var(--copper-400)"/>
               </linearGradient>
               <linearGradient id="gBody" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stop-color="#2a3444"/>
@@ -204,17 +237,17 @@ onBeforeUnmount(() => {
             </defs>
             <circle cx="170" cy="150" r="118" stroke="url(#gRing)" stroke-opacity="0.18" stroke-width="1"/>
             <circle cx="170" cy="150" r="96" stroke="url(#gRing)" stroke-opacity="0.28" stroke-width="1.2" stroke-dasharray="4 8"/>
-            <circle cx="170" cy="150" r="72" stroke="#3ec4b4" stroke-opacity="0.35" stroke-width="1.5"/>
+            <circle cx="170" cy="150" r="72" stroke="var(--signal-400)" stroke-opacity="0.35" stroke-width="1.5"/>
             <rect x="118" y="98" width="104" height="104" rx="22" fill="url(#gBody)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
-            <rect x="128" y="108" width="84" height="56" rx="10" fill="#0a0e14" stroke="rgba(62,196,180,0.25)"/>
-            <path d="M138 122h28M138 132h44M138 142h34" stroke="#3ec4b4" stroke-width="1.6" stroke-linecap="round" opacity="0.85"/>
-            <path d="M170 168v18" stroke="#e0925e" stroke-width="3" stroke-linecap="round"/>
-            <circle cx="170" cy="196" r="10" fill="#c97a4a" stroke="#f0b07a" stroke-width="1.5"/>
+            <rect x="128" y="108" width="84" height="56" rx="10" fill="#0a0e14" stroke="var(--signal-border)"/>
+            <path d="M138 122h28M138 132h44M138 142h34" stroke="var(--signal-400)" stroke-width="1.6" stroke-linecap="round" opacity="0.85"/>
+            <path d="M170 168v18" stroke="var(--copper-400)" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="170" cy="196" r="10" fill="var(--copper-500)" stroke="var(--copper-300)" stroke-width="1.5"/>
             <circle cx="170" cy="196" r="3.5" fill="#1a1008"/>
-            <path d="M214 120c14 8 22 22 22 38s-8 30-22 38" stroke="#3ec4b4" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
-            <path d="M126 120c-14 8-22 22-22 38s8 30 22 38" stroke="#e0925e" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
-            <circle cx="78" cy="86" r="4" fill="#3ec4b4" opacity="0.7"/>
-            <circle cx="268" cy="210" r="3.5" fill="#e0925e" opacity="0.7"/>
+            <path d="M214 120c14 8 22 22 22 38s-8 30-22 38" stroke="var(--signal-400)" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+            <path d="M126 120c-14 8-22 22-22 38s8 30 22 38" stroke="var(--copper-400)" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+            <circle cx="78" cy="86" r="4" fill="var(--signal-400)" opacity="0.7"/>
+            <circle cx="268" cy="210" r="3.5" fill="var(--copper-400)" opacity="0.7"/>
           </svg>
         </div>
         <div class="neo p-8 max-w-[400px] w-full mx-auto">
@@ -326,7 +359,7 @@ onBeforeUnmount(() => {
               @click="sessions.openLocalTab()"
             >
               <Icon name="terminal" :size="14" />
-              + 本地终端
+              本地终端
             </button>
             <button
               v-if="ui.view === 'workspace'"
@@ -362,15 +395,15 @@ onBeforeUnmount(() => {
                       <svg class="empty-art" viewBox="0 0 280 160" fill="none" aria-hidden="true">
                         <defs>
                           <linearGradient id="eg1" x1="0" y1="0" x2="1" y2="1">
-                            <stop stop-color="#3ec4b4" stop-opacity="0.5"/>
-                            <stop offset="1" stop-color="#c97a4a" stop-opacity="0.4"/>
+                            <stop stop-color="var(--signal-400)" stop-opacity="0.5"/>
+                            <stop offset="1" stop-color="var(--copper-400)" stop-opacity="0.4"/>
                           </linearGradient>
                         </defs>
-                        <rect x="40" y="36" width="200" height="100" rx="16" fill="#121820" stroke="url(#eg1)" stroke-width="1.2"/>
+                        <rect x="40" y="36" width="200" height="100" rx="16" fill="var(--ink-850)" stroke="url(#eg1)" stroke-width="1.2"/>
                         <rect x="52" y="50" width="176" height="52" rx="8" fill="#0a0e14"/>
-                        <path d="M64 64h40M64 76h72M64 88h56" stroke="#3ec4b4" stroke-width="1.5" stroke-linecap="round" opacity="0.45"/>
-                        <circle cx="220" cy="118" r="18" fill="none" stroke="#e0925e" stroke-width="1.5" stroke-dasharray="3 4" opacity="0.7"/>
-                        <path d="M214 118h12M220 112v12" stroke="#e0925e" stroke-width="1.5" stroke-linecap="round"/>
+                        <path d="M64 64h40M64 76h72M64 88h56" stroke="var(--signal-400)" stroke-width="1.5" stroke-linecap="round" opacity="0.45"/>
+                        <circle cx="220" cy="118" r="18" fill="none" stroke="var(--copper-400)" stroke-width="1.5" stroke-dasharray="3 4" opacity="0.7"/>
+                        <path d="M214 118h12M220 112v12" stroke="var(--copper-400)" stroke-width="1.5" stroke-linecap="round"/>
                       </svg>
                       <h3>尚未打开会话</h3>
                       <p>点击左侧箭头展开服务器列表快速连接，或在服务器管理页新建节点。连接后终端、SFTP 与系统看板将同步就绪。</p>
@@ -423,7 +456,7 @@ onBeforeUnmount(() => {
             v-for="(item, i) in cmdItems"
             :key="item.id"
             class="w-full grid grid-cols-[1fr_auto] gap-2 items-center px-2.5 py-2 rounded-[6px] font-mono text-xs text-left"
-            :class="i === cmdIndex ? 'bg-[rgba(42,168,154,0.12)] shadow-[inset_0_0_0_1px_rgba(62,196,180,0.2)]' : 'hover:bg-white/5'"
+            :class="i === cmdIndex ? 'bg-[var(--signal-weak)] shadow-[inset_0_0_0_1px_var(--signal-border)]' : 'hover:bg-[var(--hover)]'"
             @mouseenter="cmdIndex = i"
             @click="runCmd(item)"
           >

@@ -73,6 +73,22 @@ export namespace models {
 	        this.keyContent = source["keyContent"];
 	    }
 	}
+	export class Fonts {
+	    uiFont: string;
+	    terminalFont: string;
+	    terminalFontSize: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Fonts(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uiFont = source["uiFont"];
+	        this.terminalFont = source["terminalFont"];
+	        this.terminalFontSize = source["terminalFontSize"];
+	    }
+	}
 	export class ImportConfigResult {
 	    servers: number;
 	    credentials: number;
@@ -203,6 +219,28 @@ export namespace models {
 	        this.createdAt = source["createdAt"];
 	    }
 	}
+	export class UIAppearance {
+	    mode: string;
+	    presetId: string;
+	    baseTone: string;
+	    primary: string;
+	    secondary: string;
+	    uiText: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UIAppearance(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.presetId = source["presetId"];
+	        this.baseTone = source["baseTone"];
+	        this.primary = source["primary"];
+	        this.secondary = source["secondary"];
+	        this.uiText = source["uiText"];
+	    }
+	}
 	export class Theme {
 	    background: string;
 	    foreground: string;
@@ -212,6 +250,22 @@ export namespace models {
 	    blurAmount: number;
 	    textShadow: boolean;
 	    shadowBlur: number;
+	    black: string;
+	    red: string;
+	    green: string;
+	    yellow: string;
+	    blue: string;
+	    magenta: string;
+	    cyan: string;
+	    white: string;
+	    brightBlack: string;
+	    brightRed: string;
+	    brightGreen: string;
+	    brightYellow: string;
+	    brightBlue: string;
+	    brightMagenta: string;
+	    brightCyan: string;
+	    brightWhite: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Theme(source);
@@ -227,6 +281,22 @@ export namespace models {
 	        this.blurAmount = source["blurAmount"];
 	        this.textShadow = source["textShadow"];
 	        this.shadowBlur = source["shadowBlur"];
+	        this.black = source["black"];
+	        this.red = source["red"];
+	        this.green = source["green"];
+	        this.yellow = source["yellow"];
+	        this.blue = source["blue"];
+	        this.magenta = source["magenta"];
+	        this.cyan = source["cyan"];
+	        this.white = source["white"];
+	        this.brightBlack = source["brightBlack"];
+	        this.brightRed = source["brightRed"];
+	        this.brightGreen = source["brightGreen"];
+	        this.brightYellow = source["brightYellow"];
+	        this.brightBlue = source["brightBlue"];
+	        this.brightMagenta = source["brightMagenta"];
+	        this.brightCyan = source["brightCyan"];
+	        this.brightWhite = source["brightWhite"];
 	    }
 	}
 	export class Settings {
@@ -240,6 +310,8 @@ export namespace models {
 	    terminalToSftpSync: boolean;
 	    uiScale: number;
 	    theme: Theme;
+	    appearance: UIAppearance;
+	    fonts: Fonts;
 	    autoReconnect: boolean;
 	    keepAliveEnabled: boolean;
 	    localShell: string;
@@ -260,6 +332,8 @@ export namespace models {
 	        this.terminalToSftpSync = source["terminalToSftpSync"];
 	        this.uiScale = source["uiScale"];
 	        this.theme = this.convertValues(source["theme"], Theme);
+	        this.appearance = this.convertValues(source["appearance"], UIAppearance);
+	        this.fonts = this.convertValues(source["fonts"], Fonts);
 	        this.autoReconnect = source["autoReconnect"];
 	        this.keepAliveEnabled = source["keepAliveEnabled"];
 	        this.localShell = source["localShell"];

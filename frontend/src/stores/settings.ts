@@ -1,19 +1,32 @@
 import {defineStore} from 'pinia'
 import {DEFAULT_COMPLETION_NAV_HOTKEY} from '../completion/hotkey'
 import {settingsService} from '../services/settings'
-import type {Theme} from '../types'
+import {paletteToTheme, defaultPreset} from '../theme/presets'
+import type {Fonts, Theme, UIAppearance} from '../types'
 
-// 默认终端主题（与 Go 端 models.DefaultTheme 保持一致）。
+// 默认终端主题（与 Go 端 models.DefaultTheme 保持一致，含 ANSI 16 色）。
 export function defaultTheme(): Theme {
+  return paletteToTheme(defaultPreset().dark)
+}
+
+// 默认 UI 外观（信号青绿预设 + 跟随系统明暗）。
+export function defaultAppearance(): UIAppearance {
   return {
-    background: '#0c1016',
-    foreground: '#d4dae3',
-    cursor: '#3ec4b4',
-    selection: 'rgba(42, 168, 154, 0.28)',
-    bgImage: '',
-    blurAmount: 12,
-    textShadow: false,
-    shadowBlur: 3,
+    mode: 'preset',
+    presetId: 'signal',
+    baseTone: 'auto',
+    primary: '#3ec4b4',
+    secondary: '#c97a4a',
+    uiText: '#eef1f5',
+  }
+}
+
+// 默认字体设置（与 Go 端 models.DefaultFonts 保持一致）。
+export function defaultFonts(): Fonts {
+  return {
+    uiFont: 'Sora',
+    terminalFont: 'IBM Plex Mono',
+    terminalFontSize: 13,
   }
 }
 
@@ -29,6 +42,8 @@ export const useSettingsStore = defineStore('settings', {
     terminalToSftpSync: true,
     uiScale: 100,
     theme: defaultTheme() as Theme,
+    appearance: defaultAppearance() as UIAppearance,
+    fonts: defaultFonts() as Fonts,
     autoReconnect: true,
     keepAliveEnabled: true,
     localShell: '',
@@ -47,6 +62,8 @@ export const useSettingsStore = defineStore('settings', {
       this.terminalToSftpSync = settings.terminalToSftpSync ?? true
       this.uiScale = clampUIScale(settings.uiScale)
       this.theme = {...defaultTheme(), ...(settings.theme ?? {})}
+      this.appearance = {...defaultAppearance(), ...(settings.appearance ?? {})}
+      this.fonts = {...defaultFonts(), ...(settings.fonts ?? {})}
       this.autoReconnect = settings.autoReconnect ?? true
       this.keepAliveEnabled = settings.keepAliveEnabled ?? true
       this.localShell = settings.localShell ?? ''
@@ -92,6 +109,21 @@ export const useSettingsStore = defineStore('settings', {
       this.theme = theme
       await this.save()
     },
+    async setAppearance(appearance: UIAppearance) {
+      this.appearance = appearance
+      await this.save()
+    },
+    async setFonts(fonts: Fonts) {
+      this.fonts = fonts
+      await this.save()
+    },
+    // 外观页批量应用：UI 外观 / 终端主题 / 字体一次持久化
+    async applyLook(appearance: UIAppearance, theme: Theme, fonts: Fonts) {
+      this.appearance = appearance
+      this.theme = theme
+      this.fonts = fonts
+      await this.save()
+    },
     async setAutoReconnect(v: boolean) {
       this.autoReconnect = v
       await this.save()
@@ -116,6 +148,8 @@ export const useSettingsStore = defineStore('settings', {
         terminalToSftpSync: this.terminalToSftpSync,
         uiScale: clampUIScale(this.uiScale),
         theme: this.theme,
+        appearance: this.appearance,
+        fonts: this.fonts,
         autoReconnect: this.autoReconnect,
         keepAliveEnabled: this.keepAliveEnabled,
         localShell: this.localShell,

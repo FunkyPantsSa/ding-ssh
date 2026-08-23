@@ -97,7 +97,7 @@ onBeforeUnmount(() => {
         <Icon name="copy" :size="13" />
         复制终端
       </button>
-      <div class="h-px my-1" style="background: rgba(255,255,255,0.06)"></div>
+      <div class="divider-h my-1"></div>
       <button @click="sessions.activeId = tabMenu.clientId; closeTabMenu()">切换到此标签</button>
       <button @click="close(tabMenu.clientId); closeTabMenu()">关闭标签</button>
       <button @click="closeOthers(tabMenu.clientId)">关闭其他标签</button>

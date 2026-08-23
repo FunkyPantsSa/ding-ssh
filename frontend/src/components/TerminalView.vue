@@ -31,6 +31,7 @@ import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
 import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
+import {monoFontStack} from '../theme/engine'
 import type {SessionTab} from '../types'
 
 const props = defineProps<{tab: SessionTab}>()
@@ -39,7 +40,7 @@ const settings = useSettingsStore()
 
 const container = ref<HTMLElement>()
 const menu = ref<{x: number; y: number} | null>(null)
-const fontSize = ref(13)
+const fontSize = ref(settings.fonts.terminalFontSize || 13)
 const suggestions = ref<Suggestion[]>([])
 const selectedIdx = ref(0)
 /** 是否已进入补全导航（自定义热键 / 鼠标悬停）；未导航时不拦截 Tab/↑↓/Enter */
@@ -147,10 +148,45 @@ function applyTheme() {
     background,
     foreground: t.foreground,
     cursor: t.cursor,
-    cursorAccent: '#071210',
+    cursorAccent: contrastText(t.cursor),
     selectionBackground: t.selection,
+    black: t.black,
+    red: t.red,
+    green: t.green,
+    yellow: t.yellow,
+    blue: t.blue,
+    magenta: t.magenta,
+    cyan: t.cyan,
+    white: t.white,
+    brightBlack: t.brightBlack,
+    brightRed: t.brightRed,
+    brightGreen: t.brightGreen,
+    brightYellow: t.brightYellow,
+    brightBlue: t.brightBlue,
+    brightMagenta: t.brightMagenta,
+    brightCyan: t.brightCyan,
+    brightWhite: t.brightWhite,
   }
   term.refresh(0, term.rows - 1)
+}
+
+// 根据光标颜色亮度选择光标上的文字色
+function contrastText(hex: string): string {
+  const h = (hex || '').trim().replace('#', '')
+  const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16)
+  if (Number.isNaN(n)) return '#ffffff'
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return lum > 0.55 ? '#0c1016' : '#ffffff'
+}
+
+function applyFontSettings() {
+  if (!term) return
+  term.options.fontFamily = monoFontStack(settings.fonts.terminalFont)
+  term.options.fontSize = effectiveFontSize()
+  fit()
 }
 
 function tryEnableWebGL() {
@@ -203,6 +239,12 @@ function adjustFontSize(delta: number) {
   if (!term) return
   fontSize.value = Math.max(8, Math.min(32, fontSize.value + delta))
   applyFontSize()
+  persistFontSize()
+}
+
+function persistFontSize() {
+  if (settings.fonts.terminalFontSize === fontSize.value) return
+  void settings.setFonts({...settings.fonts, terminalFontSize: fontSize.value})
 }
 
 function toggleFullscreen() {
@@ -654,6 +696,7 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault()
     fontSize.value = 13
     applyFontSize()
+    persistFontSize()
   }
   if (e.key === 'F11') {
     e.preventDefault()
@@ -950,7 +993,7 @@ onMounted(() => {
     allowTransparency: !!settings.theme.bgImage,
     cursorBlink: true,
     fontSize: effectiveFontSize(),
-    fontFamily: '"IBM Plex Mono", Menlo, Monaco, "Cascadia Mono", "JetBrains Mono", Consolas, monospace',
+    fontFamily: monoFontStack(settings.fonts.terminalFont),
     theme: {
       background: settings.theme.background,
       foreground: settings.theme.foreground,
@@ -1035,9 +1078,22 @@ watch(
 )
 
 watch(
+  () => settings.fonts,
+  () => {
+    fontSize.value = settings.fonts.terminalFontSize || 13
+    applyFontSettings()
+  },
+  {deep: true},
+)
+
+watch(
   () => settings.loaded,
   (loaded) => {
-    if (loaded) applyTheme()
+    if (loaded) {
+      fontSize.value = settings.fonts.terminalFontSize || 13
+      applyTheme()
+      applyFontSettings()
+    }
   },
 )
 
@@ -1101,8 +1157,7 @@ onBeforeUnmount(() => {
     <!-- 连接中 / 连接失败：可展开的分步日志面板（本机终端仅显示简要状态） -->
     <div
       v-if="tab.status === 'connecting' || tab.status === 'error'"
-      class="absolute inset-0 z-30 grid place-items-center pointer-events-auto"
-      style="background: rgba(7,9,12,0.72); backdrop-filter: blur(8px)"
+      class="absolute inset-0 z-30 grid place-items-center pointer-events-auto overlay-backdrop"
     >
       <div class="neo w-[min(460px,92%)] p-6 max-h-[86vh] overflow-y-auto">
         <div class="flex items-center justify-between gap-3 mb-1">
@@ -1198,8 +1253,7 @@ onBeforeUnmount(() => {
     <!-- 已断开 -->
     <div
       v-else-if="tab.status === 'closed' || tab.status === 'disconnected'"
-      class="absolute inset-0 z-30 grid place-items-center pointer-events-auto"
-      style="background: rgba(7,9,12,0.72); backdrop-filter: blur(8px)"
+      class="absolute inset-0 z-30 grid place-items-center pointer-events-auto overlay-backdrop"
     >
       <div class="neo w-[min(420px,90%)] p-6 text-center">
         <p class="text-sm text-[var(--mist-100)] break-all">
@@ -1279,7 +1333,7 @@ onBeforeUnmount(() => {
           v-for="(item, i) in suggestions"
           :key="item.source + ':' + item.command"
           class="w-full flex items-center gap-2 px-2.5 py-2 rounded-[6px] text-left font-mono"
-          :class="navigating && i === selectedIdx ? 'bg-[rgba(42,168,154,0.12)] shadow-[inset_0_0_0_1px_rgba(62,196,180,0.2)]' : 'hover:bg-white/5'"
+          :class="navigating && i === selectedIdx ? 'bg-[var(--signal-weak)] shadow-[inset_0_0_0_1px_var(--signal-border)]' : 'hover:bg-[var(--hover)]'"
           @mouseenter="enterNavigation(i)"
           @click="acceptSuggestion(i)"
         >
@@ -1289,7 +1343,7 @@ onBeforeUnmount(() => {
             <template v-if="item.count && item.count > 1"> · {{ item.count }}</template>
           </span>
         </button>
-        <div class="flex gap-3 px-2.5 pt-1.5 mt-1 text-[11px] text-mist" style="border-top: 1px solid rgba(255,255,255,0.06)">
+        <div class="flex gap-3 px-2.5 pt-1.5 mt-1 text-[11px] text-mist inset-line-t">
           <span v-if="navigating"><span class="kbd">↑↓</span> 选择 · <span class="kbd">Tab</span> 采纳 · <span class="kbd">Esc</span> 关闭</span>
           <span v-else><span class="kbd">{{ formatHotkeyLabel(settings.completionNavHotkey || DEFAULT_COMPLETION_NAV_HOTKEY) }}</span> 进入 · <span class="kbd">Esc</span> 关闭</span>
         </div>
@@ -1307,10 +1361,10 @@ onBeforeUnmount(() => {
       >
         <button @click="doCopy">复制</button>
         <button @click="doPaste">粘贴</button>
-        <div class="h-px my-1" style="background: rgba(255,255,255,0.06)"></div>
+        <div class="divider-h my-1"></div>
         <button @click="doSelectAll">全选</button>
         <button @click="doClear">清除屏幕</button>
-        <div class="h-px my-1" style="background: rgba(255,255,255,0.06)"></div>
+        <div class="divider-h my-1"></div>
         <button @click="adjustFontSize(1)">放大 <span class="text-mist">Ctrl+=</span></button>
         <button @click="adjustFontSize(-1)">缩小 <span class="text-mist">Ctrl+-</span></button>
         <button @click="toggleFullscreen">全屏 <span class="text-mist">F11</span></button>

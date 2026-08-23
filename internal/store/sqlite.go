@@ -253,6 +253,8 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	}
 	st := models.Settings{
 		Theme:                models.DefaultTheme(),
+		Appearance:           models.DefaultAppearance(),
+		Fonts:                models.DefaultFonts(),
 		WebGLEnabled:         true, // 默认开启 WebGL
 		CompletionEnabled:    true, // 默认开启智能补全
 		CompletionNavHotkey:  "Alt+ArrowDown",
@@ -308,6 +310,22 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	if v, ok := values["theme"]; ok && v != "" {
 		_ = json.Unmarshal([]byte(v), &st.Theme)
 	}
+	if v, ok := values["appearance"]; ok && v != "" {
+		_ = json.Unmarshal([]byte(v), &st.Appearance)
+	}
+	if v, ok := values["fonts"]; ok && v != "" {
+		_ = json.Unmarshal([]byte(v), &st.Fonts)
+	}
+	// 旧库可能缺少新键：补齐默认值
+	if st.Appearance.Mode == "" {
+		st.Appearance = models.DefaultAppearance()
+	}
+	if st.Fonts.TerminalFont == "" {
+		st.Fonts = models.DefaultFonts()
+	}
+	if st.Theme.Black == "" {
+		models.FillThemeAnsi(&st.Theme)
+	}
 	return st, nil
 }
 
@@ -317,11 +335,25 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 	if err != nil {
 		return fmt.Errorf("序列化主题失败: %w", err)
 	}
+	appearance, err := json.Marshal(st.Appearance)
+	if err != nil {
+		return fmt.Errorf("序列化外观失败: %w", err)
+	}
+	fonts, err := json.Marshal(st.Fonts)
+	if err != nil {
+		return fmt.Errorf("序列化字体失败: %w", err)
+	}
 	if st.CompletionNavHotkey == "" {
 		st.CompletionNavHotkey = "Alt+ArrowDown"
 	}
 	if st.CompletionPanelLimit <= 0 {
 		st.CompletionPanelLimit = 8
+	}
+	if st.Appearance.Mode == "" {
+		st.Appearance = models.DefaultAppearance()
+	}
+	if st.Fonts.TerminalFont == "" {
+		st.Fonts = models.DefaultFonts()
 	}
 	entries := []struct{ k, v string }{
 		{"logEnabled", boolStr(st.LogEnabled)},
@@ -334,6 +366,8 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"terminalToSftpSync", boolStr(st.TerminalToSftpSync)},
 		{"uiScale", fmt.Sprintf("%d", st.UIScale)},
 		{"theme", string(theme)},
+		{"appearance", string(appearance)},
+		{"fonts", string(fonts)},
 		{"autoReconnect", boolStr(st.AutoReconnect)},
 		{"keepAliveEnabled", boolStr(st.KeepAliveEnabled)},
 		{"localShell", st.LocalShell},

@@ -138,14 +138,14 @@ function close() {
               <div class="mt-1 flex gap-2">
                 <button
                   class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 transition-colors"
-                  :class="keySource === 'file' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
+                  :class="keySource === 'file' ? 'field-surface-active' : 'field-surface'"
                   @click="keySource = 'file'"
                 >
                   密钥文件
                 </button>
                 <button
                   class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 transition-colors"
-                  :class="keySource === 'content' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
+                  :class="keySource === 'content' ? 'field-surface-active' : 'field-surface'"
                   @click="keySource = 'content'"
                 >
                   粘贴内容
@@ -159,7 +159,7 @@ function close() {
                 <input
                   v-model="form.keyPath"
                   readonly
-                  class="flex-1 min-w-0 px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none"
+                  class="input input-sm flex-1 min-w-0"
                   placeholder="~/.ssh/id_rsa"
                 />
                 <button
@@ -177,7 +177,7 @@ function close() {
                 v-model="form.keyContent"
                 rows="7"
                 spellcheck="false"
-                class="mt-1 w-full px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 font-mono text-xs leading-relaxed outline-none focus:border-sky-500/60 resize-y"
+                class="mt-1 w-full textarea text-xs leading-relaxed resize-y"
                 placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
               ></textarea>
             </div>

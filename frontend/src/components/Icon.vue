@@ -29,6 +29,7 @@ import {
   Search,
   Server,
   Settings,
+  Terminal,
   Trash2,
   Waypoints,
   X,
@@ -36,7 +37,7 @@ import {
 } from 'lucide-vue-next'
 
 const map: Record<string, Component> = {
-  terminal: Command,
+  terminal: Terminal,
   tunnel: Waypoints,
   activity: Activity,
   server: Server,

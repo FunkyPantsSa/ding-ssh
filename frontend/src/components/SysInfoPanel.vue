@@ -137,12 +137,12 @@ onBeforeUnmount(() => {
           <svg viewBox="0 0 200 36" class="w-full h-9 mt-3" preserveAspectRatio="none">
             <defs>
               <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop stop-color="#3ec4b4"/>
-                <stop offset="1" stop-color="#3ec4b4" stop-opacity="0"/>
+                <stop stop-color="var(--signal-400)"/>
+                <stop offset="1" stop-color="var(--signal-400)" stop-opacity="0"/>
               </linearGradient>
             </defs>
             <path v-if="cpuFill" :d="cpuFill" fill="url(#sparkGrad)" opacity="0.35"/>
-            <path v-if="cpuPoints" :d="cpuPoints" fill="none" stroke="#3ec4b4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path v-if="cpuPoints" :d="cpuPoints" fill="none" stroke="var(--signal-400)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </div>
 
@@ -152,8 +152,8 @@ onBeforeUnmount(() => {
             {{ snap?.memUsedMb ?? 0 }}<small class="text-xs font-medium text-mist ml-1">/ {{ snap?.memTotalMb ?? 0 }} MB</small>
           </div>
           <svg viewBox="0 0 200 36" class="w-full h-9 mt-3" preserveAspectRatio="none">
-            <path v-if="memFill" :d="memFill" fill="rgba(201,122,74,0.2)"/>
-            <path v-if="memPoints" :d="memPoints" fill="none" stroke="#e0925e" stroke-width="1.5" stroke-linecap="round"/>
+            <path v-if="memFill" :d="memFill" fill="var(--copper-glow)"/>
+            <path v-if="memPoints" :d="memPoints" fill="none" stroke="var(--copper-400)" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
         </div>
 
@@ -169,7 +169,7 @@ onBeforeUnmount(() => {
               {{ d.usagePct.toFixed(0) }}<small class="text-xs font-medium text-mist ml-1">%</small>
             </div>
             <div class="prog" style="height:6px">
-              <i :style="{width: Math.min(100, d.usagePct) + '%', background: d.usagePct > 75 ? 'linear-gradient(90deg,#d4a04a,#e0925e)' : undefined}"></i>
+              <i :style="{width: Math.min(100, d.usagePct) + '%', background: d.usagePct > 75 ? 'linear-gradient(90deg, var(--warn-500), var(--copper-400))' : undefined}"></i>
             </div>
           </div>
         </div>

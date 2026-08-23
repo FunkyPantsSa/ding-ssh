@@ -403,7 +403,7 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div class="flex items-center gap-1.5 p-3" style="box-shadow: inset 0 -1px 0 rgba(255,255,255,0.05)">
+    <div class="flex items-center gap-1.5 p-3 inset-line-b">
       <button class="btn-icon btn-sm" title="上级" @click="up">
         <Icon name="up" :size="14" />
       </button>
@@ -435,7 +435,7 @@ onBeforeUnmount(() => {
       <button class="btn btn-ghost btn-sm" @click="upload">上传</button>
     </div>
 
-    <div v-if="newFolderActive" class="flex items-center gap-2 px-3 py-2" style="box-shadow: inset 0 -1px 0 rgba(255,255,255,0.05)">
+    <div v-if="newFolderActive" class="flex items-center gap-2 px-3 py-2 inset-line-b">
       <span class="text-[12px] text-mist shrink-0">名称</span>
       <input
         ref="newFolderInputEl"
@@ -451,13 +451,13 @@ onBeforeUnmount(() => {
     <div
       class="flex-1 overflow-y-auto px-2 py-1.5 relative transition-colors"
       style="--wails-drop-target: drop"
-      :class="dragOver ? 'bg-[rgba(42,168,154,0.10)]' : ''"
+      :class="dragOver ? 'bg-[var(--signal-weak)]' : ''"
       @dragenter.prevent="dragOver = true"
       @dragover.prevent="dragOver = true"
       @dragleave.prevent="dragOver = false"
       @drop.prevent="dragOver = false"
     >
-      <div v-if="dragOver" class="absolute inset-2 rounded-[10px] border-2 border-dashed border-[var(--signal-400)] bg-[rgba(42,168,154,0.06)] grid place-items-center pointer-events-none z-10">
+      <div v-if="dragOver" class="absolute inset-2 rounded-[10px] border-2 border-dashed border-[var(--signal-400)] bg-[var(--signal-glow-soft)] grid place-items-center pointer-events-none z-10">
         <p class="text-xs text-[var(--signal-300)]">松开以上传到当前目录</p>
       </div>
       <div v-if="!entries.length && !loading && !error" class="py-6 text-center text-xs text-mist">空目录</div>
@@ -465,7 +465,7 @@ onBeforeUnmount(() => {
         v-for="e in entries"
         :key="e.path"
         class="grid grid-cols-[20px_1fr_auto] items-center gap-2 h-9 px-2 rounded-[6px] text-xs cursor-pointer"
-        :class="selected === e.path ? 'bg-[rgba(42,168,154,0.12)]' : 'hover:bg-white/[0.04]'"
+        :class="selected === e.path ? 'bg-[var(--signal-weak)]' : 'hover:bg-[var(--hover)]'"
         @click="selected = e.path"
         @dblclick="onDblClick(e)"
         @contextmenu.prevent="openMenu($event, e)"
@@ -504,7 +504,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-if="transfers.length" class="shrink-0 p-3 flex flex-col gap-2" style="box-shadow: inset 0 1px 0 rgba(255,255,255,0.05)">
+    <div v-if="transfers.length" class="shrink-0 p-3 flex flex-col gap-2 inset-line-t">
       <div v-for="t in transfers" :key="t.key" class="grid grid-cols-[1fr_auto] gap-1 text-[12px]">
         <span class="truncate text-[var(--mist-200)]">{{ t.direction === 'upload' ? '↑' : '↓' }} {{ t.name }}</span>
         <span class="flex items-center gap-2">

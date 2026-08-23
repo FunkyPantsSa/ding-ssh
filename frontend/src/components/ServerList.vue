@@ -195,7 +195,7 @@ onMounted(() => {
       <div class="flex-1 min-h-0 flex gap-4">
         <!-- 左：分组栏 -->
         <aside class="server-sidebar shrink-0 flex flex-col">
-          <div class="flex items-center justify-between px-3 py-2.5 shrink-0" style="box-shadow: inset 0 -1px 0 rgba(255,255,255,0.05)">
+          <div class="flex items-center justify-between px-3 py-2.5 shrink-0 inset-line-b">
             <span class="text-[12px] font-semibold tracking-[0.08em] uppercase text-mist">分组</span>
             <button class="btn-icon btn-sm" title="分组管理" aria-label="分组管理" @click="openGroupManager">
               <Icon name="folder-cog" :size="14" />
@@ -235,7 +235,7 @@ onMounted(() => {
             </button>
           </div>
 
-          <div class="p-2 shrink-0" style="box-shadow: inset 0 1px 0 rgba(255,255,255,0.05)">
+          <div class="p-2 shrink-0 inset-line-t">
             <button class="btn btn-ghost btn-sm w-full" @click="openGroupManager">
               <Icon name="plus" :size="14" />
               新建分组
@@ -365,7 +365,7 @@ onMounted(() => {
     <Teleport to="body">
       <div v-if="showGroupManager" class="modal-root" @click.self="showGroupManager = false">
         <div class="modal neo" style="width:min(400px,100%);padding:0;display:flex;flex-direction:column;max-height:80vh">
-          <div class="flex items-center justify-between px-5 py-4" style="box-shadow: inset 0 -1px 0 rgba(255,255,255,0.05)">
+          <div class="flex items-center justify-between px-5 py-4 inset-line-b">
             <h3 class="!mb-0">分组管理</h3>
             <button class="btn-icon btn-sm" @click="showGroupManager = false">
               <Icon name="close" :size="14" />

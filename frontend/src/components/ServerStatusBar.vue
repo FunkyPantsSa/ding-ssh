@@ -278,14 +278,14 @@ function fmtMbps(v: number): string {
   height: 22px;
   padding: 0 6px;
   border-radius: 4px;
-  background: rgba(255,255,255,0.04);
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
   color: var(--mist-200);
   font-family: var(--font-mono);
   font-size: 11px;
   cursor: pointer;
 }
 .statusbar-pick:hover {
-  background: rgba(255,255,255,0.07);
+  background: var(--hover-strong);
 }
 </style>

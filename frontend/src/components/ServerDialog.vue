@@ -220,19 +220,19 @@ onMounted(() => {
           <div class="block">
             <div class="flex items-center justify-between gap-2">
               <span class="text-slate-400">分组（可选）</span>
-              <div class="flex rounded-md border border-slate-700/60 overflow-hidden text-[12px]">
+              <div class="flex rounded-md border border-[var(--field-border)] overflow-hidden text-[12px]">
                 <button
                   type="button"
                   class="px-2 py-0.5 transition-colors"
-                  :class="groupMode === 'select' ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800/60 text-slate-500 hover:text-slate-300'"
+                  :class="groupMode === 'select' ? 'seg-opt-active' : 'seg-opt-idle'"
                   @click="groupMode = 'select'"
                 >
                   选择已有
                 </button>
                 <button
                   type="button"
-                  class="px-2 py-0.5 transition-colors border-l border-slate-700/60"
-                  :class="groupMode === 'create' ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800/60 text-slate-500 hover:text-slate-300'"
+                  class="px-2 py-0.5 transition-colors border-l border-[var(--field-border)]"
+                  :class="groupMode === 'create' ? 'seg-opt-active' : 'seg-opt-idle'"
                   @click="groupMode = 'create'"
                 >
                   新建分组
@@ -322,14 +322,14 @@ onMounted(() => {
               <div class="mt-1 flex gap-2">
                 <button
                   class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 transition-colors"
-                  :class="keySource === 'file' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
+                  :class="keySource === 'file' ? 'field-surface-active' : 'field-surface'"
                   @click="keySource = 'file'"
                 >
                   密钥文件
                 </button>
                 <button
                   class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 transition-colors"
-                  :class="keySource === 'content' ? 'border-sky-500/70 bg-sky-500/10' : 'border-slate-700/60 bg-slate-800/60'"
+                  :class="keySource === 'content' ? 'field-surface-active' : 'field-surface'"
                   @click="keySource = 'content'"
                 >
                   粘贴内容
@@ -343,7 +343,7 @@ onMounted(() => {
                 <input
                   v-model="form.keyPath"
                   readonly
-                  class="flex-1 min-w-0 px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none"
+                  class="input input-sm flex-1 min-w-0"
                   placeholder="~/.ssh/id_rsa"
                 />
                 <button
@@ -361,7 +361,7 @@ onMounted(() => {
                 v-model="form.keyContent"
                 rows="7"
                 spellcheck="false"
-                class="mt-1 w-full px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 font-mono text-xs leading-relaxed outline-none focus:border-sky-500/60 resize-y"
+                class="mt-1 w-full textarea text-xs leading-relaxed resize-y"
                 placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
               ></textarea>
             </div>
