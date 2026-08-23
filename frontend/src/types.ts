@@ -63,6 +63,8 @@ export interface SessionTab {
   message?: string
   createdAt: number
   sftpPath: string
+  /** ssh=远程服务器；local=本机终端 */
+  kind?: 'ssh' | 'local'
 }
 
 // 终端主题设置（对应 Go 端 models.Theme）。
@@ -91,6 +93,13 @@ export interface Settings {
   theme: Theme
   autoReconnect: boolean // 断开后自动重连，默认开启
   keepAliveEnabled: boolean // 心跳包防终端超时，默认开启
+  localShell: string // 本机终端：darwin zsh|bash；windows powershell|cmd；linux default
+}
+
+// 本机 Shell 选项（对应 Go 端 localterm.ShellOption）。
+export interface LocalShellOption {
+  value: string
+  label: string
 }
 
 // 命令补全候选（对应 Go 端 models.CommandSuggestion）。

@@ -13,7 +13,7 @@ import {useCredentialsStore} from '../stores/credentials'
 import {useServersStore} from '../stores/servers'
 import {defaultTheme, useSettingsStore} from '../stores/settings'
 import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
-import type {Credential, SecurityStatus, Theme} from '../types'
+import type {Credential, LocalShellOption, SecurityStatus, Theme} from '../types'
 import CredentialDialog from './CredentialDialog.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
@@ -130,6 +130,39 @@ async function toggleKeepAlive(v: boolean) {
   saving.value = true
   try {
     await settings.setKeepAliveEnabled(v)
+  } finally {
+    saving.value = false
+  }
+}
+
+const platform = ref('')
+const localShellOptions = ref<LocalShellOption[]>([])
+
+async function loadLocalShellOptions() {
+  try {
+    platform.value = await sshService.getPlatform()
+    localShellOptions.value = await sshService.getLocalShellOptions()
+    if (!settings.localShell && localShellOptions.value.length) {
+      // 仅填充 UI 默认展示，不立刻写库；用户改选时再保存
+      settings.localShell = localShellOptions.value[0].value
+    } else if (
+      settings.localShell &&
+      localShellOptions.value.length &&
+      !localShellOptions.value.some((o) => o.value === settings.localShell)
+    ) {
+      settings.localShell = localShellOptions.value[0].value
+    }
+  } catch {
+    platform.value = ''
+    localShellOptions.value = []
+  }
+}
+
+async function onLocalShellChange(e: Event) {
+  const v = (e.target as HTMLSelectElement).value
+  saving.value = true
+  try {
+    await settings.setLocalShell(v)
   } finally {
     saving.value = false
   }
@@ -389,6 +422,7 @@ onMounted(async () => {
   window.addEventListener('keydown', onHotkeyCapture, true)
   await Promise.all([settings.load(), credentials.load(), refreshSecurity()])
   Object.assign(themeForm, settings.theme)
+  await loadLocalShellOptions()
 })
 
 onBeforeUnmount(() => {
@@ -641,6 +675,27 @@ watch(
               :disabled="saving"
               @update:model-value="toggleKeepAlive"
             />
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="grid grid-cols-[minmax(0,1fr)_11rem] items-center gap-4 px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">本机终端 Shell</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                工作区「+ 本地终端」使用的本机 Shell。macOS 可选 zsh / bash，Windows 可选 PowerShell / cmd，Linux 使用系统 $SHELL。
+              </p>
+            </div>
+            <select
+              class="select"
+              :value="settings.localShell"
+              :disabled="saving || localShellOptions.length <= 1"
+              @change="onLocalShellChange"
+            >
+              <option v-for="opt in localShellOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
           </div>
         </div>
 

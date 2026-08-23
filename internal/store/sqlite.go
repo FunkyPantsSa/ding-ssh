@@ -302,6 +302,9 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	if v, ok := values["keepAliveEnabled"]; ok {
 		st.KeepAliveEnabled = v == "true"
 	}
+	if v, ok := values["localShell"]; ok {
+		st.LocalShell = v
+	}
 	if v, ok := values["theme"]; ok && v != "" {
 		_ = json.Unmarshal([]byte(v), &st.Theme)
 	}
@@ -333,6 +336,7 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"theme", string(theme)},
 		{"autoReconnect", boolStr(st.AutoReconnect)},
 		{"keepAliveEnabled", boolStr(st.KeepAliveEnabled)},
+		{"localShell", st.LocalShell},
 	}
 	for _, e := range entries {
 		if _, err := s.db.Exec(`

@@ -31,6 +31,7 @@ export const useSettingsStore = defineStore('settings', {
     theme: defaultTheme() as Theme,
     autoReconnect: true,
     keepAliveEnabled: true,
+    localShell: '',
     loaded: false,
   }),
   actions: {
@@ -48,6 +49,7 @@ export const useSettingsStore = defineStore('settings', {
       this.theme = {...defaultTheme(), ...(settings.theme ?? {})}
       this.autoReconnect = settings.autoReconnect ?? true
       this.keepAliveEnabled = settings.keepAliveEnabled ?? true
+      this.localShell = settings.localShell ?? ''
       this.loaded = true
     },
     async setLogEnabled(v: boolean) {
@@ -98,6 +100,10 @@ export const useSettingsStore = defineStore('settings', {
       this.keepAliveEnabled = v
       await this.save()
     },
+    async setLocalShell(v: string) {
+      this.localShell = v
+      await this.save()
+    },
     async save() {
       await settingsService.saveSettings({
         logEnabled: this.logEnabled,
@@ -112,6 +118,7 @@ export const useSettingsStore = defineStore('settings', {
         theme: this.theme,
         autoReconnect: this.autoReconnect,
         keepAliveEnabled: this.keepAliveEnabled,
+        localShell: this.localShell,
       })
     },
   },

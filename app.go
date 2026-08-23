@@ -8,25 +8,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"ding-ssh/internal/cryptox"
+	"ding-ssh/internal/localterm"
 	"ding-ssh/internal/logx"
 	"ding-ssh/internal/models"
 	"ding-ssh/internal/sshx"
 	"ding-ssh/internal/store"
 
 	"github.com/google/uuid"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App 是 Wails 绑定到前端的应用对象。
 type App struct {
 	ctx         context.Context
 	manager     *sshx.Manager
+	local       *localterm.Manager
 	db          *sql.DB // SQLite 数据库句柄（应用退出时关闭）
 	store       store.Store
 	settings    store.SettingsStore
@@ -48,9 +51,11 @@ func NewApp() *App {
 // startup 在应用启动时初始化依赖。
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	a.manager = sshx.NewManager(func(eventName string, payload interface{}) {
-		runtime.EventsEmit(a.ctx, eventName, payload)
-	})
+	notify := func(eventName string, payload interface{}) {
+		wailsruntime.EventsEmit(a.ctx, eventName, payload)
+	}
+	a.manager = sshx.NewManager(notify)
+	a.local = localterm.NewManager(notify)
 
 	// 安全保险库（主密钥 / 主密码）
 	configDir := filepath.Join(func() string {
@@ -118,6 +123,10 @@ func (a *App) startup(ctx context.Context) {
 		s, _ := a.settings.Get()
 		return s
 	})
+	a.local.SetShellPrefGetter(func() string {
+		s, _ := a.settings.Get()
+		return s.LocalShell
+	})
 }
 
 func (a *App) attachCipher() {
@@ -183,6 +192,9 @@ func (a *App) initJSONStores() {
 
 // shutdown 在应用退出时清理资源。
 func (a *App) shutdown(ctx context.Context) {
+	if a.local != nil {
+		a.local.CloseAll()
+	}
 	if a.manager != nil {
 		a.manager.CloseAll()
 	}
@@ -226,7 +238,7 @@ func (a *App) SaveServer(node models.ServerNode) (models.ServerNode, error) {
 
 // SelectKeyFile 弹出系统文件选择框，返回私钥文件路径。
 func (a *App) SelectKeyFile() (string, error) {
-	file, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+	file, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
 		Title: "选择 SSH 私钥文件",
 	})
 	if err != nil {
@@ -237,9 +249,9 @@ func (a *App) SelectKeyFile() (string, error) {
 
 // SelectImageFile 弹出系统文件选择框，返回背景图片路径。
 func (a *App) SelectImageFile() (string, error) {
-	file, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+	file, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
 		Title:   "选择背景图片",
-		Filters: []runtime.FileFilter{{DisplayName: "图片文件", Pattern: "*.png;*.jpg;*.jpeg;*.gif;*.webp"}},
+		Filters: []wailsruntime.FileFilter{{DisplayName: "图片文件", Pattern: "*.png;*.jpg;*.jpeg;*.gif;*.webp"}},
 	})
 	if err != nil {
 		return "", err
@@ -349,7 +361,7 @@ func (a *App) SftpList(sessionID, path string) ([]models.SFTPEntry, error) {
 
 // SelectLocalFile 选择本地文件（用于 SFTP 上传）。
 func (a *App) SelectLocalFile() (string, error) {
-	file, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+	file, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
 		Title: "选择要上传的文件",
 	})
 	if err != nil {
@@ -360,7 +372,7 @@ func (a *App) SelectLocalFile() (string, error) {
 
 // SelectLocalFiles 弹出系统文件选择框（支持多选），返回所选文件路径列表（用于 SFTP 批量上传）。
 func (a *App) SelectLocalFiles() ([]string, error) {
-	files, err := runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{
+	files, err := wailsruntime.OpenMultipleFilesDialog(a.ctx, wailsruntime.OpenDialogOptions{
 		Title: "选择要上传的文件（可多选）",
 	})
 	if err != nil {
@@ -371,7 +383,7 @@ func (a *App) SelectLocalFiles() ([]string, error) {
 
 // SelectSavePath 选择本地保存路径（用于 SFTP 下载）。
 func (a *App) SelectSavePath(defaultName string) (string, error) {
-	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+	path, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
 		Title:           "保存到本地",
 		DefaultFilename: defaultName,
 	})
@@ -606,13 +618,53 @@ func (a *App) Connect(sessionID string, node models.ServerNode, cols, rows int) 
 	return models.ConnectResult{SessionID: sessionID, Server: node.Name}, nil
 }
 
-// Disconnect 断开指定会话。
+// ConnectLocal 打开本机终端会话（复用 ssh:output / ssh:status 事件通道）。
+func (a *App) ConnectLocal(sessionID string, cols, rows int) (models.ConnectResult, error) {
+	if a.local == nil {
+		return models.ConnectResult{}, fmt.Errorf("本地终端未初始化")
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		sessionID = uuid.NewString()
+	}
+	if err := a.local.Connect(sessionID, "", cols, rows); err != nil {
+		return models.ConnectResult{}, err
+	}
+	shellPref := ""
+	if a.settings != nil {
+		if s, err := a.settings.Get(); err == nil {
+			shellPref = s.LocalShell
+		}
+	}
+	_, _, label, _ := localterm.Resolve(shellPref)
+	return models.ConnectResult{SessionID: sessionID, Server: "本机 · " + label}, nil
+}
+
+// GetPlatform 返回当前操作系统标识（darwin / windows / linux）。
+func (a *App) GetPlatform() string {
+	return runtime.GOOS
+}
+
+// GetLocalShellOptions 返回当前平台可选的本机 Shell 列表。
+func (a *App) GetLocalShellOptions() []localterm.ShellOption {
+	return localterm.OptionsForPlatform()
+}
+
+// Disconnect 断开指定会话（SSH 或本机）。
 func (a *App) Disconnect(sessionID string) error {
+	if a.local != nil && a.local.Has(sessionID) {
+		return a.local.Disconnect(sessionID)
+	}
 	return a.manager.Disconnect(sessionID)
 }
 
 // Reconnect 重新建立已断开的 SSH 会话，复用原会话配置与回调。
 func (a *App) Reconnect(sessionID string, cols, rows int) (models.ConnectResult, error) {
+	if a.local != nil && a.local.Has(sessionID) {
+		if err := a.local.Connect(sessionID, "", cols, rows); err != nil {
+			return models.ConnectResult{}, err
+		}
+		return models.ConnectResult{SessionID: sessionID}, nil
+	}
 	if err := a.manager.Reconnect(sessionID, cols, rows); err != nil {
 		return models.ConnectResult{}, err
 	}
@@ -621,11 +673,17 @@ func (a *App) Reconnect(sessionID string, cols, rows int) (models.ConnectResult,
 
 // Write 向会话写入终端输入（data 为 base64 编码）。
 func (a *App) Write(sessionID, data string) error {
+	if a.local != nil && a.local.Has(sessionID) {
+		return a.local.Write(sessionID, data)
+	}
 	return a.manager.Write(sessionID, data)
 }
 
 // Resize 调整会话终端尺寸。
 func (a *App) Resize(sessionID string, cols, rows int) error {
+	if a.local != nil && a.local.Has(sessionID) {
+		return a.local.Resize(sessionID, cols, rows)
+	}
 	return a.manager.Resize(sessionID, cols, rows)
 }
 
@@ -846,10 +904,10 @@ func (a *App) ExportConfig(passphrase string) (string, error) {
 	if err := a.ensureUnlocked(); err != nil {
 		return "", err
 	}
-	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+	path, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
 		Title:           "导出配置包",
 		DefaultFilename: "ding-ssh.dingpack",
-		Filters:         []runtime.FileFilter{{DisplayName: "dingpack", Pattern: "*.dingpack"}},
+		Filters:         []wailsruntime.FileFilter{{DisplayName: "dingpack", Pattern: "*.dingpack"}},
 	})
 	if err != nil || path == "" {
 		return "", err
@@ -875,9 +933,9 @@ func (a *App) ImportConfig(passphrase string, overwrite bool) (models.ImportConf
 	if err := a.ensureUnlocked(); err != nil {
 		return empty, err
 	}
-	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+	path, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
 		Title:   "导入配置包",
-		Filters: []runtime.FileFilter{{DisplayName: "dingpack", Pattern: "*.dingpack"}},
+		Filters: []wailsruntime.FileFilter{{DisplayName: "dingpack", Pattern: "*.dingpack"}},
 	})
 	if err != nil || path == "" {
 		return empty, err

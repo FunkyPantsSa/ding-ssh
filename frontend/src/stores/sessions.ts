@@ -27,6 +27,36 @@ export const useSessionsStore = defineStore('sessions', {
         status: 'connecting',
         createdAt: Date.now(),
         sftpPath: '/',
+        kind: 'ssh',
+      }
+      this.tabs.push(tab)
+      this.activeId = tab.clientId
+      return tab
+    },
+    openLocalTab(shellLabel = '本机'): SessionTab {
+      const node: ServerNode = {
+        id: '__local__',
+        name: shellLabel,
+        group: '',
+        host: 'localhost',
+        port: 0,
+        user: '',
+        authType: 'password',
+        bgImage: '',
+        blurAmount: 0,
+        envVars: {},
+      }
+      const tab: SessionTab = {
+        clientId: `tab-${Date.now()}-${seq++}`,
+        sessionId: '',
+        serverName: shellLabel,
+        host: 'localhost',
+        user: '',
+        node,
+        status: 'connecting',
+        createdAt: Date.now(),
+        sftpPath: '/',
+        kind: 'local',
       }
       this.tabs.push(tab)
       this.activeId = tab.clientId

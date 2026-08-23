@@ -765,14 +765,19 @@ async function connect() {
   )
 
   try {
-    const result = await sshService.connect(sid, props.tab.node, term?.cols ?? 80, term?.rows ?? 24)
+    const isLocal = props.tab.kind === 'local'
+    const result = isLocal
+      ? await sshService.connectLocal(sid, term?.cols ?? 80, term?.rows ?? 24)
+      : await sshService.connect(sid, props.tab.node, term?.cols ?? 80, term?.rows ?? 24)
     if (disposed) {
       sshService.disconnect(result.sessionId).catch(() => {})
       return
     }
     sessions.bindSession(props.tab.clientId, result.sessionId)
     sessions.setStatus(props.tab.clientId, 'connected')
-    await setupZmodem(result.sessionId)
+    if (!isLocal) {
+      await setupZmodem(result.sessionId)
+    }
     disposers.push(
       onSessionOutput(result.sessionId, (data) => {
         if (disposed || !term) return
@@ -781,11 +786,13 @@ async function connect() {
         else term.write(bytes)
       }),
     )
-    // 状态栏 / 监控面板共用采集器
-    void sysInfoService.start(result.sessionId).catch(() => {})
-    disposers.push(() => {
-      void sysInfoService.stop(result.sessionId).catch(() => {})
-    })
+    // 本机会话无远程 SFTP / 系统监控
+    if (!isLocal) {
+      void sysInfoService.start(result.sessionId).catch(() => {})
+      disposers.push(() => {
+        void sysInfoService.stop(result.sessionId).catch(() => {})
+      })
+    }
     fit()
   } catch (e) {
     sessions.setStatus(props.tab.clientId, 'error', String(e))
@@ -849,8 +856,8 @@ async function reconnectSession() {
   if (!term) return
   cancelAutoReconnect()
   const prevStatus = props.tab.status
-  // closed / error：后端会话已移除，走完整 connect；disconnected：复用会话重连
-  if (prevStatus === 'disconnected' && props.tab.sessionId) {
+  // 本机终端无 SSH Reconnect；closed/error 或本机会话一律走完整 connect
+  if (props.tab.kind !== 'local' && prevStatus === 'disconnected' && props.tab.sessionId) {
     sessions.setStatus(props.tab.clientId, 'connecting')
     resetSteps()
     try {
@@ -1091,7 +1098,7 @@ onBeforeUnmount(() => {
       @focus.self
     ></div>
 
-    <!-- 连接中 / 连接失败：可展开的分步日志面板 -->
+    <!-- 连接中 / 连接失败：可展开的分步日志面板（本机终端仅显示简要状态） -->
     <div
       v-if="tab.status === 'connecting' || tab.status === 'error'"
       class="absolute inset-0 z-30 grid place-items-center pointer-events-auto"
@@ -1100,7 +1107,12 @@ onBeforeUnmount(() => {
       <div class="neo w-[min(460px,92%)] p-6 max-h-[86vh] overflow-y-auto">
         <div class="flex items-center justify-between gap-3 mb-1">
           <h3 class="text-[15px] font-semibold text-[var(--mist-100)] truncate">
-            {{ tab.status === 'connecting' ? `正在连接 ${tab.serverName}` : `连接 ${tab.serverName} 失败` }}
+            <template v-if="tab.kind === 'local'">
+              {{ tab.status === 'connecting' ? `正在打开 ${tab.serverName}` : `打开 ${tab.serverName} 失败` }}
+            </template>
+            <template v-else>
+              {{ tab.status === 'connecting' ? `正在连接 ${tab.serverName}` : `连接 ${tab.serverName} 失败` }}
+            </template>
           </h3>
           <button class="btn-icon btn-sm shrink-0" title="关闭标签页" aria-label="关闭标签页" @click.stop="closeTab">
             <Icon name="close" :size="14" />
@@ -1109,6 +1121,16 @@ onBeforeUnmount(() => {
         <p v-if="tab.status === 'error' && tab.message" class="text-xs text-[#e57373] break-all mb-3">
           {{ tab.message }}
         </p>
+        <template v-if="tab.kind === 'local'">
+          <p class="text-xs text-mist mb-4">
+            {{ tab.status === 'connecting' ? '正在启动本机 Shell…' : '可关闭后重试，或在设置中更换本机 Shell。' }}
+          </p>
+          <div class="flex gap-2">
+            <button v-if="tab.status === 'error'" class="btn btn-primary btn-sm" @click="connect">重试</button>
+            <button class="btn btn-ghost btn-sm" @click="closeTab">关闭</button>
+          </div>
+        </template>
+        <template v-else>
         <p class="text-xs text-mist mb-4">
           <template v-if="activeStepLabel">
             当前：<span class="text-[var(--mist-100)]">{{ activeStepLabel }}</span>
@@ -1169,6 +1191,7 @@ onBeforeUnmount(() => {
             <button class="btn btn-ghost btn-sm" @click.stop="closeTab">关闭标签页</button>
           </template>
         </div>
+        </template>
       </div>
     </div>
 

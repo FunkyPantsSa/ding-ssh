@@ -27,10 +27,14 @@ import {
   TestServers,
   UpdateTunnel,
   Write,
+  ConnectLocal,
+  GetPlatform,
+  GetLocalShellOptions,
 } from '../../wailsjs/go/main/App'
 import {EventsOn, EventsOff} from '../../wailsjs/runtime/runtime'
 import type {
   ConnectResult,
+  LocalShellOption,
   ProgressEvent,
   ServerNode,
   ServerTestResult,
@@ -89,6 +93,10 @@ export const sshService = {
   listTunnels: (): Promise<TunnelInfo[]> => ListTunnels(),
   connect: (sessionID: string, node: ServerNode, cols: number, rows: number): Promise<ConnectResult> =>
     Connect(sessionID, node, cols, rows),
+  connectLocal: (sessionID: string, cols: number, rows: number): Promise<ConnectResult> =>
+    ConnectLocal(sessionID, cols, rows),
+  getPlatform: (): Promise<string> => GetPlatform(),
+  getLocalShellOptions: (): Promise<LocalShellOption[]> => GetLocalShellOptions(),
   disconnect: (sessionId: string): Promise<void> => Disconnect(sessionId),
   write: (sessionId: string, dataBase64: string): Promise<void> =>
     Write(sessionId, dataBase64),

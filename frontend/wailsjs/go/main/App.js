@@ -22,6 +22,10 @@ export function Connect(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['Connect'](arg1, arg2, arg3, arg4);
 }
 
+export function ConnectLocal(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ConnectLocal'](arg1, arg2, arg3);
+}
+
 export function DeleteCredential(arg1) {
   return window['go']['main']['App']['DeleteCredential'](arg1);
 }
@@ -52,6 +56,14 @@ export function GetCredentials() {
 
 export function GetGroups() {
   return window['go']['main']['App']['GetGroups']();
+}
+
+export function GetLocalShellOptions() {
+  return window['go']['main']['App']['GetLocalShellOptions']();
+}
+
+export function GetPlatform() {
+  return window['go']['main']['App']['GetPlatform']();
 }
 
 export function GetSecurityStatus() {

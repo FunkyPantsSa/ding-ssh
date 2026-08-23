@@ -41,9 +41,11 @@ const pageSub = computed(() => pageMeta[ui.view]?.[1] ?? '')
 
 const onlineCount = computed(() => sessions.tabs.filter((t) => t.status === 'connected').length)
 
-const activeConnected = computed(() =>
-  sessions.activeTab?.status === 'connected' ? sessions.activeTab : undefined,
-)
+const activeConnected = computed(() => {
+  const tab = sessions.activeTab
+  if (!tab || tab.status !== 'connected' || tab.kind === 'local') return undefined
+  return tab
+})
 
 interface CmdItem {
   id: string
@@ -59,6 +61,7 @@ const cmdItems = computed<CmdItem[]>(() => {
     {id: 'tunnel', label: '打开隧道页', hint: '导航', run: () => ui.showTunnel()},
     {id: 'settings', label: '打开设置', hint: '导航', run: () => ui.showSettings()},
     {id: 'new', label: '新建服务器', hint: '操作', run: () => ui.requestNewServer()},
+    {id: 'local', label: '打开本地终端', hint: '工作区', run: () => { ui.showWorkspace(); sessions.openLocalTab() }},
   ]
   if (sessions.sftpVisible) {
     items.push({id: 'hide-tool', label: '收起侧栏工具', hint: '工作区', run: () => { sessions.sftpVisible = false }})
@@ -315,6 +318,15 @@ onBeforeUnmount(() => {
             >
               <Icon name="panel-right" :size="14" />
               侧栏工具
+            </button>
+            <button
+              v-if="ui.view === 'workspace'"
+              class="btn btn-ghost btn-sm"
+              title="打开本机终端"
+              @click="sessions.openLocalTab()"
+            >
+              <Icon name="terminal" :size="14" />
+              + 本地终端
             </button>
             <button
               v-if="ui.view === 'workspace'"

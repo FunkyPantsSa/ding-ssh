@@ -99,6 +99,7 @@ type Settings struct {
 	Theme                 Theme  `json:"theme"`                           // 终端主题
 	AutoReconnect         bool   `json:"autoReconnect"`                   // 断开后自动重连（默认开启）
 	KeepAliveEnabled      bool   `json:"keepAliveEnabled"`                // 发送心跳包防止终端超时（默认开启）
+	LocalShell            string `json:"localShell"`                      // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
 }
 
 // CommandHistory 命令历史记录（SQLite command_history 表）。

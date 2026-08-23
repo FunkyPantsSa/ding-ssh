@@ -1,3 +1,22 @@
+export namespace localterm {
+	
+	export class ShellOption {
+	    value: string;
+	    label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShellOption(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.value = source["value"];
+	        this.label = source["label"];
+	    }
+	}
+
+}
+
 export namespace models {
 	
 	export class CommandSuggestion {
@@ -223,6 +242,7 @@ export namespace models {
 	    theme: Theme;
 	    autoReconnect: boolean;
 	    keepAliveEnabled: boolean;
+	    localShell: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -242,6 +262,7 @@ export namespace models {
 	        this.theme = this.convertValues(source["theme"], Theme);
 	        this.autoReconnect = source["autoReconnect"];
 	        this.keepAliveEnabled = source["keepAliveEnabled"];
+	        this.localShell = source["localShell"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

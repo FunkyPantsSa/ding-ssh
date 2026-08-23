@@ -29,7 +29,12 @@ function closeTabMenu() {
 
 function duplicateTab(clientId: string) {
   const tab = sessions.tabs.find((t) => t.clientId === clientId)
-  if (tab) sessions.openTab(tab.node)
+  if (!tab) {
+    closeTabMenu()
+    return
+  }
+  if (tab.kind === 'local') sessions.openLocalTab(tab.serverName)
+  else sessions.openTab(tab.node)
   closeTabMenu()
 }
 
