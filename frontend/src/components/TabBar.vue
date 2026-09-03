@@ -13,6 +13,8 @@ const statusDot: Record<string, string> = {
 }
 
 const tabMenu = ref<{x: number; y: number; clientId: string} | null>(null)
+const draggingId = ref('')
+const dropState = ref<{clientId: string; position: 'before' | 'after'} | null>(null)
 
 function close(clientId: string) {
   sessions.closeTab(clientId)
@@ -51,6 +53,43 @@ function closeAll() {
   closeTabMenu()
 }
 
+function clearDragState() {
+  draggingId.value = ''
+  dropState.value = null
+}
+
+function onTabDragStart(e: DragEvent, clientId: string) {
+  draggingId.value = clientId
+  dropState.value = null
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', clientId)
+  }
+}
+
+function onTabDragOver(e: DragEvent, clientId: string) {
+  if (!draggingId.value || draggingId.value === clientId) return
+  const el = e.currentTarget as HTMLElement | null
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  const position: 'before' | 'after' = e.clientX < rect.left + rect.width / 2 ? 'before' : 'after'
+  dropState.value = {clientId, position}
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+}
+
+function onTabDrop(e: DragEvent, clientId: string) {
+  if (!draggingId.value) return
+  const position = dropState.value?.clientId === clientId ? dropState.value.position : 'before'
+  sessions.moveTab(draggingId.value, clientId, position)
+  clearDragState()
+}
+
+function onTabBarDrop() {
+  if (!draggingId.value) return
+  sessions.moveTabToEnd(draggingId.value)
+  clearDragState()
+}
+
 onMounted(() => {
   window.addEventListener('click', closeTabMenu)
 })
@@ -66,10 +105,20 @@ onBeforeUnmount(() => {
       v-for="tab in sessions.tabs"
       :key="tab.clientId"
       class="tab group"
-      :class="tab.clientId === sessions.activeId ? 'active' : ''"
+      :class="[
+        tab.clientId === sessions.activeId ? 'active' : '',
+        draggingId === tab.clientId ? 'dragging' : '',
+        dropState?.clientId === tab.clientId && dropState.position === 'before' ? 'drop-before' : '',
+        dropState?.clientId === tab.clientId && dropState.position === 'after' ? 'drop-after' : '',
+      ]"
       @click="sessions.activeId = tab.clientId"
       @auxclick.middle="close(tab.clientId)"
       @contextmenu.prevent="openTabMenu($event, tab.clientId)"
+      draggable="true"
+      @dragstart="onTabDragStart($event, tab.clientId)"
+      @dragend="clearDragState"
+      @dragover.prevent="onTabDragOver($event, tab.clientId)"
+      @drop.prevent="onTabDrop($event, tab.clientId)"
     >
       <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot[tab.status] ?? 'bg-[var(--mist-400)]'"></span>
       <span class="truncate">{{ tab.serverName }}</span>
@@ -83,7 +132,7 @@ onBeforeUnmount(() => {
       </span>
     </button>
 
-    <div class="flex-1"></div>
+    <div class="flex-1" @dragover.prevent @drop.prevent="onTabBarDrop"></div>
   </div>
   <Teleport to="body">
     <div

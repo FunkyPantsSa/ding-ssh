@@ -556,12 +556,11 @@ func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 		s.mu.Unlock()
 		return fmt.Errorf("会话仍在连接中，无需重连")
 	}
-	// 重置关闭状态，复用原会话 ID 和回调
-	s.closed = false
-	s.closeOnce = sync.Once{}
 	server := s.server
 	onStatus := s.onStatus
 	onProgress := s.onProgress
+	oldClient := s.client
+	oldSftp := s.sftp
 	s.mu.Unlock()
 
 	report := func(step, status, log, message string) {
@@ -571,16 +570,13 @@ func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 	}
 	report(models.ConnectStepDNS, "running", "正在重新连接…", "")
 
-	// 如果旧连接未完全关闭，先清理
-	if s.client != nil {
-		_ = s.client.Close()
+	// 先清理旧连接，避免重连过程中残留占用端口或 SFTP 句柄。
+	if oldSftp != nil {
+		_ = oldSftp.Close()
 	}
-	if s.sftp != nil {
-		_ = s.sftp.Close()
-		s.sftp = nil
+	if oldClient != nil {
+		_ = oldClient.Close()
 	}
-	s.sftpOnce = sync.Once{}
-	s.sftpErr = nil
 
 	config, err := buildClientConfig(server, report)
 	if err != nil {
@@ -651,7 +647,11 @@ func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 	s.client = client
 	s.shell = shell
 	s.stdin = stdin
+	s.sftp = nil
+	s.sftpOnce = sync.Once{}
+	s.sftpErr = nil
 	s.closed = false
+	s.closeOnce = sync.Once{}
 	s.keepAliveEnabled = keepAliveEnabled
 	s.mu.Unlock()
 

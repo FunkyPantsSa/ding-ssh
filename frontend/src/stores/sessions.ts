@@ -89,6 +89,23 @@ export const useSessionsStore = defineStore('sessions', {
       this.tabs = []
       this.activeId = ''
     },
+    moveTab(clientId: string, targetId: string, position: 'before' | 'after' = 'before') {
+      if (!clientId || !targetId || clientId === targetId) return
+      const fromIndex = this.tabs.findIndex((t) => t.clientId === clientId)
+      const targetIndex = this.tabs.findIndex((t) => t.clientId === targetId)
+      if (fromIndex < 0 || targetIndex < 0) return
+      const [tab] = this.tabs.splice(fromIndex, 1)
+      let insertIndex = targetIndex
+      if (fromIndex < targetIndex) insertIndex -= 1
+      if (position === 'after') insertIndex += 1
+      this.tabs.splice(Math.max(0, Math.min(insertIndex, this.tabs.length)), 0, tab)
+    },
+    moveTabToEnd(clientId: string) {
+      const fromIndex = this.tabs.findIndex((t) => t.clientId === clientId)
+      if (fromIndex < 0) return
+      const [tab] = this.tabs.splice(fromIndex, 1)
+      this.tabs.push(tab)
+    },
     toggleSftp() {
       this.sftpVisible = !this.sftpVisible
     },

@@ -39,6 +39,7 @@ const sessions = useSessionsStore()
 const settings = useSettingsStore()
 
 const container = ref<HTMLElement>()
+const disconnectedPanel = ref<HTMLElement | null>(null)
 const menu = ref<{x: number; y: number} | null>(null)
 const fontSize = ref(settings.fonts.terminalFontSize || 13)
 const suggestions = ref<Suggestion[]>([])
@@ -744,7 +745,7 @@ async function setupZmodem(sessionId: string) {
   }
 }
 
-async function connect() {
+async function connect(): Promise<boolean> {
   cancelAutoReconnect()
   disposers.forEach((d) => d())
   disposers.length = 0
@@ -814,7 +815,7 @@ async function connect() {
       : await sshService.connect(sid, props.tab.node, term?.cols ?? 80, term?.rows ?? 24)
     if (disposed) {
       sshService.disconnect(result.sessionId).catch(() => {})
-      return
+      return false
     }
     sessions.bindSession(props.tab.clientId, result.sessionId)
     sessions.setStatus(props.tab.clientId, 'connected')
@@ -839,7 +840,9 @@ async function connect() {
     fit()
   } catch (e) {
     sessions.setStatus(props.tab.clientId, 'error', String(e))
+    return false
   }
+  return true
 }
 
 function cancelAutoReconnect() {
@@ -883,20 +886,17 @@ function scheduleAutoReconnect() {
     if (disposed || !settings.autoReconnect) return
     if (props.tab.status !== 'disconnected') return
     term?.write(`\r\n\x1b[33m[自动重连] 第 ${autoReconnectAttempt} 次尝试…\x1b[0m\r\n`)
-    try {
-      await reconnectSession()
-      const status: string = props.tab.status
-      if (status === 'connected') {
-        autoReconnectAttempt = 0
-      }
-    } catch {
-      // reconnectSession 内部已更新状态，断开状态会再次触发 scheduleAutoReconnect
+    const ok = await reconnectSession()
+    if (ok) {
+      autoReconnectAttempt = 0
+    } else if (props.tab.status === 'disconnected' && settings.autoReconnect && !disposed) {
+      scheduleAutoReconnect()
     }
   }, delay)
 }
 
-async function reconnectSession() {
-  if (!term) return
+async function reconnectSession(): Promise<boolean> {
+  if (!term) return false
   cancelAutoReconnect()
   const prevStatus = props.tab.status
   // 本机终端无 SSH Reconnect；closed/error 或本机会话一律走完整 connect
@@ -909,12 +909,13 @@ async function reconnectSession() {
       autoReconnectAttempt = 0
       await setupZmodem(props.tab.sessionId)
       fit()
+      return true
     } catch (e) {
-      sessions.setStatus(props.tab.clientId, 'error', String(e))
+      sessions.setStatus(props.tab.clientId, 'disconnected', String(e))
+      return false
     }
-    return
   }
-  await connect()
+  return connect()
 }
 
 const CONNECT_STEPS: {key: string; label: string}[] = [
@@ -1113,6 +1114,15 @@ watch(
 )
 
 watch(
+  () => props.tab.status,
+  (status) => {
+    if (status !== 'disconnected') return
+    nextTick(() => disconnectedPanel.value?.focus())
+  },
+  {immediate: true},
+)
+
+watch(
   () => settings.uiScale,
   () => {
     if (!term || disposed) return
@@ -1254,6 +1264,9 @@ onBeforeUnmount(() => {
     <div
       v-else-if="tab.status === 'closed' || tab.status === 'disconnected'"
       class="absolute inset-0 z-30 grid place-items-center pointer-events-auto overlay-backdrop"
+      ref="disconnectedPanel"
+      tabindex="0"
+      @keydown.enter.prevent="reconnectSession"
     >
       <div class="neo w-[min(420px,90%)] p-6 text-center">
         <p class="text-sm text-[var(--mist-100)] break-all">
