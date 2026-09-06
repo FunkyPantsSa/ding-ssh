@@ -182,12 +182,17 @@ const secError = ref('')
 const secMsg = ref('')
 const secBusy = ref(false)
 
-const packPass = ref('')
-const packPassConfirm = ref('')
 const packOverwrite = ref(false)
-const packError = ref('')
-const packMsg = ref('')
-const packBusy = ref(false)
+// 导出/导入各自独立的状态，避免提示串到对方的卡片里
+const exportPass = ref('')
+const exportPassConfirm = ref('')
+const exportError = ref('')
+const exportMsg = ref('')
+const exportBusy = ref(false)
+const importPass = ref('')
+const importError = ref('')
+const importMsg = ref('')
+const importBusy = ref(false)
 
 async function refreshSecurity() {
   try {
@@ -487,45 +492,45 @@ async function changeMaster() {
 }
 
 async function exportPack() {
-  packError.value = ''
-  packMsg.value = ''
-  if (!packPass.value || packPass.value !== packPassConfirm.value) {
-    packError.value = '请填写并确认导出密码'
+  exportError.value = ''
+  exportMsg.value = ''
+  if (!exportPass.value || exportPass.value !== exportPassConfirm.value) {
+    exportError.value = '请填写并确认导出密码'
     return
   }
-  packBusy.value = true
+  exportBusy.value = true
   try {
-    const path = await securityService.exportConfig(packPass.value)
+    const path = await securityService.exportConfig(exportPass.value)
     if (path) {
-      packMsg.value = `已导出到 ${path}`
-      packPass.value = ''
-      packPassConfirm.value = ''
+      exportMsg.value = `已导出到 ${path}`
+      exportPass.value = ''
+      exportPassConfirm.value = ''
     }
   } catch (e) {
-    packError.value = String(e)
+    exportError.value = String(e)
   } finally {
-    packBusy.value = false
+    exportBusy.value = false
   }
 }
 
 async function importPack() {
-  packError.value = ''
-  packMsg.value = ''
-  if (!packPass.value) {
-    packError.value = '请填写导入密码'
+  importError.value = ''
+  importMsg.value = ''
+  if (!importPass.value) {
+    importError.value = '请填写导入密码'
     return
   }
-  packBusy.value = true
+  importBusy.value = true
   try {
-    const r = await securityService.importConfig(packPass.value, packOverwrite.value)
-    packMsg.value = `已导入服务器 ${r.servers}、凭证 ${r.credentials}、分组 ${r.groups}`
-    packPass.value = ''
+    const r = await securityService.importConfig(importPass.value, packOverwrite.value)
+    importMsg.value = `已导入服务器 ${r.servers}、凭证 ${r.credentials}、分组 ${r.groups}`
+    importPass.value = ''
     await servers.load()
     await credentials.load()
   } catch (e) {
-    packError.value = String(e)
+    importError.value = String(e)
   } finally {
-    packBusy.value = false
+    importBusy.value = false
   }
 }
 
@@ -1274,11 +1279,13 @@ watch(
             <p class="text-sm font-medium text-slate-200">导出 .dingpack</p>
           </div>
           <div class="px-5 py-4 space-y-3">
-            <input v-model="packPass" type="password" class="input input-sm" placeholder="导出密码" />
-            <input v-model="packPassConfirm" type="password" class="input input-sm" placeholder="确认导出密码" />
-            <div class="flex justify-end">
-              <button class="btn btn-primary btn-sm" :disabled="packBusy" @click="exportPack">
-                {{ packBusy ? '处理中…' : '导出…' }}
+            <input v-model="exportPass" type="password" class="input input-sm" placeholder="导出密码" />
+            <input v-model="exportPassConfirm" type="password" class="input input-sm" placeholder="确认导出密码" />
+            <div class="flex items-center justify-between">
+              <p v-if="exportError" class="text-xs text-rose-400 break-all">{{ exportError }}</p>
+              <p v-else-if="exportMsg" class="text-xs text-emerald-400 break-all">{{ exportMsg }}</p>
+              <button class="btn btn-primary btn-sm ml-auto" :disabled="exportBusy" @click="exportPack">
+                {{ exportBusy ? '处理中…' : '导出…' }}
               </button>
             </div>
           </div>
@@ -1289,16 +1296,16 @@ watch(
             <p class="text-sm font-medium text-slate-200">导入 .dingpack</p>
           </div>
           <div class="px-5 py-4 space-y-3">
-            <input v-model="packPass" type="password" class="input input-sm" placeholder="导入密码" />
+            <input v-model="importPass" type="password" class="input input-sm" placeholder="导入密码" />
             <label class="flex items-center gap-2 text-xs text-slate-400">
               <input v-model="packOverwrite" type="checkbox" class="rounded border-slate-600" />
               同 ID 覆盖已有服务器 / 凭证
             </label>
             <div class="flex items-center justify-between">
-              <p v-if="packError" class="text-xs text-rose-400 break-all">{{ packError }}</p>
-              <p v-else-if="packMsg" class="text-xs text-emerald-400 break-all">{{ packMsg }}</p>
-              <button class="btn btn-primary btn-sm" :disabled="packBusy" @click="importPack">
-                导入…
+              <p v-if="importError" class="text-xs text-rose-400 break-all">{{ importError }}</p>
+              <p v-else-if="importMsg" class="text-xs text-emerald-400 break-all">{{ importMsg }}</p>
+              <button class="btn btn-primary btn-sm ml-auto" :disabled="importBusy" @click="importPack">
+                {{ importBusy ? '处理中…' : '导入…' }}
               </button>
             </div>
           </div>

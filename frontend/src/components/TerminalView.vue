@@ -37,8 +37,10 @@ import type {SessionTab} from '../types'
 const props = defineProps<{tab: SessionTab}>()
 const sessions = useSessionsStore()
 const settings = useSettingsStore()
+const isActiveTab = computed(() => sessions.activeId === props.tab.clientId)
 
 const container = ref<HTMLElement>()
+const statusPanel = ref<HTMLElement | null>(null)
 const disconnectedPanel = ref<HTMLElement | null>(null)
 const menu = ref<{x: number; y: number} | null>(null)
 const fontSize = ref(settings.fonts.terminalFontSize || 13)
@@ -67,6 +69,7 @@ let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null
 let autoReconnectAttempt = 0
 const autoReconnectCountdown = ref(0)
 let countdownTimer: ReturnType<typeof setInterval> | null = null
+let focusTimer: ReturnType<typeof setTimeout> | null = null
 /** trackLineInput 解析 ANSI/方向键转义，避免 [A [B 写入历史 */
 type EscState = 'none' | 'esc' | 'csi' | 'osc'
 let escState: EscState = 'none'
@@ -216,6 +219,35 @@ function tryEnableWebGL() {
 function disableWebGL() {
   webglAddon?.dispose()
   webglAddon = null
+}
+
+function focusActiveSurface() {
+  if (disposed || !isActiveTab.value) return
+  if (props.tab.status === 'connected') {
+    container.value?.focus()
+    term?.focus()
+    return
+  }
+  if (props.tab.status === 'disconnected' || props.tab.status === 'closed') {
+    // 先释放 xterm 隐藏输入框持有的键盘焦点，避免焦点残留在终端光标处
+    term?.blur()
+    disconnectedPanel.value?.focus()
+    return
+  }
+  if (props.tab.status === 'connecting' || props.tab.status === 'error') {
+    statusPanel.value?.focus()
+  }
+}
+
+function scheduleFocusActiveSurface() {
+  if (focusTimer !== null) {
+    clearTimeout(focusTimer)
+    focusTimer = null
+  }
+  focusTimer = setTimeout(() => {
+    focusTimer = null
+    void nextTick(() => focusActiveSurface())
+  }, 0)
 }
 
 function fit() {
@@ -668,6 +700,21 @@ function onKeydown(e: KeyboardEvent) {
   }
   composing = false
 
+  // 断开/关闭冻结态：Enter 直接重连。此监听挂在终端容器上（capture），
+  // 即使焦点残留在 xterm 隐藏输入框，回车也能触发重连而不会被终端吞掉。
+  if (
+    (props.tab.status === 'disconnected' || props.tab.status === 'closed') &&
+    e.key === 'Enter' &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.altKey
+  ) {
+    e.preventDefault()
+    e.stopPropagation()
+    void reconnectSession()
+    return
+  }
+
   if (e.key === 'Escape' && menu.value && !suggestions.value.length) {
     menu.value = null
     e.preventDefault()
@@ -1037,6 +1084,8 @@ onMounted(() => {
   })
 
   term.onData((data) => {
+    // 非连接态（断开/关闭/失败）：画面冻结只读，忽略键盘输入，避免写入已死会话
+    if (props.tab.status !== 'connected') return
     if (inputLocked || zmodem?.active()) return
     // 粘贴大段文本抑制补全
     if (data.length > 80) {
@@ -1070,6 +1119,7 @@ onMounted(() => {
   container.value?.addEventListener('contextmenu', openMenu)
   window.addEventListener('click', closeMenu)
   void connect()
+  scheduleFocusActiveSurface()
 })
 
 watch(
@@ -1114,10 +1164,10 @@ watch(
 )
 
 watch(
-  () => props.tab.status,
-  (status) => {
-    if (status !== 'disconnected') return
-    nextTick(() => disconnectedPanel.value?.focus())
+  () => [isActiveTab.value, props.tab.status] as const,
+  ([active]) => {
+    if (!active) return
+    scheduleFocusActiveSurface()
   },
   {immediate: true},
 )
@@ -1132,6 +1182,7 @@ watch(
 
 onBeforeUnmount(() => {
   disposed = true
+  if (focusTimer) clearTimeout(focusTimer)
   cancelAutoReconnect()
   if (suggestTimer) clearTimeout(suggestTimer)
   if (lineBufSyncTimer) clearTimeout(lineBufSyncTimer)
@@ -1159,7 +1210,7 @@ onBeforeUnmount(() => {
     <div
       ref="container"
       class="absolute inset-0"
-      :class="tab.status === 'connected' ? '' : 'pointer-events-none'"
+      :class="tab.status === 'connected' ? '' : 'frozen-surface'"
       tabindex="0"
       @focus.self
     ></div>
@@ -1167,7 +1218,9 @@ onBeforeUnmount(() => {
     <!-- 连接中 / 连接失败：可展开的分步日志面板（本机终端仅显示简要状态） -->
     <div
       v-if="tab.status === 'connecting' || tab.status === 'error'"
+      ref="statusPanel"
       class="absolute inset-0 z-30 grid place-items-center pointer-events-auto overlay-backdrop"
+      tabindex="0"
     >
       <div class="neo w-[min(460px,92%)] p-6 max-h-[86vh] overflow-y-auto">
         <div class="flex items-center justify-between gap-3 mb-1">
@@ -1260,38 +1313,42 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- 已断开 -->
+    <!-- 已断开 / 已关闭：顶部横幅（不遮屏，断开前的终端画面保留可回看/滚屏/复制） -->
     <div
       v-else-if="tab.status === 'closed' || tab.status === 'disconnected'"
-      class="absolute inset-0 z-30 grid place-items-center pointer-events-auto overlay-backdrop"
       ref="disconnectedPanel"
+      class="absolute inset-x-3 top-3 z-30 pointer-events-auto disconnect-banner flex items-center gap-3 px-4 py-2.5"
       tabindex="0"
       @keydown.enter.prevent="reconnectSession"
     >
-      <div class="neo w-[min(420px,90%)] p-6 text-center">
-        <p class="text-sm text-[var(--mist-100)] break-all">
-          {{ tab.message || '连接已断开' }}
+      <span class="banner-accent" aria-hidden="true"></span>
+      <div class="min-w-0 flex-1">
+        <p class="text-[14px] font-semibold leading-snug truncate text-[var(--warn-500)]">
+          <template v-if="tab.kind === 'local'">本机终端已结束</template>
+          <template v-else>连接已断开</template>
+          <span class="font-normal text-[12px] text-[var(--mist-200)]"> · {{ tab.serverName }}</span>
         </p>
+        <p v-if="tab.message" class="mt-0.5 text-[11px] font-normal text-[var(--mist-300)] truncate">{{ tab.message }}</p>
         <!-- 自动重连倒计时 -->
-        <div
+        <p
           v-if="tab.status === 'disconnected' && settings.autoReconnect && autoReconnectCountdown > 0"
-          class="mt-3 text-xs text-amber-400/80 flex items-center justify-center gap-1.5"
+          class="mt-0.5 text-[11px] text-amber-400 flex items-center gap-1.5"
         >
-          <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+          <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
           </svg>
           {{ autoReconnectAttempt > 1 ? `第 ${autoReconnectAttempt - 1} 次失败，` : '' }}{{ autoReconnectCountdown }}s 后自动重连…
-        </div>
-        <div class="flex justify-center gap-2 mt-5">
-          <button class="btn btn-primary" @click.stop="reconnectSession">立即重连</button>
-          <button
-            v-if="tab.status === 'disconnected' && settings.autoReconnect && autoReconnectCountdown > 0"
-            class="btn btn-ghost"
-            @click.stop="cancelAutoReconnect"
-          >取消自动重连</button>
-          <button class="btn btn-ghost" @click.stop="closeTab">关闭标签页</button>
-        </div>
+        </p>
+      </div>
+      <div class="flex shrink-0 items-center gap-2">
+        <button class="btn btn-primary btn-sm" @click.stop="reconnectSession">立即重连</button>
+        <button
+          v-if="tab.status === 'disconnected' && settings.autoReconnect && autoReconnectCountdown > 0"
+          class="btn btn-ghost btn-sm"
+          @click.stop="cancelAutoReconnect"
+        >取消自动重连</button>
+        <button class="btn btn-ghost btn-sm" @click.stop="closeTab">关闭标签页</button>
       </div>
     </div>
 
@@ -1389,6 +1446,37 @@ onBeforeUnmount(() => {
 <style>
 .terminal-theme .xterm-rows {
   text-shadow: var(--xterm-text-shadow, none);
+}
+
+/* 断开/关闭冻结态：禁止 xterm 隐藏输入框抢键盘焦点，保留滚屏与选中复制 */
+.frozen-surface .xterm-helper-textarea {
+  pointer-events: none;
+}
+
+/* 断开横幅：琥珀警示风 —— 深色近实底 + 琥珀边框 + 左侧警示条，突出"已断开"重点 */
+.disconnect-banner {
+  background:
+    linear-gradient(155deg, var(--surface-hi) 0%, var(--hover) 45%, rgba(0, 0, 0, 0.5) 100%),
+    rgba(12, 15, 20, 0.92);
+  border: 1px solid var(--warn-500);
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1px rgba(212, 160, 74, 0.25),
+    0 10px 28px rgba(0, 0, 0, 0.5),
+    0 0 24px rgba(212, 160, 74, 0.16);
+  animation: fadeRise 200ms var(--ease);
+}
+.disconnect-banner:focus-visible {
+  outline: 2px solid var(--warn-500);
+  outline-offset: 2px;
+}
+.banner-accent {
+  flex-shrink: 0;
+  width: 4px;
+  align-self: stretch;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--warn-300, #e8b968), var(--warn-500));
+  box-shadow: 0 0 10px rgba(212, 160, 74, 0.55);
 }
 
 .completion-panel {
