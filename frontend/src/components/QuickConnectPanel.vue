@@ -100,7 +100,7 @@ function isActiveNode(node: ServerNode): boolean {
       :aria-label="open ? '收起服务器列表' : '打开服务器列表'"
       @click="ui.toggleTerminalSidebar()"
     >
-      <Icon :name="open ? 'chevron-left' : 'chevron-right'" :size="14" />
+      <Icon :name="open ? 'chevron-left' : 'chevron-right'" :size="12" />
     </button>
 
     <Transition name="fade">
