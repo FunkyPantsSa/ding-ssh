@@ -14,6 +14,7 @@ import {useServersStore} from '../stores/servers'
 import {defaultAppearance, defaultFonts, defaultTheme, useSettingsStore} from '../stores/settings'
 import {defaultPreset, paletteToTheme, presetById, PRESETS} from '../theme/presets'
 import {resolveTone} from '../theme/engine'
+import {APP_COMMIT, APP_VERSION, buildDateLabel, buildTimeLabel, detectPlatform, platformLabel} from '../version'
 import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import type {Credential, Fonts, LocalShellOption, SecurityStatus, Theme, UIAppearance} from '../types'
 import CredentialDialog from './CredentialDialog.vue'
@@ -31,8 +32,9 @@ const menuItems = [
   {key: 'credentials', label: '保存的凭证', icon: 'key'},
   {key: 'security', label: '安全', icon: 'lock'},
   {key: 'migrate', label: '导入导出', icon: 'package'},
+  {key: 'about', label: '关于', icon: 'info'},
 ] as const
-const section = ref<'general' | 'theme' | 'credentials' | 'security' | 'migrate'>('general')
+const section = ref<'general' | 'theme' | 'credentials' | 'security' | 'migrate' | 'about'>('general')
 const themeForm = reactive<Theme>(defaultTheme())
 const appearanceForm = reactive<UIAppearance>(defaultAppearance())
 const fontsForm = reactive<Fonts>(defaultFonts())
@@ -407,6 +409,33 @@ function toggleReveal(c: Credential) {
   revealId.value = revealId.value === c.id ? '' : c.id
 }
 
+// ---- 关于：构建信息（版本 tag / 提交号 / 构建时间，编译期注入） ----
+const aboutCopied = ref(false)
+let aboutCopiedTimer: number | undefined
+
+const aboutRows = computed(() => [
+  {label: '版本标签', value: APP_VERSION || 'dev'},
+  {label: '构建日期', value: buildDateLabel()},
+  {label: '构建时间', value: buildTimeLabel()},
+  {label: '代码提交', value: APP_COMMIT || '未知'},
+  {label: '运行平台', value: platformLabel(platform.value || detectPlatform())},
+])
+
+/** 一键复制版本信息，方便反馈问题时附带环境。 */
+async function copyAbout() {
+  const text = ['ding-ssh', ...aboutRows.value.map((r) => `${r.label}: ${r.value}`)].join('\n')
+  try {
+    await ClipboardSetText(text)
+    aboutCopied.value = true
+    window.clearTimeout(aboutCopiedTimer)
+    aboutCopiedTimer = window.setTimeout(() => {
+      aboutCopied.value = false
+    }, 1600)
+  } catch {
+    /* ignore */
+  }
+}
+
 /** 复制密码 / 私钥明文到剪贴板。 */
 async function copyCred(c: Credential) {
   const text = c.authType === 'privateKey' ? c.keyContent : c.password
@@ -544,6 +573,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onHotkeyCapture, true)
   window.clearTimeout(copiedCredTimer)
+  window.clearTimeout(aboutCopiedTimer)
 })
 
 watch(
@@ -1268,7 +1298,7 @@ watch(
       </div>
 
       <!-- 导入导出 -->
-      <div v-else class="max-w-2xl space-y-6 fade-rise">
+      <div v-else-if="section === 'migrate'" class="max-w-2xl space-y-6 fade-rise">
         <div>
           <h3 class="text-[18px] font-semibold text-white tracking-tight">导入导出</h3>
           <p class="text-[13px] text-mist mt-1.5">使用加密的 .dingpack 在设备间迁移服务器、凭证与设置。</p>
@@ -1309,6 +1339,45 @@ watch(
               </button>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 关于 -->
+      <div v-else class="max-w-2xl space-y-6 fade-rise">
+        <div>
+          <h3 class="text-[18px] font-semibold text-white tracking-tight">关于</h3>
+          <p class="text-[13px] text-mist mt-1.5">版本信息与构建详情，反馈问题时请一并附上。</p>
+        </div>
+
+        <div class="neo">
+          <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-800/60">
+            <div class="brand-mark">
+              <Icon name="zap" :size="20" extra-class="text-signal" />
+            </div>
+            <div class="min-w-0">
+              <div class="brand-name">ding<span>-ssh</span></div>
+              <p class="text-xs text-slate-500 mt-0.5">Local-first SSH workstation</p>
+            </div>
+            <span class="chip ml-auto">{{ aboutRows[0].value }}</span>
+          </div>
+          <div class="px-5 py-2">
+            <div
+              v-for="row in aboutRows"
+              :key="row.label"
+              class="flex items-center justify-between gap-4 py-2.5 border-b border-slate-800/40 last:border-b-0"
+            >
+              <span class="text-xs text-slate-500 shrink-0">{{ row.label }}</span>
+              <span class="font-mono text-xs text-slate-200 text-right break-all">{{ row.value }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button class="btn btn-ghost btn-sm" @click="copyAbout">
+            <Icon name="copy" :size="14" />
+            {{ aboutCopied ? '已复制' : '复制版本信息' }}
+          </button>
+          <p class="text-xs text-slate-500">构建时间取本次打包时的时间戳，可用于确认是否运行了最新版本。</p>
         </div>
       </div>
     </div>
