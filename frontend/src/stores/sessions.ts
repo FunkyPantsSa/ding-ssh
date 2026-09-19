@@ -79,7 +79,10 @@ export const useSessionsStore = defineStore('sessions', {
     // 进入分屏前右侧工具面板的显隐状态（取消分屏时自动恢复）。
     sftpVisibleBeforeSplit: true,
     // 分屏树：null = 未分屏（当前形态）。根节点 direction + children 递归嵌套。
+    // 分屏树在「切到独立标签」时保留，只是不显示（见 splitVisible）。
     panes: null as PaneNode | null,
+    // 分屏布局当前是否显示：false 时工作区显示 activeId 的独立标签，分屏组留在标签栏。
+    splitVisible: false,
     // 最近一次获得焦点的分屏格（用于右键分屏/拖拽的锚点；未分屏时为空）。
     focusedPaneId: '',
     // 当前正在拖拽的标签 id（用于让分屏格子的拖放热区在拖拽期间接管 pointer 事件）。
@@ -91,9 +94,13 @@ export const useSessionsStore = defineStore('sessions', {
     activeTab(): SessionTab | undefined {
       return this.tabs.find((t) => t.clientId === this.activeId)
     },
-    /** 是否处于分屏状态。 */
+    /** 是否存在分屏布局（可能当前未显示）。 */
     isSplit(): boolean {
       return this.panes !== null
+    },
+    /** 工作区当前是否按分屏布局渲染。 */
+    splitShown(): boolean {
+      return this.panes !== null && this.splitVisible
     },
     /** 分屏状态下，当前焦点格内活跃的标签 id（未分屏时 = activeId）。 */
     activePaneTabId(): string {
@@ -124,7 +131,7 @@ export const useSessionsStore = defineStore('sessions', {
         kind: 'ssh',
       }
       this.tabs.push(tab)
-      this.activeId = tab.clientId
+      this.activateTab(tab.clientId)
       return tab
     },
     openLocalTab(shellLabel = '本机'): SessionTab {
@@ -153,13 +160,40 @@ export const useSessionsStore = defineStore('sessions', {
         kind: 'local',
       }
       this.tabs.push(tab)
-      this.activeId = tab.clientId
+      this.activateTab(tab.clientId)
       return tab
     },
     bindSession(clientId: string, sessionId: string) {
       const tab = this.tabs.find((t) => t.clientId === clientId)
       if (tab) tab.sessionId = sessionId
     },
+    /**
+     * 激活标签：
+     * - 该标签已在某个分屏格内 → 显示分屏并聚焦该格；
+     * - 否则（含分屏时新开的终端）→ 作为独立标签全屏展示，分屏布局保留在分屏组标签里。
+     */
+    activateTab(clientId: string) {
+      if (!this.tabs.some((t) => t.clientId === clientId)) return
+      if (this.panes) {
+        const bound = this.findLeafByTab(this.panes, clientId)
+        if (bound) {
+          this.splitVisible = true
+          this.setFocusedPane(bound.id)
+          return
+        }
+      }
+      this.splitVisible = false
+      this.activeId = clientId
+    },
+
+    /** 显示分屏布局（点击分屏组标签）：聚焦上次的焦点格。 */
+    showSplit() {
+      if (!this.panes) return
+      this.splitVisible = true
+      const leaf = this.findPane(this.focusedPaneId) ?? this.collectLeaves(this.panes)[0]
+      if (leaf) this.setFocusedPane(leaf.id)
+    },
+
     setStatus(clientId: string, status: SessionTab['status'], message?: string) {
       const tab = this.tabs.find((t) => t.clientId === clientId)
       if (tab) {
@@ -185,12 +219,37 @@ export const useSessionsStore = defineStore('sessions', {
           leaf.paneActiveId = this.nextFreeTabId(leaf.id, clientId) ?? undefined
         }
         this.normalizeTree()
+        this.syncActiveAfterClose()
       }
     },
+
+    /** 关闭标签后校正：分屏显示态下活跃标签须落在某格内；隐藏态下若活跃标签属于分屏则回到分屏。 */
+    syncActiveAfterClose() {
+      if (!this.panes) return
+      const bound = this.findLeafByTab(this.panes, this.activeId)
+      if (!this.splitVisible) {
+        if (bound) {
+          this.splitVisible = true
+          this.setFocusedPane(bound.id)
+        }
+        return
+      }
+      if (bound) {
+        this.focusedPaneId = bound.id
+        return
+      }
+      const leaf = this.findPane(this.focusedPaneId) ?? this.collectLeaves(this.panes)[0]
+      if (leaf) {
+        this.focusedPaneId = leaf.id
+        this.activeId = leaf.paneActiveId ?? ''
+      }
+    },
+
     closeAll() {
       this.tabs = []
       this.activeId = ''
       this.panes = null
+      this.splitVisible = false
       this.focusedPaneId = ''
       this.draggingTabId = ''
       this.draggingSplitGroup = false
@@ -275,6 +334,7 @@ export const useSessionsStore = defineStore('sessions', {
           direction: isRow ? 'row' : 'column',
           children: leftOrUp ? [targetLeaf, anchorLeaf] : [anchorLeaf, targetLeaf],
         }
+        this.splitVisible = true
         this.focusedPaneId = targetLeaf.id
         this.activeId = targetId
         return
@@ -297,6 +357,7 @@ export const useSessionsStore = defineStore('sessions', {
         children: leftOrUp ? [targetLeaf, anchorLeaf] : [anchorLeaf, targetLeaf],
       }
       this.replacePane(anchorLeaf.id, parent)
+      this.splitVisible = true
       this.focusedPaneId = targetLeaf.id
       this.activeId = targetId
     },
@@ -370,6 +431,7 @@ export const useSessionsStore = defineStore('sessions', {
         // 只剩一个格：回退未分屏，该格内容回到全局 activeId
         if (leaves[0]?.paneActiveId) this.activeId = leaves[0].paneActiveId
         this.panes = null
+        this.splitVisible = false
         this.focusedPaneId = ''
         this.sftpVisible = this.sftpVisibleBeforeSplit
       }
@@ -445,6 +507,7 @@ export const useSessionsStore = defineStore('sessions', {
           direction: isRow ? 'row' : 'column',
           children: leftOrUp ? [sourceLeaf, targetLeaf] : [targetLeaf, sourceLeaf],
         }
+        this.splitVisible = true
         this.focusedPaneId = targetLeaf.id
         this.activeId = targetTabId
         this.sftpVisibleBeforeSplit = this.sftpVisible
@@ -452,8 +515,13 @@ export const useSessionsStore = defineStore('sessions', {
         return
       }
 
-      // 已分屏：target 必须已经在某个叶子中，作为锚点格
-      const targetLeaf = this.findLeafByTab(this.panes, targetTabId)
+      // 已分屏：target 优先用其所在叶子作为锚点格；
+      // 若 target 未绑定（例如当前活跃的是独立标签），回退到焦点格 / 首个格子，避免「分屏」静默失效。
+      const focused = this.findPane(this.focusedPaneId)
+      const targetLeaf =
+        this.findLeafByTab(this.panes, targetTabId)
+        ?? [focused, ...this.collectLeaves(this.panes)].find((l) => l && l.paneActiveId !== sourceTabId)
+        ?? null
       if (!targetLeaf) return
       const sourceLeafOld = this.findLeafByTab(this.panes, sourceTabId)
       if (sourceLeafOld && sourceLeafOld.id !== targetLeaf.id) {
@@ -467,6 +535,7 @@ export const useSessionsStore = defineStore('sessions', {
         children: leftOrUp ? [newSourceLeaf, targetLeaf] : [targetLeaf, newSourceLeaf],
       }
       this.replacePane(targetLeaf.id, parent)
+      this.splitVisible = true
       this.focusedPaneId = newSourceLeaf.id
       this.activeId = sourceTabId
     },
@@ -475,6 +544,7 @@ export const useSessionsStore = defineStore('sessions', {
     cancelSplit() {
       if (!this.panes) return
       this.panes = null
+      this.splitVisible = false
       this.focusedPaneId = ''
       this.sftpVisible = this.sftpVisibleBeforeSplit
     },
@@ -495,6 +565,7 @@ export const useSessionsStore = defineStore('sessions', {
         paneActiveId: tabId,
       }))
       this.panes = {id: paneId(), direction, children}
+      this.splitVisible = true
       const focusLeaf = children.find((c) => c.paneActiveId === currentTab) ?? children[0]
       this.focusedPaneId = focusLeaf.id
       this.activeId = focusLeaf.paneActiveId ?? tabs[0]
@@ -512,6 +583,7 @@ export const useSessionsStore = defineStore('sessions', {
         this.activeId = this.tabs[0]?.clientId ?? ''
       }
       this.panes = null
+      this.splitVisible = false
       this.focusedPaneId = ''
       this.sftpVisible = this.sftpVisibleBeforeSplit
     },

@@ -78,17 +78,12 @@ const tabItems = computed<TabBarItem[]>(() => {
   return items
 })
 
-/** 当前活跃标签是否属于分屏组（用于高亮合并标签）。 */
-const splitActive = computed(() => {
-  if (!sessions.panes || !sessions.activeId) return false
-  return splitTabIds.value.has(sessions.activeId)
-})
+/** 分屏组标签是否处于「工作区正在显示分屏」状态（用于高亮合并标签）。 */
+const splitActive = computed(() => sessions.splitShown)
 
-/** 点击合并标签：聚焦分屏组的当前焦点格。 */
+/** 点击合并标签：回到分屏布局并聚焦当前焦点格。 */
 function activateSplitGroup() {
-  if (!sessions.panes) return
-  const leaf = sessions.findPane(sessions.focusedPaneId) ?? sessions.collectLeaves(sessions.panes)[0]
-  if (leaf?.paneActiveId) sessions.setFocusedPane(leaf.id)
+  sessions.showSplit()
 }
 
 const tabMenu = ref<{x: number; y: number; clientId: string} | null>(null)
@@ -256,7 +251,7 @@ onBeforeUnmount(() => {
           dropState?.clientId === item.tab.clientId && dropState.position === 'before' ? 'drop-before' : '',
           dropState?.clientId === item.tab.clientId && dropState.position === 'after' ? 'drop-after' : '',
         ]"
-        @click="sessions.activeId = item.tab.clientId"
+        @click="sessions.activateTab(item.tab.clientId)"
         @auxclick.middle="close(item.tab.clientId)"
         @contextmenu.prevent="openTabMenu($event, item.tab.clientId)"
         draggable="true"
@@ -341,7 +336,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="divider-h my-1"></div>
-      <button @click="sessions.activeId = tabMenu.clientId; closeTabMenu()">切换到此标签</button>
+      <button @click="sessions.activateTab(tabMenu.clientId); closeTabMenu()">切换到此标签</button>
       <button @click="close(tabMenu.clientId); closeTabMenu()">关闭标签</button>
       <button @click="closeOthers(tabMenu.clientId)">关闭其他标签</button>
       <button class="danger" @click="closeAll">关闭全部标签</button>

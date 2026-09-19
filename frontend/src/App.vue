@@ -100,7 +100,7 @@ function measurePanes() {
 
 // 分屏 / 右侧工具面板切换会改变终端区宽度，等 DOM 更新后强制重测，避免布局沿用旧尺寸。
 watch(
-  () => [sessions.isSplit, sessions.sftpVisible] as const,
+  () => [sessions.splitShown, sessions.sftpVisible] as const,
   async () => {
     await nextTick()
     requestAnimationFrame(() => measurePanes())
@@ -124,19 +124,20 @@ onBeforeUnmount(() => {
 
 /** 分屏布局（叶子 rect + 分隔条），由 App 统一计算供槽位与 SplitView 共用。 */
 const paneLayout = computed(() => {
-  if (!sessions.panes) return null
-  return layoutPanes(sessions.panes, paneSize.value.w, paneSize.value.h)
+  const panes = sessions.panes
+  if (!panes || !sessions.splitShown) return null
+  return layoutPanes(panes, paneSize.value.w, paneSize.value.h)
 })
 
-/** 标签是否应显示：未分屏时 activeId；分屏时该标签需绑定在某叶子中。 */
+/** 标签是否应显示：显示分屏时该标签需绑定在某叶子中；否则只有 activeId 可见。 */
 function tabVisible(tabId: string): boolean {
-  if (!sessions.panes) return tabId === sessions.activeId
+  if (!sessions.splitShown) return tabId === sessions.activeId
   return sessions.leafByTabId(tabId) !== null
 }
 
-/** 该标签所在叶子 id（未分屏或不在格中返回 undefined）。 */
+/** 该标签所在叶子 id（未显示分屏或不在格中返回 undefined）。 */
 function paneIdForTab(tabId: string): string | undefined {
-  if (!sessions.panes) return undefined
+  if (!sessions.splitShown) return undefined
   return sessions.leafByTabId(tabId)?.id
 }
 
@@ -144,7 +145,7 @@ function paneIdForTab(tabId: string): string | undefined {
 const PANE_HEADER_H = 28
 
 function slotStyle(tabId: string) {
-  if (!sessions.panes || !paneLayout.value) return {left: '0', top: '0', right: '0', bottom: '0'}
+  if (!sessions.splitShown || !paneLayout.value) return {left: '0', top: '0', right: '0', bottom: '0'}
   const leaf = sessions.leafByTabId(tabId)
   if (!leaf) return {display: 'none'}
   const rect = paneLayout.value.leafRects.get(leaf.id)
@@ -159,7 +160,7 @@ function slotStyle(tabId: string) {
 
 /** 分屏下点击某格终端区域时，同步该格为焦点格（覆盖层已对终端区域穿透）。 */
 function onPaneMousedown(tabId: string) {
-  if (!sessions.panes) return
+  if (!sessions.splitShown) return
   const leaf = sessions.leafByTabId(tabId)
   if (leaf) sessions.setFocusedPane(leaf.id)
 }
@@ -305,7 +306,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
   const n = parseInt(e.key)
   if (n >= 1 && n <= 9 && sessions.tabs.length >= n) {
     e.preventDefault()
-    sessions.activeId = sessions.tabs[n - 1].clientId
+    sessions.activateTab(sessions.tabs[n - 1].clientId)
   }
 }
 
@@ -537,7 +538,7 @@ onBeforeUnmount(() => {
                   </template>
 
                   <!-- 分屏覆盖层：格头 + 分隔条 + 拖放热区 -->
-                  <SplitView v-if="sessions.panes" :layout="paneLayout!" />
+                  <SplitView v-if="sessions.splitShown" :layout="paneLayout!" />
 
                   <div v-if="!sessions.tabs.length" class="empty">
                     <div class="empty-inner">
