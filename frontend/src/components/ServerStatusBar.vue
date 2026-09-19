@@ -2,6 +2,7 @@
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {onSysInfoSnapshot, sysInfoService} from '../services/sysinfo'
+import {getElementRect} from '../utils/dom'
 import type {SessionTab, SysInfoSnapshot} from '../types'
 
 const props = defineProps<{tab?: SessionTab}>()
@@ -123,7 +124,9 @@ async function toggleMenu(kind: 'disk' | 'net', ev: MouseEvent) {
     return
   }
   const btn = ev.currentTarget as HTMLElement
-  const rect = btn.getBoundingClientRect()
+  // 菜单 Teleport 到 body 且用绝对定位（未缩放坐标），按钮 rect 需折算为布局像素，
+  // 避免 app-shell zoom 导致菜单整体偏移/错位。
+  const rect = getElementRect(btn)
   openMenu.value = kind
   await nextTick()
   const menuH = Math.min(220, (menuItems.value.length || 1) * 28 + 8)

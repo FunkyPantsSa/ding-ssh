@@ -12,6 +12,7 @@ import {
   Clock,
   Command,
   Copy,
+  Columns2,
   Eye,
   EyeOff,
   FileText,
@@ -69,6 +70,7 @@ const map: Record<string, Component> = {
   zap: Zap,
   check: Check,
   copy: Copy,
+  columns: Columns2,
   eye: Eye,
   'eye-off': EyeOff,
 }

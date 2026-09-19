@@ -27,6 +27,7 @@ import {
 import {historyService} from '../services/history'
 import {sysInfoService} from '../services/sysinfo'
 import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../services/zmodem'
+import {currentZoom} from '../utils/dom'
 import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
@@ -34,10 +35,14 @@ import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import {monoFontStack} from '../theme/engine'
 import type {SessionTab} from '../types'
 
-const props = defineProps<{tab: SessionTab}>()
+const props = defineProps<{tab: SessionTab; paneId?: string}>()
 const sessions = useSessionsStore()
 const settings = useSettingsStore()
-const isActiveTab = computed(() => sessions.activeId === props.tab.clientId)
+// 分屏中：该 TerminalView 所在格是否焦点格；未分屏：全局 activeId 是否命中
+const isActiveTab = computed(() => {
+  if (props.paneId) return sessions.focusedPaneId === props.paneId
+  return sessions.activeId === props.tab.clientId
+})
 
 const container = ref<HTMLElement>()
 const statusPanel = ref<HTMLElement | null>(null)
@@ -94,11 +99,6 @@ function sanitizeHistoryCommand(cmd: string): string {
   return s
 }
 
-function currentUIZoom(): number {
-  const n = (settings.uiScale || 100) / 100
-  return n > 0 ? n : 1
-}
-
 function xtermCore(t: Terminal): {
   _renderService?: {dimensions?: {css?: {cell?: {width: number; height: number}}}}
 } | undefined {
@@ -125,17 +125,13 @@ const bgImageStyle = computed(() => {
   }
 })
 
-const terminalStyle = computed(() => {
-  const z = currentUIZoom()
-  return {
-    '--xterm-text-shadow': settings.theme.textShadow
-      ? `0 1px 3px rgba(0, 0, 0, 0.8), 0 0 ${settings.theme.shadowBlur}px rgba(0, 0, 0, 0.5)`
-      : 'none',
-    // xterm 不支持位于 CSS zoom 祖先中：仅反向抵消全局缩放。
-    // 父级 zoom 已改变布局视口，额外按 z 缩宽高会让画布再次缩小。
-    zoom: 1 / z,
-  }
-})
+const terminalStyle = computed(() => ({
+  '--xterm-text-shadow': settings.theme.textShadow
+    ? `0 1px 3px rgba(0, 0, 0, 0.8), 0 0 ${settings.theme.shadowBlur}px rgba(0, 0, 0, 0.5)`
+    : 'none',
+  // 不再反向抵消全局 zoom：app-shell 的 zoom 会整体等比缩放（含终端字号），
+  // 若在此处设置 zoom: 1/z 会把 xterm 容器压缩 1/z，导致分屏格右侧/底部出现空白。
+}))
 
 const sourceLabel: Record<string, string> = {
   history: '历史',
@@ -259,7 +255,7 @@ function fit() {
 }
 
 function effectiveFontSize(): number {
-  return Math.max(8, Math.min(40, Math.round(fontSize.value * currentUIZoom() * 10) / 10))
+  return Math.max(8, Math.min(40, fontSize.value))
 }
 
 function applyFontSize() {
@@ -395,10 +391,13 @@ async function updatePanelPosition() {
   const cellW = dims?.width ?? 8
   const cellH = dims?.height ?? 16
   const buf = term.buffer.active
+  // container 的 gBCR 相对 viewport（含 app-shell 的 zoom），而面板用绝对定位（未缩放坐标）。
+  // 统一先折算回布局像素，cursor 位置与面板尺寸才不会随 uiScale 漂移。
+  const z = currentZoom(container.value)
   const rect = container.value.getBoundingClientRect()
-  const left = Math.min(Math.max(8, rect.left + buf.cursorX * cellW), window.innerWidth - 320)
+  const left = Math.min(Math.max(8, rect.left / z + buf.cursorX * cellW), window.innerWidth / z - 320)
   // 先占位再量真实高度，保证面板底边在光标行上方
-  const cursorLineTop = rect.top + buf.cursorY * cellH
+  const cursorLineTop = rect.top / z + buf.cursorY * cellH
   const gap = 10
   panelPos.value = {left, top: Math.max(8, cursorLineTop - 180)}
   await nextTick()
@@ -410,7 +409,7 @@ async function updatePanelPosition() {
   }
   panelPos.value = {
     left,
-    top: Math.max(8, Math.min(top, window.innerHeight - h - 8)),
+    top: Math.max(8, Math.min(top, window.innerHeight / z - h - 8)),
   }
 }
 

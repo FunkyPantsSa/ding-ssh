@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './components/Icon.vue'
 import ServerList from './components/ServerList.vue'
 import SettingsPage from './components/SettingsPage.vue'
@@ -8,9 +8,13 @@ import SysInfoPanel from './components/SysInfoPanel.vue'
 import ServerStatusBar from './components/ServerStatusBar.vue'
 import TabBar from './components/TabBar.vue'
 import TerminalView from './components/TerminalView.vue'
+import SplitView from './components/SplitView.vue'
+import {layoutPanes} from './panes/layout'
+import type {PaneDirection, SplitDirection} from './types'
 import TunnelPage from './components/TunnelPage.vue'
 import QuickConnectPanel from './components/QuickConnectPanel.vue'
 import {securityService} from './services/security'
+import {getElementRect} from './utils/dom'
 import {useServersStore} from './stores/servers'
 import {useSessionsStore} from './stores/sessions'
 import {useSettingsStore} from './stores/settings'
@@ -76,6 +80,135 @@ const activeConnected = computed(() => {
   if (!tab || tab.status !== 'connected' || tab.kind === 'local') return undefined
   return tab
 })
+
+// ---- 分屏：槽位显隐与定位 ----
+// 所有标签的 TerminalView 常驻（不随分屏卸载/重挂，避免重连/断会话）。
+// 未分屏：仅 activeId 可见（现状 v-show 逻辑）。
+// 分屏：仅「当前绑定到某叶子」的标签可见，并按叶子矩形定位。
+const terminalArea = ref<HTMLElement | null>(null)
+const paneSize = ref({w: 0, h: 0})
+
+function measurePanes() {
+  const el = terminalArea.value
+  if (!el) return
+  // getElementRect 返回「布局坐标系」尺寸（已除以 app-shell 的 zoom）。
+  // 若直接取 getBoundingClientRect，WebKit 下量出的是含 zoom 的渲染尺寸（偏大 z 倍），
+  // 而 slotStyle/SplitView 的绝对定位按未缩放坐标解释 → 分屏格底部/右侧会空一截。
+  const r = getElementRect(el)
+  paneSize.value = {w: r.width, h: r.height}
+}
+
+// 分屏 / 右侧工具面板切换会改变终端区宽度，等 DOM 更新后强制重测，避免布局沿用旧尺寸。
+watch(
+  () => [sessions.isSplit, sessions.sftpVisible] as const,
+  async () => {
+    await nextTick()
+    requestAnimationFrame(() => measurePanes())
+  },
+)
+
+let paneRO: ResizeObserver | null = null
+
+onMounted(() => {
+  measurePanes()
+  if (terminalArea.value) {
+    paneRO = new ResizeObserver(measurePanes)
+    paneRO.observe(terminalArea.value)
+  }
+})
+
+onBeforeUnmount(() => {
+  paneRO?.disconnect()
+  paneRO = null
+})
+
+/** 分屏布局（叶子 rect + 分隔条），由 App 统一计算供槽位与 SplitView 共用。 */
+const paneLayout = computed(() => {
+  if (!sessions.panes) return null
+  return layoutPanes(sessions.panes, paneSize.value.w, paneSize.value.h)
+})
+
+/** 标签是否应显示：未分屏时 activeId；分屏时该标签需绑定在某叶子中。 */
+function tabVisible(tabId: string): boolean {
+  if (!sessions.panes) return tabId === sessions.activeId
+  return sessions.leafByTabId(tabId) !== null
+}
+
+/** 该标签所在叶子 id（未分屏或不在格中返回 undefined）。 */
+function paneIdForTab(tabId: string): string | undefined {
+  if (!sessions.panes) return undefined
+  return sessions.leafByTabId(tabId)?.id
+}
+
+/** 槽位定位：未分屏铺满全区域；分屏按叶子矩形（顶部让出格头高度）。 */
+const PANE_HEADER_H = 28
+
+function slotStyle(tabId: string) {
+  if (!sessions.panes || !paneLayout.value) return {left: '0', top: '0', right: '0', bottom: '0'}
+  const leaf = sessions.leafByTabId(tabId)
+  if (!leaf) return {display: 'none'}
+  const rect = paneLayout.value.leafRects.get(leaf.id)
+  if (!rect) return {display: 'none'}
+  return {
+    left: rect.left + 'px',
+    top: (rect.top + PANE_HEADER_H) + 'px',
+    width: rect.width + 'px',
+    height: Math.max(0, rect.height - PANE_HEADER_H) + 'px',
+  }
+}
+
+/** 分屏下点击某格终端区域时，同步该格为焦点格（覆盖层已对终端区域穿透）。 */
+function onPaneMousedown(tabId: string) {
+  if (!sessions.panes) return
+  const leaf = sessions.leafByTabId(tabId)
+  if (leaf) sessions.setFocusedPane(leaf.id)
+}
+
+/** 拖拽标签到终端区域时的落点方向（用于像浏览器一样按区域分屏/改方向）。 */
+const terminalDropDir = ref<SplitDirection | null>(null)
+
+function terminalDropDirection(e: DragEvent): SplitDirection | null {
+  const el = terminalArea.value
+  if (!el) return null
+  // 与 measurePanes 同理：落点判定需在未缩放（布局）坐标系中进行，
+  // 否则 clientX/clientY（含 zoom）相对 rect（含 zoom）的分割偏移会被整体缩放。
+  const rect = getElementRect(el)
+  const dx = e.clientX - (rect.left + rect.width / 2)
+  const dy = e.clientY - (rect.top + rect.height / 2)
+  return Math.abs(dx) >= Math.abs(dy)
+    ? (dx < 0 ? 'left' : 'right')
+    : (dy < 0 ? 'up' : 'down')
+}
+
+function onTerminalDragOver(e: DragEvent) {
+  if (!sessions.draggingTabId && !sessions.draggingSplitGroup) return
+  e.preventDefault()
+  terminalDropDir.value = terminalDropDirection(e)
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+}
+
+function onTerminalDragLeave() {
+  terminalDropDir.value = null
+}
+
+function onTerminalDrop(e: DragEvent) {
+  e.preventDefault()
+  const dir = terminalDropDirection(e)
+  if (dir) {
+    if (sessions.draggingSplitGroup) {
+      const direction: PaneDirection = dir === 'left' || dir === 'right' ? 'row' : 'column'
+      sessions.reorientSplit(direction)
+    } else if (sessions.draggingTabId) {
+      const sourceId = sessions.draggingTabId
+      let targetId = sessions.activeId
+      if (sourceId === targetId) {
+        targetId = sessions.tabs.find((t) => t.clientId !== sourceId)?.clientId ?? ''
+      }
+      if (targetId) sessions.mergeTabsForSplit(sourceId, targetId, dir)
+    }
+  }
+  terminalDropDir.value = null
+}
 
 interface CmdItem {
   id: string
@@ -382,13 +515,29 @@ onBeforeUnmount(() => {
               <TabBar v-if="sessions.tabs.length" />
 
               <div class="flex-1 min-h-0 flex">
-                <div class="flex-1 min-w-0 relative terminal-bg">
-                  <TerminalView
-                    v-for="tab in sessions.tabs"
-                    v-show="tab.clientId === sessions.activeId"
-                    :key="tab.clientId"
-                    :tab="tab"
-                  />
+                <div
+                  ref="terminalArea"
+                  class="flex-1 min-w-0 relative terminal-bg terminal-drop"
+                  :class="terminalDropDir ? 'drop-' + terminalDropDir : ''"
+                  @dragover="onTerminalDragOver"
+                  @dragleave="onTerminalDragLeave"
+                  @drop="onTerminalDrop"
+                >
+                  <!-- 终端槽位：所有标签的 TerminalView 常驻；分屏时按叶子 rect 摆位 -->
+                  <template v-for="tab in sessions.tabs" :key="tab.clientId">
+                    <div
+                      v-show="tabVisible(tab.clientId)"
+                      class="terminal-slot"
+                      :class="paneIdForTab(tab.clientId) ? 'split' : ''"
+                      :style="slotStyle(tab.clientId)"
+                      @mousedown="onPaneMousedown(tab.clientId)"
+                    >
+                      <TerminalView :tab="tab" :pane-id="paneIdForTab(tab.clientId)" />
+                    </div>
+                  </template>
+
+                  <!-- 分屏覆盖层：格头 + 分隔条 + 拖放热区 -->
+                  <SplitView v-if="sessions.panes" :layout="paneLayout!" />
 
                   <div v-if="!sessions.tabs.length" class="empty">
                     <div class="empty-inner">

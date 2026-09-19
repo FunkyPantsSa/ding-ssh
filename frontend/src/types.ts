@@ -270,3 +270,32 @@ export interface RateLimitConfig {
   enabled: boolean
   bytesPerSec: number // 字节/秒，默认 10MB = 10 * 1024 * 1024
 }
+
+// ---- 分屏 (Split Panes) ----
+
+// 分屏方向：row = 左右分屏；column = 上下分屏
+export type PaneDirection = 'row' | 'column'
+
+// 分屏相对方向（以锚点格为基准，tab 出现在所指一侧）
+export type SplitDirection = 'left' | 'right' | 'up' | 'down'
+
+// 分屏树节点：递归结构，支持任意深度左右/上下嵌套。
+// - 非叶子：direction + children（children 非空）
+// - 叶子：paneActiveId（该格显示/绑定的标签，可为空 = 空格占位）
+export interface PaneNode {
+  id: string
+  direction: PaneDirection
+  children: PaneNode[]
+  // —— 叶子专属 ——
+  paneActiveId?: string // 该格显示哪个标签
+  size?: number // 在父方向中的占比权重（分隔条拖拽调整）
+}
+
+// 分屏格在终端容器中的像素矩形（布局引擎由 panes 树 + 容器尺寸推导）。
+export interface PaneRect {
+  left: number
+  top: number
+  width: number
+  height: number
+  paneId: string
+}

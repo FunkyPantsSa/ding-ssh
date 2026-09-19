@@ -909,6 +909,18 @@ img, svg { display: block; max-width: 100%; }
     inset -2px 0 0 var(--signal-400),
     inset 0 1px 0 var(--line-strong);
 }
+.tab.drop-split {
+  box-shadow:
+    inset 0 0 0 1px var(--signal-400),
+    inset 0 1px 0 var(--line-strong);
+  background: var(--signal-weak);
+}
+.tab.split-tab {
+  max-width: 240px;
+}
+.tab.split-tab .text-signal {
+  opacity: 0.9;
+}
 
 /* ---------- Tool panel ---------- */
 .tool {
@@ -1340,6 +1352,21 @@ img, svg { display: block; max-width: 100%; }
 }
 .xterm-viewport { background: transparent !important; }
 .xterm-screen { background: transparent !important; }
+
+/* 分屏终端槽位：绝对定位，由 slotStyle 指定 left/top/width/height */
+.terminal-slot {
+  position: absolute;
+  overflow: hidden;
+}
+/* 分屏格子内减少 xterm 内边距，避免上下分屏时终端内容底部留白过多 */
+.terminal-slot.split .xterm {
+  padding: 10px 14px;
+}
+/* 拖拽标签到终端区域时的落点方向高亮 */
+.terminal-drop.drop-left { box-shadow: inset 3px 0 0 0 var(--signal-400, #3ec4b4); }
+.terminal-drop.drop-right { box-shadow: inset -3px 0 0 0 var(--signal-400, #3ec4b4); }
+.terminal-drop.drop-up { box-shadow: inset 0 3px 0 0 var(--signal-400, #3ec4b4); }
+.terminal-drop.drop-down { box-shadow: inset 0 -3px 0 0 var(--signal-400, #3ec4b4); }
 
 /* ---------- Utility: theme-aware dividers (for inline style replacement) ---------- */
 .inset-line-b { box-shadow: inset 0 -1px 0 var(--line); }
