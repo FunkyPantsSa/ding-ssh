@@ -129,6 +129,9 @@ const terminalStyle = computed(() => ({
   '--xterm-text-shadow': settings.theme.textShadow
     ? `0 1px 3px rgba(0, 0, 0, 0.8), 0 0 ${settings.theme.shadowBlur}px rgba(0, 0, 0, 0.5)`
     : 'none',
+  // 终端容器底色跟随终端主题：xterm 的内边距区域也呈现终端背景色，
+  // 避免浅色界面下终端四周露出一圈界面底色边框（终端主题与界面明暗相互独立）。
+  background: settings.theme.background,
   // 不再反向抵消全局 zoom：app-shell 的 zoom 会整体等比缩放（含终端字号），
   // 若在此处设置 zoom: 1/z 会把 xterm 容器压缩 1/z，导致分屏格右侧/底部出现空白。
 }))
@@ -1452,17 +1455,12 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-/* 断开横幅：琥珀警示风 —— 深色近实底 + 琥珀边框 + 左侧警示条，突出"已断开"重点 */
+/* 断开横幅：平面警示风 —— 实底表面 + 琥珀描边 + 左侧警示条，突出"已断开"重点 */
 .disconnect-banner {
-  background:
-    linear-gradient(155deg, var(--surface-hi) 0%, var(--hover) 45%, rgba(0, 0, 0, 0.5) 100%),
-    rgba(12, 15, 20, 0.92);
+  background: var(--ink-850);
   border: 1px solid var(--warn-500);
-  border-radius: 14px;
-  box-shadow:
-    0 0 0 1px rgba(212, 160, 74, 0.25),
-    0 10px 28px rgba(0, 0, 0, 0.5),
-    0 0 24px rgba(212, 160, 74, 0.16);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
   animation: fadeRise 200ms var(--ease);
 }
 .disconnect-banner:focus-visible {
@@ -1471,11 +1469,10 @@ onBeforeUnmount(() => {
 }
 .banner-accent {
   flex-shrink: 0;
-  width: 4px;
+  width: 3px;
   align-self: stretch;
-  border-radius: 999px;
-  background: linear-gradient(180deg, var(--warn-300, #e8b968), var(--warn-500));
-  box-shadow: 0 0 10px rgba(212, 160, 74, 0.55);
+  border-radius: 2px;
+  background: var(--warn-500);
 }
 
 .completion-panel {

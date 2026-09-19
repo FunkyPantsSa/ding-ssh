@@ -2,7 +2,7 @@ import {defineStore} from 'pinia'
 import {DEFAULT_COMPLETION_NAV_HOTKEY} from '../completion/hotkey'
 import {settingsService} from '../services/settings'
 import {paletteToTheme, defaultPreset} from '../theme/presets'
-import type {Fonts, Theme, UIAppearance} from '../types'
+import type {Fonts, TabBarPlacement, Theme, UIAppearance} from '../types'
 
 // 默认终端主题（与 Go 端 models.DefaultTheme 保持一致，含 ANSI 16 色）。
 export function defaultTheme(): Theme {
@@ -24,7 +24,7 @@ export function defaultAppearance(): UIAppearance {
 // 默认字体设置（与 Go 端 models.DefaultFonts 保持一致）。
 export function defaultFonts(): Fonts {
   return {
-    uiFont: 'Sora',
+    uiFont: 'Inter',
     terminalFont: 'IBM Plex Mono',
     terminalFontSize: 13,
   }
@@ -47,6 +47,7 @@ export const useSettingsStore = defineStore('settings', {
     autoReconnect: true,
     keepAliveEnabled: true,
     localShell: '',
+    tabBarPlacement: 'top' as TabBarPlacement,
     loaded: false,
   }),
   actions: {
@@ -67,6 +68,7 @@ export const useSettingsStore = defineStore('settings', {
       this.autoReconnect = settings.autoReconnect ?? true
       this.keepAliveEnabled = settings.keepAliveEnabled ?? true
       this.localShell = settings.localShell ?? ''
+      this.tabBarPlacement = settings.tabBarPlacement === 'side' ? 'side' : 'top'
       this.loaded = true
     },
     async setLogEnabled(v: boolean) {
@@ -136,6 +138,10 @@ export const useSettingsStore = defineStore('settings', {
       this.localShell = v
       await this.save()
     },
+    async setTabBarPlacement(v: TabBarPlacement) {
+      this.tabBarPlacement = v === 'side' ? 'side' : 'top'
+      await this.save()
+    },
     async save() {
       await settingsService.saveSettings({
         logEnabled: this.logEnabled,
@@ -153,6 +159,7 @@ export const useSettingsStore = defineStore('settings', {
         autoReconnect: this.autoReconnect,
         keepAliveEnabled: this.keepAliveEnabled,
         localShell: this.localShell,
+        tabBarPlacement: this.tabBarPlacement,
       })
     },
   },

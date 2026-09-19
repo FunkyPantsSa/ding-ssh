@@ -88,12 +88,12 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--ink-900);
 }
 .split-divider-inner.v { cursor: col-resize; }
 .split-divider-inner.h { cursor: row-resize; }
 .split-divider-hit {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--line-strong);
 }
 .v .split-divider-hit { width: 1px; height: 100%; }
 .h .split-divider-hit { height: 1px; width: 100%; }

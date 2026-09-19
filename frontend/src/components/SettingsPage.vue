@@ -16,7 +16,7 @@ import {defaultPreset, paletteToTheme, presetById, PRESETS} from '../theme/prese
 import {resolveTone} from '../theme/engine'
 import {APP_COMMIT, APP_VERSION, buildDateLabel, buildTimeLabel, detectPlatform, platformLabel} from '../version'
 import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
-import type {Credential, Fonts, LocalShellOption, SecurityStatus, Theme, UIAppearance} from '../types'
+import type {Credential, Fonts, LocalShellOption, SecurityStatus, TabBarPlacement, Theme, UIAppearance} from '../types'
 import CredentialDialog from './CredentialDialog.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
@@ -34,7 +34,8 @@ const menuItems = [
   {key: 'migrate', label: '导入导出', icon: 'package'},
   {key: 'about', label: '关于', icon: 'info'},
 ] as const
-const section = ref<'general' | 'theme' | 'credentials' | 'security' | 'migrate' | 'about'>('general')
+type SettingsSection = 'general' | 'theme' | 'credentials' | 'security' | 'migrate' | 'about'
+const section = ref<SettingsSection>('general')
 const themeForm = reactive<Theme>(defaultTheme())
 const appearanceForm = reactive<UIAppearance>(defaultAppearance())
 const fontsForm = reactive<Fonts>(defaultFonts())
@@ -42,7 +43,7 @@ const fontsForm = reactive<Fonts>(defaultFonts())
 let syncing = false
 
 // 外观：可捆绑选择的字体（对应 style.css 中的 @fontsource 引入）
-const UI_FONT_OPTIONS = ['Sora', 'Inter', 'Manrope', 'Source Sans 3', 'system'] as const
+const UI_FONT_OPTIONS = ['Inter', 'Sora', 'Manrope', 'Source Sans 3', 'system'] as const
 const TERMINAL_FONT_OPTIONS = ['IBM Plex Mono', 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Cascadia Code', 'system'] as const
 const TONE_OPTIONS = [
   {key: 'auto', label: '跟随系统'},
@@ -52,6 +53,11 @@ const TONE_OPTIONS = [
 const MODE_OPTIONS = [
   {key: 'preset', label: '预设主题'},
   {key: 'custom', label: '自定义'},
+] as const
+// 会话标签页位置：顶部横向标签栏 / 左侧导航纵向列表
+const TAB_PLACEMENT_OPTIONS = [
+  {key: 'top', label: '顶栏'},
+  {key: 'side', label: '左侧导航'},
 ] as const
 
 // ANSI 16 色表单字段（名称 → 中文标签）
@@ -313,6 +319,16 @@ async function setUIScale(v: number) {
   saving.value = true
   try {
     await settings.setUIScale(v)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function setTabBarPlacement(v: TabBarPlacement) {
+  if (settings.tabBarPlacement === v) return
+  saving.value = true
+  try {
+    await settings.setTabBarPlacement(v)
   } finally {
     saving.value = false
   }
@@ -620,7 +636,7 @@ watch(
           </div>
           <div class="px-5 py-3 border-t border-slate-800/60 flex items-center gap-2 text-xs">
             <span class="w-2 h-2 rounded-full" :class="settings.logEnabled ? 'bg-emerald-400' : 'bg-slate-600'"></span>
-            <span class="text-slate-400">当前状态：{{ settings.logEnabled ? '日志输出中' : '日志已关闭' }}</span>
+            <span class="field-label">当前状态：{{ settings.logEnabled ? '日志输出中' : '日志已关闭' }}</span>
           </div>
         </div>
 
@@ -795,6 +811,30 @@ watch(
         <div class="neo">
           <div class="flex items-center justify-between gap-4 px-5 py-4">
             <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">会话标签页位置</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                顶部：终端上方的横向标签栏；左侧导航：并入左侧栏的纵向标签列表，可留出更多终端高度。
+              </p>
+            </div>
+            <div class="seg shrink-0">
+              <button
+                v-for="opt in TAB_PLACEMENT_OPTIONS"
+                :key="opt.key"
+                type="button"
+                :class="settings.tabBarPlacement === opt.key ? 'active' : ''"
+                :aria-pressed="settings.tabBarPlacement === opt.key"
+                :disabled="saving"
+                @click="setTabBarPlacement(opt.key)"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="flex items-center justify-between gap-4 px-5 py-4">
+            <div class="min-w-0">
               <p class="text-sm font-medium text-slate-200">自动重连</p>
               <p class="text-xs text-slate-500 mt-1 leading-relaxed">
                 检测到 SSH 连接断开后自动重新连接（网络抖动、NAT 超时等情况）。
@@ -960,21 +1000,21 @@ watch(
           <!-- 自定义：UI 品牌色 -->
           <div v-else class="grid grid-cols-3 gap-4">
             <label class="block">
-              <span class="text-slate-400 text-xs">主色（界面强调）</span>
+              <span class="field-label">主色（界面强调）</span>
               <div class="mt-1 flex gap-2 items-center">
                 <input v-model="appearanceForm.primary" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" />
                 <input v-model="appearanceForm.primary" class="input input-sm flex-1 font-mono" />
               </div>
             </label>
             <label class="block">
-              <span class="text-slate-400 text-xs">辅色（点缀）</span>
+              <span class="field-label">辅色（点缀）</span>
               <div class="mt-1 flex gap-2 items-center">
                 <input v-model="appearanceForm.secondary" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" />
                 <input v-model="appearanceForm.secondary" class="input input-sm flex-1 font-mono" />
               </div>
             </label>
             <label class="block">
-              <span class="text-slate-400 text-xs">界面主文字色</span>
+              <span class="field-label">界面主文字色</span>
               <div class="mt-1 flex gap-2 items-center">
                 <input v-model="appearanceForm.uiText" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" />
                 <input v-model="appearanceForm.uiText" class="input input-sm flex-1 font-mono" />
@@ -1024,28 +1064,28 @@ watch(
           <template v-else>
             <div class="grid grid-cols-2 gap-4 text-[13px]">
               <label class="block">
-                <span class="text-slate-400">背景色</span>
+                <span class="field-label">背景色</span>
                 <div class="mt-1 flex gap-2 items-center">
                   <input v-model="themeForm.background" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" />
                   <input v-model="themeForm.background" class="input input-sm flex-1 font-mono" />
                 </div>
               </label>
               <label class="block">
-                <span class="text-slate-400">文字颜色</span>
+                <span class="field-label">文字颜色</span>
                 <div class="mt-1 flex gap-2 items-center">
                   <input v-model="themeForm.foreground" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" />
                   <input v-model="themeForm.foreground" class="input input-sm flex-1 font-mono" />
                 </div>
               </label>
               <label class="block">
-                <span class="text-slate-400">光标颜色</span>
+                <span class="field-label">光标颜色</span>
                 <div class="mt-1 flex gap-2 items-center">
                   <input v-model="themeForm.cursor" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" />
                   <input v-model="themeForm.cursor" class="input input-sm flex-1 font-mono" />
                 </div>
               </label>
               <label class="block">
-                <span class="text-slate-400">选中背景色</span>
+                <span class="field-label">选中背景色</span>
                 <input v-model="themeForm.selection" class="mt-1 w-full input input-sm font-mono text-xs" placeholder="rgba(42, 168, 154, 0.28)" />
               </label>
             </div>
@@ -1065,7 +1105,7 @@ watch(
             </div>
 
             <div class="mt-5">
-              <span class="text-slate-400 text-xs">背景图</span>
+              <span class="field-label">背景图</span>
               <div class="mt-1 flex gap-2">
                 <input v-model="themeForm.bgImage" readonly class="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-slate-800 border border-slate-700/60 text-slate-200 text-xs outline-none" placeholder="无（可选）" />
                 <button class="px-3 py-1.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-200 text-xs shrink-0" @click="pickBgImage">选择…</button>
@@ -1074,7 +1114,7 @@ watch(
             </div>
 
             <label class="block mt-4">
-              <span class="text-slate-400 text-xs">背景模糊：{{ themeForm.blurAmount }}px</span>
+              <span class="field-label">背景模糊：{{ themeForm.blurAmount }}px</span>
               <input v-model.number="themeForm.blurAmount" type="range" min="0" max="30" class="mt-2 w-full accent-[var(--signal-400)]" />
             </label>
 
@@ -1087,7 +1127,7 @@ watch(
             </div>
 
             <label class="block mt-4" :class="themeForm.textShadow ? '' : 'opacity-40 pointer-events-none'">
-              <span class="text-slate-400 text-xs">阴影强度：{{ themeForm.shadowBlur }}px</span>
+              <span class="field-label">阴影强度：{{ themeForm.shadowBlur }}px</span>
               <input v-model.number="themeForm.shadowBlur" type="range" min="0" max="10" class="mt-2 w-full accent-[var(--signal-400)]" />
             </label>
           </template>
@@ -1098,19 +1138,19 @@ watch(
           <p class="text-sm font-medium text-slate-200 mb-4">字体</p>
           <div class="grid grid-cols-2 gap-4">
             <label class="block">
-              <span class="text-slate-400 text-xs">界面字体</span>
+              <span class="field-label">界面字体</span>
               <input
                 v-model="fontsForm.uiFont"
                 list="uiFontList"
                 class="input input-sm mt-1 font-mono"
-                placeholder="Sora / Inter / Manrope / system"
+                placeholder="Inter / Sora / Manrope / system"
               />
               <datalist id="uiFontList">
                 <option v-for="f in UI_FONT_OPTIONS" :key="f" :value="f" />
               </datalist>
             </label>
             <label class="block">
-              <span class="text-slate-400 text-xs">终端等宽字体</span>
+              <span class="field-label">终端等宽字体</span>
               <input
                 v-model="fontsForm.terminalFont"
                 list="termFontList"
@@ -1123,7 +1163,7 @@ watch(
             </label>
           </div>
           <label class="block mt-4">
-            <span class="text-slate-400 text-xs">终端字号：{{ fontsForm.terminalFontSize }}px</span>
+            <span class="field-label">终端字号：{{ fontsForm.terminalFontSize }}px</span>
             <input
               v-model.number="fontsForm.terminalFontSize"
               type="range"
@@ -1392,26 +1432,23 @@ watch(
   align-items: flex-start;
   gap: 6px;
   padding: 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--hover);
   box-shadow: inset 0 0 0 1px var(--line-strong);
-  transition: transform 160ms var(--ease), box-shadow 160ms var(--ease), background 160ms var(--ease);
+  transition: box-shadow 160ms var(--ease), background 160ms var(--ease);
 }
 .preset-card:hover {
   background: var(--hover-strong);
-  transform: translateY(-2px);
 }
 .preset-card.active {
   background: var(--signal-weak);
-  box-shadow:
-    inset 0 0 0 1px var(--signal-strong-border),
-    0 6px 16px var(--signal-glow-soft);
+  box-shadow: inset 0 0 0 1px var(--signal-strong-border);
 }
 .preset-swatch {
   position: relative;
   width: 100%;
   height: 44px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
 }
@@ -1421,7 +1458,7 @@ watch(
   top: 6px;
   width: 22px;
   height: 22px;
-  border-radius: 5px;
+  border-radius: 4px;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
 }
 .preset-swatch-cursor {
@@ -1430,7 +1467,7 @@ watch(
   bottom: 6px;
   width: 10px;
   height: 10px;
-  border-radius: 3px;
+  border-radius: 2px;
 }
 .preset-name {
   font-size: 12.5px;
@@ -1448,7 +1485,7 @@ watch(
   align-items: center;
   height: 22px;
   padding: 0 8px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   font-size: 10.5px;
   font-weight: 600;
@@ -1457,7 +1494,7 @@ watch(
 .color-dot {
   width: 14px;
   height: 14px;
-  border-radius: 4px;
+  border-radius: 3px;
   flex-shrink: 0;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14);
 }

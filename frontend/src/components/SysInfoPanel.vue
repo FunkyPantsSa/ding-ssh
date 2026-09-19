@@ -169,7 +169,7 @@ onBeforeUnmount(() => {
               {{ d.usagePct.toFixed(0) }}<small class="text-xs font-medium text-mist ml-1">%</small>
             </div>
             <div class="prog" style="height:6px">
-              <i :style="{width: Math.min(100, d.usagePct) + '%', background: d.usagePct > 75 ? 'linear-gradient(90deg, var(--warn-500), var(--copper-400))' : undefined}"></i>
+              <i :style="{width: Math.min(100, d.usagePct) + '%', background: d.usagePct > 75 ? 'var(--warn-500)' : undefined}"></i>
             </div>
           </div>
         </div>

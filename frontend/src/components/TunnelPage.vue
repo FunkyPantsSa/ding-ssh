@@ -270,11 +270,10 @@ onBeforeUnmount(() => {
 <template>
   <div class="h-full flex flex-col min-h-0">
     <div class="page-pad">
-      <div class="page-hero flex items-end justify-between gap-6 mb-6">
-        <div>
-          <h2>SSH 隧道</h2>
-          <p>通过 SSH 安全转发端口，在本机、远端服务器和目标服务之间建立访问通道。</p>
-        </div>
+      <div class="page-hero flex items-center justify-between gap-6 mb-6">
+        <p class="text-[12.5px] text-mist leading-relaxed max-w-[620px]">
+          通过 SSH 安全转发端口，在本机、远端服务器和目标服务之间建立访问通道。
+        </p>
         <div class="flex gap-2 shrink-0">
           <button class="btn btn-ghost" type="button" @click="refresh">
             <Icon name="refresh" :size="14" />
@@ -293,7 +292,7 @@ onBeforeUnmount(() => {
             :key="m"
             class="relative neo-flat p-4 text-left transition-all"
             :class="form.mode === m
-              ? 'ring-1 ring-[var(--signal-400)] bg-[var(--signal-weak)] shadow-[0_0_20px_var(--signal-glow-soft)]'
+              ? 'ring-1 ring-[var(--signal-400)] bg-[var(--signal-weak)]'
               : 'hover:bg-white/3'"
             @click="form.mode = m"
           >
@@ -376,7 +375,7 @@ onBeforeUnmount(() => {
 
           <div class="flex-1 overflow-y-auto px-6 pb-2 flex flex-col gap-4">
             <div>
-              <span class="text-slate-400">隧道类型</span>
+              <span class="field-label">隧道类型</span>
               <div class="seg">
                 <button :class="form.mode === 'local' ? 'active' : ''" @click="form.mode = 'local'">本地 -L</button>
                 <button :class="form.mode === 'remote' ? 'active' : ''" @click="form.mode = 'remote'">远程 -R</button>

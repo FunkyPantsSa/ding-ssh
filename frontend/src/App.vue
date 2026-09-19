@@ -27,6 +27,35 @@ const ui = useUIStore()
 const settings = useSettingsStore()
 const servers = useServersStore()
 
+// 左侧导航折叠状态：同时把导航宽度写到 <html>，供 Teleport 到 body 的浮层
+// （快速连接侧栏、遮罩等）正确定位。
+const NAV_COLLAPSED_KEY = 'ding-ssh:nav-collapsed'
+
+function readNavCollapsed(): boolean {
+  try {
+    return localStorage.getItem(NAV_COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+const navCollapsed = ref(readNavCollapsed())
+watch(
+  navCollapsed,
+  (v) => {
+    try {
+      localStorage.setItem(NAV_COLLAPSED_KEY, v ? '1' : '0')
+    } catch {
+      // 存储不可用时忽略：折叠状态仅影响本次会话
+    }
+    document.documentElement.style.setProperty(
+      '--nav-w',
+      v ? 'var(--nav-w-collapsed)' : 'var(--nav-w-expanded)',
+    )
+  },
+  {immediate: true},
+)
+
 // 系统明暗监听：auto 模式下跟随 prefers-color-scheme
 const systemTone = ref<Tone>(resolveTone('auto'))
 
@@ -74,6 +103,9 @@ const pageTitle = computed(() => pageMeta[ui.view]?.[0] ?? '工作区')
 const pageSub = computed(() => pageMeta[ui.view]?.[1] ?? '')
 
 const onlineCount = computed(() => sessions.tabs.filter((t) => t.status === 'connected').length)
+
+// 标签页位置：side 时并入左侧导航，顶栏标签栏隐藏
+const sideTabs = computed(() => settings.tabBarPlacement === 'side' && sessions.tabs.length > 0)
 
 const activeConnected = computed(() => {
   const tab = sessions.activeTab
@@ -351,153 +383,213 @@ onBeforeUnmount(() => {
 <template>
   <div class="app-shell" :style="{zoom: (settings.uiScale || 100) / 100}">
     <!-- 解锁页 -->
-    <div v-if="needsUnlock" class="absolute inset-0 z-50 grid place-items-center p-8">
-      <div class="w-full max-w-[920px] grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-        <div class="relative h-[280px] md:h-[420px] grid place-items-center" aria-hidden="true">
-          <div
-            class="absolute w-[280px] h-[280px] rounded-full"
-            style="background: radial-gradient(circle, var(--signal-glow), transparent 68%); animation: pulseSoft 4.5s ease-in-out infinite"
-          ></div>
-          <svg width="340" height="300" viewBox="0 0 340 300" fill="none">
-            <defs>
-              <linearGradient id="gRing" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="var(--signal-400)"/>
-                <stop offset="100%" stop-color="var(--copper-400)"/>
-              </linearGradient>
-              <linearGradient id="gBody" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#2a3444"/>
-                <stop offset="100%" stop-color="#121820"/>
-              </linearGradient>
-            </defs>
-            <circle cx="170" cy="150" r="118" stroke="url(#gRing)" stroke-opacity="0.18" stroke-width="1"/>
-            <circle cx="170" cy="150" r="96" stroke="url(#gRing)" stroke-opacity="0.28" stroke-width="1.2" stroke-dasharray="4 8"/>
-            <circle cx="170" cy="150" r="72" stroke="var(--signal-400)" stroke-opacity="0.35" stroke-width="1.5"/>
-            <rect x="118" y="98" width="104" height="104" rx="22" fill="url(#gBody)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
-            <rect x="128" y="108" width="84" height="56" rx="10" fill="#0a0e14" stroke="var(--signal-border)"/>
-            <path d="M138 122h28M138 132h44M138 142h34" stroke="var(--signal-400)" stroke-width="1.6" stroke-linecap="round" opacity="0.85"/>
-            <path d="M170 168v18" stroke="var(--copper-400)" stroke-width="3" stroke-linecap="round"/>
-            <circle cx="170" cy="196" r="10" fill="var(--copper-500)" stroke="var(--copper-300)" stroke-width="1.5"/>
-            <circle cx="170" cy="196" r="3.5" fill="#1a1008"/>
-            <path d="M214 120c14 8 22 22 22 38s-8 30-22 38" stroke="var(--signal-400)" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
-            <path d="M126 120c-14 8-22 22-22 38s8 30 22 38" stroke="var(--copper-400)" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
-            <circle cx="78" cy="86" r="4" fill="var(--signal-400)" opacity="0.7"/>
-            <circle cx="268" cy="210" r="3.5" fill="var(--copper-400)" opacity="0.7"/>
-          </svg>
-        </div>
-        <div class="neo p-8 max-w-[400px] w-full mx-auto">
-          <div class="flex items-center gap-3 mb-5">
+    <div v-if="needsUnlock" class="absolute inset-0 z-50 grid place-items-center overflow-auto p-8">
+      <div class="w-full max-w-[880px] grid grid-cols-1 md:grid-cols-[1.05fr_1fr] gap-10 items-center">
+        <section class="hidden md:flex flex-col gap-5">
+          <div class="flex items-center gap-3">
             <div class="brand-mark">
-              <Icon name="zap" :size="22" extra-class="text-signal" />
+              <Icon name="zap" :size="18" extra-class="text-signal" />
             </div>
             <div>
               <div class="brand-name">ding<span>-ssh</span></div>
-              <div class="text-[12px] tracking-widest text-mist">SIGNAL DESK</div>
+              <div class="text-[10.5px] tracking-[0.16em] uppercase text-mist mt-1">Grid Desk</div>
             </div>
           </div>
-          <h1 class="text-[28px] font-semibold tracking-tight text-white leading-tight mb-2">解锁工作台</h1>
-          <p class="text-[13px] leading-relaxed text-mist mb-6">
+          <h1 class="text-[30px] font-semibold tracking-[-0.03em] leading-[1.15] text-[var(--mist-100)]">
+            解锁工作台
+          </h1>
+          <p class="text-[13px] leading-relaxed text-mist max-w-[380px]">
             主密码已启用。输入后解密服务器节点、凭证与隧道配置，进入本机会话。
           </p>
-          <form class="flex flex-col gap-4" @submit.prevent="doUnlock">
-            <div class="field">
-              <label for="masterPwd">主密码</label>
-              <input
-                id="masterPwd"
-                v-model="unlockPassword"
-                class="input"
-                type="password"
-                placeholder="输入主密码"
-                autofocus
-              />
+          <div class="panel p-4 flex flex-col gap-3 max-w-[400px]">
+            <div class="flex items-baseline justify-between gap-4">
+              <span class="text-[10.5px] uppercase tracking-[0.1em] text-mist">加密算法</span>
+              <span class="font-mono text-[12px] text-[var(--mist-200)]">AES-256-GCM</span>
             </div>
-            <p class="text-[12px] text-danger min-h-4">{{ unlockError }}</p>
-            <button class="btn btn-primary w-full" style="height:42px" type="submit" :disabled="unlocking || !unlockPassword">
-              {{ unlocking ? '解密中…' : '解锁并进入' }}
-            </button>
-            <div class="flex justify-between items-center text-[12px] text-mist">
-              <span>AES-256-GCM · Keyring</span>
+            <div class="flex items-baseline justify-between gap-4">
+              <span class="text-[10.5px] uppercase tracking-[0.1em] text-mist">密钥派生</span>
+              <span class="font-mono text-[12px] text-[var(--mist-200)]">Argon2id</span>
             </div>
-          </form>
-        </div>
+            <div class="flex items-baseline justify-between gap-4">
+              <span class="text-[10.5px] uppercase tracking-[0.1em] text-mist">密钥存储</span>
+              <span class="font-mono text-[12px] text-[var(--mist-200)]">OS Keyring</span>
+            </div>
+          </div>
+        </section>
+
+        <form class="panel p-6 flex flex-col gap-4" @submit.prevent="doUnlock">
+          <div class="md:hidden flex items-center gap-3">
+            <div class="brand-mark">
+              <Icon name="zap" :size="18" extra-class="text-signal" />
+            </div>
+            <div class="brand-name">ding<span>-ssh</span></div>
+          </div>
+          <div>
+            <h2 class="text-[17px] font-semibold text-[var(--mist-100)]">输入主密码</h2>
+            <p class="text-[12px] text-mist mt-1">解密本地保险库后进入工作台。</p>
+          </div>
+          <div class="field">
+            <label for="masterPwd">主密码</label>
+            <input
+              id="masterPwd"
+              v-model="unlockPassword"
+              class="input"
+              type="password"
+              placeholder="输入主密码"
+              autocomplete="current-password"
+              autofocus
+            />
+          </div>
+          <p class="text-[12px] text-danger min-h-4" role="alert">{{ unlockError }}</p>
+          <button class="btn btn-primary w-full" style="height:36px" type="submit" :disabled="unlocking || !unlockPassword">
+            {{ unlocking ? '解密中…' : '解锁并进入' }}
+          </button>
+        </form>
       </div>
     </div>
 
     <!-- 主壳 -->
-    <div v-else class="flex-1 min-h-0 grid" style="grid-template-columns: var(--rail-w) 1fr">
-      <aside class="rail" aria-label="主导航">
-        <button class="rail-logo" title="ding-ssh" aria-label="首页" @click="ui.showWorkspace()">
-          <Icon name="zap" :size="20" extra-class="text-signal" />
-        </button>
-        <nav class="flex flex-col gap-1.5 w-full items-center flex-1">
+    <div v-else class="shell" :class="[navCollapsed ? 'nav-collapsed' : '', sideTabs ? 'has-tabs' : '']">
+      <aside class="nav" aria-label="主导航">
+        <div class="nav-brand">
           <button
-            class="rail-btn"
+            class="nav-mark"
+            :title="navCollapsed ? '展开导航' : '返回工作区'"
+            :aria-label="navCollapsed ? '展开导航' : '返回工作区'"
+            @click="navCollapsed ? (navCollapsed = false) : ui.showWorkspace()"
+          >
+            <Icon name="zap" :size="15" />
+          </button>
+          <span class="nav-word">ding<span>-ssh</span></span>
+          <button
+            class="btn-icon btn-sm ml-auto"
+            :title="navCollapsed ? '展开导航' : '收起导航'"
+            :aria-expanded="!navCollapsed"
+            aria-label="收起或展开导航"
+            @click="navCollapsed = !navCollapsed"
+          >
+            <Icon name="chevrons-left" :size="14" />
+          </button>
+        </div>
+
+        <nav class="nav-body">
+          <div class="nav-label">导航</div>
+          <button
+            class="nav-item"
             :class="ui.view === 'workspace' ? 'active' : ''"
+            :aria-current="ui.view === 'workspace' ? 'page' : undefined"
             title="工作区"
             @click="ui.showWorkspace()"
           >
-            <Icon name="activity" :size="18" />
+            <Icon name="terminal" :size="15" extra-class="nav-ico" />
+            <span class="nav-text">工作区</span>
+            <span v-if="onlineCount" class="nav-count">{{ onlineCount }}</span>
           </button>
           <button
-            class="rail-btn"
+            class="nav-item"
             :class="ui.view === 'servers' ? 'active' : ''"
+            :aria-current="ui.view === 'servers' ? 'page' : undefined"
             title="服务器管理"
             @click="ui.showServers()"
           >
-            <Icon name="server" :size="18" />
+            <Icon name="server" :size="15" extra-class="nav-ico" />
+            <span class="nav-text">服务器</span>
+            <span v-if="servers.servers.length" class="nav-count">{{ servers.servers.length }}</span>
           </button>
           <button
-            class="rail-btn"
+            class="nav-item"
             :class="ui.view === 'tunnel' ? 'active' : ''"
-            title="隧道"
+            :aria-current="ui.view === 'tunnel' ? 'page' : undefined"
+            title="SSH 隧道"
             @click="ui.showTunnel()"
           >
-            <Icon name="tunnel" :size="18" />
+            <Icon name="tunnel" :size="15" extra-class="nav-ico" />
+            <span class="nav-text">隧道</span>
           </button>
           <button
-            class="rail-btn"
+            class="nav-item"
             :class="ui.view === 'settings' ? 'active' : ''"
+            :aria-current="ui.view === 'settings' ? 'page' : undefined"
             title="设置"
             @click="ui.showSettings()"
           >
-            <Icon name="settings" :size="18" />
+            <Icon name="settings" :size="15" extra-class="nav-ico" />
+            <span class="nav-text">设置</span>
+          </button>
+
+          <div class="nav-label">会话</div>
+          <button class="nav-item" title="本地终端" @click="ui.showWorkspace(); sessions.openLocalTab()">
+            <Icon name="monitor" :size="15" extra-class="nav-ico" />
+            <span class="nav-text">本地终端</span>
+          </button>
+          <button
+            class="nav-item"
+            title="快速连接"
+            :class="ui.terminalSidebarOpen && ui.view === 'workspace' ? 'active' : ''"
+            :aria-expanded="ui.terminalSidebarOpen && ui.view === 'workspace'"
+            @click="ui.toggleQuickConnect()"
+          >
+            <Icon name="panel-left" :size="15" extra-class="nav-ico" />
+            <span class="nav-text">快速连接</span>
           </button>
         </nav>
-        <div class="mt-auto flex flex-col gap-1.5 items-center">
-          <button class="rail-btn" title="命令面板 ⌘K" @click="openCmd">
-            <Icon name="command" :size="18" />
+
+        <!-- 标签页并入左侧导航：纵向列表，与顶部标签栏互斥 -->
+        <div v-if="sideTabs" class="nav-tabs">
+          <TabBar side />
+        </div>
+
+        <div class="nav-foot">
+          <button class="nav-item" title="命令面板 ⌘K" @click="openCmd">
+            <Icon name="command" :size="15" extra-class="nav-ico" />
+            <span class="nav-text">命令面板</span>
+            <span class="kbd nav-kbd">⌘K</span>
           </button>
         </div>
       </aside>
 
-      <div class="min-w-0 min-h-0 flex flex-col">
-        <header class="titlebar">
-          <h2>{{ pageTitle }}</h2>
-          <span class="sub">{{ pageSub }}</span>
-          <div class="ml-auto flex items-center gap-2">
+      <div class="shell-main">
+        <header class="topbar">
+          <button
+            v-if="navCollapsed"
+            class="btn-icon"
+            title="展开导航"
+            aria-label="展开导航"
+            @click="navCollapsed = false"
+          >
+            <Icon name="chevrons-right" :size="15" />
+          </button>
+          <h1>{{ pageTitle }}</h1>
+          <span class="topbar-sep"></span>
+          <span class="topbar-sub">{{ pageSub }}</span>
+
+          <div class="flex-1 min-w-0 flex justify-center px-2">
+            <button class="searchbtn" style="max-width: 400px" title="打开命令面板（⌘K）" @click="openCmd">
+              <Icon name="search" :size="14" />
+              <span class="grow">搜索服务器、隧道与命令…</span>
+              <span class="kbd">⌘K</span>
+            </button>
+          </div>
+
+          <div class="flex items-center gap-1.5 shrink-0">
             <span v-if="ui.view === 'workspace'" class="chip">
               <span class="dot"></span>
               {{ onlineCount }} 会话在线
             </span>
             <button
               v-if="ui.view === 'workspace'"
-              class="btn btn-ghost btn-sm"
+              class="btn-icon"
+              :class="sessions.sftpVisible ? 'text-[var(--signal-300)]' : ''"
+              title="侧栏工具（SFTP / 系统看板）"
+              :aria-pressed="sessions.sftpVisible"
               @click="sessions.sftpVisible = !sessions.sftpVisible"
             >
-              <Icon name="panel-right" :size="14" />
-              侧栏工具
+              <Icon name="panel-right" :size="16" />
             </button>
             <button
-              v-if="ui.view === 'workspace'"
+              v-if="ui.view === 'workspace' || ui.view === 'servers'"
               class="btn btn-ghost btn-sm"
-              title="打开本机终端"
-              @click="sessions.openLocalTab()"
-            >
-              <Icon name="terminal" :size="14" />
-              本地终端
-            </button>
-            <button
-              v-if="ui.view === 'workspace'"
-              class="btn btn-copper btn-sm"
+              title="新建服务器"
               @click="ui.requestNewServer()"
             >
               <Icon name="plus" :size="14" />
@@ -507,13 +599,13 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="flex-1 min-h-0 flex">
-          <main class="flex-1 min-w-0 flex flex-col fade-rise">
+          <main class="flex-1 min-w-0 flex flex-col">
             <ServerList v-show="ui.view === 'servers'" />
             <SettingsPage v-show="ui.view === 'settings'" />
             <TunnelPage v-show="ui.view === 'tunnel'" />
 
             <div v-show="ui.view === 'workspace'" class="flex-1 min-h-0 flex flex-col">
-              <TabBar v-if="sessions.tabs.length" />
+              <TabBar v-if="sessions.tabs.length && !sideTabs" />
 
               <div class="flex-1 min-h-0 flex">
                 <div
@@ -542,25 +634,22 @@ onBeforeUnmount(() => {
 
                   <div v-if="!sessions.tabs.length" class="empty">
                     <div class="empty-inner">
-                      <svg class="empty-art" viewBox="0 0 280 160" fill="none" aria-hidden="true">
-                        <defs>
-                          <linearGradient id="eg1" x1="0" y1="0" x2="1" y2="1">
-                            <stop stop-color="var(--signal-400)" stop-opacity="0.5"/>
-                            <stop offset="1" stop-color="var(--copper-400)" stop-opacity="0.4"/>
-                          </linearGradient>
-                        </defs>
-                        <rect x="40" y="36" width="200" height="100" rx="16" fill="var(--ink-850)" stroke="url(#eg1)" stroke-width="1.2"/>
-                        <rect x="52" y="50" width="176" height="52" rx="8" fill="#0a0e14"/>
-                        <path d="M64 64h40M64 76h72M64 88h56" stroke="var(--signal-400)" stroke-width="1.5" stroke-linecap="round" opacity="0.45"/>
-                        <circle cx="220" cy="118" r="18" fill="none" stroke="var(--copper-400)" stroke-width="1.5" stroke-dasharray="3 4" opacity="0.7"/>
-                        <path d="M214 118h12M220 112v12" stroke="var(--copper-400)" stroke-width="1.5" stroke-linecap="round"/>
-                      </svg>
+                      <div
+                        class="w-11 h-11 grid place-items-center"
+                        style="border-radius: var(--radius-lg); background: var(--signal-weak); box-shadow: inset 0 0 0 1px var(--signal-border)"
+                      >
+                        <Icon name="terminal" :size="19" extra-class="text-signal" />
+                      </div>
                       <h3>尚未打开会话</h3>
-                      <p>点击左侧箭头展开服务器列表快速连接，或在服务器管理页新建节点。连接后终端、SFTP 与系统看板将同步就绪。</p>
+                      <p>从左侧服务器列表选择节点连接，或使用 ⌘K 快速搜索。连接后终端、SFTP 与系统看板将同步就绪。</p>
                       <div class="flex gap-2">
                         <button class="btn btn-primary" @click="ui.openTerminalSidebar()">
                           <Icon name="panel-left" :size="14" />
                           打开服务器列表
+                        </button>
+                        <button class="btn btn-ghost" @click="ui.showServers()">
+                          <Icon name="server" :size="14" />
+                          服务器管理
                         </button>
                       </div>
                     </div>
@@ -578,42 +667,48 @@ onBeforeUnmount(() => {
                   :tab="activeConnected"
                 />
               </div>
-
-              <ServerStatusBar :tab="sessions.activeTab" />
             </div>
           </main>
         </div>
+
+        <ServerStatusBar :tab="sessions.activeTab" />
       </div>
     </div>
 
-    <QuickConnectPanel />
+    <QuickConnectPanel v-if="!needsUnlock" />
 
     <!-- 命令面板 -->
     <div v-if="ui.cmdOpen" class="modal-root" @click.self="closeCmd">
-      <div class="modal neo" style="width:min(520px,100%);padding:12px;">
-        <div class="search mb-2">
-          <Icon name="search" :size="14" extra-class="search-ico" />
+      <div class="modal" style="width: min(560px, 100%); padding: 0; overflow: hidden" role="dialog" aria-label="命令面板">
+        <div class="flex items-center gap-2.5 px-3" style="height: 46px; box-shadow: inset 0 -1px 0 var(--line)">
+          <Icon name="search" :size="15" extra-class="text-mist" />
           <input
             ref="cmdInput"
             v-model="cmdQuery"
-            class="input"
+            class="flex-1 min-w-0 text-[13.5px]"
+            style="border: 0; background: transparent; height: 100%"
             placeholder="连接服务器、打开隧道、跳转设置…"
+            aria-label="搜索命令"
             @input="cmdIndex = 0"
           />
+          <span class="kbd">ESC</span>
         </div>
-        <div class="max-h-72 overflow-y-auto">
+        <div class="max-h-[320px] overflow-y-auto p-1.5">
           <button
             v-for="(item, i) in cmdItems"
             :key="item.id"
-            class="w-full grid grid-cols-[1fr_auto] gap-2 items-center px-2.5 py-2 rounded-[6px] font-mono text-xs text-left"
-            :class="i === cmdIndex ? 'bg-[var(--signal-weak)] shadow-[inset_0_0_0_1px_var(--signal-border)]' : 'hover:bg-[var(--hover)]'"
+            class="w-full grid grid-cols-[1fr_auto] gap-3 items-center px-2.5 py-2 text-left text-[13px]"
+            style="border-radius: var(--radius-sm)"
+            :class="i === cmdIndex
+              ? 'bg-[var(--hover-strong)] text-[var(--mist-100)]'
+              : 'text-[var(--mist-200)] hover:bg-[var(--hover)]'"
             @mouseenter="cmdIndex = i"
             @click="runCmd(item)"
           >
-            <span>{{ item.label }}</span>
-            <span class="text-mist font-sans text-[12px]">{{ item.hint }}</span>
+            <span class="truncate">{{ item.label }}</span>
+            <span class="text-mist text-[10.5px] uppercase tracking-[0.1em]">{{ item.hint }}</span>
           </button>
-          <p v-if="!cmdItems.length" class="px-2.5 py-4 text-xs text-mist text-center">无匹配命令</p>
+          <p v-if="!cmdItems.length" class="px-3 py-6 text-[12px] text-mist text-center">无匹配命令</p>
         </div>
       </div>
     </div>

@@ -87,21 +87,22 @@ type ProgressEvent struct {
 
 // Settings 应用设置（持久化到 settings.json / SQLite settings 表）。
 type Settings struct {
-	LogEnabled            bool   `json:"logEnabled"`                      // 是否输出调试日志（默认关闭）
-	CopyOnSelect          bool   `json:"copyOnSelect"`                    // 终端选中内容自动复制到剪贴板
-	WebGLEnabled          bool   `json:"webGLEnabled"`                    // 优先使用 WebGL 渲染（失败自动降级）
-	CompletionEnabled     bool   `json:"completionEnabled"`               // 智能命令补全
-	CompletionNavHotkey   string `json:"completionNavHotkey"`             // 补全导航开关键键，如 Alt+ArrowDown
-	CompletionPanelLimit  int    `json:"completionPanelLimit"`            // 补全面板最多展示条数，默认 8
-	SftpToTerminalSync    bool   `json:"sftpToTerminalSync"`              // SFTP 目录变化是否同步到终端（发 cd 命令），默认开启
-	TerminalToSftpSync    bool   `json:"terminalToSftpSync"`              // 终端目录变化是否同步到 SFTP 面板，默认开启
-	UIScale               int           `json:"uiScale"`                         // 界面缩放百分比，默认 100（80–150）
-	Theme                 Theme         `json:"theme"`                          // 终端主题（含 ANSI 16 色）
-	Appearance            UIAppearance  `json:"appearance"`                      // UI 外观（品牌色 + 明暗模式）
-	Fonts                 Fonts         `json:"fonts"`                          // 字体设置
-	AutoReconnect         bool          `json:"autoReconnect"`                   // 断开后自动重连（默认开启）
-	KeepAliveEnabled      bool          `json:"keepAliveEnabled"`                // 发送心跳包防止终端超时（默认开启）
-	LocalShell            string        `json:"localShell"`                      // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
+	LogEnabled           bool         `json:"logEnabled"`           // 是否输出调试日志（默认关闭）
+	CopyOnSelect         bool         `json:"copyOnSelect"`         // 终端选中内容自动复制到剪贴板
+	WebGLEnabled         bool         `json:"webGLEnabled"`         // 优先使用 WebGL 渲染（失败自动降级）
+	CompletionEnabled    bool         `json:"completionEnabled"`    // 智能命令补全
+	CompletionNavHotkey  string       `json:"completionNavHotkey"`  // 补全导航开关键键，如 Alt+ArrowDown
+	CompletionPanelLimit int          `json:"completionPanelLimit"` // 补全面板最多展示条数，默认 8
+	SftpToTerminalSync   bool         `json:"sftpToTerminalSync"`   // SFTP 目录变化是否同步到终端（发 cd 命令），默认开启
+	TerminalToSftpSync   bool         `json:"terminalToSftpSync"`   // 终端目录变化是否同步到 SFTP 面板，默认开启
+	UIScale              int          `json:"uiScale"`              // 界面缩放百分比，默认 100（80–150）
+	Theme                Theme        `json:"theme"`                // 终端主题（含 ANSI 16 色）
+	Appearance           UIAppearance `json:"appearance"`           // UI 外观（品牌色 + 明暗模式）
+	Fonts                Fonts        `json:"fonts"`                // 字体设置
+	AutoReconnect        bool         `json:"autoReconnect"`        // 断开后自动重连（默认开启）
+	KeepAliveEnabled     bool         `json:"keepAliveEnabled"`     // 发送心跳包防止终端超时（默认开启）
+	LocalShell           string       `json:"localShell"`           // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
+	TabBarPlacement      string       `json:"tabBarPlacement"`      // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 top）
 }
 
 // CommandHistory 命令历史记录（SQLite command_history 表）。
@@ -162,7 +163,7 @@ type UIAppearance struct {
 
 // Fonts 字体设置。
 type Fonts struct {
-	UiFont           string `json:"uiFont"`           // UI 字体名（如 Sora / system）
+	UiFont           string `json:"uiFont"`           // UI 字体名（如 Inter / system）
 	TerminalFont     string `json:"terminalFont"`     // 终端等宽字体名
 	TerminalFontSize int    `json:"terminalFontSize"` // 终端字号（默认 13）
 }
@@ -182,7 +183,7 @@ func DefaultAppearance() UIAppearance {
 // DefaultFonts 返回默认字体设置。
 func DefaultFonts() Fonts {
 	return Fonts{
-		UiFont:           "Sora",
+		UiFont:           "Inter",
 		TerminalFont:     "IBM Plex Mono",
 		TerminalFontSize: 13,
 	}

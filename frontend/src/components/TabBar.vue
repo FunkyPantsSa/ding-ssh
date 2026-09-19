@@ -2,10 +2,15 @@
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
+import {useUIStore} from '../stores/ui'
 import {getElementRect} from '../utils/dom'
 import type {SessionTab, SplitDirection} from '../types'
 
 const sessions = useSessionsStore()
+const ui = useUIStore()
+
+// side=true：渲染为左侧导航内的纵向标签列表（设置项「会话标签页位置」）
+const props = defineProps<{side?: boolean}>()
 
 type TabDropPosition = 'before' | 'after'
 
@@ -16,9 +21,16 @@ interface TabDropState {
 
 const statusDot: Record<string, string> = {
   connecting: 'bg-[var(--warn-500)]',
-  connected: 'bg-[var(--signal-400)] shadow-[0_0_8px_var(--signal-glow)]',
+  connected: 'bg-[var(--signal-400)]',
   closed: 'bg-[var(--mist-400)]',
   error: 'bg-[var(--danger-500)]',
+}
+// 侧栏折叠态：状态点改为首字母着色，颜色语义与状态点一致
+const statusInk: Record<string, string> = {
+  connecting: 'text-[var(--warn-500)]',
+  connected: 'text-[var(--signal-400)]',
+  closed: 'text-[var(--mist-400)]',
+  error: 'text-[var(--danger-500)]',
 }
 
 interface SplitGroupItem {
@@ -83,6 +95,7 @@ const splitActive = computed(() => sessions.splitShown)
 
 /** 点击合并标签：回到分屏布局并聚焦当前焦点格。 */
 function activateSplitGroup() {
+  ui.showWorkspace()
   sessions.showSplit()
 }
 
@@ -110,6 +123,12 @@ function scheduleSplitClose() {
 
 function close(clientId: string) {
   sessions.closeTab(clientId)
+}
+
+/** 激活标签：侧栏模式下可能停留在其他视图，先切回工作区。 */
+function activate(clientId: string) {
+  ui.showWorkspace()
+  sessions.activateTab(clientId)
 }
 
 function openTabMenu(e: MouseEvent, clientId: string) {
@@ -195,7 +214,10 @@ function onTabDragOver(e: DragEvent, clientId: string) {
   if (!el) return
   // 落点比较需在同一坐标系：clientX 含 zoom，rect 用 getElementRect 折算为布局像素。
   const rect = getElementRect(el)
-  const position: TabDropPosition = e.clientX < rect.left + rect.width / 2 ? 'before' : 'after'
+  // 顶栏标签栏按横向中点判断，侧栏纵向列表按纵向中点判断。
+  const position: TabDropPosition = props.side
+    ? (e.clientY < rect.top + rect.height / 2 ? 'before' : 'after')
+    : (e.clientX < rect.left + rect.width / 2 ? 'before' : 'after')
   dropState.value = {clientId, position}
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
 }
@@ -239,7 +261,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="tabs no-scrollbar">
+  <!-- 顶栏横向标签栏（默认） -->
+  <div v-if="!side" class="tabs no-scrollbar">
     <template v-for="item in tabItems" :key="item.key">
       <!-- 独立标签：点击切换、拖拽排序或拖到另一个标签上重合分屏 -->
       <button
@@ -251,7 +274,7 @@ onBeforeUnmount(() => {
           dropState?.clientId === item.tab.clientId && dropState.position === 'before' ? 'drop-before' : '',
           dropState?.clientId === item.tab.clientId && dropState.position === 'after' ? 'drop-after' : '',
         ]"
-        @click="sessions.activateTab(item.tab.clientId)"
+        @click="activate(item.tab.clientId)"
         @auxclick.middle="close(item.tab.clientId)"
         @contextmenu.prevent="openTabMenu($event, item.tab.clientId)"
         draggable="true"
@@ -263,8 +286,7 @@ onBeforeUnmount(() => {
         <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot[item.tab.status] ?? 'bg-[var(--mist-400)]'"></span>
         <span class="truncate">{{ item.tab.serverName }}</span>
         <span
-          class="w-4 h-4 rounded grid place-items-center opacity-0 group-hover:opacity-100 text-mist hover:bg-white/10 hover:text-[var(--mist-100)]"
-          :class="item.tab.clientId === sessions.activeId ? '!opacity-100' : ''"
+          class="tab-close"
           title="关闭"
           @click.stop="close(item.tab.clientId)"
         >
@@ -288,8 +310,7 @@ onBeforeUnmount(() => {
         <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot[item.status] ?? 'bg-[var(--mist-400)]'"></span>
         <span class="truncate">{{ item.title }}</span>
         <span
-          class="w-4 h-4 rounded grid place-items-center opacity-0 group-hover:opacity-100 text-mist hover:bg-white/10 hover:text-[var(--mist-100)]"
-          :class="splitActive ? '!opacity-100' : ''"
+          class="tab-close"
           title="关闭分屏组"
           @click.stop="sessions.closeSplitGroup()"
         >
@@ -300,6 +321,67 @@ onBeforeUnmount(() => {
 
     <div class="flex-1" @dragover.prevent @drop.prevent="onTabBarDrop"></div>
   </div>
+
+  <!-- 左侧导航纵向标签列表 -->
+  <div v-else class="side-tabs">
+    <div class="nav-label side-tabs-label">
+      标签页
+      <span v-if="sessions.tabs.length" class="nav-count">{{ sessions.tabs.length }}</span>
+    </div>
+    <template v-for="item in tabItems" :key="item.key">
+      <button
+        v-if="item.kind === 'tab'"
+        class="nav-item side-tab group"
+        :class="[
+          item.tab.clientId === sessions.activeId ? 'active' : '',
+          draggingId === item.tab.clientId ? 'dragging' : '',
+          dropState?.clientId === item.tab.clientId && dropState.position === 'before' ? 'drop-before' : '',
+          dropState?.clientId === item.tab.clientId && dropState.position === 'after' ? 'drop-after' : '',
+        ]"
+        :title="item.tab.serverName"
+        @click="activate(item.tab.clientId)"
+        @auxclick.middle="close(item.tab.clientId)"
+        @contextmenu.prevent="openTabMenu($event, item.tab.clientId)"
+        draggable="true"
+        @dragstart="onTabDragStart($event, item.tab.clientId)"
+        @dragend="clearDragState"
+        @dragover.prevent="onTabDragOver($event, item.tab.clientId)"
+        @drop.prevent="onTabDrop($event, item.tab.clientId)"
+      >
+        <span class="nav-ico side-dot">
+          <span class="w-2 h-2 rounded-full" :class="statusDot[item.tab.status] ?? 'bg-[var(--mist-400)]'"></span>
+        </span>
+        <span class="side-initial" :class="statusInk[item.tab.status] ?? 'text-[var(--mist-400)]'">
+          {{ item.tab.serverName.slice(0, 1) }}
+        </span>
+        <span class="nav-text">{{ item.tab.serverName }}</span>
+        <span class="tab-close" title="关闭" @click.stop="close(item.tab.clientId)">
+          <Icon name="close" :size="10" />
+        </span>
+      </button>
+
+      <!-- 分屏组：合并为一个条目；拖到列表空白处取消分屏 -->
+      <button
+        v-else
+        class="nav-item side-tab group"
+        :class="[splitActive ? 'active' : '']"
+        title="拖到列表空白处取消分屏"
+        @click="activateSplitGroup"
+        @contextmenu.prevent
+        draggable="true"
+        @dragstart="onSplitGroupDragStart"
+        @dragend="clearDragState"
+      >
+        <Icon name="columns" :size="15" extra-class="nav-ico text-signal" />
+        <span class="nav-text">{{ item.title }}</span>
+        <span class="tab-close" title="关闭分屏组" @click.stop="sessions.closeSplitGroup()">
+          <Icon name="close" :size="10" />
+        </span>
+      </button>
+    </template>
+    <div class="side-tabs-fill" @dragover.prevent @drop.prevent="onTabBarDrop"></div>
+  </div>
+
   <Teleport to="body">
     <div
       v-if="tabMenu"

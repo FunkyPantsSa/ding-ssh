@@ -108,17 +108,17 @@ function close() {
         <div class="flex-1 overflow-y-auto px-6 pb-2 flex flex-col gap-4">
           <div class="grid grid-cols-2 gap-3">
             <label class="block">
-              <span class="text-slate-400">名称 *</span>
+              <span class="field-label">名称 *</span>
               <input v-model="form.name" class="input" placeholder="例如：生产 root" />
             </label>
             <label class="block">
-              <span class="text-slate-400">用户名 *</span>
+              <span class="field-label">用户名 *</span>
               <input v-model="form.user" class="input" placeholder="root" />
             </label>
           </div>
 
           <div>
-            <span class="text-slate-400">认证方式</span>
+            <span class="field-label">认证方式</span>
             <div class="seg">
               <button :class="form.authType === 'password' ? 'active' : ''" @click="form.authType = 'password'">密码</button>
               <button :class="form.authType === 'privateKey' ? 'active' : ''" @click="form.authType = 'privateKey'">私钥</button>
@@ -127,14 +127,14 @@ function close() {
 
           <template v-if="form.authType === 'password'">
             <label class="block">
-              <span class="text-slate-400">密码 *</span>
+              <span class="field-label">密码 *</span>
               <input v-model="form.password" type="password" class="input" placeholder="登录密码" />
             </label>
           </template>
 
           <template v-else>
             <div>
-              <span class="text-slate-400">私钥来源</span>
+              <span class="field-label">私钥来源</span>
               <div class="mt-1 flex gap-2">
                 <button
                   class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 transition-colors"
@@ -154,7 +154,7 @@ function close() {
             </div>
 
             <div v-if="keySource === 'file'">
-              <span class="text-slate-400">私钥文件 *</span>
+              <span class="field-label">私钥文件 *</span>
               <div class="mt-1 flex gap-2">
                 <input
                   v-model="form.keyPath"
@@ -172,7 +172,7 @@ function close() {
             </div>
 
             <div v-else>
-              <span class="text-slate-400">私钥内容 *</span>
+              <span class="field-label">私钥内容 *</span>
               <textarea
                 v-model="form.keyContent"
                 rows="7"
@@ -183,7 +183,7 @@ function close() {
             </div>
 
             <label class="block">
-              <span class="text-slate-400">私钥口令（可选）</span>
+              <span class="field-label">私钥口令（可选）</span>
               <input
                 v-model="form.password"
                 type="password"

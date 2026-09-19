@@ -91,25 +91,14 @@ function isActiveNode(node: ServerNode): boolean {
 
 <template>
   <Teleport to="body">
-    <!-- 左侧贴边箭头：收起时贴导航轨右缘，展开后跟随侧边栏右缘 -->
-    <button
-      v-if="ui.view === 'workspace'"
-      class="qconn-toggle"
-      :class="open ? 'active' : ''"
-      :title="open ? '收起服务器列表' : '打开服务器列表'"
-      :aria-label="open ? '收起服务器列表' : '打开服务器列表'"
-      @click="ui.toggleTerminalSidebar()"
-    >
-      <Icon :name="open ? 'chevron-left' : 'chevron-right'" :size="12" />
-    </button>
-
+    <!-- 入口在左侧导航「快速连接」，此处仅负责浮层与遮罩 -->
     <Transition name="fade">
       <div v-if="open" class="qconn-mask" @click="ui.closeTerminalSidebar()"></div>
     </Transition>
 
     <Transition name="qconn">
       <aside v-if="open" class="qconn" aria-label="快速连接">
-        <div class="px-4 h-[52px] flex items-center justify-between shrink-0 inset-line-b">
+        <div class="px-4 h-12 flex items-center justify-between shrink-0 inset-line-b">
           <div class="flex items-center gap-2">
             <Icon name="server" :size="16" extra-class="text-signal" />
             <span class="text-[13px] font-semibold text-[var(--mist-100)]">服务器</span>

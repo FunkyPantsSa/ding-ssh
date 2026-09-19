@@ -178,12 +178,11 @@ onMounted(() => {
 <template>
   <div class="h-full flex flex-col min-h-0">
     <div class="page-pad flex flex-col gap-4 min-h-0">
-      <!-- 页面头：标题 + 在线统计 -->
-      <div class="page-hero flex items-end justify-between gap-6 shrink-0">
-        <div>
-          <h2>服务器管理</h2>
-          <p>添加、编辑与删除 SSH 节点，按分组组织并测试在线状态。</p>
-        </div>
+      <!-- 页面头：说明 + 在线统计（标题已在顶栏呈现，此处不重复） -->
+      <div class="page-hero flex items-center justify-between gap-6 shrink-0">
+        <p class="text-[12.5px] text-mist leading-relaxed max-w-[560px]">
+          添加、编辑与删除 SSH 节点，按分组组织并测试在线状态。
+        </p>
         <div class="flex items-center gap-2 shrink-0">
           <span class="chip">
             <span class="dot"></span>
@@ -271,7 +270,7 @@ onMounted(() => {
                 <Icon name="refresh" :size="14" />
                 刷新
               </button>
-              <button class="btn btn-copper btn-sm" @click="openNew">
+              <button class="btn btn-primary btn-sm" @click="openNew">
                 <Icon name="plus" :size="14" />
                 新建服务器
               </button>

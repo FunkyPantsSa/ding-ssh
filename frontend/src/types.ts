@@ -108,7 +108,7 @@ export interface UIAppearance {
 
 // 字体设置（对应 Go 端 models.Fonts）。
 export interface Fonts {
-  uiFont: string // UI 字体名（如 Sora / system）
+  uiFont: string // UI 字体名（如 Inter / system）
   terminalFont: string // 终端等宽字体名
   terminalFontSize: number // 终端字号（默认 13）
 }
@@ -130,7 +130,11 @@ export interface Settings {
   autoReconnect: boolean // 断开后自动重连，默认开启
   keepAliveEnabled: boolean // 心跳包防终端超时，默认开启
   localShell: string // 本机终端：darwin zsh|bash；windows powershell|cmd；linux default
+  tabBarPlacement: TabBarPlacement // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向
 }
+
+// 会话标签页位置（对应 Go 端 Settings.TabBarPlacement）。
+export type TabBarPlacement = 'top' | 'side'
 
 // 本机 Shell 选项（对应 Go 端 localterm.ShellOption）。
 export interface LocalShellOption {

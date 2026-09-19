@@ -200,7 +200,7 @@ onMounted(() => {
         <div class="flex-1 overflow-y-auto px-6 pb-2 flex flex-col gap-4">
           <div class="grid grid-cols-2 gap-3">
             <label class="block">
-              <span class="text-slate-400">名称 *</span>
+              <span class="field-label">名称 *</span>
               <input
                 v-model="form.name"
                 class="input"
@@ -208,7 +208,7 @@ onMounted(() => {
               />
             </label>
             <label class="block">
-              <span class="text-slate-400">端口</span>
+              <span class="field-label">端口</span>
               <input
                 v-model.number="form.port"
                 type="number"
@@ -219,7 +219,7 @@ onMounted(() => {
 
           <div class="block">
             <div class="flex items-center justify-between gap-2">
-              <span class="text-slate-400">分组（可选）</span>
+              <span class="field-label">分组（可选）</span>
               <div class="flex rounded-md border border-[var(--field-border)] overflow-hidden text-[12px]">
                 <button
                   type="button"
@@ -266,7 +266,7 @@ onMounted(() => {
 
           <div class="grid grid-cols-2 gap-3">
             <label class="block">
-              <span class="text-slate-400">主机 / IP *</span>
+              <span class="field-label">主机 / IP *</span>
               <input
                 v-model="form.host"
                 class="input"
@@ -274,7 +274,7 @@ onMounted(() => {
               />
             </label>
             <label class="block">
-              <span class="text-slate-400">用户名 *</span>
+              <span class="field-label">用户名 *</span>
               <input
                 v-model="form.user"
                 class="input"
@@ -284,7 +284,7 @@ onMounted(() => {
           </div>
 
           <div>
-            <span class="text-slate-400">认证方式</span>
+            <span class="field-label">认证方式</span>
             <div class="seg">
               <button :class="form.authType === 'password' ? 'active' : ''" @click="form.authType = 'password'">密码</button>
               <button :class="form.authType === 'privateKey' ? 'active' : ''" @click="form.authType = 'privateKey'">私钥</button>
@@ -293,7 +293,7 @@ onMounted(() => {
 
           <div v-if="form.authType === 'password'" class="space-y-3">
             <label class="block">
-              <span class="text-slate-400">密码 *</span>
+              <span class="field-label">密码 *</span>
               <input
                 v-model="form.password"
                 type="password"
@@ -302,7 +302,7 @@ onMounted(() => {
               />
             </label>
             <label v-if="credentials.list.length" class="block">
-              <span class="text-slate-400">使用已保存凭证（可选）</span>
+              <span class="field-label">使用已保存凭证（可选）</span>
               <select
                 v-model="selectedCred"
                 class="select"
@@ -318,7 +318,7 @@ onMounted(() => {
 
           <div v-else class="space-y-3">
             <div>
-              <span class="text-slate-400">私钥来源</span>
+              <span class="field-label">私钥来源</span>
               <div class="mt-1 flex gap-2">
                 <button
                   class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 transition-colors"
@@ -338,7 +338,7 @@ onMounted(() => {
             </div>
 
             <div v-if="keySource === 'file'">
-              <span class="text-slate-400">私钥文件 *</span>
+              <span class="field-label">私钥文件 *</span>
               <div class="mt-1 flex gap-2">
                 <input
                   v-model="form.keyPath"
@@ -356,7 +356,7 @@ onMounted(() => {
             </div>
 
             <div v-else>
-              <span class="text-slate-400">私钥内容 *</span>
+              <span class="field-label">私钥内容 *</span>
               <textarea
                 v-model="form.keyContent"
                 rows="7"
@@ -367,7 +367,7 @@ onMounted(() => {
             </div>
 
             <label class="block">
-              <span class="text-slate-400">私钥口令（可选）</span>
+              <span class="field-label">私钥口令（可选）</span>
               <input
                 v-model="form.password"
                 type="password"

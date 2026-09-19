@@ -26,7 +26,7 @@ function rectStyle(rect: PaneRect | undefined) {
 function statusDot(status: string): string {
   const map: Record<string, string> = {
     connecting: 'bg-[var(--warn-500)]',
-    connected: 'bg-[var(--signal-400)] shadow-[0_0_8px_var(--signal-glow)]',
+    connected: 'bg-[var(--signal-400)]',
     closed: 'bg-[var(--mist-400)]',
     error: 'bg-[var(--danger-500)]',
   }
@@ -103,7 +103,7 @@ function onHeaderDragStart(e: DragEvent) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   pointer-events: none;
 }
 .split-leaf.focused {
@@ -114,18 +114,18 @@ function onHeaderDragStart(e: DragEvent) {
   align-items: center;
   gap: 6px;
   padding: 0 10px;
-  background: rgba(0, 0, 0, 0.45);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--ink-900);
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
   height: 28px;
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   pointer-events: auto;
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--mist-200);
   cursor: grab;
   user-select: none;
 }
-.split-pane-header:hover { background: rgba(255, 255, 255, 0.06); }
+.split-pane-header:hover { background: var(--hover-strong); }
 .split-divider {
   position: absolute;
   z-index: 5;

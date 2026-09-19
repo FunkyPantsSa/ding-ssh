@@ -47,5 +47,14 @@ export const useUIStore = defineStore('ui', {
     toggleTerminalSidebar() {
       this.terminalSidebarOpen = !this.terminalSidebarOpen
     },
+    // 快速连接入口：不在工作区时切回工作区并展开，已在工作区时切换展开/收起
+    toggleQuickConnect() {
+      if (this.view !== 'workspace') {
+        this.view = 'workspace'
+        this.terminalSidebarOpen = true
+        return
+      }
+      this.terminalSidebarOpen = !this.terminalSidebarOpen
+    },
   },
 })

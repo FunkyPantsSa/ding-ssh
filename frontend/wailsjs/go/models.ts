@@ -315,6 +315,7 @@ export namespace models {
 	    autoReconnect: boolean;
 	    keepAliveEnabled: boolean;
 	    localShell: string;
+	    tabBarPlacement: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -337,6 +338,7 @@ export namespace models {
 	        this.autoReconnect = source["autoReconnect"];
 	        this.keepAliveEnabled = source["keepAliveEnabled"];
 	        this.localShell = source["localShell"];
+	        this.tabBarPlacement = source["tabBarPlacement"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
