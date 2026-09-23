@@ -60,7 +60,7 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 			UIScale:              100,
 			AutoReconnect:        true,
 			KeepAliveEnabled:     true,
-			TabBarPlacement:      "top",
+			TabBarPlacement:      "side", // 会话标签页默认放在左侧导航
 			Theme:                models.DefaultTheme(),
 			Appearance:           models.DefaultAppearance(),
 			Fonts:                models.DefaultFonts(),
@@ -101,9 +101,9 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	if !bytesContains(data, []byte(`"keepAliveEnabled"`)) {
 		settings.KeepAliveEnabled = true
 	}
-	// 旧配置文件没有标签页位置字段：默认顶部横向
-	if settings.TabBarPlacement != "side" {
-		settings.TabBarPlacement = "top"
+	// 标签页位置：旧配置没有该字段 → 新默认「左侧导航」；非法值同样回落默认
+	if settings.TabBarPlacement != "top" && settings.TabBarPlacement != "side" {
+		settings.TabBarPlacement = "side"
 	}
 	// 旧配置文件缺少外观 / 字体 / ANSI 色字段：补默认值
 	if !bytesContains(data, []byte(`"appearance"`)) {

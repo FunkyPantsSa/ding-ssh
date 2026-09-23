@@ -6,6 +6,8 @@ export const useServersStore = defineStore('servers', {
   state: () => ({
     servers: [] as ServerNode[],
     loading: false,
+    // 是否已经加载过（面板/列表复用时据此避免重复拉取导致的重渲染）
+    loadedOnce: false,
     // 在线状态测试结果缓存：nodeId -> 最近一次测试结果（常驻显示在节点行内）
     testResults: {} as Record<string, ServerTestResult>,
     // 正在测试的节点 ID 集合
@@ -17,6 +19,7 @@ export const useServersStore = defineStore('servers', {
       this.loading = true
       try {
         this.servers = await sshService.getServers()
+        this.loadedOnce = true
       } finally {
         this.loading = false
       }

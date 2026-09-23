@@ -1270,6 +1270,8 @@ img, svg { display: block; max-width: 100%; }
   inset: 0 0 0 var(--nav-w);
   z-index: 40;
   background: var(--overlay);
+  /* 独立合成层：淡入淡出只做透明度混合，不重绘下方终端 */
+  will-change: opacity;
 }
 .qconn {
   position: fixed;
@@ -1281,6 +1283,8 @@ img, svg { display: block; max-width: 100%; }
   min-height: 0;
   background: var(--ink-900);
   box-shadow: inset -1px 0 0 var(--line), 16px 0 40px rgba(0, 0, 0, 0.28);
+  /* 面板内部重绘不外溢：开合位移时模糊阴影与列表内容不会牵连整屏 */
+  contain: paint;
 }
 .qconn-item {
   display: grid;
@@ -1381,7 +1385,11 @@ img, svg { display: block; max-width: 100%; }
 .fade-rise { animation: fadeRise 200ms var(--ease); }
 .fade-enter-active, .fade-leave-active { transition: opacity 140ms ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
-.qconn-enter-active, .qconn-leave-active { transition: transform var(--dur-slow) var(--ease); }
+.qconn-enter-active, .qconn-leave-active {
+  transition: transform var(--dur-slow) var(--ease);
+  /* 动画期间提升为独立合成层：位移不重绘下方 WebGL 终端 */
+  will-change: transform;
+}
 .qconn-enter-from, .qconn-leave-to { transform: translateX(calc(-1 * var(--qconn-w))); }
 
 @media (prefers-reduced-motion: reduce) {

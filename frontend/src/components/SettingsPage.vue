@@ -56,8 +56,8 @@ const MODE_OPTIONS = [
 ] as const
 // 会话标签页位置：顶部横向标签栏 / 左侧导航纵向列表
 const TAB_PLACEMENT_OPTIONS = [
-  {key: 'top', label: '顶栏'},
   {key: 'side', label: '左侧导航'},
+  {key: 'top', label: '顶栏'},
 ] as const
 
 // ANSI 16 色表单字段（名称 → 中文标签）
@@ -813,7 +813,7 @@ watch(
             <div class="min-w-0">
               <p class="text-sm font-medium text-slate-200">会话标签页位置</p>
               <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-                顶部：终端上方的横向标签栏；左侧导航：并入左侧栏的纵向标签列表，可留出更多终端高度。
+                默认「左侧导航」：标签并入左侧栏的纵向列表，可留出更多终端高度；「顶栏」为终端上方的横向标签栏。
               </p>
             </div>
             <div class="seg shrink-0">

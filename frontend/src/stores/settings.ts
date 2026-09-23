@@ -47,7 +47,7 @@ export const useSettingsStore = defineStore('settings', {
     autoReconnect: true,
     keepAliveEnabled: true,
     localShell: '',
-    tabBarPlacement: 'top' as TabBarPlacement,
+    tabBarPlacement: 'side' as TabBarPlacement,
     loaded: false,
   }),
   actions: {
@@ -68,7 +68,8 @@ export const useSettingsStore = defineStore('settings', {
       this.autoReconnect = settings.autoReconnect ?? true
       this.keepAliveEnabled = settings.keepAliveEnabled ?? true
       this.localShell = settings.localShell ?? ''
-      this.tabBarPlacement = settings.tabBarPlacement === 'side' ? 'side' : 'top'
+      // 缺省 / 非法值一律回落「左侧导航」（新默认）
+      this.tabBarPlacement = settings.tabBarPlacement === 'top' ? 'top' : 'side'
       this.loaded = true
     },
     async setLogEnabled(v: boolean) {
@@ -139,7 +140,7 @@ export const useSettingsStore = defineStore('settings', {
       await this.save()
     },
     async setTabBarPlacement(v: TabBarPlacement) {
-      this.tabBarPlacement = v === 'side' ? 'side' : 'top'
+      this.tabBarPlacement = v === 'top' ? 'top' : 'side'
       await this.save()
     },
     async save() {

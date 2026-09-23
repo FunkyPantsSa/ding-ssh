@@ -10,7 +10,7 @@ import TabBar from './components/TabBar.vue'
 import TerminalView from './components/TerminalView.vue'
 import SplitView from './components/SplitView.vue'
 import {layoutPanes} from './panes/layout'
-import type {PaneDirection, SplitDirection} from './types'
+import type {PaneDirection, SplitDirection, Theme} from './types'
 import TunnelPage from './components/TunnelPage.vue'
 import QuickConnectPanel from './components/QuickConnectPanel.vue'
 import {securityService} from './services/security'
@@ -68,12 +68,42 @@ const tone = computed<Tone>(() => {
 // 根节点注入的 CSS 变量（品牌色 + 字体栈）
 const cssVars = computed(() => computeUiCssVars(settings.appearance, settings.fonts, tone.value))
 
-// 预设模式下，明暗切换自动同步对应终端色板
-watch(tone, (t) => {
-  if (settings.appearance.mode !== 'preset') return
+// 预设色板覆盖的字段（背景 / 前景 / 光标 / 选中 / ANSI 16 色）
+const PALETTE_KEYS = [
+  'background', 'foreground', 'cursor', 'selection',
+  'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
+  'brightBlack', 'brightRed', 'brightGreen', 'brightYellow',
+  'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite',
+] as const
+
+function paletteSignature(t: Theme): string {
+  return PALETTE_KEYS.map((k) => t[k]).join('|')
+}
+
+/** 当前明暗 + 预设对应的终端色板（其余字段保留用户设置：背景图 / 模糊 / 阴影等）。 */
+function presetPaletteTheme(base: Theme, t: Tone): Theme {
   const preset = presetById(settings.appearance.presetId) ?? defaultPreset()
-  void settings.setTheme(paletteToTheme(t === 'dark' ? preset.dark : preset.light))
-})
+  const palette = paletteToTheme(t === 'dark' ? preset.dark : preset.light)
+  const next: Theme = {...base}
+  for (const key of PALETTE_KEYS) next[key] = palette[key]
+  return next
+}
+
+/**
+ * 预设模式下终端色板跟随界面明暗。
+ * 色板一致时不写回（避免每次启动都产生一次无谓保存）。
+ */
+function syncTerminalPalette() {
+  if (!settings.loaded || settings.appearance.mode !== 'preset') return
+  const target = presetPaletteTheme(settings.theme, tone.value)
+  if (paletteSignature(target) === paletteSignature(settings.theme)) return
+  void settings.setTheme(target)
+}
+
+// settings.loaded 变为 true（设置读取完成）与界面明暗变化时各同步一次：
+// 启动时若系统是浅色、存量终端色板却是深色，这里会把终端切到浅色色板，
+// 避免出现「浅色界面 + 深色终端」的割裂。
+watch([tone, () => settings.loaded], syncTerminalPalette, {immediate: true})
 
 function onSchemeChange() {
   systemTone.value = resolveTone('auto')

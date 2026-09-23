@@ -264,6 +264,7 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		UIScale:              100,
 		AutoReconnect:        true,
 		KeepAliveEnabled:     true,
+		TabBarPlacement:      "side", // 默认会话标签页放在左侧导航
 	}
 	if v, ok := values["logEnabled"]; ok {
 		st.LogEnabled = v == "true"
@@ -306,6 +307,10 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	}
 	if v, ok := values["localShell"]; ok {
 		st.LocalShell = v
+	}
+	// 标签页位置：旧库没有该键 → 保持默认「左侧导航」；非法值同样回落默认
+	if v, ok := values["tabBarPlacement"]; ok && (v == "top" || v == "side") {
+		st.TabBarPlacement = v
 	}
 	if v, ok := values["theme"]; ok && v != "" {
 		_ = json.Unmarshal([]byte(v), &st.Theme)
@@ -355,6 +360,10 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 	if st.Fonts.TerminalFont == "" {
 		st.Fonts = models.DefaultFonts()
 	}
+	// 标签页位置：仅接受 top / side，其余（含空值）落回默认「左侧导航」
+	if st.TabBarPlacement != "top" && st.TabBarPlacement != "side" {
+		st.TabBarPlacement = "side"
+	}
 	entries := []struct{ k, v string }{
 		{"logEnabled", boolStr(st.LogEnabled)},
 		{"copyOnSelect", boolStr(st.CopyOnSelect)},
@@ -371,6 +380,7 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"autoReconnect", boolStr(st.AutoReconnect)},
 		{"keepAliveEnabled", boolStr(st.KeepAliveEnabled)},
 		{"localShell", st.LocalShell},
+		{"tabBarPlacement", st.TabBarPlacement},
 	}
 	for _, e := range entries {
 		if _, err := s.db.Exec(`

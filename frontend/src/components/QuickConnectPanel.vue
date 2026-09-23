@@ -33,7 +33,9 @@ function toggleGroup(name: string) {
 }
 
 watch(open, (v) => {
-  if (v && !servers.loading) {
+  // 只在首次展开时拉取：面板是常驻 DOM，若每次展开都重新 load()，
+  // 列表会先切成骨架屏再整表重渲染，正好落在展开动画期间 → 掉帧 + 闪烁。
+  if (v && !servers.loading && !servers.loadedOnce) {
     void servers.load()
     void groups.load()
   }
@@ -91,13 +93,15 @@ function isActiveNode(node: ServerNode): boolean {
 
 <template>
   <Teleport to="body">
-    <!-- 入口在左侧导航「快速连接」，此处仅负责浮层与遮罩 -->
+    <!-- 入口在左侧导航「快速连接」，此处仅负责浮层与遮罩。
+         用 v-show 而非 v-if：面板常驻 DOM，开合只做位移/透明度合成，
+         避免每次展开都重建（收起时销毁）整份服务器列表造成掉帧。 -->
     <Transition name="fade">
-      <div v-if="open" class="qconn-mask" @click="ui.closeTerminalSidebar()"></div>
+      <div v-show="open" class="qconn-mask" @click="ui.closeTerminalSidebar()"></div>
     </Transition>
 
     <Transition name="qconn">
-      <aside v-if="open" class="qconn" aria-label="快速连接">
+      <aside v-show="open" class="qconn" aria-label="快速连接">
         <div class="px-4 h-12 flex items-center justify-between shrink-0 inset-line-b">
           <div class="flex items-center gap-2">
             <Icon name="server" :size="16" extra-class="text-signal" />
@@ -123,7 +127,7 @@ function isActiveNode(node: ServerNode): boolean {
         </div>
 
         <div class="flex-1 min-h-0 overflow-y-auto p-2.5 pt-0 flex flex-col gap-1.5">
-          <div v-if="servers.loading" class="space-y-2">
+          <div v-if="servers.loading && !servers.servers.length" class="space-y-2">
             <div v-for="i in 4" :key="i" class="flex items-center gap-2 px-2.5 py-2">
               <div class="skel w-2 h-2 rounded-full"></div>
               <div class="skel h-3 flex-1"></div>

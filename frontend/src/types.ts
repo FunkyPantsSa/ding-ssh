@@ -130,7 +130,7 @@ export interface Settings {
   autoReconnect: boolean // 断开后自动重连，默认开启
   keepAliveEnabled: boolean // 心跳包防终端超时，默认开启
   localShell: string // 本机终端：darwin zsh|bash；windows powershell|cmd；linux default
-  tabBarPlacement: TabBarPlacement // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向
+  tabBarPlacement: TabBarPlacement // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 side）
 }
 
 // 会话标签页位置（对应 Go 端 Settings.TabBarPlacement）。

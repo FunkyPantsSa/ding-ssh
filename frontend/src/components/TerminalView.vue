@@ -28,6 +28,7 @@ import {historyService} from '../services/history'
 import {sysInfoService} from '../services/sysinfo'
 import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../services/zmodem'
 import {currentZoom} from '../utils/dom'
+import {patchXtermZoomCoords} from '../utils/xterm-zoom'
 import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
@@ -105,6 +106,12 @@ function xtermCore(t: Terminal): {
   return (t as unknown as {_core?: {
     _renderService?: {dimensions?: {css?: {cell?: {width: number; height: number}}}}
   }})._core
+}
+
+/** 界面缩放比（app-shell 的 CSS zoom）；100% 时为 1。 */
+function uiZoom(): number {
+  const z = (settings.uiScale || 100) / 100
+  return Number.isFinite(z) && z > 0 ? z : 1
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -1059,6 +1066,7 @@ onMounted(() => {
   fitAddon = new FitAddon()
   term.loadAddon(fitAddon)
   term.open(container.value!)
+  patchXtermZoomCoords(term, uiZoom)
   tryEnableWebGL()
   applyFontSize()
 
