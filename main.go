@@ -14,9 +14,11 @@ import (
 var assets embed.FS
 
 func main() {
-	app := NewApp()
+	// 调试模式配置要在 wails.Run 之前读取：WebView2 的远程调试端口必须在启动时确定。
+	boot := readDebugBoot()
+	app := NewApp(boot)
 
-	err := wails.Run(&options.App{
+	opt := &options.App{
 		Title:     "ding-ssh",
 		Width:     1280,
 		Height:    800,
@@ -29,13 +31,16 @@ func main() {
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop: true,
 		},
-		Logger:           logfilter.New(),
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
+		Logger:    logfilter.New(),
+		OnStartup: app.startup,
+		OnShutdown: app.shutdown,
 		Bind: []interface{}{
 			app,
 		},
-	})
+	}
+	applyDebugBrowserArgs(opt, boot)
+
+	err := wails.Run(opt)
 
 	if err != nil {
 		println("Error:", err.Error())

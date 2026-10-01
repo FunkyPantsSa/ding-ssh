@@ -73,6 +73,28 @@ export namespace models {
 	        this.keyContent = source["keyContent"];
 	    }
 	}
+	export class DebugSettings {
+	    enabled: boolean;
+	    port: number;
+	    bindLan: boolean;
+	    allowEval: boolean;
+	    allowSecrets: boolean;
+	    cdpEnabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DebugSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.port = source["port"];
+	        this.bindLan = source["bindLan"];
+	        this.allowEval = source["allowEval"];
+	        this.allowSecrets = source["allowSecrets"];
+	        this.cdpEnabled = source["cdpEnabled"];
+	    }
+	}
 	export class Fonts {
 	    uiFont: string;
 	    terminalFont: string;
@@ -301,6 +323,10 @@ export namespace models {
 	}
 	export class Settings {
 	    logEnabled: boolean;
+	    logToFile: boolean;
+	    logLevel: string;
+	    logApiCalls: boolean;
+	    logTraceTabs: string[];
 	    copyOnSelect: boolean;
 	    webGLEnabled: boolean;
 	    completionEnabled: boolean;
@@ -316,6 +342,9 @@ export namespace models {
 	    keepAliveEnabled: boolean;
 	    localShell: string;
 	    tabBarPlacement: string;
+	    rightClickAction: string;
+	    navSectionOrder: string;
+	    debug: DebugSettings;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -324,6 +353,10 @@ export namespace models {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.logEnabled = source["logEnabled"];
+	        this.logToFile = source["logToFile"];
+	        this.logLevel = source["logLevel"];
+	        this.logApiCalls = source["logApiCalls"];
+	        this.logTraceTabs = source["logTraceTabs"];
 	        this.copyOnSelect = source["copyOnSelect"];
 	        this.webGLEnabled = source["webGLEnabled"];
 	        this.completionEnabled = source["completionEnabled"];
@@ -339,6 +372,9 @@ export namespace models {
 	        this.keepAliveEnabled = source["keepAliveEnabled"];
 	        this.localShell = source["localShell"];
 	        this.tabBarPlacement = source["tabBarPlacement"];
+	        this.rightClickAction = source["rightClickAction"];
+	        this.navSectionOrder = source["navSectionOrder"];
+	        this.debug = this.convertValues(source["debug"], DebugSettings);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

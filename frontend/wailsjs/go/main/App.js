@@ -18,12 +18,24 @@ export function ClearCommandHistory(arg1) {
   return window['go']['main']['App']['ClearCommandHistory'](arg1);
 }
 
+export function ClearLogs() {
+  return window['go']['main']['App']['ClearLogs']();
+}
+
 export function Connect(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['Connect'](arg1, arg2, arg3, arg4);
 }
 
 export function ConnectLocal(arg1, arg2, arg3) {
   return window['go']['main']['App']['ConnectLocal'](arg1, arg2, arg3);
+}
+
+export function DebugInfo() {
+  return window['go']['main']['App']['DebugInfo']();
+}
+
+export function DebugReply(arg1, arg2) {
+  return window['go']['main']['App']['DebugReply'](arg1, arg2);
 }
 
 export function DeleteCredential(arg1) {
@@ -50,6 +62,10 @@ export function ExportConfig(arg1) {
   return window['go']['main']['App']['ExportConfig'](arg1);
 }
 
+export function ExportDiagnostics() {
+  return window['go']['main']['App']['ExportDiagnostics']();
+}
+
 export function GetCredentials() {
   return window['go']['main']['App']['GetCredentials']();
 }
@@ -60,6 +76,10 @@ export function GetGroups() {
 
 export function GetLocalShellOptions() {
   return window['go']['main']['App']['GetLocalShellOptions']();
+}
+
+export function GetLogInfo() {
+  return window['go']['main']['App']['GetLogInfo']();
 }
 
 export function GetPlatform() {
@@ -90,12 +110,24 @@ export function ListTunnels() {
   return window['go']['main']['App']['ListTunnels']();
 }
 
+export function LogClient(arg1, arg2) {
+  return window['go']['main']['App']['LogClient'](arg1, arg2);
+}
+
+export function OpenLogFolder() {
+  return window['go']['main']['App']['OpenLogFolder']();
+}
+
 export function QueryCommandHistory(arg1, arg2, arg3) {
   return window['go']['main']['App']['QueryCommandHistory'](arg1, arg2, arg3);
 }
 
 export function ReadLocalFileBase64(arg1) {
   return window['go']['main']['App']['ReadLocalFileBase64'](arg1);
+}
+
+export function ReadLogTail(arg1) {
+  return window['go']['main']['App']['ReadLogTail'](arg1);
 }
 
 export function Reconnect(arg1, arg2, arg3) {
@@ -152,6 +184,14 @@ export function SelectLocalFiles() {
 
 export function SelectSavePath(arg1) {
   return window['go']['main']['App']['SelectSavePath'](arg1);
+}
+
+export function SetLogOptions(arg1) {
+  return window['go']['main']['App']['SetLogOptions'](arg1);
+}
+
+export function SetLogTrace(arg1, arg2) {
+  return window['go']['main']['App']['SetLogTrace'](arg1, arg2);
 }
 
 export function SetSftpPathFromTerminal(arg1, arg2) {
