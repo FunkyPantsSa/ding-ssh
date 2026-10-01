@@ -74,8 +74,14 @@ const grouped = computed(() => {
 })
 
 function connect(node: ServerNode) {
-  sessions.openTab(node)
+  // 已收起（连点防抖）：面板收起后按钮仍短暂存在于 DOM，避免同一次连点开出多个标签
+  if (!open.value) return
+  // 先收面板，下一帧再创建终端标签。
+  // TerminalView 挂载（xterm + WebGL 初始化）会同步占用主线程上百毫秒，
+  // 若与关闭动画同一帧执行，关闭动画要先被冻结一下再滑动，看起来「卡顿」。
+  // 关闭动画（transform/opacity）由合成器驱动，先启动后不受主线程阻塞影响。
   ui.closeTerminalSidebar()
+  requestAnimationFrame(() => sessions.openTab(node))
 }
 
 function nodeStatus(node: ServerNode): 'on' | 'err' | 'connecting' | '' {

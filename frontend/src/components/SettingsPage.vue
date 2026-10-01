@@ -12,11 +12,12 @@ import {sshService} from '../services/ssh'
 import {useCredentialsStore} from '../stores/credentials'
 import {useServersStore} from '../stores/servers'
 import {defaultAppearance, defaultFonts, defaultTheme, useSettingsStore} from '../stores/settings'
+import {ClearLogs, DebugInfo, ExportDiagnostics, GetLogInfo, OpenLogFolder, ReadLogTail, SetLogOptions} from '../../wailsjs/go/main/App'
 import {defaultPreset, paletteToTheme, presetById, PRESETS} from '../theme/presets'
 import {resolveTone} from '../theme/engine'
 import {APP_COMMIT, APP_VERSION, buildDateLabel, buildTimeLabel, detectPlatform, platformLabel} from '../version'
 import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
-import type {Credential, Fonts, LocalShellOption, SecurityStatus, TabBarPlacement, Theme, UIAppearance} from '../types'
+import type {Credential, DebugSettings, Fonts, LocalShellOption, LogLevel, NavSectionOrder, RightClickAction, SecurityStatus, TabBarPlacement, Theme, UIAppearance} from '../types'
 import CredentialDialog from './CredentialDialog.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
@@ -25,16 +26,18 @@ const credentials = useCredentialsStore()
 const servers = useServersStore()
 const saving = ref(false)
 
-// 一级菜单：通用 / 外观 / 凭证 / 安全 / 导入导出
+// 一级菜单：通用 / 外观 / 凭证 / 安全 / 调试模式 / 日志 / 导入导出
 const menuItems = [
   {key: 'general', label: '通用', icon: 'clock'},
   {key: 'theme', label: '外观', icon: 'palette'},
   {key: 'credentials', label: '保存的凭证', icon: 'key'},
   {key: 'security', label: '安全', icon: 'lock'},
+  {key: 'debug', label: '调试模式', icon: 'terminal'},
+  {key: 'logs', label: '日志', icon: 'file'},
   {key: 'migrate', label: '导入导出', icon: 'package'},
   {key: 'about', label: '关于', icon: 'info'},
 ] as const
-type SettingsSection = 'general' | 'theme' | 'credentials' | 'security' | 'migrate' | 'about'
+type SettingsSection = 'general' | 'theme' | 'credentials' | 'security' | 'debug' | 'logs' | 'migrate' | 'about'
 const section = ref<SettingsSection>('general')
 const themeForm = reactive<Theme>(defaultTheme())
 const appearanceForm = reactive<UIAppearance>(defaultAppearance())
@@ -59,6 +62,33 @@ const TAB_PLACEMENT_OPTIONS = [
   {key: 'side', label: '左侧导航'},
   {key: 'top', label: '顶栏'},
 ] as const
+// 终端鼠标右键行为：打开选项栏 / 直接粘贴剪贴板
+const RIGHT_CLICK_OPTIONS = [
+  {key: 'menu', label: '打开选项栏'},
+  {key: 'paste', label: '直接粘贴'},
+] as const
+// 左侧导航区段顺序：导航 / 会话 / 标签页 三块的六种排列
+const NAV_SECTION_ORDER_OPTIONS = [
+  {value: 'nav,sessions,tabs', label: '导航 · 会话 · 标签页'},
+  {value: 'nav,tabs,sessions', label: '导航 · 标签页 · 会话'},
+  {value: 'sessions,nav,tabs', label: '会话 · 导航 · 标签页'},
+  {value: 'sessions,tabs,nav', label: '会话 · 标签页 · 导航'},
+  {value: 'tabs,nav,sessions', label: '标签页 · 导航 · 会话'},
+  {value: 'tabs,sessions,nav', label: '标签页 · 会话 · 导航'},
+] as const
+
+// 日志级别下拉（与 Go 端一致：debug / info / warn / error）
+const LOG_LEVEL_OPTIONS = [
+  {key: 'debug', label: 'debug'},
+  {key: 'info', label: 'info'},
+  {key: 'warn', label: 'warn'},
+  {key: 'error', label: 'error'},
+] as const
+// 「最近日志」可选行数
+const LOG_TAIL_LINES = [100, 200, 500] as const
+// 后端读不到保留策略时的兜底展示（与 Go 端默认值一致）
+const LOG_RETENTION_FALLBACK = {maxBytes: 8 * 1024 * 1024, keepFiles: 20}
+
 
 // ANSI 16 色表单字段（名称 → 中文标签）
 type AnsiColorKey =
@@ -210,15 +240,6 @@ async function refreshSecurity() {
   }
 }
 
-async function toggleLog(v: boolean) {
-  saving.value = true
-  try {
-    await settings.setLogEnabled(v)
-  } finally {
-    saving.value = false
-  }
-}
-
 async function toggleCopy(v: boolean) {
   saving.value = true
   try {
@@ -332,6 +353,202 @@ async function setTabBarPlacement(v: TabBarPlacement) {
   } finally {
     saving.value = false
   }
+}
+
+async function setRightClickAction(v: RightClickAction) {
+  if (settings.rightClickAction === v) return
+  saving.value = true
+  try {
+    await settings.setRightClickAction(v)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function setNavSectionOrder(v: NavSectionOrder) {
+  if (settings.navSectionOrder === v) return
+  saving.value = true
+  try {
+    await settings.setNavSectionOrder(v)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function onNavSectionOrderChange(e: Event) {
+  await setNavSectionOrder((e.target as HTMLSelectElement).value as NavSectionOrder)
+}
+
+// ---- 调试模式 ----
+const debugInfo = ref<Record<string, any> | null>(null)
+
+async function refreshDebugInfo() {
+  try {
+    debugInfo.value = await DebugInfo()
+  } catch {
+    debugInfo.value = null
+  }
+}
+
+async function setDebug(patch: Partial<DebugSettings>) {
+  saving.value = true
+  try {
+    await settings.setDebug(patch)
+    await refreshDebugInfo()
+  } finally {
+    saving.value = false
+  }
+}
+
+async function onDebugPortChange(e: Event) {
+  const raw = Number((e.target as HTMLInputElement).value)
+  await setDebug({port: Number.isFinite(raw) ? raw : 8765})
+}
+
+onMounted(() => {
+  void refreshDebugInfo()
+})
+
+// ---- 日志 ----
+const logInfo = ref<Record<string, any> | null>(null)
+const logTail = ref('')
+const logTailLines = ref<number>(200)
+const logTailLoading = ref(false)
+const logBusy = ref(false)
+const logMsg = ref('')
+const logError = ref('')
+/** 「清理日志」二次确认（参考「清理命令历史」卡片） */
+const confirmClearLogs = ref(false)
+/** 最近一次导出的诊断包路径 */
+const exportPath = ref('')
+
+const logFiles = computed<Array<{name: string; size: number; modTime: number}>>(() =>
+  Array.isArray(logInfo.value?.files) ? logInfo.value.files : [],
+)
+const logTotalSize = computed(() => Number(logInfo.value?.totalSize) || 0)
+// 保留策略：后端没给就用兜底默认值（卡片里会注明）
+const logRetention = computed(() => ({
+  maxBytes: Number(logInfo.value?.retention?.maxBytes) || LOG_RETENTION_FALLBACK.maxBytes,
+  keepFiles: Number(logInfo.value?.retention?.keepFiles) || LOG_RETENTION_FALLBACK.keepFiles,
+}))
+
+function formatBytes(n: number): string {
+  const v = Number(n) || 0
+  if (v < 1024) return `${v} B`
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`
+  if (v < 1024 * 1024 * 1024) return `${(v / (1024 * 1024)).toFixed(1)} MB`
+  return `${(v / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+async function refreshLogInfo() {
+  try {
+    logInfo.value = await GetLogInfo()
+  } catch {
+    logInfo.value = null
+  }
+}
+
+/** 读一次日志尾部（只在打开页签 / 点刷新时调用，不做轮询）。 */
+async function refreshLogTail() {
+  logTailLoading.value = true
+  logError.value = ''
+  try {
+    const r = await ReadLogTail(logTailLines.value)
+    logTail.value = typeof r?.text === 'string' ? r.text : ''
+  } catch (e) {
+    logTail.value = ''
+    logError.value = String(e)
+  } finally {
+    logTailLoading.value = false
+  }
+}
+
+/**
+ * 日志开关 / 级别：先镜像进设置模型持久化（前端设置页重开仍然一致），
+ * 再用 SetLogOptions 让后端立即生效，最后刷新 GetLogInfo（与 setDebug 同风格）。
+ */
+async function applyLogOptions(
+  patch: Partial<{consoleEnabled: boolean; fileEnabled: boolean; level: LogLevel; apiLogEnabled: boolean}>,
+) {
+  saving.value = true
+  logError.value = ''
+  try {
+    const mirror: Partial<{logToFile: boolean; logLevel: LogLevel; logApiCalls: boolean}> = {}
+    if (patch.fileEnabled !== undefined) mirror.logToFile = patch.fileEnabled
+    if (patch.level !== undefined) mirror.logLevel = patch.level
+    if (patch.apiLogEnabled !== undefined) mirror.logApiCalls = patch.apiLogEnabled
+    if (patch.consoleEnabled !== undefined) {
+      // 控制台日志对应既有的 logEnabled，保持原字段不动
+      await settings.setLogEnabled(patch.consoleEnabled)
+    }
+    if (Object.keys(mirror).length) await settings.setLog(mirror)
+    const opts: Record<string, any> = {}
+    if (patch.consoleEnabled !== undefined) opts.consoleEnabled = patch.consoleEnabled
+    if (patch.fileEnabled !== undefined) opts.fileEnabled = patch.fileEnabled
+    if (patch.level !== undefined) opts.level = patch.level
+    if (patch.apiLogEnabled !== undefined) opts.apiLogEnabled = patch.apiLogEnabled
+    if (Object.keys(opts).length) await SetLogOptions(opts)
+    await refreshLogInfo()
+  } catch (e) {
+    logError.value = String(e)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function onLogLevelChange(e: Event) {
+  const v = (e.target as HTMLSelectElement).value as LogLevel
+  if (settings.logLevel === v) return
+  await applyLogOptions({level: v})
+}
+
+async function openLogFolder() {
+  logError.value = ''
+  try {
+    await OpenLogFolder()
+  } catch (e) {
+    logError.value = String(e)
+  }
+}
+
+async function clearLogs() {
+  logError.value = ''
+  logMsg.value = ''
+  logBusy.value = true
+  try {
+    const r = await ClearLogs()
+    confirmClearLogs.value = false
+    const removed = Number(r?.removed) || 0
+    logMsg.value = removed > 0 ? `已清理 ${removed} 个日志文件` : '暂无可清理的日志文件'
+    await refreshLogInfo()
+    await refreshLogTail()
+  } catch (e) {
+    logError.value = String(e)
+  } finally {
+    logBusy.value = false
+  }
+}
+
+async function exportDiagnostics() {
+  logError.value = ''
+  logMsg.value = ''
+  exportPath.value = ''
+  logBusy.value = true
+  try {
+    const r = await ExportDiagnostics()
+    exportPath.value = typeof r?.path === 'string' ? r.path : ''
+    if (!exportPath.value) logMsg.value = '诊断包已生成'
+  } catch (e) {
+    logError.value = String(e)
+  } finally {
+    logBusy.value = false
+  }
+}
+
+async function onLogTailLinesChange(e: Event) {
+  const n = Number((e.target as HTMLSelectElement).value)
+  logTailLines.value = (LOG_TAIL_LINES as readonly number[]).includes(n) ? n : 200
+  await refreshLogTail()
 }
 
 async function onPanelLimitChange(e: Event) {
@@ -597,6 +814,11 @@ watch(
   (s) => {
     if (s === 'theme') syncForms()
     if (s === 'security') void refreshSecurity()
+    // 打开「日志」页签时读一次目录信息与日志尾部（不轮询）
+    if (s === 'logs') {
+      void refreshLogInfo()
+      void refreshLogTail()
+    }
   },
 )
 </script>
@@ -620,24 +842,7 @@ watch(
       <div v-if="section === 'general'" class="max-w-2xl space-y-6 fade-rise">
         <div>
           <h3 class="text-[18px] font-semibold text-white tracking-tight">通用</h3>
-          <p class="text-[13px] text-mist mt-1.5 leading-relaxed">控制日志、选中复制、补全热键与命令历史。</p>
-        </div>
-
-        <div class="neo">
-          <div class="flex items-center justify-between gap-4 px-5 py-4">
-            <div class="min-w-0">
-              <p class="text-sm font-medium text-slate-200">输出调试日志</p>
-              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-                开启后输出应用运行日志与 Wails 框架日志（运行终端），便于排查 SSH
-                连接等问题；关闭后不输出日志。
-              </p>
-            </div>
-            <ToggleSwitch :model-value="settings.logEnabled" :disabled="saving" @update:model-value="toggleLog" />
-          </div>
-          <div class="px-5 py-3 border-t border-slate-800/60 flex items-center gap-2 text-xs">
-            <span class="w-2 h-2 rounded-full" :class="settings.logEnabled ? 'bg-emerald-400' : 'bg-slate-600'"></span>
-            <span class="field-label">当前状态：{{ settings.logEnabled ? '日志输出中' : '日志已关闭' }}</span>
-          </div>
+          <p class="text-[13px] text-mist mt-1.5 leading-relaxed">控制选中复制、鼠标右键行为、导航区段顺序、补全热键与命令历史。</p>
         </div>
 
         <div class="neo">
@@ -647,6 +852,31 @@ watch(
               <p class="text-xs text-slate-500 mt-1 leading-relaxed">开启后在终端中选中文本，内容将自动复制到剪贴板。</p>
             </div>
             <ToggleSwitch :model-value="settings.copyOnSelect" :disabled="saving" @update:model-value="toggleCopy" />
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="flex items-center justify-between gap-4 px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">鼠标右键行为</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                在终端中单击鼠标右键时：「打开选项栏」弹出复制 / 粘贴 / 全屏等菜单；「直接粘贴」把剪贴板内容写入终端。
+                键盘粘贴始终可用（Ctrl+V / Ctrl+Shift+V / Shift+Insert）。
+              </p>
+            </div>
+            <div class="seg shrink-0">
+              <button
+                v-for="opt in RIGHT_CLICK_OPTIONS"
+                :key="opt.key"
+                type="button"
+                :class="settings.rightClickAction === opt.key ? 'active' : ''"
+                :aria-pressed="settings.rightClickAction === opt.key"
+                :disabled="saving"
+                @click="setRightClickAction(opt.key)"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -829,6 +1059,27 @@ watch(
                 {{ opt.label }}
               </button>
             </div>
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="grid grid-cols-[minmax(0,1fr)_11rem] items-center gap-4 px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">左侧导航区段顺序</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                自定义左侧导航中「导航 / 会话 / 标签页」三块的排列顺序（「标签页」仅在设为侧栏时显示）。
+              </p>
+            </div>
+            <select
+              class="select"
+              :value="settings.navSectionOrder"
+              :disabled="saving"
+              @change="onNavSectionOrderChange"
+            >
+              <option v-for="opt in NAV_SECTION_ORDER_OPTIONS" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
           </div>
         </div>
 
@@ -1266,6 +1517,264 @@ watch(
       </div>
 
       <!-- 安全 -->
+      <div v-else-if="section === 'debug'" class="max-w-2xl space-y-6 fade-rise">
+        <div>
+          <h3 class="text-[18px] font-semibold text-white tracking-tight">调试模式</h3>
+          <p class="text-[13px] text-mist mt-1.5 leading-relaxed">
+            在本地开一个控制面（HTTP，后续提供 MCP），供 AI / 自动化读取状态、驱动终端、订阅输出。
+            默认关闭；开启后仅监听本机（可切换局域网），token 每次启动重新生成。
+          </p>
+        </div>
+
+        <div class="neo border border-amber-500/30">
+          <div class="px-5 py-4 flex items-start gap-3">
+            <div class="min-w-0 text-xs text-amber-200/90 leading-relaxed">
+              调试模式允许调用方读写终端；「允许执行 JS」等于把整个界面交出去。请只在可信环境开启，
+              不用时立刻关闭。token 与端口写在
+              <span class="font-mono">{{ debugInfo?.infoFile || '%APPDATA%\\ding-ssh\\debug.json' }}</span>。
+            </div>
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="flex items-center justify-between gap-4 px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">启用调试模式</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">关闭时完全不监听任何端口。修改后立即生效（无需重启）。</p>
+            </div>
+            <ToggleSwitch
+              :model-value="settings.debug.enabled"
+              :disabled="saving"
+              @update:model-value="(v: boolean) => setDebug({enabled: v})"
+            />
+          </div>
+          <div class="px-5 py-3 border-t border-slate-800/60 grid grid-cols-[minmax(0,1fr)_8rem] items-center gap-4">
+            <span class="field-label">监听端口（0 = 自动挑空闲端口）</span>
+            <input
+              class="select"
+              type="number"
+              min="0"
+              max="65535"
+              :value="settings.debug.port"
+              :disabled="saving"
+              @change="onDebugPortChange"
+            />
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-4 border-t border-slate-800/60">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">允许局域网访问</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">关闭时只监听 127.0.0.1；开启后绑定 0.0.0.0（请配合 token 使用）。</p>
+            </div>
+            <ToggleSwitch
+              :model-value="settings.debug.bindLan"
+              :disabled="saving"
+              @update:model-value="(v: boolean) => setDebug({bindLan: v})"
+            />
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-4 border-t border-slate-800/60">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">允许执行 JS（危险）</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                放开 <span class="font-mono">/v1/eval</span>：可在页面上下文执行任意脚本，等于完全控制界面。默认关闭。
+              </p>
+            </div>
+            <ToggleSwitch
+              :model-value="settings.debug.allowEval"
+              :disabled="saving"
+              @update:model-value="(v: boolean) => setDebug({allowEval: v})"
+            />
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-4 border-t border-slate-800/60">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">允许读取敏感数据</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">放开设置 / 服务器配置中可能含密钥字段的读取。默认关闭。</p>
+            </div>
+            <ToggleSwitch
+              :model-value="settings.debug.allowSecrets"
+              :disabled="saving"
+              @update:model-value="(v: boolean) => setDebug({allowSecrets: v})"
+            />
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="px-5 py-3 border-b border-slate-800/60 flex items-center justify-between">
+            <span class="field-label">运行状态</span>
+            <button class="btn btn-ghost btn-sm" :disabled="saving" @click="refreshDebugInfo">刷新</button>
+          </div>
+          <div class="px-5 py-4 text-xs space-y-2">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full" :class="debugInfo?.running ? 'bg-emerald-400' : 'bg-slate-600'"></span>
+              <span class="field-label">{{ debugInfo?.running ? '运行中' : '未运行' }}</span>
+            </div>
+            <div v-if="debugInfo?.url" class="font-mono break-all text-slate-300">{{ debugInfo.url }}</div>
+            <div v-if="debugInfo?.lanUrl" class="font-mono break-all text-slate-500">局域网：{{ debugInfo.lanUrl }}</div>
+            <div v-if="debugInfo?.token" class="font-mono break-all text-slate-500">token：{{ debugInfo.token }}</div>
+            <p class="text-slate-500">{{ debugInfo?.hint }}</p>
+            <p v-if="debugInfo?.url" class="text-slate-500">
+              示例：<span class="font-mono break-all">curl -H "Authorization: Bearer &lt;token&gt;" {{ debugInfo.url }}/v1/terminals</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 日志 -->
+      <div v-else-if="section === 'logs'" class="max-w-2xl space-y-6 fade-rise">
+        <div>
+          <h3 class="text-[18px] font-semibold text-white tracking-tight">日志</h3>
+          <p class="text-[13px] text-mist mt-1.5 leading-relaxed">
+            控制运行日志打到哪里、记多细；排障结束后可一键导出诊断包。日志只落在本机，token / 密码 / 私钥会自动打码。
+          </p>
+        </div>
+
+        <!-- 输出目标：控制台 / 文件 -->
+        <div class="neo">
+          <div class="flex items-center justify-between gap-4 px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">运行日志（控制台）</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                开启后日志同时打印到 <span class="font-mono">wails dev</span> 的控制台（启动终端），开发调试时最直观；
+                正式使用可以关掉它、改成写入日志文件。
+              </p>
+            </div>
+            <ToggleSwitch
+              :model-value="settings.logEnabled"
+              :disabled="saving"
+              @update:model-value="(v: boolean) => applyLogOptions({consoleEnabled: v})"
+            />
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-4 border-t border-slate-800/60">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">写入日志文件</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                开启后日志写进本机文件并自动轮转，关掉应用也能翻旧账；遇到问题时把文件（或诊断包）发给开发者即可定位。
+              </p>
+            </div>
+            <ToggleSwitch
+              :model-value="settings.logToFile"
+              :disabled="saving"
+              @update:model-value="(v: boolean) => applyLogOptions({fileEnabled: v})"
+            />
+          </div>
+          <div class="px-5 py-3 border-t border-slate-800/60 flex items-start gap-3 text-xs">
+            <span class="field-label shrink-0">日志目录</span>
+            <span class="font-mono text-slate-300 break-all">{{ logInfo?.dir || '（暂不可用）' }}</span>
+          </div>
+          <div class="px-5 py-3 border-t border-slate-800/60 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+            <span class="field-label">
+              当前总大小：<span class="font-mono text-slate-300">{{ formatBytes(logTotalSize) }}</span>
+            </span>
+            <span class="field-label">
+              文件数：<span class="font-mono text-slate-300">{{ logFiles.length }}</span>
+            </span>
+            <button class="btn btn-ghost btn-sm ml-auto" :disabled="saving" @click="refreshLogInfo">刷新</button>
+          </div>
+        </div>
+
+        <!-- 详细程度 -->
+        <div class="neo">
+          <div class="grid grid-cols-[minmax(0,1fr)_9rem] items-center gap-4 px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">日志级别</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                debug 会记录逐条调用细节（参数、耗时），信息最全但文件增长最快；日常用 info，复现问题时临时切到 debug 更省事。
+              </p>
+            </div>
+            <select class="select" :value="settings.logLevel" :disabled="saving" @change="onLogLevelChange">
+              <option v-for="opt in LOG_LEVEL_OPTIONS" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
+            </select>
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-4 border-t border-slate-800/60">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">记录 MCP / 调试 API 调用</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                记录每次 HTTP / MCP 调用的方法、工具名、状态码与耗时，方便核对 AI / 自动化到底做了什么；调用密集时日志体积增长较快，排障完记得关掉。
+              </p>
+            </div>
+            <ToggleSwitch
+              :model-value="settings.logApiCalls"
+              :disabled="saving"
+              @update:model-value="(v: boolean) => applyLogOptions({apiLogEnabled: v})"
+            />
+          </div>
+        </div>
+
+        <!-- 维护动作 -->
+        <div class="neo">
+          <div class="px-5 py-4 border-b border-slate-800/60">
+            <p class="text-sm font-medium text-slate-200">维护</p>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed">打开目录手动查看，或清理 / 导出。</p>
+          </div>
+          <div class="px-5 py-4 flex flex-wrap items-center gap-2">
+            <button class="btn btn-ghost btn-sm" :disabled="saving" @click="openLogFolder">
+              <Icon name="folder" :size="14" />
+              打开日志文件夹
+            </button>
+            <template v-if="!confirmClearLogs">
+              <button class="btn btn-ghost btn-sm" :disabled="logBusy" @click="confirmClearLogs = true">清理日志</button>
+            </template>
+            <template v-else>
+              <button class="btn btn-danger btn-sm" :disabled="logBusy" @click="clearLogs">
+                {{ logBusy ? '清理中…' : '确认清理' }}
+              </button>
+              <button class="btn btn-ghost btn-sm" :disabled="logBusy" @click="confirmClearLogs = false">取消</button>
+            </template>
+            <button class="btn btn-primary btn-sm" :disabled="logBusy" @click="exportDiagnostics">
+              <Icon name="package" :size="14" />
+              {{ logBusy ? '处理中…' : '导出诊断包' }}
+            </button>
+          </div>
+          <div v-if="logError || logMsg || exportPath" class="px-5 pb-4 text-xs space-y-1">
+            <p v-if="logError" class="text-rose-400 break-all">{{ logError }}</p>
+            <p v-else-if="logMsg" class="text-emerald-400 break-all">{{ logMsg }}</p>
+            <p v-if="exportPath" class="text-emerald-400 break-all">
+              已导出诊断包：<span class="font-mono">{{ exportPath }}</span>，可直接发给开发者。
+            </p>
+          </div>
+        </div>
+
+        <!-- 保留策略 + 敏感信息 -->
+        <div class="neo">
+          <div class="px-5 py-4 space-y-2">
+            <p class="text-sm font-medium text-slate-200">保留策略</p>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              单个日志文件写到 <span class="font-mono text-slate-300">{{ formatBytes(logRetention.maxBytes) }}</span> 自动轮转，
+              只保留最近 <span class="font-mono text-slate-300">{{ logRetention.keepFiles }}</span> 个文件，更早的自动删除，不会越积越多占满磁盘。
+            </p>
+            <p v-if="!logInfo?.retention" class="text-[12px] text-slate-600">
+              后端未返回保留策略，以上为默认值（单文件 8MB、保留最近 20 个）。
+            </p>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              敏感信息：日志中的 token / 密码 / 私钥会自动打码，固定开启、无法关闭；导出诊断包同样经过打码处理。
+            </p>
+          </div>
+        </div>
+
+        <!-- AI / MCP 读日志的入口说明（工具与资源名与后端一致） -->
+        <p class="text-xs text-slate-500 leading-relaxed">AI / MCP 也能读取这些日志用于问题定位：工具 <span class="font-mono text-slate-300">list_logs</span>、<span class="font-mono text-slate-300">read_logs</span>（支持按级别/关键字过滤）、<span class="font-mono text-slate-300">export_diagnostics</span>，资源 <span class="font-mono text-slate-300">app://logs</span>、<span class="font-mono text-slate-300">app://logs/tail</span>。</p>
+
+        <!-- 最近日志（只读，打开页签 / 点刷新时读一次，不轮询） -->
+        <div class="neo">
+          <div class="px-5 py-3 border-b border-slate-800/60 flex items-center justify-between gap-3">
+            <span class="field-label">最近日志</span>
+            <div class="shrink-0 flex items-center gap-2">
+              <select
+                class="select w-28"
+                :value="logTailLines"
+                :disabled="logTailLoading"
+                @change="onLogTailLinesChange"
+              >
+                <option v-for="n in LOG_TAIL_LINES" :key="n" :value="n">最近 {{ n }} 行</option>
+              </select>
+              <button class="btn btn-ghost btn-sm" :disabled="logTailLoading" @click="refreshLogTail">
+                {{ logTailLoading ? '读取中…' : '刷新' }}
+              </button>
+            </div>
+          </div>
+          <pre class="m-0 px-5 py-4 max-h-[420px] overflow-auto font-mono text-[12px] leading-relaxed text-slate-300 whitespace-pre-wrap break-all">{{ logTail || '暂无日志' }}</pre>
+        </div>
+      </div>
+
       <div v-else-if="section === 'security'" class="max-w-2xl space-y-6 fade-rise">
         <div>
           <h3 class="text-[18px] font-semibold text-white tracking-tight">安全</h3>

@@ -264,6 +264,9 @@ img, svg { display: block; max-width: 100%; }
   background: var(--ink-900);
   box-shadow: inset -1px 0 0 var(--line);
   overflow: hidden;
+  /* 高于快速连接面板（.qconn z 50）：面板开合滑动时从导航右边界下方划出/划入，
+     而不是盖着导航从屏幕最左边划过。其余浮层（右键菜单 80 / 弹窗 100 / 提示 200）仍在其上。 */
+  z-index: 60;
 }
 .nav-brand {
   height: var(--topbar-h);
@@ -300,7 +303,14 @@ img, svg { display: block; max-width: 100%; }
   padding: 8px;
   display: flex;
   flex-direction: column;
+  gap: 6px; /* 区段（导航 / 会话 / 标签页）之间的间距 */
+}
+/* 左侧导航区段：内部按钮保持 1px 间距（与原先 nav-body 直接排列一致） */
+.nav-sec {
+  display: flex;
+  flex-direction: column;
   gap: 1px;
+  min-height: 0;
 }
 .nav-label {
   padding: 14px 8px 6px;
@@ -374,17 +384,7 @@ img, svg { display: block; max-width: 100%; }
 .nav-collapsed .nav-item.active::before { left: -6px; }
 .nav-collapsed .nav-foot { padding: 8px 6px; }
 
-/* ---------- 导航内标签页（设置：标签页位置 = 左侧导航） ---------- */
-.nav-tabs {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 0 8px 8px;
-  box-shadow: inset 0 1px 0 var(--line);
-}
-/* 标签列表存在时导航项按内容收缩，剩余高度留给标签列表 */
-.shell.has-tabs .nav-body { flex: 0 1 auto; }
+/* ---------- 导航内标签页（设置：标签页位置 = 左侧导航；作为「标签页」区段并入 nav-body） ---------- */
 .side-tabs {
   display: flex;
   flex-direction: column;
@@ -418,7 +418,6 @@ img, svg { display: block; max-width: 100%; }
 .side-tab.dragging { opacity: 0.5; }
 .side-tab.drop-before { box-shadow: inset 0 2px 0 var(--signal-400); }
 .side-tab.drop-after { box-shadow: inset 0 -2px 0 var(--signal-400); }
-.nav-collapsed .nav-tabs { padding: 8px 6px; }
 .nav-collapsed .side-tab .side-dot,
 .nav-collapsed .side-tab .tab-close { display: none; }
 .nav-collapsed .side-initial { display: block; font-size: 12px; font-weight: 600; }
@@ -1311,6 +1310,16 @@ img, svg { display: block; max-width: 100%; }
 .xterm-screen { background: transparent !important; }
 .terminal-slot { position: absolute; overflow: hidden; }
 .terminal-slot.split .xterm { padding: 8px 10px; }
+/* 回滚可见性修复：xterm 的回滚依赖 .xterm-viewport 的原生滚动（屏幕层是 pointer-events:none，
+   滚轮正好落在视口上）。但视口默认铺满 .xterm 的 padding box（上下各 14px），而可滚内容
+   .xterm-scroll-area 的高度按内容区算 → 视口比内容高约 28px，形成一段"死区"：回滚不足约 2 行时
+   滚轮完全滚不动，横幅顶部几行就永远看不到（窗口越矮越明显）。这里让视口与内容区对齐，
+   使整段回滚都能滚到。
+   必须用 !important：打包后 xterm.css 排在 style.css 之后，且它用 `inset: 0`（简写）覆盖
+   top/bottom，同优先级下会盖掉本规则（视口背景的透明覆盖也是因此才用 !important）。
+   注意 .xterm 的 padding 变化时要同步这里的 top/bottom。 */
+.xterm .xterm-viewport { top: 14px !important; bottom: 14px !important; }
+.terminal-slot.split .xterm .xterm-viewport { top: 8px !important; bottom: 8px !important; }
 .terminal-drop.drop-left { box-shadow: inset 3px 0 0 0 var(--signal-400); }
 .terminal-drop.drop-right { box-shadow: inset -3px 0 0 0 var(--signal-400); }
 .terminal-drop.drop-up { box-shadow: inset 0 3px 0 0 var(--signal-400); }
