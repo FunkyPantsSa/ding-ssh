@@ -5,6 +5,8 @@ build/AppDir
 dist/
 node_modules
 frontend/dist
+# 权限修复记录，不入版本控制
+.acl-recovery/
 .DS_Store
 **/.DS_Store
 *.AppImage
