@@ -539,3 +539,209 @@ func TestSQLiteSettingsStoreLogSettings(t *testing.T) {
 		t.Fatalf("非法日志级别落库后 = %q，期望 %q", fallback.LogLevel, models.LogLevelInfo)
 	}
 }
+
+// ---- 调试模式能力位（第四波：MCP 权限内核）----
+
+// 全新存储（无任何配置文件）的能力位默认值：只有「终端输入」开启，其余危险能力全关。
+func TestJSONSettingsStoreDebugCapabilityDefaults(t *testing.T) {
+	s, err := NewJSONSettingsStore(filepath.Join(t.TempDir(), "settings.json"))
+	if err != nil {
+		t.Fatalf("创建设置存储失败: %v", err)
+	}
+	got, err := s.Get()
+	if err != nil {
+		t.Fatalf("读取设置失败: %v", err)
+	}
+	if !got.Debug.CapTerminalInput {
+		t.Fatalf("默认值：终端输入应为开启")
+	}
+	for name, on := range map[string]bool{
+		"ui.write":        got.Debug.CapUIWrite,
+		"config.write":    got.Debug.CapConfigWrite,
+		"secrets.write":   got.Debug.CapSecretWrite,
+		"fs.remote.write": got.Debug.CapRemoteFSWrite,
+		"sudo.credential": got.Debug.CapSudoCredential,
+		"lifecycle":       got.Debug.CapLifecycle,
+	} {
+		if on {
+			t.Fatalf("默认值：%s 应为关闭，实际开启", name)
+		}
+	}
+	if len(got.Debug.SFTPWriteAllowlist) != 0 {
+		t.Fatalf("默认 SFTP 写白名单 = %v，期望为空", got.Debug.SFTPWriteAllowlist)
+	}
+}
+
+// 旧配置文件（完全没有能力位字段）升级后应补上默认值「终端输入开启」。
+func TestJSONSettingsStoreDebugCapabilityLegacyDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	// 旧版本写出的 debug 段：只有总开关/端口等老字段，没有任何 cap* 字段
+	legacy := `{"logEnabled":false,"debug":{"enabled":true,"port":8765,"bindLan":false,"allowEval":false,"allowSecrets":false,"cdpEnabled":false}}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("写入旧配置失败: %v", err)
+	}
+	s, err := NewJSONSettingsStore(path)
+	if err != nil {
+		t.Fatalf("创建设置存储失败: %v", err)
+	}
+	got, err := s.Get()
+	if err != nil {
+		t.Fatalf("读取设置失败: %v", err)
+	}
+	if !got.Debug.CapTerminalInput {
+		t.Fatalf("旧配置升级后：终端输入应补默认值 true，实际 false")
+	}
+	if !got.Debug.Enabled || got.Debug.Port != 8765 {
+		t.Fatalf("旧配置的既有字段被破坏：enabled=%v port=%d", got.Debug.Enabled, got.Debug.Port)
+	}
+}
+
+// 能力位与 SFTP 白名单往返：显式关闭必须保持关闭，白名单过滤空串 / 去重 / 去尾斜杠。
+func TestJSONSettingsStoreDebugCapabilityRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s, err := NewJSONSettingsStore(path)
+	if err != nil {
+		t.Fatalf("创建设置存储失败: %v", err)
+	}
+	settings, err := s.Get()
+	if err != nil {
+		t.Fatalf("读取设置失败: %v", err)
+	}
+	settings.Debug.CapTerminalInput = false // 用户显式关闭
+	settings.Debug.CapConfigWrite = true
+	settings.Debug.SFTPWriteAllowlist = []string{"/srv/app", " ", "/srv/app/", "/tmp", ""}
+	if err := s.Save(settings); err != nil {
+		t.Fatalf("保存设置失败: %v", err)
+	}
+	reloaded, err := s.Get()
+	if err != nil {
+		t.Fatalf("重新读取设置失败: %v", err)
+	}
+	if reloaded.Debug.CapTerminalInput {
+		t.Fatalf("显式关闭的终端输入在往返后变成了开启")
+	}
+	if !reloaded.Debug.CapConfigWrite {
+		t.Fatalf("config.write 往返后丢失")
+	}
+	want := []string{"/srv/app", "/tmp"}
+	if len(reloaded.Debug.SFTPWriteAllowlist) != len(want) {
+		t.Fatalf("白名单 = %v，期望 %v", reloaded.Debug.SFTPWriteAllowlist, want)
+	}
+	for i := range want {
+		if reloaded.Debug.SFTPWriteAllowlist[i] != want[i] {
+			t.Fatalf("白名单 = %v，期望 %v", reloaded.Debug.SFTPWriteAllowlist, want)
+		}
+	}
+}
+
+// SQLite 是主存储：能力位与白名单必须真正落库（一个 debug 键，值为 JSON）。
+func TestSQLiteSettingsStoreDebugCapabilities(t *testing.T) {
+	db, err := OpenSQLite(filepath.Join(t.TempDir(), "ding-ssh.db"))
+	if err != nil {
+		t.Fatalf("打开数据库失败: %v", err)
+	}
+	defer db.Close()
+
+	s := NewSQLiteSettingsStore(db)
+	settings, err := s.Get()
+	if err != nil {
+		t.Fatalf("读取设置失败: %v", err)
+	}
+	if !settings.Debug.CapTerminalInput {
+		t.Fatalf("SQLite 默认能力位：终端输入应为开启")
+	}
+	if settings.Debug.CapConfigWrite || settings.Debug.CapRemoteFSWrite || settings.Debug.CapLifecycle {
+		t.Fatalf("SQLite 默认能力位：危险能力应全关，实际 %+v", settings.Debug)
+	}
+
+	settings.Debug.CapRemoteFSWrite = true
+	settings.Debug.CapLifecycle = true
+	settings.Debug.SFTPWriteAllowlist = []string{"/home/deploy", "/home/deploy"}
+	settings.Debug.CapSecretWrite = true // 但 AllowSecrets=false → 归一化时必须回落 false
+	settings.Debug.CapSudoCredential = true // 同上：不允许读取敏感数据时不可能用保存的密码提权
+	if err := s.Save(settings); err != nil {
+		t.Fatalf("保存设置失败: %v", err)
+	}
+	reloaded, err := s.Get()
+	if err != nil {
+		t.Fatalf("重新读取设置失败: %v", err)
+	}
+	if !reloaded.Debug.CapRemoteFSWrite || !reloaded.Debug.CapLifecycle {
+		t.Fatalf("落库后能力位丢失：%+v", reloaded.Debug)
+	}
+	if reloaded.Debug.CapSecretWrite {
+		t.Fatalf("未开启「允许读取敏感数据」时 secrets.write 应为 false")
+	}
+	if reloaded.Debug.CapSudoCredential {
+		t.Fatalf("未开启「允许读取敏感数据」时 sudo.credential 应为 false")
+	}
+	if len(reloaded.Debug.SFTPWriteAllowlist) != 1 || reloaded.Debug.SFTPWriteAllowlist[0] != "/home/deploy" {
+		t.Fatalf("落库后的白名单 = %v，期望 [/home/deploy]", reloaded.Debug.SFTPWriteAllowlist)
+	}
+
+	// 直接查库确认 debug 键里确实带了新字段（防止只改了内存结构没写库）
+	var raw string
+	if err := db.QueryRow(`SELECT value FROM settings WHERE key = ?`, "debug").Scan(&raw); err != nil {
+		t.Fatalf("读取 debug 设置键失败: %v", err)
+	}
+	for _, frag := range []string{
+		`"capRemoteFsWrite":true`, `"capLifecycle":true`, `"capSudoCredential":false`,
+		`"sftpWriteAllowlist":["/home/deploy"]`,
+	} {
+		if !strings.Contains(raw, frag) {
+			t.Fatalf("库里的 debug 值缺少 %s：%s", frag, raw)
+		}
+	}
+}
+
+// sudo.credential（M10）：默认关、由 AllowSecrets 兜底、JSON 往返不丢。
+func TestDebugSettingsSudoCredentialNormalization(t *testing.T) {
+	if models.DefaultDebugSettings().CapSudoCredential {
+		t.Fatalf("sudo.credential 默认必须是关闭")
+	}
+	// 未开启「允许读取敏感数据」→ 归一化回落 false（与 capSecretWrite 同款）
+	off := models.NormalizeDebugSettings(models.DebugSettings{CapSudoCredential: true})
+	if off.CapSudoCredential {
+		t.Fatalf("AllowSecrets=false 时 sudo.credential 必须回落 false")
+	}
+	on := models.NormalizeDebugSettings(models.DebugSettings{AllowSecrets: true, CapSudoCredential: true})
+	if !on.CapSudoCredential {
+		t.Fatalf("AllowSecrets=true 时 sudo.credential 应保持 true")
+	}
+	// 旧配置（完全没有 capSudoCredential 字段）升级后必须保持关闭
+	path := filepath.Join(t.TempDir(), "settings.json")
+	legacy := `{"logEnabled":false,"debug":{"enabled":true,"port":8765,"allowEval":false,"allowSecrets":true,"capTerminalInput":true}}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("写入旧配置失败: %v", err)
+	}
+	s, err := NewJSONSettingsStore(path)
+	if err != nil {
+		t.Fatalf("创建设置存储失败: %v", err)
+	}
+	got, err := s.Get()
+	if err != nil {
+		t.Fatalf("读取设置失败: %v", err)
+	}
+	if got.Debug.CapSudoCredential {
+		t.Fatalf("旧配置里没有该字段 → 升级后必须保持关闭")
+	}
+	// 显式打开 → 落盘 → 往返仍在
+	got.Debug.CapSudoCredential = true
+	if err := s.Save(got); err != nil {
+		t.Fatalf("保存设置失败: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读取配置文件失败: %v", err)
+	}
+	if !strings.Contains(string(raw), `"capSudoCredential": true`) {
+		t.Fatalf("配置文件里应写入 capSudoCredential：%s", string(raw))
+	}
+	reloaded, err := s.Get()
+	if err != nil {
+		t.Fatalf("重新读取设置失败: %v", err)
+	}
+	if !reloaded.Debug.CapSudoCredential {
+		t.Fatalf("capSudoCredential 往返后丢失：%+v", reloaded.Debug)
+	}
+}

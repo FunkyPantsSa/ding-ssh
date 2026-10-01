@@ -77,7 +77,11 @@ ding-ssh 是基于 **Wails v2（Go + Vue 3）** 的桌面 SSH 客户端，面向
 
 **AI / 自动化**
 
-- **调试模式**：本机 HTTP 控制面 + SSE 实时事件流 + MCP 端点，危险能力（执行 JS、读取敏感数据）各自独立开关。
+- **调试模式**：本机 HTTP 控制面 + SSE 实时事件流 + MCP 端点（89 个工具，按域分组见「MCP 工具总览」），危险能力各自独立开关。
+- **能力位 + 两段式确认**：10 个能力位控制「允不允许这类操作」，破坏性 / 不可逆操作另需 `confirm.prepare` → `confirm.commit`；可逆 / 高频操作不需要 token。
+- **审计与「AI 记录」**：每次调用都留结构化记录（含脱敏参数、能力位、耗时、可否撤销），应用内可实时查看并撤销设置类改动。
+- **UI 观测与实验**：`ui.*` 读取布局 / 样式 / store，做局部截图与「改前 vs 改后」的像素 + 指纹差异量化，写入只影响当前实例、不落库。
+- **SFTP 与终端自动化**：`sftp.*` 走白名单 + 两段式确认，`terminal.run` / `terminal.expect` 让 AI 能发命令、等输出、拿退出码；`terminal.sudo` 可在用户授权后（`sudo.credential` + 两段式确认）用**应用里保存的密码**提权执行 `sudo -i`，密码只经随机临时文件喂给 `sudo -S`、用完即删，绝不进参数 / 返回值 / 日志 / 审计。
 - **日志体系**：脱敏落盘、调用日志、按会话跟踪、诊断包导出，并通过 MCP 工具暴露给 AI 客户端。
 
 ## 快捷键与交互
@@ -213,6 +217,8 @@ ding-ssh/
 
 **调试模式**：默认关闭；关闭时不监听任何端口。开启后仅绑定 `127.0.0.1`，需显式打开「允许局域网访问」才绑定 `0.0.0.0`。每次启动生成随机 token，请求需带 `Authorization: Bearer <token>`（也支持 `?token=`）。「允许执行 JS」（`/v1/eval`）与「允许读取敏感数据」是两个独立开关，默认都关闭。修改开关即时生效，无需重启。
 
+**能力位与监听地址是两回事**：能力位（含上述两个开关）**就地生效** —— 只有影响监听地址的字段（`enabled` / `port` / `bindLan`）变化才会重启调试服务，因此保存设置或勾选能力位**不会**换端口 / token、也**不会**踢掉已经连上的 MCP / HTTP 客户端（详见「能力位与两段式确认」）。
+
 ## 调试模式与 MCP
 
 在 **设置 → 调试模式** 开启。服务地址与 token 见该页「运行状态」，或读取 `%APPDATA%\ding-ssh\debug.json`。
@@ -245,8 +251,10 @@ ding-ssh/
 | POST | `/v1/logs/clear` | 清空日志 |
 | POST | `/v1/logs/export` | 导出诊断包 zip（返回路径） |
 | POST | `/v1/logs/options` | `{consoleEnabled?, fileEnabled?, level?, apiLogEnabled?}` 调整日志设置 |
+| GET | `/v1/tools` | **工具目录**：全部 MCP 工具的 `{name, capability[], confirmAction?, needsToken, description, inputSchema, hasStructuredOutput, outputSchema?}`，与 `tools/list` 同源 |
+| GET/POST | `/v1/ui/*` | UI 观测与实验（`ui.layout`、`ui.query`、`ui.screenshot`、`ui.snapshot`、`ui.diff`、`ui.setToken` …）：读类走 GET、需要参数的读类与写类走 POST，写类需要 `ui.write` 能力位 |
 
-鉴权：`Authorization: Bearer <token>` 或 `?token=<token>`。
+鉴权：`Authorization: Bearer <token>` 或 `?token=<token>`。`/v1/tools` 与其他读类接口一样需要带 token（工具目录里含能力位与描述，属于控制面信息，不做免鉴权例外）。
 
 辅助脚本 `scripts/debug.ps1`（端口与 token 自动从 `debug.json` 读取）常用命令：
 
@@ -264,9 +272,18 @@ ding-ssh/
 
 ### MCP（Streamable HTTP）
 
-端点为 `POST http://127.0.0.1:<port>/mcp`，共 **21 个工具**：
+端点为 `POST http://127.0.0.1:<port>/mcp`。当前共 **89 个工具**：`tools/list` 与 `GET /v1/tools` 的条数一致。其中 **63** 个由各域在**能力注册表**里登记（即 `AllRegisteredToolNames()` 的长度，见 `internal/debugsrv/*_register.go` 与 `sudo.go`），另外 **26** 个是内置工具（能力登记在内置表 `toolCaps` 里；`screenshot` 走的是「窗口截图」而非调试 op，因此不登记能力位）。**工具数量不要写死**：跑一次 `tools/list` 或 `GET /v1/tools` 取 `count` 即可。
 
-`app_state`、`list_terminals`、`read_terminal`、`send_input`、`scroll_terminal`、`resize_terminal`、`open_tab`、`close_tab`、`reconnect_session`、`disconnect_session`、`list_servers`、`get_settings`、`update_settings`、`eval_js`、`screenshot`、`recent_events`、`list_logs`、`read_logs`、`export_diagnostics`、`clear_logs`、`set_log_options`。
+按域分组（描述末尾都会自动带一行「能力要求」，由能力表与注册表生成，不会与真实校验脱节）：
+
+| 域 | 数量 | 代表工具 | 能力位 |
+| --- | --- | --- | --- |
+| 内置（状态 / 终端 / 设置 / 日志 / 权限审计确认） | 26 | `app_state`、`list_terminals`、`read_terminal`、`send_input`、`update_settings`、`list_logs`、`screenshot`、`app.permissions`、`app.health`、`app.recent_calls`、`confirm.prepare` / `confirm.commit` | 读类永远允许；写入按能力位（`terminal.input` / `config.write` / `lifecycle` / `eval`） |
+| `ui.*`（界面观测与实验） | 25 | `ui.layout`、`ui.query`、`ui.styles`、`ui.hit`、`ui.tree`、`ui.console`、`ui.screenshot`、`ui.snapshot`、`ui.diff`、`ui.assert`、`ui.setToken`、`ui.injectCSS`、`ui.click`、`ui.type` | 读类 `read`；写类 `ui.write`（可逆 / 高频，不需要 token） |
+| 应用控制（服务器 / 凭据 / 隧道 / 设置 / 命令 / 生命周期） | 25 | `servers.list` / `get` / `create` / `update` / `delete` / `duplicate` / `moveGroup` / `export` / `import`、`credentials.*`、`tunnels.*`、`settings.schema` / `settings.reset`、`app.commands` / `app.command`、`app.quit` | `config.write` / `secrets.write` / `lifecycle`；写类基本都要两段式确认 |
+| SFTP 与终端自动化 | 13 | `sftp.list` / `stat` / `read` / `transfers` / `write` / `mkdir` / `rename` / `remove` / `syncCwd` / `cancel`、`terminal.run` / `terminal.expect` / `terminal.sudo` | 读类 `read`；写类 `fs.remote.write`；`terminal.run` 只要 `terminal.input`；`terminal.sudo` 要 `sudo.credential` + `terminal.input`（详见「`sudo.credential`：用已保存的凭证提权」） |
+
+`GET /v1/tools` 是「一次看清所有工具」的入口（脚本 / 人盘点用）：每个条目带 `capability[]`（空数组 = 读类，永远允许）、`needsToken` 与 `confirmAction`（是否需要 `confirm.prepare` 取 token）、`inputSchema`、`hasStructuredOutput` 与 `outputSchema`。声明了 `outputSchema` 的 13 个工具（`app_state`、`app.health`、`app.permissions`、`list_terminals`、`read_terminal`、`ui.layout`、`ui.diff`、`ui.query`、`sftp.list`、`servers.list`、`servers.get`、`settings.schema`、`app.recent_calls`）在 `tools/call` 里除文本内容外还会返回 **`structuredContent`**（MCP 2025-06-18）；`content[0]` 的文本格式保持不变，老客户端忽略新字段即可。
 
 其中 5 个日志工具用于排查：`list_logs` 先看日志在哪、有多少；`read_logs` 读取文本并按 `level`（取该级别及以上，`level=warn` 同时含 WARN 与 ERROR）或大小写不敏感的关键字过滤，行数默认 200、上限 5000；`set_log_options` 可临时把级别调成 `debug`、打开文件/控制台日志或 MCP/调试 API 调用日志；`export_diagnostics` 导出诊断包 zip 并返回路径；`clear_logs` 清空日志。
 
@@ -280,6 +297,11 @@ ding-ssh/
 | `app://logs` | `application/json` | 日志文件与日志设置 |
 | `app://logs/tail` | `text/plain` | 最新日志末尾 200 行 |
 | `terminal://{id}/buffer` | `text/plain` | 指定终端的缓冲区文本 |
+| `ui://layout` | `application/json` | 界面布局骨架（与 `ui.layout` 同源） |
+| `ui://view` | `application/json` | 当前 view / 导航状态 |
+| `ui://console` | `text/plain` | 前端控制台环形缓冲的尾部文本 |
+| `sftp://{sessionId}/cwd` | `application/json` | 该会话 SFTP 当前目录摘要（前 20 条，全量用 `sftp.list`） |
+| `transfers://current` | `application/json` | 近期 / 进行中的 SFTP 传输（由进度事件折叠而来） |
 
 HTTP 客户端配置示例：
 
@@ -294,6 +316,120 @@ HTTP 客户端配置示例：
   }
 }
 ```
+
+### 能力位与两段式确认
+
+调试模式把整个应用暴露给 AI，因此权限被拆成两层，**不要混在一起**：
+
+- **能力位 = 「允不允许这类操作」**：10 个能力，逐个开关，宿主在每次工具调用前校验。读类永远允许（`read`，敏感字段仍受「允许读取敏感数据」控制），其余默认关闭，只有用户在 **设置 → 调试模式 → MCP 能力** 里显式打开才放行：
+
+| 能力 | 默认 | 说明 |
+| --- | --- | --- |
+| `read` | 开（不可关） | 读状态 / 终端缓冲区 / 日志 / 审计 |
+| `terminal.input` | **开** | 向终端写入（等价于代替用户敲命令） |
+| `secrets.read` | 关 | 读取含密钥的字段（同「允许读取敏感数据」开关） |
+| `eval` | 关 | 在页面上下文执行 JS（同「允许执行 JS」开关） |
+| `ui.write` | 关 | 改 CSS / 设计令牌 / store / 合成事件 |
+| `config.write` | 关 | 写配置（服务器、隧道、应用设置） |
+| `secrets.write` | 关 | 新增 / 修改 / 删除凭据（同时要求 `secrets.read`） |
+| `fs.remote.write` | 关 | 远端文件写入（同时要求白名单非空，见下） |
+| `sudo.credential` | 关 | **用应用里保存的密码执行 `sudo -i`**（同时要求 `secrets.read`；每次执行仍需两段式确认，见下） |
+| `lifecycle` | 关 | 重载页面 / 退出应用 / 清空日志 |
+
+- **两段式确认 = 「不可逆操作前再想一次」**：只有破坏性 / 不可逆动作才需要 `confirm.prepare` → `confirm.commit`（或把 token 作为参数传给写工具）。token 一次性、绑定 `action` + `args`、默认 120 秒过期。
+
+**可逆 / 高频操作只受能力位约束，不需要 token**：`send_input`、`terminal.run` / `terminal.expect`、`eval_js`、全部 `ui.*` 写入。否则「AI 管 SSH」与「改一点看一眼」的循环直接不可用。
+
+需要 token 的动作（`ConfirmableActions()`，数量随注册表增长）：`servers.create/update/delete`、`credentials.create/update/delete`、`tunnels.create/update/delete/start/stop`、`sftp.write/mkdir/rename/remove/cancel`、`terminal.sudo`、`settings.update/reset`、`logs.clear`、`app.quit`、`app.command`（只对会改配置的命令）、以及 **`capability.enable`** —— 开启敏感能力本身就是扩权动作，必须走确认。
+
+用 `app.permissions` 可随时查看当前能力快照、每个能力的说明与 `confirmActions`；`tools/list` 里每个工具的 `inputSchema` 与描述末尾的「能力要求」行都写明它需要什么。
+
+#### `sudo.credential`：用已保存的凭证提权（默认关，高风险）
+
+**它解决什么**：很多运维动作（改系统配置、装包、重启服务）必须 root。以前 AI 只能请用户在终端里手敲密码，或让用户自己配免密 sudo；`terminal.sudo` 让 AI 在用户显式授权后，用**应用里已经保存的那份密码**完成提权 —— 密码始终不经过 AI 的手。
+
+**开启条件（缺哪一个都会被中文明确指出来）**：
+
+1. `sudo.credential` 能力位本身打开 —— 设置 → 调试模式 → MCP 能力，**开启时需要二次确认**（与「远端文件写入」「应用生命周期」同一套交互，后端 `GetCapabilities().requiresConfirm` 也会列出它）；
+2. 同时开启 `secrets.read`（=「允许读取敏感数据」）—— 密码只从凭据库读，不允许读密钥就不可能用保存的密码提权。任一条不满足时，`terminal.sudo` 返回 `isError` + 中文原因（说清缺哪一项、去哪里开）；
+3. 每次调用 `terminal.sudo` **仍然**要两段式确认：先 `confirm.prepare(action="terminal.sudo", args={id, command})` 拿一次性 token，再把 token 传给工具（参数名 `confirm`，别名 `token`）。
+
+**它如何工作（一条完整流程）**：
+
+1. **前置校验**：会话必须是 SSH 会话（本机终端直接拒绝）、必须对应一台**已保存的服务器**、该服务器必须**保存了密码**（按 `servers.get includeSecrets=true` 的同一条宿主路径读取：`App.GetServers` → 存储层解密），并且远端写入白名单必须命中 `/tmp`（否则中文拒绝并说明去哪加）；
+2. 本包生成**随机**临时文件路径 `/tmp/.ding-sudo-<随机 12 位十六进制>`，并先后两次过既有白名单校验（写入前 + 写入后复核）；
+3. 宿主把 `<密码>\n` 用**会话已有的那份 SFTP 客户端**（不新建 SSH 连接）写进该临时文件 —— 密码只存在于宿主进程内，返回值只有 `{ok, path, bytes}`；
+4. **同一个会话里**用终端执行**一条** shell（用 `;` 串起来，任何一步失败都会继续往下走到清理）：
+   `chmod 600 <临时文件>` → 失败则**不执行** sudo → `sudo -S -p '' -i -c '<command>' < <临时文件>`（密码**只经由文件重定向**进入 sudo，绝不进命令行）→ `rm -f <临时文件> || true` → `ls -d <临时文件>` 校验已删除 → 打印退出码标记 `__DING_SUDO_RC__<退出码>__LS__<ls 退出码>__CHMOD__<0|1>`；
+5. 任何情况下都会清理：标记没出现（超时 / 静默 / 事件流关闭 / 取消）或发送失败时，会再补一条 `rm -f` + `ls` 校验，返回里的 `cleanedUp` 如实说明是否已确认删除；
+6. **输出净化**：返回前把捕获输出里出现的密码替换成 `***`（净化由宿主做 —— 它才是唯一持有明文的一侧），返回里的 `scrubbed=true` 表示已确认返回文本不含该密码；`false` 时会在返回里明确警告「本段输出未经打码，请勿落盘」；
+7. 返回结构与常见失败提示：`{ok, sudo:true, sessionId, matched, reason, elapsedMs, exitCode?, tempFile, cleanedUp, scrubbed, output, outputBytes, truncated, hint?}`。`ok=true` 只表示**流程走完**（拿到退出码与清理结果），命令本身的成败看 `exitCode`；`Sorry, try again` / `incorrect password` → 「保存的密码不正确或该账号无 sudo 权限（请核对后重试，或改配免密 sudo）」；超时 / 静默**不是协议错误**（返回 `matched=false` + 已捕获输出 + 中文说明）。
+
+**边界与「不做的事」**：
+
+- **不接受调用方传入的密码**：工具的 `inputSchema` 里**没有** `password` 字段，硬塞 `password` 参数会被直接拒绝（永不接受），也不支持从 `command` 里透传密码；
+- **不用于本机终端**：本机终端没有远端账号、也没有 SFTP 通道 → 中文拒绝；
+- **不在远端持久保留任何凭证**：临时文件随机命名 + `chmod 600` + 用完即删 + `ls` 校验；不写 shell history、不改 sudoers、不落任何用户配置；
+- **密码不进审计 / 日志 / 返回值 / MCP 资源**：本工具的审计 args 只有 `id` / `command` / `timeoutMs` / `idleMs`（token 本身也会被审计脱敏成 `***`）；宿主的日志只记会话 / 路径 / 字节数；返回值在净化之后才会序列化；
+- **白名单不含 `/tmp` 时直接拒绝**：临时文件路径同样受「远端写入白名单」约束（只按路径段前缀匹配），拒绝时给出中文说明与配置位置。
+
+**更安全的替代方案**（强烈建议优先考虑）：不要让 AI 拿着可复用的登录密码去提权，而是在该机器上配置**免密 sudo**（只放开具体命令），或者「密钥登录 + 受限 sudo 规则」：
+
+```sudoers
+# /etc/sudoers.d/ding-ai —— 只允许重启服务，且不需要密码（visudo -c 校验后再启用）
+deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart nginx, /usr/bin/systemctl reload nginx
+```
+
+```sudoers
+# 或者：保留密码，但限定可执行的命令范围（此时仍可用 terminal.sudo，只是把破坏面收窄）
+deploy ALL=(root) /usr/bin/systemctl restart nginx, /usr/bin/journalctl -u nginx
+```
+
+配好免密 sudo 后，`terminal.run` 就能完成同样的工作，而**不需要**打开 `sudo.credential` 能力 —— 本能力的价值只在「该机器没配免密、且必须立刻提权」时体现。另外：`sudo.credential` 只影响 AI 侧；如果这台机器的密码与登录密码相同，请优先考虑改用密钥登录 + 独立提权口令。
+
+
+### 审计与「AI 记录」页签
+
+每次 AI / 调试接口调用都会留一条**结构化审计记录**（时间、来源 `mcp|http|ui`、工具名、能力位、耗时、结果、已脱敏参数、是否可撤销与撤销提示），无论成功、被拒还是失败。环形缓冲保留最近 500 条：
+
+- 应用内：**设置 → AI 记录** 页签实时查看，可按能力 / 来源过滤；设置类改动（`update_settings` / `set_log_options`）还提供**「撤销」**按钮（宿主保留了改动前的设置快照，只保留最近 20 条，撤销后快照作废）；
+- AI 侧：`app.recent_calls` 自查「刚才那次操作到底做了什么」；
+- 明文密钥（`credentials.create` 的 `content`、`servers.import` 的 `json` 等）在进审计缓冲**之前**就被替换为 `***`，不会落进环形缓冲。
+
+### UI 观测与实验
+
+25 个 `ui.*` 工具让 AI「看见」界面并做可量化实验（实现见 `internal/debugsrv/ui.go` + `frontend/src/debug/ui.ts`）：
+
+- **观测（读）**：`ui.layout`（布局骨架 + 非预期重叠）、`ui.query` / `ui.styles` / `ui.tokens` / `ui.hit` / `ui.tree` 定位元素与样式、`ui.console` 读前端控制台、`ui.revision` 判断「DOM 认知是否已失效」、`ui.screenshot` / `ui.elementShot` 局部截图、`ui.snapshot` 存档、`ui.diff` 量化差异、`ui.assert` 自动验收；
+- **实验（写，需要 `ui.write`）**：`ui.setToken`、`ui.injectCSS`、`ui.storePatch`、`ui.navigate`、`ui.window`、`ui.reload`、`ui.click`、`ui.type`、`ui.key`、`ui.hover`、`ui.scroll`。这些写入**只作用于当前运行实例（内存态），不写设置、不落库**，刷新或 `ui.reload` 后还原。
+
+`ui.diff` 是**像素 + 指纹双口径**：
+
+- 像素口径：16×16 分块比较（`threshold` 控制通道差阈值），合并相邻变化块成 `regions[]`（最多 20 个），返回 `changedRatio` / `changedPixels`，并把原图叠半透明红的 **diff 图**作为图片内容返回、同时存盘；两次快照尺寸不同则按最小公共区域裁剪并在结果里说明；
+- 指纹口径：`changed[].fields[]` 只报**真正变化**的字段，其中 **`styles` 细化到 CSS 属性级**（形如 `{name:"styles", styles:{"border-radius":{from,to}}}`，只列值真的变了的属性；一个属性都没变就不出现该条目），其余字段 `rect` / `classes` / `zIndex` / `visible` / `text` 保持 `{name, from, to}` 形状；
+- 两次快照之间若发生过刷新 / HMR（`revision` 变化），会显式提示「DOM 差异可能不可比」，像素差异仍可参考。
+
+快照落在日志目录的 `ui-snapshots/`（`<name>.png` / `<name>.json`），文件名有白名单校验（防目录穿越）。
+
+### SFTP 与终端自动化
+
+**SFTP**（`sftp.*`，走会话已有的 SFTP 连接，不新建连接）：读用 `sftp.list` / `sftp.stat`（Lstat 语义，符号链接给出 target）/ `sftp.read`（`encoding=text|base64`，默认按 256KB 截断，返回 `sha256`）/ `sftp.transfers`；写用 `sftp.write`（覆盖写，`append=true` 追加）/ `sftp.mkdir` / `sftp.rename` / `sftp.remove` / `sftp.syncCwd`，传输可用 `sftp.cancel` 取消。
+
+- **白名单是硬边界**：写 / 删 / 改名 / 建目录的路径都必须是**绝对路径、不含 `..` 段**，且命中 **设置 → 调试模式 → MCP 能力 → 远端写入白名单** 的前缀（按路径段边界匹配：`/srv/app` 放行 `/srv/app` 与 `/srv/app/x`，不放行 `/srv/app-evil`）。**白名单留空 = 一律拒绝**。
+- **每个写操作都要两段式确认**（`fs.remote.write` + token），且返回里会写明「远端改动不可撤销、无法通过审计回滚」。
+- 远端写完成后会自动让 SFTP 面板缓存失效，因此 AI 写文件不会让用户看到旧目录内容。
+
+**终端自动化**：
+
+- `terminal.run`：发送 `command`（自动补 `\r`），给了 `expect` 正则就等它命中，未给 `expect` 时等**输出静默**（`idleMs`，默认 400ms；首段**真实输出**之前保持 1500ms 宽限）后返回 `{matched, pattern?, exitMarker?, reason, elapsedMs, output, outputBytes, truncated, idleMs?, echoSkippedBytes?, bufferTail}`。
+  - **`expect` 只在「命令回显之后」的文本上匹配**：PTY 会先把命令行回显回来，命令里含 `echo ===DONE===` + `expect="===DONE==="` 这种写法不会命中回显（`echoSkippedBytes` 如实给出跳过的回显字节数）。更稳妥的写法是让标记在远端运行时才展开：`D=__MCP_$(echo DONE)__; <你的命令>; echo $D` + `expect="__MCP_DONE__"`。
+  - **超长命令的折行回显也能定位准**：命令比终端宽度长时 PTY 会把回显折成交错的多段（可见文本里多出换行），旧实现按「逐字 + 换行」定位会失准；现在改为**长度口径为主**（逐字节比较命令文本、比较时跳过折行插入的换行，中文按字节数算，与显示宽度无关），并与换行口径**取更稳的那个**（`terminalEchoEnd` / `terminalEchoEndByLength`），两者都定位不到时退回「不跳过」的保守行为。
+  - 「启动慢、先静默后吐输出」的命令（如 `docker ps`）在**未给 `expect`** 时可能过早返回、只拿到回显；这类场景请两步走：先 `terminal.run`（不要 expect）拿初始输出，再用 `terminal.expect` 等结果，或加大 `idleMs`。
+  - `wrapExitMarker=true` 会把命令包成 `command; printf '\n__DING_EXIT__%s\n' "$?"` 以捕获退出码（返回里 `wrapped=true` 与 `wrappedCommand` 如实说明命令被改过）；这是 **POSIX shell** 语义，在 Windows 本地终端（cmd / PowerShell）上拿不到退出码。
+  - `expect` 超时**不是协议错误**：返回 `matched=false` + 已捕获输出 + 中文说明。
+- `terminal.expect`：纯等待（**不发送任何数据**），`pattern` 正则命中即返回；`sinceMarker` 可跳过上一次已看过的内容。它没有「回显」可跳过，因此 pattern 在本次等待收到的全部新增文本上匹配。
+- `terminal.sudo`：用**应用里保存的密码**在当前会话对应的服务器上执行 `sudo -i`（需要 `sudo.credential` + `terminal.input`，且每次都要 `confirm.prepare(action="terminal.sudo")`）。密码只经随机临时文件喂给 `sudo -S`、用完即删，绝不进参数 / 返回值 / 日志 / 审计；`idleMs` **省略时不启用「静默提前返回」**（一直等到退出码标记或 `timeoutMs`，避免慢命令被误判成卡住），显式给出（50–60000）时按 `terminal.run` 的语义用。完整流程、边界与更安全的替代方案见上文「能力位与两段式确认」里的 `sudo.credential` 小节。
+- **同会话串行化**：同一会话上同一时刻只允许一个 `terminal.run` / `terminal.expect` / `terminal.sudo`，第二个调用被**直接拒绝**（不排队），避免两个调用互相偷走对方的输出增量。
 
 ### MCP 服务端推送（SSE）
 
@@ -415,6 +551,10 @@ Wails v2 在 Windows 上固定调用 `PutAreBrowserAcceleratorKeysEnabled(false)
 - **主机密钥未强制校验**：仅展示指纹，`known_hosts` 校验在代码中标注为待办（见「数据与安全」）。
 - **CDP 不可用**：WebView2 远程调试端口无法在 Wails v2.13 下注入，页面级能力改用 `/v1/eval`，截图用原生窗口捕获（受窗口遮挡影响，窗口需可见）。
 - **`/v1/terminals/{id}/resize` 只改模拟器尺寸**，不改远端 PTY，仅用于复现布局/渲染问题。
+- **事件通道满会丢事件**：`/v1/stream`、`GET /mcp`（SSE）与终端自动化共用同一个 Hub 通道，订阅者消费不及时（或阻塞太久）时**该订阅者会丢事件**（Hub 不排队、不阻塞发布方）；`terminal.run` / `terminal.expect` 因此可能漏掉部分输出（返回里的 `outputBytes` 与 `droppedOutput` 用于自查），需要完整历史时用 `read_terminal` 读缓冲区。
+- **`ui.reload` 会重挂整个前端**：页面重载后终端重连、DOM 状态与快照指纹全部失效（`ui.revision` 自增），正在进行的 `ui.*` 会话需要重新定位元素；需要保留现场请先 `ui.snapshot`。
+- **`ui.*` 依赖前端已构建的调试桥**：非 `wails dev` 场景下必须先把前端产物构建好（`npm run build` 或 `wails build`），否则 `frontend/src/debug/ui.ts` 的桥不在页面里，`ui.*` 会返回「未知操作」这类中文错误（后端此时仍能正常工作，只是页面内能力不可用）。
+- **`wrapExitMarker` 是 POSIX 语义**：在 Windows 本地终端（cmd / PowerShell）上包裹命令无法拿到退出码，请用 `read_terminal` 或自行 `echo %ERRORLEVEL%` / `$LASTEXITCODE`。
 
 ## 版本与变更记录
 

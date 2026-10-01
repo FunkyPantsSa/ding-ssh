@@ -66,6 +66,14 @@ export function ExportDiagnostics() {
   return window['go']['main']['App']['ExportDiagnostics']();
 }
 
+export function GetAuditRecords(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetAuditRecords'](arg1, arg2, arg3);
+}
+
+export function GetCapabilities() {
+  return window['go']['main']['App']['GetCapabilities']();
+}
+
 export function GetCredentials() {
   return window['go']['main']['App']['GetCredentials']();
 }
@@ -186,6 +194,10 @@ export function SelectSavePath(arg1) {
   return window['go']['main']['App']['SelectSavePath'](arg1);
 }
 
+export function SetCapability(arg1, arg2) {
+  return window['go']['main']['App']['SetCapability'](arg1, arg2);
+}
+
 export function SetLogOptions(arg1) {
   return window['go']['main']['App']['SetLogOptions'](arg1);
 }
@@ -256,6 +268,10 @@ export function TestServer(arg1) {
 
 export function TestServers(arg1) {
   return window['go']['main']['App']['TestServers'](arg1);
+}
+
+export function UndoAuditRecord(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UndoAuditRecord'](arg1, arg2, arg3);
 }
 
 export function UnlockWithMasterPassword(arg1) {

@@ -7,10 +7,13 @@
 // 会话管理与对外协议，前端桥负责「页面内视角」的能力（读状态 / 输入 / 滚动 / eval）。
 import {EventsOn} from '../../wailsjs/runtime/runtime'
 import {DebugReply} from '../../wailsjs/go/main/App'
+import {buildCommands, runCommand} from '../commands'
 import {useSessionsStore} from '../stores/sessions'
+import {useServersStore} from '../stores/servers'
 import {useSettingsStore} from '../stores/settings'
 import {useUIStore} from '../stores/ui'
 import {getDebugTerminal, listDebugTerminals, type DebugTerminalEntry} from './registry'
+import {handleUIOp} from './ui'
 
 interface DebugRequest {
   id: string
@@ -98,8 +101,41 @@ function requireTerminal(id: unknown): DebugTerminalEntry {
   return e
 }
 
+// ---- 应用控制面（M7）：内置命令清单与执行 ----
+//
+// 命令定义**不在这里**：唯一事实来源是 src/commands.ts 的 buildCommands（App.vue 的命令面板
+// 也用它渲染）。这里只负责把清单/执行结果回给调试接口，因此不存在「两处清单漂移」的问题
+//（M9 之前 bridge.ts 自己维护了一份同步清单，面板改了这里忘改就会报「未知命令」）。
+
+/** app.commands 的返回形状：面板命令的对外视图（id / 标题 / 分区 / 影响范围）。 */
+interface AppCommand {
+  id: string
+  title: string
+  section?: string
+  hotkey?: string
+  note?: string
+}
+
+function listAppCommands(): {count: number; commands: AppCommand[]} {
+  const items = buildCommands({sessions: useSessionsStore(), servers: useServersStore(), ui: useUIStore()})
+  const commands: AppCommand[] = items.map(({id, title, section, hotkey, note}) => ({id, title, section, hotkey, note}))
+  return {count: commands.length, commands}
+}
+
+async function runAppCommand(id: string, extra: unknown): Promise<unknown> {
+  return runCommand({sessions: useSessionsStore(), servers: useServersStore(), ui: useUIStore()}, id, extra)
+}
+
 async function handle(req: DebugRequest): Promise<unknown> {
   const args = req.args ?? {}
+
+  // ---- UI 观测 / 实验域（M5+M6）：op 形如 ui.*，实现见 debug/ui.ts ----
+  // Go 侧（internal/debugsrv/ui.go）负责裁剪 / 截图换算 / 像素差异 / 快照落盘，
+  // 这里只执行页面内的读与动作，回包由 installDebugBridge 统一处理。
+  if (req.op.startsWith('ui.')) {
+    return handleUIOp(req.op, args)
+  }
+
   const sessions = useSessionsStore()
   const ui = useUIStore()
 
@@ -208,6 +244,23 @@ async function handle(req: DebugRequest): Promise<unknown> {
       sessions.closeTab(id)
       return {ok: true}
     }
+
+    // ---- 应用控制面（M7）：会话 → 服务器节点（建隧道时需要完整节点，只有标签里才有）----
+    case 'session.node': {
+      const id = str(args.id)
+      if (!id) throw new Error('缺少 id')
+      const tab = sessions.tabs.find((t) => t.clientId === id || t.sessionId === id)
+      if (!tab) throw new Error(`未找到会话: ${id}`)
+      if (tab.kind !== 'ssh') throw new Error('本机终端没有可用的服务器节点，无法据此建立 SSH 隧道')
+      return tab.node
+    }
+
+    // ---- 应用控制面（M7）：内置命令面板的命令清单与执行 ----
+    case 'app.commands':
+      return listAppCommands()
+
+    case 'app.command':
+      return runAppCommand(str(args.id), args.args)
 
     case 'eval': {
       const js = str(args.js)

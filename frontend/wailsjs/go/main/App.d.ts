@@ -35,6 +35,10 @@ export function ExportConfig(arg1:string):Promise<string>;
 
 export function ExportDiagnostics():Promise<Record<string, any>>;
 
+export function GetAuditRecords(arg1:number,arg2:string,arg3:string):Promise<Array<Record<string, any>>>;
+
+export function GetCapabilities():Promise<Record<string, any>>;
+
 export function GetCredentials():Promise<Array<models.Credential>>;
 
 export function GetGroups():Promise<Array<string>>;
@@ -95,6 +99,8 @@ export function SelectLocalFiles():Promise<Array<string>>;
 
 export function SelectSavePath(arg1:string):Promise<string>;
 
+export function SetCapability(arg1:string,arg2:boolean):Promise<void>;
+
 export function SetLogOptions(arg1:Record<string, any>):Promise<void>;
 
 export function SetLogTrace(arg1:string,arg2:boolean):Promise<void>;
@@ -130,6 +136,8 @@ export function SyncSftpToTerminal(arg1:string,arg2:string):Promise<void>;
 export function TestServer(arg1:models.ServerNode):Promise<models.ServerTestResult>;
 
 export function TestServers(arg1:Array<models.ServerNode>):Promise<Array<models.ServerTestResult>>;
+
+export function UndoAuditRecord(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function UnlockWithMasterPassword(arg1:string):Promise<void>;
 

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"ding-ssh/internal/cryptox"
+	"ding-ssh/internal/debugsrv"
 	"ding-ssh/internal/localterm"
 	"ding-ssh/internal/logx"
 	"ding-ssh/internal/models"
@@ -50,6 +51,16 @@ type App struct {
 
 	debugBoot DebugBoot        // 启动期确定的调试模式配置（CDP 端口需在 wails.Run 前决定）
 	debug     *debugController // 调试模式运行时（未开启时为 nil）
+
+	// 审计 / 两段式确认（见 internal/debugsrv）：由 App 持有而不是 debugController，
+	// 因为「设置 → AI 记录」页签与 SetCapability 前端开关在调试模式关闭时也要工作。
+	audits   *debugsrv.AuditLog
+	confirms *debugsrv.ConfirmManager
+
+	// startedAt 应用启动时刻（毫秒），供 app.health 计算已运行时长。
+	startedAt int64
+	// dataDir 数据目录（SQLite / 设置所在目录，用于 app.health 展示）。
+	dataDir string
 }
 
 // NewApp 创建 App 实例。boot 为启动期读到的调试模式配置（见 readDebugBoot）。
@@ -60,6 +71,14 @@ func NewApp(boot DebugBoot) *App {
 // startup 在应用启动时初始化依赖。
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.startedAt = time.Now().UnixMilli()
+	if dir, err := os.UserConfigDir(); err == nil {
+		a.dataDir = filepath.Join(dir, "ding-ssh")
+	}
+	// 审计 + 两段式确认：先于 startDebug 创建，保证启动早期的调用也被记录
+	// （调试模式关闭时它们仍然被前端「AI 记录」页签使用）。
+	a.audits = debugsrv.NewAuditLog()
+	a.confirms = debugsrv.NewConfirmManager(debugsrv.DefaultConfirmTTL)
 	notify := func(eventName string, payload interface{}) {
 		wailsruntime.EventsEmit(a.ctx, eventName, payload)
 		// 调试模式：同一份事件同时投递给 SSE 订阅者（GET /v1/stream）

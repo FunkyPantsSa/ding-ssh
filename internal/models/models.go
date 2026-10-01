@@ -115,6 +115,10 @@ type Settings struct {
 }
 
 // DebugSettings 调试模式：应用内置的本地控制面（HTTP + MCP），供 AI / 自动化调用。
+//
+// 后半部分是「能力位」（capability）：它们的语义与 internal/debugsrv 的 Capability 一一对应
+// （终端输入 / 界面写入 / 配置写入 / 凭据写入 / 远端文件写入 / sudo 凭证提权 / 应用生命周期），
+// 由 internal/debugsrv.Gate 在每次工具调用前校验；read 能力永远允许，eval 沿用 AllowEval。
 type DebugSettings struct {
 	Enabled      bool `json:"enabled"`      // 总开关（默认关）
 	Port         int  `json:"port"`         // HTTP 监听端口；0 表示自动挑空闲端口
@@ -122,22 +126,106 @@ type DebugSettings struct {
 	AllowEval    bool `json:"allowEval"`    // 允许在页面上下文执行 JS（危险，默认关）
 	AllowSecrets bool `json:"allowSecrets"` // 允许读取含密码等敏感数据（默认关）
 	CDPEnabled   bool `json:"cdpEnabled"`   // 同时开启 WebView2 远程调试（截图 / DOM；重启后生效）
+
+	// ---- 能力位（权限内核，见 internal/debugsrv/caps.go）----
+	//
+	// 能力位 = 「允不允许这类操作」；破坏性 / 不可逆操作另外还要两段式确认
+	// （confirm.prepare → confirm.commit，固定开启）；可逆 / 高频操作（终端输入、
+	// 界面写入、eval）只受能力位约束，不要求 token。
+	CapTerminalInput bool     `json:"capTerminalInput"` // terminal.input（向终端写入，默认开；不需要 token）
+	CapUIWrite       bool     `json:"capUiWrite"`       // ui.write（改 CSS / 令牌 / store / 合成事件，默认关；不需要 token）
+	CapConfigWrite   bool     `json:"capConfigWrite"`   // config.write（服务器 / 隧道 / 设置写入，默认关；设置类改动需 token）
+	CapSecretWrite   bool     `json:"capSecretWrite"`   // secrets.write（凭据写入，默认关；还需 AllowSecrets==true，需 token）
+	CapRemoteFSWrite bool     `json:"capRemoteFsWrite"` // fs.remote.write（SFTP 写 / 删，默认关；需 token）
+	CapLifecycle     bool     `json:"capLifecycle"`     // lifecycle（reload / 退出 / 重启 / 清日志，默认关；需 token）
+
+	// CapSudoCredential sudo.credential（用应用里保存的密码在当前会话的服务器上执行 sudo -i，默认关；需 token）。
+	//
+	// 前置条件：还必须 AllowSecrets==true（密码要从凭据库读出来）—— 与 CapSecretWrite 同一套兜底规则，
+	// 由 NormalizeDebugSettings 强制（禁止读取密钥时不可能用保存的密码提权）。
+	// 边界（详见 internal/debugsrv/sudo.go 与 README 的「sudo.credential」一节）：
+	// 密码只从凭据库读、只经随机临时文件（chmod 600、用完即删）喂给 sudo -S，绝不进 MCP 参数 / 返回值 / 日志 / 审计；
+	// 工具参数里永远没有 password 字段，也不接受调用方传入密码。
+	CapSudoCredential bool `json:"capSudoCredential"`
+	// SFTPWriteAllowlist 远端可写路径前缀白名单（默认空 = 不允许任何路径）。
+	// 只有在 CapRemoteFSWrite 为 true 时才有意义，由后续 SFTP 写入实现逐条校验。
+	SFTPWriteAllowlist []string `json:"sftpWriteAllowlist"`
 }
 
 // DefaultDebugPort 调试服务默认端口。
 const DefaultDebugPort = 8765
 
-// DefaultDebugSettings 调试模式默认值：关闭、仅本机、默认端口、危险能力全关。
+// DefaultDebugSettings 调试模式默认值：关闭、仅本机、默认端口，
+// 仅放开「终端输入」（读类能力永远允许），其余危险能力全关。
 func DefaultDebugSettings() DebugSettings {
-	return DebugSettings{Enabled: false, Port: DefaultDebugPort}
+	return DebugSettings{Enabled: false, Port: DefaultDebugPort, CapTerminalInput: true}
 }
 
-// NormalizeDebugSettings 校验调试模式设置：端口为 0（自动）或 1024–65535，越界回落默认端口。
+// DebugCapabilityKeys 能力位在 DebugSettings 里的字段名（JSON tag）。
+//
+// 用途：旧配置 / 旧库可能完全没有能力位字段，此时反序列化得到的全是 false，
+// 会把「终端输入」这个默认开启的能力误判为关闭；调用方用 HasDebugCapabilityFields
+// 判断「这段 JSON 里到底有没有能力位」，再决定是否补默认值。
+var DebugCapabilityKeys = []string{
+	"capTerminalInput", "capUiWrite", "capConfigWrite",
+	"capSecretWrite", "capRemoteFsWrite", "capLifecycle", "capSudoCredential",
+}
+
+// HasDebugCapabilityFields 判断一段 JSON 里是否出现过任一能力位字段。
+// 返回 false 表示这是旧数据（升级前的配置），调用方应补上 DefaultDebugSettings 的默认能力位。
+func HasDebugCapabilityFields(raw []byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	s := string(raw)
+	for _, k := range DebugCapabilityKeys {
+		if strings.Contains(s, `"`+k+`"`) {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeDebugSettings 校验调试模式设置：
+//   - 端口为 0（自动）或 1024–65535，越界回落默认端口；
+//   - 白名单去掉空白项与重复项（空项没有意义：前缀匹配空串等于允许一切）；
+//   - secrets.write / sudo.credential 由 AllowSecrets 兜底（两者都要读回保存的密钥，
+//     不可能在禁止读取密钥时成立）。
+//
+// 注意：这里**不**给能力位补默认值（false 是合法取值「用户明确关掉了」），
+// 「旧配置缺字段」的默认值由存储层在反序列化时用 HasDebugCapabilityFields 判断后补齐。
 func NormalizeDebugSettings(d DebugSettings) DebugSettings {
 	if d.Port != 0 && (d.Port < 1024 || d.Port > 65535) {
 		d.Port = DefaultDebugPort
 	}
+	d.SFTPWriteAllowlist = NormalizeSFTPWriteAllowlist(d.SFTPWriteAllowlist)
+	if !d.AllowSecrets {
+		d.CapSecretWrite = false
+		d.CapSudoCredential = false
+	}
 	return d
+}
+
+// NormalizeSFTPWriteAllowlist 规范化远端可写路径白名单：去空白、去重、保持原始顺序；
+// 空列表返回 nil（JSON 序列化为 null，与「默认空 = 禁止任何路径」语义一致）。
+func NormalizeSFTPWriteAllowlist(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(paths))
+	seen := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		p = strings.TrimRight(strings.TrimSpace(p), "/")
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // 日志级别取值（对应 Settings.LogLevel，与 internal/logx 接受的取值一致）。

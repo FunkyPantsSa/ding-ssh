@@ -231,6 +231,29 @@ func escapeShellPath(path string) string {
 	return "'" + escaped + "'"
 }
 
+// SftpClient 返回指定会话的 SFTP 客户端（M8 调试控制面用）。
+//
+// 复用会话上**已经建立的那一份**客户端（Session.SftpClient 内部 lazy + once），
+// 不新建 SSH 连接、不重复握手；会话不存在时返回 ErrSessionNotFound。
+// 存在的意义：debugsrv 的 sftp.stat / sftp.read / sftp.write 需要 stat / seek / OpenFile
+// 这些 Manager 现有方法没有覆盖的能力，而 Manager.get 是非导出的。
+func (m *Manager) SftpClient(sessionID string) (*sftp.Client, error) {
+	s, err := m.get(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	client, err := s.SftpClient()
+	if err != nil {
+		return nil, fmt.Errorf("建立 SFTP 连接失败: %w", err)
+	}
+	return client, nil
+}
+
+// InvalidateSftpCache 让指定目录的 SWR 缓存失效（M8：AI 写入 / 删除后让面板立刻看到新内容）。
+func (m *Manager) InvalidateSftpCache(path string) {
+	m.cache.Invalidate(path)
+}
+
 // SftpList 列出指定会话的远程目录条目。
 func (m *Manager) SftpList(sessionID, path string) ([]models.SFTPEntry, error) {
 	s, err := m.get(sessionID)

@@ -151,6 +151,43 @@ export interface DebugSettings {
   allowEval: boolean // 允许在页面执行 JS（危险）
   allowSecrets: boolean // 允许读取敏感数据
   cdpEnabled: boolean // 同时开启 WebView2 CDP（Wails v2.13 下暂不可用，预留）
+  // ---- 能力位（权限内核，对应 Go 端 internal/debugsrv 的 Capability）----
+  capTerminalInput: boolean // terminal.input：向终端写入（默认开）
+  capUiWrite: boolean // ui.write：改 CSS / 令牌 / store / 合成事件（默认关）
+  capConfigWrite: boolean // config.write：服务器 / 隧道 / 设置写入（默认关）
+  capSecretWrite: boolean // secrets.write：凭据写入（默认关；还需 allowSecrets）
+  capRemoteFsWrite: boolean // fs.remote.write：SFTP 写 / 删（默认关）
+  // sudo.credential：用应用里保存的密码执行 sudo -i（默认关；还需 allowSecrets，且每次执行仍需两段式确认）
+  capSudoCredential: boolean
+  capLifecycle: boolean // lifecycle：reload / 退出 / 重启（默认关）
+  sftpWriteAllowlist: string[] // 远端可写路径前缀白名单（默认空 = 禁止任何写入路径）
+}
+
+// 审计记录（对应 Go 端 debugsrv.AuditRecord，用于「AI 记录」页签）。
+export interface AuditRecordView {
+  id: string
+  ts: number // 毫秒时间戳
+  source: string // mcp | http | ui
+  tool: string
+  cap: string // 主要能力位（读类为空）
+  args: string // 已脱敏的规范化参数 JSON
+  ok: boolean
+  error?: string
+  durationMs: number
+  reversible: boolean
+  revertHint?: string
+}
+
+// MCP 能力快照（GetCapabilities 的返回）。
+export interface CapabilitiesView {
+  caps: Record<string, boolean>
+  descriptions: Record<string, string>
+  labels: Record<string, string>
+  requiresConfirm: string[]
+  confirmActions: string[]
+  sftpWriteAllowlist: string[]
+  readAlwaysAllowed: boolean
+  confirmNote: string
 }
 
 // 会话标签页位置（对应 Go 端 Settings.TabBarPlacement）。

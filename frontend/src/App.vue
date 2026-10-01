@@ -15,6 +15,7 @@ import TunnelPage from './components/TunnelPage.vue'
 import QuickConnectPanel from './components/QuickConnectPanel.vue'
 import {securityService} from './services/security'
 import {getElementRect} from './utils/dom'
+import {buildCommands} from './commands'
 import {useServersStore} from './stores/servers'
 import {useSessionsStore} from './stores/sessions'
 import {useSettingsStore} from './stores/settings'
@@ -286,32 +287,15 @@ interface CmdItem {
   run: () => void
 }
 
+// 命令定义见 src/commands.ts（与调试桥的 app.commands / app.command 同源，M9 抽取）。
+// 这里只做「面板需要的形状」（label / hint）映射与关键字过滤，行为与 id 保持原样。
 const cmdItems = computed<CmdItem[]>(() => {
-  const items: CmdItem[] = [
-    {id: 'workspace', label: '打开工作区', hint: '导航', run: () => ui.showWorkspace()},
-    {id: 'servers', label: '打开服务器管理', hint: '导航', run: () => ui.showServers()},
-    {id: 'tunnel', label: '打开隧道页', hint: '导航', run: () => ui.showTunnel()},
-    {id: 'settings', label: '打开设置', hint: '导航', run: () => ui.showSettings()},
-    {id: 'new', label: '新建服务器', hint: '操作', run: () => ui.requestNewServer()},
-    {id: 'local', label: '打开本地终端', hint: '工作区', run: () => { ui.showWorkspace(); sessions.openLocalTab() }},
-  ]
-  if (sessions.sftpVisible) {
-    items.push({id: 'hide-tool', label: '收起侧栏工具', hint: '工作区', run: () => { sessions.sftpVisible = false }})
-  } else {
-    items.push({id: 'show-sftp', label: '打开 SFTP', hint: '工作区', run: () => sessions.showRightPanel('sftp')})
-    items.push({id: 'show-sys', label: '打开系统看板', hint: '工作区', run: () => sessions.showRightPanel('sysinfo')})
-  }
-  for (const s of servers.servers) {
-    items.push({
-      id: 'connect-' + s.id,
-      label: '连接 ' + (s.name || `${s.user}@${s.host}`),
-      hint: '工作区',
-      run: () => {
-        ui.showWorkspace()
-        sessions.openTab(s)
-      },
-    })
-  }
+  const items: CmdItem[] = buildCommands({sessions, servers, ui}).map((c) => ({
+    id: c.id,
+    label: c.title,
+    hint: c.section,
+    run: c.run,
+  }))
   const q = cmdQuery.value.trim().toLowerCase()
   if (!q) return items
   return items.filter((x) => x.label.toLowerCase().includes(q) || x.hint.toLowerCase().includes(q))
