@@ -131,10 +131,45 @@ export interface Settings {
   keepAliveEnabled: boolean // 心跳包防终端超时，默认开启
   localShell: string // 本机终端：darwin zsh|bash；windows powershell|cmd；linux default
   tabBarPlacement: TabBarPlacement // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 side）
+  rightClickAction: RightClickAction // 终端鼠标右键行为：menu 打开选项栏（默认）| paste 直接粘贴
+  navSectionOrder: NavSectionOrder // 左侧导航区段顺序：nav / sessions / tabs 的排列（默认 "nav,sessions,tabs"）
+  debug: DebugSettings // 调试模式（本地控制面，供 AI / 自动化调用）
+  logToFile: boolean // 是否把运行日志写入日志文件（默认 false）
+  logLevel: LogLevel // 日志级别（默认 info）
+  logApiCalls: boolean // 是否记录 MCP / 调试 API 调用明细（默认 false）
+  logTraceTabs: string[] // 需要逐条记录会话日志的标签页 clientId 列表（默认 []）
+}
+
+// 日志级别（对应 Go 端日志设置 LogLevel）。
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+// 调试模式设置（对应 Go 端 models.DebugSettings）。
+export interface DebugSettings {
+  enabled: boolean // 总开关（默认关）
+  port: number // HTTP 端口；0 = 自动挑空闲端口
+  bindLan: boolean // false: 仅 127.0.0.1；true: 0.0.0.0
+  allowEval: boolean // 允许在页面执行 JS（危险）
+  allowSecrets: boolean // 允许读取敏感数据
+  cdpEnabled: boolean // 同时开启 WebView2 CDP（Wails v2.13 下暂不可用，预留）
 }
 
 // 会话标签页位置（对应 Go 端 Settings.TabBarPlacement）。
 export type TabBarPlacement = 'top' | 'side'
+
+// 终端鼠标右键行为（对应 Go 端 Settings.RightClickAction）。
+export type RightClickAction = 'menu' | 'paste'
+
+// 左侧导航区段标识（对应 Go 端 models.NavSectionNav 等）。
+export type NavSectionKey = 'nav' | 'sessions' | 'tabs'
+
+// 左侧导航区段顺序（对应 Go 端 Settings.NavSectionOrder）：nav / sessions / tabs 三键的排列。
+export type NavSectionOrder =
+  | 'nav,sessions,tabs'
+  | 'nav,tabs,sessions'
+  | 'sessions,nav,tabs'
+  | 'sessions,tabs,nav'
+  | 'tabs,nav,sessions'
+  | 'tabs,sessions,nav'
 
 // 本机 Shell 选项（对应 Go 端 localterm.ShellOption）。
 export interface LocalShellOption {

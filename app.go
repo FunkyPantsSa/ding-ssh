@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	rdebug "runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -38,14 +39,22 @@ type App struct {
 	history     store.HistoryStore
 	vault       *cryptox.Vault
 
-	unlockMu       sync.Mutex
-	unlockFails    int
+	unlockMu          sync.Mutex
+	unlockFails       int
 	unlockLockedUntil time.Time
+
+	// traceMu / traceTabs 需要全量跟踪输出的会话（设置里的 LogTraceTabs 的内存快照）。
+	// 终端输出是高频事件，回调里不能每次查库，因此只在启动 / 保存设置时刷新这份快照。
+	traceMu   sync.RWMutex
+	traceTabs map[string]bool
+
+	debugBoot DebugBoot        // 启动期确定的调试模式配置（CDP 端口需在 wails.Run 前决定）
+	debug     *debugController // 调试模式运行时（未开启时为 nil）
 }
 
-// NewApp 创建 App 实例。
-func NewApp() *App {
-	return &App{}
+// NewApp 创建 App 实例。boot 为启动期读到的调试模式配置（见 readDebugBoot）。
+func NewApp(boot DebugBoot) *App {
+	return &App{debugBoot: boot}
 }
 
 // startup 在应用启动时初始化依赖。
@@ -53,9 +62,18 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	notify := func(eventName string, payload interface{}) {
 		wailsruntime.EventsEmit(a.ctx, eventName, payload)
+		// 调试模式：同一份事件同时投递给 SSE 订阅者（GET /v1/stream）
+		if a.debug != nil && a.debug.hub != nil {
+			a.debug.hub.PublishRaw(eventName, payload)
+		}
+		// 日志：命中 LogTraceTabs 的会话，其输出旁路一份到日志（见 debug.go 的 traceEvent）
+		a.traceEvent(eventName, payload)
 	}
 	a.manager = sshx.NewManager(notify)
 	a.local = localterm.NewManager(notify)
+
+	// 调试模式（可选）：HTTP 控制面 + 前端桥，供 AI / 自动化调用。
+	a.startDebug()
 
 	// 安全保险库（主密钥 / 主密码）
 	configDir := filepath.Join(func() string {
@@ -110,13 +128,14 @@ func (a *App) startup(ctx context.Context) {
 		a.history = store.NewSQLiteHistoryStore(db)
 	}
 
-	// 加载设置并应用日志开关（默认关闭）。
+	// 加载设置并应用日志开关（控制台 / 文件 / 级别 / 调用日志）。
 	settings, err := a.settings.Get()
 	if err != nil {
 		logx.Errorf("读取设置失败: %v", err)
 	}
-	logx.SetEnabled(settings.LogEnabled)
-	logx.Infof("应用启动，日志开关: %v", settings.LogEnabled)
+	a.applyLogSettings(settings)
+	// 启动自检：把版本 / 日志目录 / 各项开关写进日志，便于排查「日志页没内容」
+	a.logStartupSelfCheck(settings)
 
 	// 注入设置读取器，供 Manager 在建立会话时获取最新配置。
 	a.manager.SetSettingsGetter(func() models.Settings {
@@ -171,7 +190,8 @@ func (a *App) initJSONStores() {
 	if err != nil {
 		logx.Errorf("读取设置失败: %v", err)
 	}
-	logx.SetEnabled(settings.LogEnabled)
+	a.applyLogSettings(settings)
+	a.logStartupSelfCheck(settings)
 	logx.Infof("应用启动（JSON 兜底），日志开关: %v", settings.LogEnabled)
 
 	credentialStore, err := store.NewJSONCredentialStore(store.DefaultCredentialPath())
@@ -192,6 +212,7 @@ func (a *App) initJSONStores() {
 
 // shutdown 在应用退出时清理资源。
 func (a *App) shutdown(ctx context.Context) {
+	a.stopDebug()
 	if a.local != nil {
 		a.local.CloseAll()
 	}
@@ -308,11 +329,69 @@ func (a *App) SaveSettings(settings models.Settings) error {
 	if err := a.settings.Save(settings); err != nil {
 		return fmt.Errorf("保存设置失败: %w", err)
 	}
-	logx.SetEnabled(settings.LogEnabled)
-	logx.Infof("设置已更新，日志开关: %v", settings.LogEnabled)
+	// 日志四项开关（控制台 / 文件 / 级别 / 调用日志）立即生效
+	a.applyLogSettings(settings)
+	logx.Infof("设置已更新，日志开关: %v，文件日志: %v，级别: %s，调用日志: %v",
+		settings.LogEnabled, logx.FileEnabled(), logx.Level(), logx.APILogEnabled())
 	// 立即同步所有活跃会话的心跳开关
 	a.manager.SetKeepAliveEnabled(settings.KeepAliveEnabled)
+	// 调试模式开关 / 端口变化立即生效（CDP 端口需下次启动）
+	a.reloadDebug(settings.Debug)
 	return nil
+}
+
+// applyLogSettings 把设置里的日志开关同步到 logx（启动与保存设置共用，
+// 保证「设置里的值」与「logx 运行时状态」永远一致）。
+func (a *App) applyLogSettings(settings models.Settings) {
+	// 控制台输出：沿用历史行为（LogEnabled 只管 stdout，不受文件开关影响）
+	logx.SetEnabled(settings.LogEnabled)
+	// 文件日志：打开失败（目录不可写等）只警告，不影响其余开关
+	if err := logx.SetFileEnabled(settings.LogToFile); err != nil {
+		logx.Warnf("开启文件日志失败: %v", err)
+	}
+	logx.SetLevel(settings.LogLevel)
+	if err := logx.SetAPILogEnabled(settings.LogAPICalls); err != nil {
+		logx.Warnf("设置调用日志开关失败: %v", err)
+	}
+	// 跟踪会话列表的内存快照，供 notify 旁路判断（见 debug.go 的 traceEvent）
+	a.setTraceTabs(settings.LogTraceTabs)
+}
+
+// logStartupSelfCheck 启动自检：把版本、时间、日志目录与各项日志开关写进日志。
+// 用户在「日志」页看不到内容时，先看这条就知道配置是否生效。
+// 整条内容过一遍脱敏，避免环境信息里意外带上凭据。
+func (a *App) logStartupSelfCheck(settings models.Settings) {
+	msg := fmt.Sprintf("启动自检 版本=%s 时间=%s 日志目录=%s 控制台日志=%v 文件日志=%v 日志级别=%s 调用日志=%v 调试模式=%v",
+		appVersion(), time.Now().Format(time.RFC3339), logx.LogDir(),
+		logx.Enabled(), logx.FileEnabled(), logx.Level(), logx.APILogEnabled(), settings.Debug.Enabled)
+	logx.Infof("%s", logx.Redact(msg))
+}
+
+// appVersion 返回应用版本描述：优先取构建信息里的模块版本与 VCS 修订号，
+// 拿不到（未写入构建信息 / 本地 go run）时返回 (devel)。
+func appVersion() string {
+	info, ok := rdebug.ReadBuildInfo()
+	if !ok {
+		return "(devel)"
+	}
+	parts := make([]string, 0, 2)
+	if v := strings.TrimSpace(info.Main.Version); v != "" && v != "(devel)" {
+		parts = append(parts, v)
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" && s.Value != "" {
+			rev := s.Value
+			if len(rev) > 8 {
+				rev = rev[:8]
+			}
+			parts = append(parts, "rev="+rev)
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return "(devel)"
+	}
+	return strings.Join(parts, " ")
 }
 
 // ---- 凭证管理 ----
@@ -988,4 +1067,3 @@ func (a *App) ImportConfig(passphrase string, overwrite bool) (models.ImportConf
 	}
 	return result, nil
 }
-

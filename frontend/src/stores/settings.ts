@@ -2,7 +2,7 @@ import {defineStore} from 'pinia'
 import {DEFAULT_COMPLETION_NAV_HOTKEY} from '../completion/hotkey'
 import {settingsService} from '../services/settings'
 import {paletteToTheme, defaultPreset} from '../theme/presets'
-import type {Fonts, TabBarPlacement, Theme, UIAppearance} from '../types'
+import type {DebugSettings, Fonts, LogLevel, NavSectionOrder, RightClickAction, TabBarPlacement, Theme, UIAppearance} from '../types'
 
 // 默认终端主题（与 Go 端 models.DefaultTheme 保持一致，含 ANSI 16 色）。
 export function defaultTheme(): Theme {
@@ -30,6 +30,18 @@ export function defaultFonts(): Fonts {
   }
 }
 
+// 默认调试模式设置（与 Go 端 models.DefaultDebugSettings 保持一致）：关闭、仅本机、默认端口。
+export function defaultDebug(): DebugSettings {
+  return {
+    enabled: false,
+    port: 8765,
+    bindLan: false,
+    allowEval: false,
+    allowSecrets: false,
+    cdpEnabled: false,
+  }
+}
+
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
     logEnabled: false,
@@ -48,6 +60,14 @@ export const useSettingsStore = defineStore('settings', {
     keepAliveEnabled: true,
     localShell: '',
     tabBarPlacement: 'side' as TabBarPlacement,
+    rightClickAction: 'menu' as RightClickAction,
+    navSectionOrder: 'nav,sessions,tabs' as NavSectionOrder,
+    debug: defaultDebug() as DebugSettings,
+    // 日志页签（对应 Go 端 models.Settings 的日志字段）
+    logToFile: false,
+    logLevel: 'info' as LogLevel,
+    logApiCalls: false,
+    logTraceTabs: [] as string[],
     loaded: false,
   }),
   actions: {
@@ -70,6 +90,17 @@ export const useSettingsStore = defineStore('settings', {
       this.localShell = settings.localShell ?? ''
       // 缺省 / 非法值一律回落「左侧导航」（新默认）
       this.tabBarPlacement = settings.tabBarPlacement === 'top' ? 'top' : 'side'
+      // 缺省 / 非法值一律回落「打开选项栏」
+      this.rightClickAction = settings.rightClickAction === 'paste' ? 'paste' : 'menu'
+      // 缺省 / 非法排列一律回落「导航 → 会话 → 标签页」
+      this.navSectionOrder = normalizeNavSectionOrder(settings.navSectionOrder)
+      // 调试模式：缺省字段用默认值补齐（端口越界回落默认）
+      this.debug = normalizeDebug({...defaultDebug(), ...(settings.debug ?? {})})
+      // 日志：级别非法回落 info，追踪列表过滤掉非字符串项
+      this.logToFile = settings.logToFile ?? false
+      this.logLevel = normalizeLogLevel(settings.logLevel)
+      this.logApiCalls = settings.logApiCalls ?? false
+      this.logTraceTabs = normalizeLogTraceTabs(settings.logTraceTabs)
       this.loaded = true
     },
     async setLogEnabled(v: boolean) {
@@ -143,6 +174,29 @@ export const useSettingsStore = defineStore('settings', {
       this.tabBarPlacement = v === 'top' ? 'top' : 'side'
       await this.save()
     },
+    async setRightClickAction(v: RightClickAction) {
+      this.rightClickAction = v === 'paste' ? 'paste' : 'menu'
+      await this.save()
+    },
+    async setNavSectionOrder(v: NavSectionOrder) {
+      this.navSectionOrder = normalizeNavSectionOrder(v)
+      await this.save()
+    },
+    // 调试模式：局部更新后立即持久化（设置页每次改一个开关就调一次）
+    async setDebug(patch: Partial<DebugSettings>) {
+      this.debug = normalizeDebug({...this.debug, ...patch})
+      await this.save()
+    },
+    // 日志：局部更新后立即持久化（与 setDebug 同风格）
+    async setLog(
+      patch: Partial<{logToFile: boolean; logLevel: LogLevel; logApiCalls: boolean; logTraceTabs: string[]}>,
+    ) {
+      if (patch.logToFile !== undefined) this.logToFile = patch.logToFile
+      if (patch.logLevel !== undefined) this.logLevel = normalizeLogLevel(patch.logLevel)
+      if (patch.logApiCalls !== undefined) this.logApiCalls = patch.logApiCalls
+      if (patch.logTraceTabs !== undefined) this.logTraceTabs = normalizeLogTraceTabs(patch.logTraceTabs)
+      await this.save()
+    },
     async save() {
       await settingsService.saveSettings({
         logEnabled: this.logEnabled,
@@ -161,10 +215,56 @@ export const useSettingsStore = defineStore('settings', {
         keepAliveEnabled: this.keepAliveEnabled,
         localShell: this.localShell,
         tabBarPlacement: this.tabBarPlacement,
+        rightClickAction: this.rightClickAction,
+        navSectionOrder: this.navSectionOrder,
+        debug: this.debug,
+        logToFile: this.logToFile,
+        logLevel: normalizeLogLevel(this.logLevel),
+        logApiCalls: this.logApiCalls,
+        logTraceTabs: normalizeLogTraceTabs(this.logTraceTabs),
       })
     },
   },
 })
+
+// 调试模式端口：0（自动）或 1024–65535，越界回落默认端口。
+function normalizeDebug(d: DebugSettings): DebugSettings {
+  const port = Number(d.port)
+  if (!Number.isFinite(port) || (port !== 0 && (port < 1024 || port > 65535))) {
+    d.port = 8765
+  } else {
+    d.port = Math.round(port)
+  }
+  return d
+}
+
+// 日志级别白名单：非法值一律回落 info。
+const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const
+
+function normalizeLogLevel(v: string | undefined): LogLevel {
+  return (LOG_LEVELS as readonly string[]).includes(v ?? '') ? (v as LogLevel) : 'info'
+}
+
+// 追踪列表：只保留字符串项（防止后端返回脏数据）。
+function normalizeLogTraceTabs(v: unknown): string[] {
+  if (!Array.isArray(v)) return []
+  return v.filter((t): t is string => typeof t === 'string')
+}
+
+// 导航区段顺序白名单：必须是 nav / sessions / tabs 的排列，其余回落默认。
+const NAV_SECTION_KEYS = ['nav', 'sessions', 'tabs'] as const
+
+function normalizeNavSectionOrder(v: string | undefined): NavSectionOrder {
+  const parts = (v ?? '').split(',').filter(Boolean)
+  if (
+    parts.length === 3 &&
+    new Set(parts).size === 3 &&
+    parts.every((p) => (NAV_SECTION_KEYS as readonly string[]).includes(p))
+  ) {
+    return parts.join(',') as NavSectionOrder
+  }
+  return 'nav,sessions,tabs'
+}
 
 function clampPanelLimit(v: number | undefined): number {
   const n = Number(v)

@@ -265,6 +265,9 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		AutoReconnect:        true,
 		KeepAliveEnabled:     true,
 		TabBarPlacement:      "side", // 默认会话标签页放在左侧导航
+		RightClickAction:     models.RightClickMenu,
+		NavSectionOrder:      models.DefaultNavSectionOrder,
+		LogLevel:             models.NormalizeLogLevel(""), // 日志级别默认 info
 	}
 	if v, ok := values["logEnabled"]; ok {
 		st.LogEnabled = v == "true"
@@ -305,6 +308,23 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	if v, ok := values["keepAliveEnabled"]; ok {
 		st.KeepAliveEnabled = v == "true"
 	}
+	// 日志：旧库没有这些键 → 保持默认（控制台 / 文件 / 调用日志全关，级别 info）
+	if v, ok := values["logToFile"]; ok {
+		st.LogToFile = v == "true"
+	}
+	if v, ok := values["logApiCalls"]; ok {
+		st.LogAPICalls = v == "true"
+	}
+	if v, ok := values["logLevel"]; ok {
+		st.LogLevel = models.NormalizeLogLevel(v)
+	}
+	// 跟踪会话列表落库为 JSON 数组字符串；解析失败按空处理（不阻断其余设置）
+	if v, ok := values["logTraceTabs"]; ok && v != "" {
+		var tabs []string
+		if err := json.Unmarshal([]byte(v), &tabs); err == nil {
+			st.LogTraceTabs = tabs
+		}
+	}
 	if v, ok := values["localShell"]; ok {
 		st.LocalShell = v
 	}
@@ -312,9 +332,25 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	if v, ok := values["tabBarPlacement"]; ok && (v == "top" || v == "side") {
 		st.TabBarPlacement = v
 	}
+	// 右键行为：旧库没有该键 → 保持默认「打开选项栏」；非法值同样回落默认
+	if v, ok := values["rightClickAction"]; ok {
+		st.RightClickAction = models.NormalizeRightClickAction(v)
+	}
+	// 导航区段顺序：旧库没有该键 → 保持默认「导航 → 会话 → 标签页」；非法排列同样回落默认
+	if v, ok := values["navSectionOrder"]; ok {
+		st.NavSectionOrder = models.NormalizeNavSectionOrder(v)
+	}
 	if v, ok := values["theme"]; ok && v != "" {
 		_ = json.Unmarshal([]byte(v), &st.Theme)
 	}
+	// 调试模式：旧库没有该键 → 保持默认（关闭）；越界端口回落
+	if v, ok := values["debug"]; ok && v != "" {
+		var d models.DebugSettings
+		if err := json.Unmarshal([]byte(v), &d); err == nil {
+			st.Debug = d
+		}
+	}
+	st.Debug = models.NormalizeDebugSettings(st.Debug)
 	if v, ok := values["appearance"]; ok && v != "" {
 		_ = json.Unmarshal([]byte(v), &st.Appearance)
 	}
@@ -331,6 +367,9 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	if st.Theme.Black == "" {
 		models.FillThemeAnsi(&st.Theme)
 	}
+	// 日志：级别与跟踪列表统一归一化（非法级别回落 info，列表去空去重）
+	st.LogLevel = models.NormalizeLogLevel(st.LogLevel)
+	st.LogTraceTabs = models.NormalizeLogTraceTabs(st.LogTraceTabs)
 	return st, nil
 }
 
@@ -364,8 +403,28 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 	if st.TabBarPlacement != "top" && st.TabBarPlacement != "side" {
 		st.TabBarPlacement = "side"
 	}
+	// 右键行为：仅接受 menu / paste，其余（含空值）落回默认「打开选项栏」
+	st.RightClickAction = models.NormalizeRightClickAction(st.RightClickAction)
+	// 导航区段顺序：必须是 nav / sessions / tabs 的排列，其余（含空值）落回默认
+	st.NavSectionOrder = models.NormalizeNavSectionOrder(st.NavSectionOrder)
+	// 调试模式：端口越界回落默认
+	st.Debug = models.NormalizeDebugSettings(st.Debug)
+	debugJSON, err := json.Marshal(st.Debug)
+	if err != nil {
+		return fmt.Errorf("序列化调试模式设置失败: %w", err)
+	}
+	// 日志：级别非法回落 info，跟踪列表落库为 JSON 数组字符串
+	st.LogLevel = models.NormalizeLogLevel(st.LogLevel)
+	traceJSON, err := json.Marshal(models.NormalizeLogTraceTabs(st.LogTraceTabs))
+	if err != nil {
+		return fmt.Errorf("序列化日志跟踪列表失败: %w", err)
+	}
 	entries := []struct{ k, v string }{
 		{"logEnabled", boolStr(st.LogEnabled)},
+		{"logToFile", boolStr(st.LogToFile)},
+		{"logLevel", st.LogLevel},
+		{"logApiCalls", boolStr(st.LogAPICalls)},
+		{"logTraceTabs", string(traceJSON)},
 		{"copyOnSelect", boolStr(st.CopyOnSelect)},
 		{"webGLEnabled", boolStr(st.WebGLEnabled)},
 		{"completionEnabled", boolStr(st.CompletionEnabled)},
@@ -381,6 +440,9 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"keepAliveEnabled", boolStr(st.KeepAliveEnabled)},
 		{"localShell", st.LocalShell},
 		{"tabBarPlacement", st.TabBarPlacement},
+		{"rightClickAction", st.RightClickAction},
+		{"navSectionOrder", st.NavSectionOrder},
+		{"debug", string(debugJSON)},
 	}
 	for _, e := range entries {
 		if _, err := s.db.Exec(`

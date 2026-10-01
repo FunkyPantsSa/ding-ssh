@@ -29,10 +29,12 @@ import {sysInfoService} from '../services/sysinfo'
 import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../services/zmodem'
 import {currentZoom} from '../utils/dom'
 import {patchXtermZoomCoords} from '../utils/xterm-zoom'
+import {registerDebugTerminal, unregisterDebugTerminal} from '../debug/registry'
 import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
-import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
+import {ClipboardGetText, ClipboardSetText} from '../../wailsjs/runtime/runtime'
+import {LogClient, SetLogTrace} from '../../wailsjs/go/main/App'
 import {monoFontStack} from '../theme/engine'
 import type {SessionTab} from '../types'
 
@@ -199,8 +201,26 @@ function applyFontSettings() {
   fit()
 }
 
+/**
+ * 是否允许使用 WebGL 渲染。
+ *
+ * 实测结论（调试模式 A/B/C 对照实验）：界面缩放走的是 `.app-shell { zoom }`，而
+ * `@xterm/addon-webgl` 在 CSS zoom ≠ 1 时会把画布内容整体上移数行（缓冲区与 DOM 几何都正确，
+ * 只是画出来的像素错位，且 `clearTextureAtlas()+refresh()` 无法纠正）。
+ * zoom = 1 时 WebGL 正常。因此仅在缩放 100% 时启用 WebGL，其余情况回退 Canvas。
+ */
+function webglUsable(): boolean {
+  return uiZoom() === 1
+}
+
 function tryEnableWebGL() {
   if (!term || !settings.webGLEnabled) return
+  if (!webglUsable()) {
+    disableWebGL()
+    console.info('[webgl] 界面缩放 ≠ 100%，已使用 Canvas 渲染（WebGL 在 CSS zoom 下顶部会错位）')
+    logClient('info', `[webgl] uiScale=${settings.uiScale} → Canvas 渲染（WebGL 在 CSS zoom 下会错位）`)
+    return
+  }
   try {
     webglAddon?.dispose()
     webglAddon = new WebglAddon()
@@ -213,6 +233,7 @@ function tryEnableWebGL() {
       }, 4000)
     })
     term.loadAddon(webglAddon)
+    logClient('debug', `[webgl] enabled (uiScale=${settings.uiScale}, dpr=${window.devicePixelRatio})`)
   } catch {
     webglAddon = null
     webglFallbackToast.value = '当前环境不支持 WebGL，已降级 Canvas 渲染'
@@ -220,6 +241,32 @@ function tryEnableWebGL() {
       webglFallbackToast.value = ''
     }, 4000)
   }
+}
+
+/** 上报一条渲染诊断日志到后端（失败静默忽略，绝不能影响终端初始化）。 */
+function logClient(level: string, message: string) {
+  try {
+    void LogClient(level, message).catch(() => {})
+  } catch {
+    /* ignore：绑定缺失 / 非 Wails 环境 */
+  }
+}
+
+/** 该会话是否已在「日志」页签开启逐条跟踪。 */
+const logTracking = computed(() => settings.logTraceTabs.includes(props.tab.clientId))
+
+/** 右键菜单：开始 / 停止跟踪此会话日志（切换后刷新设置里的追踪列表）。 */
+async function toggleLogTrace() {
+  const id = props.tab.clientId
+  const next = !logTracking.value
+  closeMenu()
+  try {
+    await SetLogTrace(id, next)
+    await settings.load()
+  } catch {
+    /* ignore：绑定缺失时不影响终端使用 */
+  }
+  focusTerminal()
 }
 
 function disableWebGL() {
@@ -296,8 +343,100 @@ function toggleFullscreen() {
   }
 }
 
+/** 是否可向终端写入（连接中 / 断开 / Zmodem 传输中一律拒绝）。 */
+function canSendInput(): boolean {
+  if (disposed || !term) return false
+  if (props.tab.status !== 'connected') return false
+  return !inputLocked && !zmodem?.active()
+}
+
+/** 把键盘焦点交回终端（xterm 隐藏输入框），避免菜单 / 剪贴板操作后焦点残留在别处。 */
+function focusTerminal() {
+  if (disposed || !term) return
+  if (props.tab.status !== 'connected') return
+  try {
+    term.focus()
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 读取剪贴板文本。
+ * Windows WebView2 下 Wails 关闭了浏览器加速键，Ctrl+V 不会触发原生 paste 事件，
+ * 因此优先走 Wails runtime（Go 侧直接读系统剪贴板），失败再退回浏览器 Clipboard API。
+ */
+async function readClipboardText(): Promise<string> {
+  try {
+    const text = await ClipboardGetText()
+    if (typeof text === 'string' && text.length > 0) return text
+  } catch {
+    /* 忽略：dev 浏览器 / 权限受限时退回 Clipboard API */
+  }
+  try {
+    return (await navigator.clipboard.readText()) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/** 把文本按 xterm 原生粘贴通道写入会话（自动处理换行归一化与 bracketed paste）。 */
+function pasteText(text: string) {
+  if (!text || !canSendInput() || !term || !props.tab.sessionId) return
+  closeMenu()
+  // 与 xterm 的 Ctrl+V 一致：\r?\n → \r，并在 shell 开启 2004 模式时加括号包裹，
+  // 使 vim / tmux / zsh 等能识别为「一次粘贴」而不是逐行回车执行。
+  term.paste(text)
+  focusTerminal()
+}
+
+async function pasteFromClipboard() {
+  if (!canSendInput()) return
+  const text = await readClipboardText()
+  if (text) pasteText(text)
+  focusTerminal()
+}
+
+/** 键盘粘贴组合键：Ctrl+V / Cmd+V（含 Shift）与 Shift+Insert。 */
+function isPasteCombo(e: KeyboardEvent): boolean {
+  if (e.altKey) return false
+  if (e.key === 'Insert' && e.shiftKey) return true
+  if ((e.key === 'v' || e.key === 'V') && (e.ctrlKey || e.metaKey)) return true
+  return false
+}
+
+/** 键盘复制组合键：macOS Cmd+C / 其他平台 Ctrl+Shift+C（Ctrl+C 必须留给 SIGINT）。 */
+function isCopyCombo(e: KeyboardEvent): boolean {
+  if (e.key !== 'c' && e.key !== 'C') return false
+  if (e.altKey) return false
+  if (e.metaKey && !e.ctrlKey) return true
+  return e.ctrlKey && e.shiftKey
+}
+
+function doCopySelection() {
+  const sel = term?.getSelection()
+  if (sel) void ClipboardSetText(sel)
+}
+
+/**
+ * 原生 paste 事件（部分环境仍可用）：捕获阶段拦截，避免与 xterm 自身监听重复粘贴。
+ */
+function onPasteEvent(e: ClipboardEvent) {
+  if (!canSendInput()) return
+  const text = e.clipboardData?.getData('text/plain') ?? ''
+  if (!text) return
+  e.preventDefault()
+  e.stopPropagation()
+  pasteText(text)
+}
+
 function openMenu(e: MouseEvent) {
   e.preventDefault()
+  // 「直接粘贴」模式：连接中才粘贴；断开 / 冻结态仍弹出菜单，保留复制 / 全屏等操作
+  if (settings.rightClickAction === 'paste' && canSendInput()) {
+    void pasteFromClipboard()
+    return
+  }
   menu.value = {x: Math.min(e.clientX, window.innerWidth - 160), y: Math.min(e.clientY, window.innerHeight - 160)}
 }
 
@@ -306,29 +445,25 @@ function closeMenu() {
 }
 
 function doCopy() {
-  if (!term) return
-  const sel = term.getSelection()
-  if (sel) ClipboardSetText(sel)
+  doCopySelection()
   closeMenu()
+  focusTerminal()
 }
 
 function doPaste() {
-  closeMenu()
-  navigator.clipboard.readText().then((text) => {
-    if (text && props.tab.sessionId) {
-      sshService.write(props.tab.sessionId, btoa(text)).catch(() => {})
-    }
-  }).catch(() => {})
+  void pasteFromClipboard()
 }
 
 function doClear() {
   term?.clear()
   closeMenu()
+  focusTerminal()
 }
 
 function doSelectAll() {
   term?.selectAll()
   closeMenu()
+  focusTerminal()
 }
 
 function hideSuggestions() {
@@ -730,6 +865,21 @@ function onKeydown(e: KeyboardEvent) {
     return
   }
 
+  // 剪贴板快捷键：WebView2 下 Wails 关闭了浏览器加速键，原生 Ctrl+V / Cmd+C 不会生效，
+  // 这里在捕获阶段自行处理并阻止冒泡，避免 xterm 把 Ctrl+V 当成控制字符 \x16 发给远端。
+  if (canSendInput() && isPasteCombo(e)) {
+    e.preventDefault()
+    e.stopPropagation()
+    void pasteFromClipboard()
+    return
+  }
+  if (isCopyCombo(e) && term?.hasSelection()) {
+    e.preventDefault()
+    e.stopPropagation()
+    doCopySelection()
+    return
+  }
+
   if (suggestions.value.length > 0) {
     const pass = handleCompletionKey(e)
     if (!pass) {
@@ -801,7 +951,27 @@ async function setupZmodem(sessionId: string) {
   }
 }
 
-async function connect(): Promise<boolean> {
+// 连接重入保护：并发的第二次 connect() 会在横幅已开始输出后执行 term.reset()，
+// 把已经写入终端的那几行擦掉（现象：横幅顶部缺行、且缓冲区里没有回滚内容可查）。
+let connectInFlight = false
+
+/** 建立连接（带重入保护，见下）。 */
+async function connect(keepBuffer = false): Promise<boolean> {
+  if (connectInFlight) return false
+  connectInFlight = true
+  try {
+    return await doConnect(keepBuffer)
+  } finally {
+    connectInFlight = false
+  }
+}
+
+/**
+ * 实际连接流程。
+ * @param keepBuffer 自动/隐式重连时保留已有缓冲区（只追加一条分隔行）：避免 reset() 把已输出的
+ *   登录横幅开头清掉，历史也仍留在回滚里可查。仅在用户显式重连/新会话时才清屏。
+ */
+async function doConnect(keepBuffer = false): Promise<boolean> {
   cancelAutoReconnect()
   disposers.forEach((d) => d())
   disposers.length = 0
@@ -817,7 +987,11 @@ async function connect(): Promise<boolean> {
 
   const sid = props.tab.clientId
   props.tab.sessionId = sid
-  term?.reset()
+  if (keepBuffer) {
+    term?.write('\r\n\x1b[33m── 重新连接 ──\x1b[0m\r\n')
+  } else {
+    term?.reset()
+  }
 
   disposers.push(
     onSessionProgress(sid, (evt) => {
@@ -864,6 +1038,19 @@ async function connect(): Promise<boolean> {
     }),
   )
 
+  // 输出监听必须在发起连接之前注册：远端登录横幅（/etc/motd、fastfetch 等）通常在
+  // Connect 返回前就已回传，而 Wails 事件不缓存、无监听即丢弃 —— 订阅晚了会丢掉开头
+  // 几行输出（表现为「终端顶部吞字符」，且滚屏也找不回来）。
+  // 会话 id 由前端生成并传入后端（后端事件名、返回值都用它），因此可以提前订阅。
+  disposers.push(
+    onSessionOutput(sid, (data) => {
+      if (disposed || !term) return
+      const bytes = base64ToBytes(data)
+      if (zmodem) zmodem.consume(bytes)
+      else term.write(bytes)
+    }),
+  )
+
   try {
     const isLocal = props.tab.kind === 'local'
     const result = isLocal
@@ -878,14 +1065,6 @@ async function connect(): Promise<boolean> {
     if (!isLocal) {
       await setupZmodem(result.sessionId)
     }
-    disposers.push(
-      onSessionOutput(result.sessionId, (data) => {
-        if (disposed || !term) return
-        const bytes = base64ToBytes(data)
-        if (zmodem) zmodem.consume(bytes)
-        else term.write(bytes)
-      }),
-    )
     // 本机会话无远程 SFTP / 系统监控
     if (!isLocal) {
       void sysInfoService.start(result.sessionId).catch(() => {})
@@ -971,7 +1150,8 @@ async function reconnectSession(): Promise<boolean> {
       return false
     }
   }
-  return connect()
+  // 完整重连：保留已有缓冲区（只追加分隔行），避免清屏擦掉刚输出的横幅开头
+  return connect(true)
 }
 
 const CONNECT_STEPS: {key: string; label: string}[] = [
@@ -1127,7 +1307,22 @@ onMounted(() => {
     composing = false
   })
   container.value?.addEventListener('contextmenu', openMenu)
+  // 捕获阶段拦截原生粘贴（WebView2 关闭加速键时不会触发；浏览器 / 未来环境可用时避免与 xterm 重复写入）
+  container.value?.addEventListener('paste', onPasteEvent, true)
   window.addEventListener('click', closeMenu)
+  // 调试模式：把自己注册进终端注册表，供调试 API 读取 xterm 内部状态 / 输入 / 滚动
+  registerDebugTerminal({
+    clientId: props.tab.clientId,
+    title: props.tab.serverName,
+    kind: props.tab.kind ?? 'ssh',
+    term,
+    container: () => container.value ?? null,
+    write: writeRaw,
+    reconnect: () => {
+      void reconnectSession()
+    },
+    close: closeTab,
+  })
   void connect()
   scheduleFocusActiveSurface()
 })
@@ -1186,18 +1381,26 @@ watch(
   () => settings.uiScale,
   () => {
     if (!term || disposed) return
-    nextTick(() => applyFontSize())
+    nextTick(() => {
+      applyFontSize()
+      // 缩放变化会改变 CSS zoom：zoom≠1 时 WebGL 会画偏，需要重新评估渲染器
+      if (!settings.webGLEnabled) return
+      if (webglAddon && !webglUsable()) disableWebGL()
+      else if (!webglAddon && webglUsable()) tryEnableWebGL()
+    })
   },
 )
 
 onBeforeUnmount(() => {
   disposed = true
+  unregisterDebugTerminal(props.tab.clientId)
   if (focusTimer) clearTimeout(focusTimer)
   cancelAutoReconnect()
   if (suggestTimer) clearTimeout(suggestTimer)
   if (lineBufSyncTimer) clearTimeout(lineBufSyncTimer)
   disposers.forEach((d) => d())
   resizeObserver?.disconnect()
+  container.value?.removeEventListener('paste', onPasteEvent, true)
   window.removeEventListener('click', closeMenu)
   zmodem?.dispose()
   disableWebGL()
@@ -1254,7 +1457,7 @@ onBeforeUnmount(() => {
             {{ tab.status === 'connecting' ? '正在启动本机 Shell…' : '可关闭后重试，或在设置中更换本机 Shell。' }}
           </p>
           <div class="flex gap-2">
-            <button v-if="tab.status === 'error'" class="btn btn-primary btn-sm" @click="connect">重试</button>
+            <button v-if="tab.status === 'error'" class="btn btn-primary btn-sm" @click="connect()">重试</button>
             <button class="btn btn-ghost btn-sm" @click="closeTab">关闭</button>
           </div>
         </template>
@@ -1430,17 +1633,18 @@ onBeforeUnmount(() => {
       </div>
     </Teleport>
 
-    <!-- 右键菜单 -->
+    <!-- 右键菜单：@mousedown.prevent 阻止菜单抢走 xterm 隐藏输入框的焦点（否则粘贴/复制后无法继续输入） -->
     <Teleport to="body">
       <div
         v-if="menu"
         class="menu-pop neo fixed z-50"
         :style="{left: menu.x + 'px', top: menu.y + 'px'}"
         @contextmenu.prevent
+        @mousedown.prevent
         @click.stop
       >
-        <button @click="doCopy">复制</button>
-        <button @click="doPaste">粘贴</button>
+        <button @click="doCopy">复制 <span class="text-mist">Ctrl+Shift+C</span></button>
+        <button @click="doPaste">粘贴 <span class="text-mist">Ctrl+V</span></button>
         <div class="divider-h my-1"></div>
         <button @click="doSelectAll">全选</button>
         <button @click="doClear">清除屏幕</button>
@@ -1448,6 +1652,10 @@ onBeforeUnmount(() => {
         <button @click="adjustFontSize(1)">放大 <span class="text-mist">Ctrl+=</span></button>
         <button @click="adjustFontSize(-1)">缩小 <span class="text-mist">Ctrl+-</span></button>
         <button @click="toggleFullscreen">全屏 <span class="text-mist">F11</span></button>
+        <div class="divider-h my-1"></div>
+        <button @click="toggleLogTrace">
+          {{ logTracking ? '停止跟踪此会话日志' : '开始跟踪此会话日志' }}
+        </button>
       </div>
     </Teleport>
   </div>

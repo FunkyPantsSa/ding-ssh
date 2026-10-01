@@ -1,6 +1,8 @@
 // Package models 定义 ding-ssh 前后端共享的数据结构。
 package models
 
+import "strings"
+
 // ServerNode 服务器节点定义（与设计文档第 4 节保持一致）。
 type ServerNode struct {
 	ID         string            `json:"id"`
@@ -88,6 +90,10 @@ type ProgressEvent struct {
 // Settings 应用设置（持久化到 settings.json / SQLite settings 表）。
 type Settings struct {
 	LogEnabled           bool         `json:"logEnabled"`           // 是否输出调试日志（默认关闭）
+	LogToFile            bool         `json:"logToFile"`            // 是否把日志写入文件（默认关闭）
+	LogLevel             string       `json:"logLevel"`             // 日志级别：debug|info|warn|error（默认 info，非法值回落 info）
+	LogAPICalls          bool         `json:"logApiCalls"`          // 是否记录调用日志（调试 HTTP / MCP，默认关闭）
+	LogTraceTabs         []string     `json:"logTraceTabs"`         // 需要全量跟踪输出的会话标签 id 列表（默认空）
 	CopyOnSelect         bool         `json:"copyOnSelect"`         // 终端选中内容自动复制到剪贴板
 	WebGLEnabled         bool         `json:"webGLEnabled"`         // 优先使用 WebGL 渲染（失败自动降级）
 	CompletionEnabled    bool         `json:"completionEnabled"`    // 智能命令补全
@@ -103,6 +109,129 @@ type Settings struct {
 	KeepAliveEnabled     bool         `json:"keepAliveEnabled"`     // 发送心跳包防止终端超时（默认开启）
 	LocalShell           string       `json:"localShell"`           // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
 	TabBarPlacement      string       `json:"tabBarPlacement"`      // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 top）
+	RightClickAction     string       `json:"rightClickAction"`     // 终端鼠标右键行为：menu 打开选项栏（默认）| paste 直接粘贴
+	NavSectionOrder      string       `json:"navSectionOrder"`      // 左侧导航区段顺序：nav / sessions / tabs 三键排列（默认 "nav,sessions,tabs"）
+	Debug                DebugSettings `json:"debug"`               // 调试模式（本地控制面，供 AI / 自动化调用）
+}
+
+// DebugSettings 调试模式：应用内置的本地控制面（HTTP + MCP），供 AI / 自动化调用。
+type DebugSettings struct {
+	Enabled      bool `json:"enabled"`      // 总开关（默认关）
+	Port         int  `json:"port"`         // HTTP 监听端口；0 表示自动挑空闲端口
+	BindLAN      bool `json:"bindLan"`      // false: 仅 127.0.0.1；true: 0.0.0.0（局域网可访问）
+	AllowEval    bool `json:"allowEval"`    // 允许在页面上下文执行 JS（危险，默认关）
+	AllowSecrets bool `json:"allowSecrets"` // 允许读取含密码等敏感数据（默认关）
+	CDPEnabled   bool `json:"cdpEnabled"`   // 同时开启 WebView2 远程调试（截图 / DOM；重启后生效）
+}
+
+// DefaultDebugPort 调试服务默认端口。
+const DefaultDebugPort = 8765
+
+// DefaultDebugSettings 调试模式默认值：关闭、仅本机、默认端口、危险能力全关。
+func DefaultDebugSettings() DebugSettings {
+	return DebugSettings{Enabled: false, Port: DefaultDebugPort}
+}
+
+// NormalizeDebugSettings 校验调试模式设置：端口为 0（自动）或 1024–65535，越界回落默认端口。
+func NormalizeDebugSettings(d DebugSettings) DebugSettings {
+	if d.Port != 0 && (d.Port < 1024 || d.Port > 65535) {
+		d.Port = DefaultDebugPort
+	}
+	return d
+}
+
+// 日志级别取值（对应 Settings.LogLevel，与 internal/logx 接受的取值一致）。
+const (
+	LogLevelDebug = "debug"
+	LogLevelInfo  = "info"
+	LogLevelWarn  = "warn"
+	LogLevelError = "error"
+)
+
+// NormalizeLogLevel 校验日志级别：忽略大小写与首尾空白，未知/空值一律回落 info。
+// 与 logx 的解析保持一致，避免设置页脏数据让日志全丢（error）或刷屏（debug）。
+func NormalizeLogLevel(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case LogLevelDebug:
+		return LogLevelDebug
+	case LogLevelWarn:
+		return LogLevelWarn
+	case LogLevelError:
+		return LogLevelError
+	default:
+		return LogLevelInfo
+	}
+}
+
+// NormalizeLogTraceTabs 规范化跟踪会话列表：去掉空白项、去重，保持原始顺序。
+// 空列表返回 nil，让 JSON 序列化为 null 而不是 []（与「默认空」语义一致）。
+func NormalizeLogTraceTabs(tabs []string) []string {
+	if len(tabs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(tabs))
+	seen := make(map[string]bool, len(tabs))
+	for _, t := range tabs {
+		t = strings.TrimSpace(t)
+		if t == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// 左侧导航区段标识（对应 Settings.NavSectionOrder 的排列元素）。
+const (
+	NavSectionNav      = "nav"      // 导航：工作区 / 服务器 / 隧道 / 设置
+	NavSectionSessions = "sessions" // 会话：本地终端 / 快速连接
+	NavSectionTabs     = "tabs"     // 标签页：左侧纵向会话标签列表（仅侧栏模式存在）
+)
+
+// DefaultNavSectionOrder 默认区段顺序：导航 → 会话 → 标签页。
+const DefaultNavSectionOrder = "nav,sessions,tabs"
+
+// NormalizeNavSectionOrder 校验区段顺序：必须是 nav / sessions / tabs 三个键的排列，
+// 未知 / 重复 / 缺项一律回落默认顺序。
+func NormalizeNavSectionOrder(v string) string {
+	parts := strings.Split(v, ",")
+	if len(parts) == 3 {
+		seen := map[string]bool{}
+		ok := true
+		for _, p := range parts {
+			switch p {
+			case NavSectionNav, NavSectionSessions, NavSectionTabs:
+				if seen[p] {
+					ok = false
+				}
+				seen[p] = true
+			default:
+				ok = false
+			}
+		}
+		if ok && len(seen) == 3 {
+			return v
+		}
+	}
+	return DefaultNavSectionOrder
+}
+
+// 终端鼠标右键行为取值（对应 Settings.RightClickAction）。
+const (
+	RightClickMenu  = "menu"  // 打开右键选项栏（复制 / 粘贴 / 全屏等）
+	RightClickPaste = "paste" // 直接粘贴剪贴板内容
+)
+
+// NormalizeRightClickAction 校验右键行为取值，未知/空值一律回落「打开选项栏」。
+func NormalizeRightClickAction(v string) string {
+	if v == RightClickPaste {
+		return RightClickPaste
+	}
+	return RightClickMenu
 }
 
 // CommandHistory 命令历史记录（SQLite command_history 表）。

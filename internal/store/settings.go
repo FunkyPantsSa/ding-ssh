@@ -61,9 +61,14 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 			AutoReconnect:        true,
 			KeepAliveEnabled:     true,
 			TabBarPlacement:      "side", // 会话标签页默认放在左侧导航
-			Theme:                models.DefaultTheme(),
-			Appearance:           models.DefaultAppearance(),
-			Fonts:                models.DefaultFonts(),
+			RightClickAction:     models.RightClickMenu,
+			NavSectionOrder:      models.DefaultNavSectionOrder,
+			// 日志：控制台 / 文件 / 调用日志默认全关，级别默认 info，无跟踪会话
+			LogLevel:   models.NormalizeLogLevel(""),
+			Debug:      models.DefaultDebugSettings(),
+			Theme:      models.DefaultTheme(),
+			Appearance: models.DefaultAppearance(),
+			Fonts:      models.DefaultFonts(),
 		}, nil
 	}
 	if err != nil {
@@ -105,6 +110,12 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	if settings.TabBarPlacement != "top" && settings.TabBarPlacement != "side" {
 		settings.TabBarPlacement = "side"
 	}
+	// 右键行为：旧配置没有该字段 → 默认「打开选项栏」；非法值同样回落默认
+	settings.RightClickAction = models.NormalizeRightClickAction(settings.RightClickAction)
+	// 导航区段顺序：旧配置没有该字段 → 默认「导航 → 会话 → 标签页」；非法排列同样回落默认
+	settings.NavSectionOrder = models.NormalizeNavSectionOrder(settings.NavSectionOrder)
+	// 调试模式：端口越界 / 旧配置缺字段时回落默认
+	settings.Debug = models.NormalizeDebugSettings(settings.Debug)
 	// 旧配置文件缺少外观 / 字体 / ANSI 色字段：补默认值
 	if !bytesContains(data, []byte(`"appearance"`)) {
 		settings.Appearance = models.DefaultAppearance()
@@ -115,6 +126,10 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	if !bytesContains(data, []byte(`"black"`)) {
 		models.FillThemeAnsi(&settings.Theme)
 	}
+	// 日志：旧配置没有日志字段时，零值（false）恰好就是期望的默认值；
+	// 级别与跟踪列表可能被写脏，统一归一化（非法级别回落 info）。
+	settings.LogLevel = models.NormalizeLogLevel(settings.LogLevel)
+	settings.LogTraceTabs = models.NormalizeLogTraceTabs(settings.LogTraceTabs)
 	return settings, nil
 }
 
@@ -126,6 +141,9 @@ func bytesContains(haystack, needle []byte) bool {
 func (s *JSONSettingsStore) Save(settings models.Settings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// 归一化后再落盘：保证磁盘上的级别与跟踪列表永远是合法值
+	settings.LogLevel = models.NormalizeLogLevel(settings.LogLevel)
+	settings.LogTraceTabs = models.NormalizeLogTraceTabs(settings.LogTraceTabs)
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err

@@ -11,9 +11,15 @@ export function ChangeMasterPassword(arg1:string,arg2:string):Promise<void>;
 
 export function ClearCommandHistory(arg1:string):Promise<void>;
 
+export function ClearLogs():Promise<Record<string, any>>;
+
 export function Connect(arg1:string,arg2:models.ServerNode,arg3:number,arg4:number):Promise<models.ConnectResult>;
 
 export function ConnectLocal(arg1:string,arg2:number,arg3:number):Promise<models.ConnectResult>;
+
+export function DebugInfo():Promise<Record<string, any>>;
+
+export function DebugReply(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteCredential(arg1:string):Promise<void>;
 
@@ -27,11 +33,15 @@ export function EnableMasterPassword(arg1:string):Promise<void>;
 
 export function ExportConfig(arg1:string):Promise<string>;
 
+export function ExportDiagnostics():Promise<Record<string, any>>;
+
 export function GetCredentials():Promise<Array<models.Credential>>;
 
 export function GetGroups():Promise<Array<string>>;
 
 export function GetLocalShellOptions():Promise<Array<localterm.ShellOption>>;
+
+export function GetLogInfo():Promise<Record<string, any>>;
 
 export function GetPlatform():Promise<string>;
 
@@ -47,9 +57,15 @@ export function ListSessions():Promise<Array<models.SessionInfo>>;
 
 export function ListTunnels():Promise<Array<models.TunnelInfo>>;
 
+export function LogClient(arg1:string,arg2:string):Promise<void>;
+
+export function OpenLogFolder():Promise<void>;
+
 export function QueryCommandHistory(arg1:string,arg2:string,arg3:number):Promise<Array<models.CommandSuggestion>>;
 
 export function ReadLocalFileBase64(arg1:string):Promise<string>;
+
+export function ReadLogTail(arg1:number):Promise<Record<string, any>>;
 
 export function Reconnect(arg1:string,arg2:number,arg3:number):Promise<models.ConnectResult>;
 
@@ -78,6 +94,10 @@ export function SelectLocalFile():Promise<string>;
 export function SelectLocalFiles():Promise<Array<string>>;
 
 export function SelectSavePath(arg1:string):Promise<string>;
+
+export function SetLogOptions(arg1:Record<string, any>):Promise<void>;
+
+export function SetLogTrace(arg1:string,arg2:boolean):Promise<void>;
 
 export function SetSftpPathFromTerminal(arg1:string,arg2:string):Promise<void>;
 

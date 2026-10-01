@@ -10,7 +10,7 @@ import TabBar from './components/TabBar.vue'
 import TerminalView from './components/TerminalView.vue'
 import SplitView from './components/SplitView.vue'
 import {layoutPanes} from './panes/layout'
-import type {PaneDirection, SplitDirection, Theme} from './types'
+import type {NavSectionKey, PaneDirection, SplitDirection, Theme} from './types'
 import TunnelPage from './components/TunnelPage.vue'
 import QuickConnectPanel from './components/QuickConnectPanel.vue'
 import {securityService} from './services/security'
@@ -136,6 +136,12 @@ const onlineCount = computed(() => sessions.tabs.filter((t) => t.status === 'con
 
 // 标签页位置：side 时并入左侧导航，顶栏标签栏隐藏
 const sideTabs = computed(() => settings.tabBarPlacement === 'side' && sessions.tabs.length > 0)
+
+// 左侧导航区段（导航 / 会话 / 标签页）按用户配置的顺序渲染；「标签页」仅在侧栏模式下存在
+const navSections = computed<NavSectionKey[]>(() => {
+  const order = settings.navSectionOrder.split(',').filter(Boolean) as NavSectionKey[]
+  return order.filter((k) => k !== 'tabs' || sideTabs.value)
+})
 
 const activeConnected = computed(() => {
   const tab = sessions.activeTab
@@ -479,7 +485,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 主壳 -->
-    <div v-else class="shell" :class="[navCollapsed ? 'nav-collapsed' : '', sideTabs ? 'has-tabs' : '']">
+    <div v-else class="shell" :class="navCollapsed ? 'nav-collapsed' : ''">
       <aside class="nav" aria-label="主导航">
         <div class="nav-brand">
           <button
@@ -502,72 +508,79 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
+        <!-- 三个区段按「设置 → 左侧导航区段顺序」排列：导航 / 会话 / 标签页 -->
         <nav class="nav-body">
-          <div class="nav-label">导航</div>
-          <button
-            class="nav-item"
-            :class="ui.view === 'workspace' ? 'active' : ''"
-            :aria-current="ui.view === 'workspace' ? 'page' : undefined"
-            title="工作区"
-            @click="ui.showWorkspace()"
-          >
-            <Icon name="terminal" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">工作区</span>
-            <span v-if="onlineCount" class="nav-count">{{ onlineCount }}</span>
-          </button>
-          <button
-            class="nav-item"
-            :class="ui.view === 'servers' ? 'active' : ''"
-            :aria-current="ui.view === 'servers' ? 'page' : undefined"
-            title="服务器管理"
-            @click="ui.showServers()"
-          >
-            <Icon name="server" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">服务器</span>
-            <span v-if="servers.servers.length" class="nav-count">{{ servers.servers.length }}</span>
-          </button>
-          <button
-            class="nav-item"
-            :class="ui.view === 'tunnel' ? 'active' : ''"
-            :aria-current="ui.view === 'tunnel' ? 'page' : undefined"
-            title="SSH 隧道"
-            @click="ui.showTunnel()"
-          >
-            <Icon name="tunnel" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">隧道</span>
-          </button>
-          <button
-            class="nav-item"
-            :class="ui.view === 'settings' ? 'active' : ''"
-            :aria-current="ui.view === 'settings' ? 'page' : undefined"
-            title="设置"
-            @click="ui.showSettings()"
-          >
-            <Icon name="settings" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">设置</span>
-          </button>
+          <section v-for="sec in navSections" :key="sec" class="nav-sec">
+            <template v-if="sec === 'nav'">
+              <div class="nav-label">导航</div>
+              <button
+                class="nav-item"
+                :class="ui.view === 'workspace' ? 'active' : ''"
+                :aria-current="ui.view === 'workspace' ? 'page' : undefined"
+                title="工作区"
+                @click="ui.showWorkspace()"
+              >
+                <Icon name="terminal" :size="15" extra-class="nav-ico" />
+                <span class="nav-text">工作区</span>
+                <span v-if="onlineCount" class="nav-count">{{ onlineCount }}</span>
+              </button>
+              <button
+                class="nav-item"
+                :class="ui.view === 'servers' ? 'active' : ''"
+                :aria-current="ui.view === 'servers' ? 'page' : undefined"
+                title="服务器管理"
+                @click="ui.showServers()"
+              >
+                <Icon name="server" :size="15" extra-class="nav-ico" />
+                <span class="nav-text">服务器</span>
+                <span v-if="servers.servers.length" class="nav-count">{{ servers.servers.length }}</span>
+              </button>
+              <button
+                class="nav-item"
+                :class="ui.view === 'tunnel' ? 'active' : ''"
+                :aria-current="ui.view === 'tunnel' ? 'page' : undefined"
+                title="SSH 隧道"
+                @click="ui.showTunnel()"
+              >
+                <Icon name="tunnel" :size="15" extra-class="nav-ico" />
+                <span class="nav-text">隧道</span>
+              </button>
+              <button
+                class="nav-item"
+                :class="ui.view === 'settings' ? 'active' : ''"
+                :aria-current="ui.view === 'settings' ? 'page' : undefined"
+                title="设置"
+                @click="ui.showSettings()"
+              >
+                <Icon name="settings" :size="15" extra-class="nav-ico" />
+                <span class="nav-text">设置</span>
+              </button>
+            </template>
 
-          <div class="nav-label">会话</div>
-          <button class="nav-item" title="本地终端" @click="ui.showWorkspace(); sessions.openLocalTab()">
-            <Icon name="monitor" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">本地终端</span>
-          </button>
-          <button
-            class="nav-item"
-            title="快速连接"
-            :class="ui.terminalSidebarOpen && ui.view === 'workspace' ? 'active' : ''"
-            :aria-expanded="ui.terminalSidebarOpen && ui.view === 'workspace'"
-            @click="ui.toggleQuickConnect()"
-          >
-            <Icon name="panel-left" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">快速连接</span>
-          </button>
+            <template v-else-if="sec === 'sessions'">
+              <div class="nav-label">会话</div>
+              <button class="nav-item" title="本地终端" @click="ui.showWorkspace(); sessions.openLocalTab()">
+                <Icon name="monitor" :size="15" extra-class="nav-ico" />
+                <span class="nav-text">本地终端</span>
+              </button>
+              <button
+                class="nav-item"
+                title="快速连接"
+                :class="ui.terminalSidebarOpen && ui.view === 'workspace' ? 'active' : ''"
+                :aria-expanded="ui.terminalSidebarOpen && ui.view === 'workspace'"
+                @click="ui.toggleQuickConnect()"
+              >
+                <Icon name="panel-left" :size="15" extra-class="nav-ico" />
+                <span class="nav-text">快速连接</span>
+              </button>
+            </template>
+
+            <!-- 标签页并入左侧导航：纵向列表，与顶部标签栏互斥 -->
+            <template v-else>
+              <TabBar side />
+            </template>
+          </section>
         </nav>
-
-        <!-- 标签页并入左侧导航：纵向列表，与顶部标签栏互斥 -->
-        <div v-if="sideTabs" class="nav-tabs">
-          <TabBar side />
-        </div>
 
         <div class="nav-foot">
           <button class="nav-item" title="命令面板 ⌘K" @click="openCmd">
