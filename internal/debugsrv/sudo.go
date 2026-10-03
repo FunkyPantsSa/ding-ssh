@@ -15,7 +15,7 @@ package debugsrv
 //  2. 本包调宿主 op OpSudoStage：宿主（debug.go 的 handleSudoOp）解析「会话 → 服务器节点」，
 //     按与 servers.get includeSecrets 同一条路径（findServer → App.GetServers → store.List）
 //     取出保存的密码，用**会话已有的那份 SFTP 客户端**写入 `<密码>\n`；本包只拿到「写成功了」；
-//  3. 本包用终端执行**一条** shell：chmod 600 → sudo -S -p '' -i -c '<command>' < 临时文件 →
+//  3. 本包用终端执行**一条** shell：chmod 600 → sudo -S -p '' -i -- /bin/sh -c '<command>' < 临时文件 →
 //     rm -f → ls 校验 → 打印退出码标记。整条用 `;` 串联，无论中途成败都会走到清理；
 //  4. 返回前调宿主 op OpSudoScrub，把捕获输出里出现的密码替换成 ***（宿主是唯一持有明文的一侧），
 //     返回里的 scrubbed 字段说明「是否已确认返回的文本不含该密码」。
@@ -128,7 +128,7 @@ var sudoWantRegistry = []struct {
 // schema 里**没有** password 字段，这是规格里的硬要求：密码只能来自应用里保存的凭证。
 func sudoToolEntries() []mcpTool {
 	return []mcpTool{
-		{Name: OpTerminalSudo, Description: "在**当前会话对应的服务器**上，用**应用里保存的密码**执行 `sudo -S -p '' -i -c '<command>'`（提权执行一条命令）。" +
+		{Name: OpTerminalSudo, Description: "在**当前会话对应的服务器**上，用**应用里保存的密码**执行 `sudo -S -p '' -i -- /bin/sh -c '<command>'`（提权执行一条命令）。" +
 			"适合「必须 root 才能做」的运维动作（改系统配置、装包、重启服务）。" +
 			"**密码从哪来**：只从应用里为该服务器保存的密码读取（等同 servers.get includeSecrets 的宿主路径），" +
 			"并且只经由远端随机临时文件（/tmp/.ding-sudo-<随机 12 位十六进制>、写入后立即 chmod 600、" +
@@ -147,7 +147,7 @@ func sudoToolEntries() []mcpTool {
 			"并发：与 terminal.run / terminal.expect 共用同一份「同会话串行化」名额，第二个调用被直接拒绝（不排队）。",
 			InputSchema: obj(map[string]any{
 				"id":        strProp("终端 id（标签 clientId，见 list_terminals）。必须是 SSH 会话：本机终端会被拒绝"),
-				"command":   strProp("要用 root 执行的命令（以 sudo -i -c 执行；不需要也不能传密码）"),
+				"command":   strProp("要用 root 执行的命令（以 /bin/sh -c 执行，支持 ; / 管道等 shell 语法；不需要也不能传密码）"),
 				"timeoutMs": intProp("总超时毫秒（默认 30000，范围 200–600000）"),
 				"idleMs":    intProp("可选：输出静默窗口毫秒（50–60000）。省略 = 不启用「静默提前返回」，一直等到退出码标记或 timeoutMs（慢命令建议省略）"),
 				"confirm":   strProp("两段式确认 token（confirm.prepare，action=terminal.sudo；别名 token 亦可）"),
@@ -316,18 +316,41 @@ func (s *Server) sudoTempPath() (string, error) {
 // （调用方可能超时 / 断开）。整条用 `;` 串联，chmod / sudo / rm / ls 任何一步失败都会继续往下走：
 //
 //	__ding_sudo_chmod=0; chmod 600 <f> || __ding_sudo_chmod=1;
-//	if [ "$__ding_sudo_chmod" = "0" ]; then sudo -S -p '' -i -c '<command>' < <f>; __ding_sudo_rc=$?;
+//	if [ "$__ding_sudo_chmod" = "0" ]; then sudo -S -p '' -i -- /bin/sh -c '<command>' < <f>; __ding_sudo_rc=$?;
 //	else __ding_sudo_rc=-1; fi;
 //	rm -f <f> || true; ls -d <f> >/dev/null 2>&1;
 //	printf '\n__DING_SUDO_RC__%s__LS__%s__CHMOD__%s\n' "$__ding_sudo_rc" "$?" "$__ding_sudo_chmod"
 //
 // chmod 失败时**不执行** sudo（宁可不提权，也不让密码文件以更宽的权限留在磁盘上）；
 // ls 的退出码就是「文件是否还在」的判据（非 0 = 已删除）。
+//
+// 提权命令为什么是 `-i -- /bin/sh -c '<command>'`（这里踩过两个真实的坑，改动前请先读这段）：
+//
+//	坑 1：sudo **没有 `-c` 选项**（`-c` 是 su/sh 的用法）。早先这里拼的是
+//	      `sudo -S -p '' -i -c '<command>'`，sudo 把 `-c` 当非法选项，直接打印 usage 并以 1 退出 ——
+//	      表现是「exitCode=1 + output 是一段 usage」，而**不是**密码错误（sudo 在读密码前就退出了），
+//	      排查时极易误判成「保存的密码不对」。
+//	坑 2：`sudo -s` / `sudo -i` 接受命令时，会把**每个位置参数重新加引号**再拼成一条命令串交给登录
+//	      shell。因此把整条复合命令作为**一个**参数传进去会被包成一个命令名：单字命令（`id`）能跑，
+//	      多字命令直接失败（`id; uname -srmo; whoami: command not found`，exit 127）。
+//
+// 2026-10 在真机（QNAP，Linux 5.10.60-qnap aarch64，sudo 1.9.12p2）实测：
+//
+//	sudo -n -i -c id                       → usage（坑 1：-c 非法）
+//	sudo -i -- id                          → uid=0(admin)（单字命令可以跑）
+//	sudo -i -- 'id -u'                     → -sh: id -u: command not found（坑 2）
+//	sudo -i -- /bin/sh -c 'id; uname -srmo; whoami' → 正常输出（本次采用的最终形式）
+//
+// 所以最终形式是 `-i -- /bin/sh -c '<command>'`：`--` 结束 sudo 的选项解析；`/bin/sh` 与 `-c` 是
+// sudo 的两个位置参数（sudo 重新加引号不会改变它们去掉引号后的取值）；复合命令整体作为第三个参数，
+// 由 sudo 转交给登录 shell，再由内层 `sh -c` 执行 —— 含空格 / 分号 / 引号的命令因此都能原样跑通，
+// 同时保留 `-i` 的登录环境（PATH 里带 sbin 等）。若将来遇到不支持 `--` 的老 sudo，
+// 可退化为把命令直接交给 `-i`，但**不要**再用 `-c`。
 func sudoShellLine(tempFile, command string) string {
 	f := shellSingleQuote(tempFile)
 	return fmt.Sprintf(
 		"__ding_sudo_chmod=0; chmod 600 %s 2>/dev/null || __ding_sudo_chmod=1; "+
-			"if [ \"$__ding_sudo_chmod\" = \"0\" ]; then sudo -S -p '' -i -c %s < %s; __ding_sudo_rc=$?; "+
+			"if [ \"$__ding_sudo_chmod\" = \"0\" ]; then sudo -S -p '' -i -- /bin/sh -c %s < %s; __ding_sudo_rc=$?; "+
 			"else __ding_sudo_rc=-1; fi; "+
 			"rm -f %s || true; ls -d %s >/dev/null 2>&1; "+
 			"printf '\\n%s%%s__LS__%%s__CHMOD__%%s\\n' \"$__ding_sudo_rc\" \"$?\" \"$__ding_sudo_chmod\"",

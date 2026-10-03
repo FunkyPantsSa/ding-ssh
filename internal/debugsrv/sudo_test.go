@@ -529,7 +529,7 @@ func TestSudoTempFileLifecycleAndScrub(t *testing.T) {
 	line := data[0]
 	for _, want := range []string{
 		"chmod 600 '" + tempFile + "'",
-		"sudo -S -p '' -i -c 'id -u' < '" + tempFile + "'",
+		"sudo -S -p '' -i -- /bin/sh -c 'id -u' < '" + tempFile + "'",
 		"rm -f '" + tempFile + "'",
 		"ls -d '" + tempFile + "'",
 		sudoMarkerPrefix,
@@ -734,11 +734,8 @@ func TestSudoShellLineQuoting(t *testing.T) {
 		t.Fatalf("shellSingleQuote = %s", got)
 	}
 	line := sudoShellLine("/tmp/.ding-sudo-abcdef012345", `echo 'hi'; rm -rf /`)
-	if strings.Contains(line, `-c echo`) {
-		t.Fatalf("命令必须整体单引号包裹后再传给 sudo -c：%s", line)
-	}
 	for _, want := range []string{
-		`-c 'echo '\''hi'\''; rm -rf /'`,
+		`-i -- /bin/sh -c 'echo '\''hi'\''; rm -rf /'`,
 		"< '/tmp/.ding-sudo-abcdef012345'",
 		"rm -f '/tmp/.ding-sudo-abcdef012345' || true",
 	} {
@@ -750,6 +747,54 @@ func TestSudoShellLineQuoting(t *testing.T) {
 	clean := sudoCleanupLine("/tmp/.ding-sudo-abcdef012345")
 	if !strings.Contains(clean, "rm -f") || !strings.Contains(clean, "ls -d") {
 		t.Fatalf("兜底清理命令不完整：%s", clean)
+	}
+}
+
+// 回归：提权调用必须是 `-i -- /bin/sh -c '<command>'` 形式（sudo 不接受 `-c` 选项）。
+//
+// 断言三件事：
+//  1. sudo 自己的选项段（`--` 之前）**不允许**出现 `-c`（sudo 没有这个选项）；
+//  2. 复合命令交给内层 `/bin/sh -c` 执行（`-c` 只能作为 /bin/sh 的参数出现）；
+//  3. 复合命令整体作为**单个参数**（一对单引号）传递，含空格 / 分号也不会被拆成多个 argv。
+//
+// 背景（2026-10 真机实测，QNAP Linux 5.10.60-qnap aarch64 / sudo 1.9.12p2）：
+//   - `sudo -i -c '<cmd>'` → sudo 打 usage 并以 1 退出，看起来像「密码错误」，实际根本没读密码；
+//   - `sudo -i -- 'id; uname -srmo; whoami'` → `-sh: id; uname -srmo; whoami: command not found`：
+//     sudo 对 -s/-i 的每个位置参数会**重新加引号**再拼成命令串，整条复合命令因此变成一个命令名
+//     （单字命令 `id` 反而能跑）；
+//   - `sudo -i -- /bin/sh -c '<cmd>'` → 正常执行。
+func TestSudoShellLineUsesShellDashC(t *testing.T) {
+	tempFile := "/tmp/.ding-sudo-abcdef012345"
+	command := `id; uname -srmo; whoami`
+	line := sudoShellLine(tempFile, command)
+
+	// 1) `--` 之前的 sudo 选项段里不允许出现 `-c`。
+	sep := strings.Index(line, " -- ")
+	if sep < 0 {
+		t.Fatalf("缺少 -- （用于结束 sudo 的选项解析）：\n%s", line)
+	}
+	if re := regexp.MustCompile(`(^|\s)-c(\s|$)`); re.MatchString(line[:sep]) {
+		t.Fatalf("sudo 不接受 -c（-c 只能作为 /bin/sh 的参数）：\n%s", line)
+	}
+	// 2) 完整形式：`sudo -S -p '' -i -- /bin/sh -c '<单引号包裹的整条命令>' < '<临时文件>'`
+	want := "sudo -S -p '' -i -- /bin/sh -c '" + command + "' < '" + tempFile + "'"
+	if !strings.Contains(line, want) {
+		t.Fatalf("提权调用形式应为 %q：\n%s", want, line)
+	}
+	// 3) 命令必须整体落在一对单引号里（= 单个 argv，不会被拆开）。
+	rest := line[sep+len(" -- "):]
+	if !strings.HasPrefix(rest, "/bin/sh -c '"+command+"' < '") {
+		t.Fatalf("复合命令必须整体单引号包裹后交给 /bin/sh -c，实际：%q", rest)
+	}
+	// 4) 命令里的单引号仍按 shell 规则转义（原样交给远端 shell）。
+	escaped := sudoShellLine(tempFile, `echo 'hi'; rm -rf /`)
+	if !strings.Contains(escaped, `-i -- /bin/sh -c 'echo '\''hi'\''; rm -rf /'`) {
+		t.Fatalf("命令内的单引号转义被破坏：\n%s", escaped)
+	}
+	// 5) 单字命令同样成立（不额外加壳）。
+	plain := sudoShellLine(tempFile, "id")
+	if !strings.Contains(plain, "sudo -S -p '' -i -- /bin/sh -c 'id' < '"+tempFile+"'") {
+		t.Fatalf("单字命令的拼装不对：\n%s", plain)
 	}
 }
 
