@@ -360,17 +360,30 @@ HTTP 客户端配置示例：
 2. 本包生成**随机**临时文件路径 `/tmp/.ding-sudo-<随机 12 位十六进制>`，并先后两次过既有白名单校验（写入前 + 写入后复核）；
 3. 宿主把 `<密码>\n` 用**会话已有的那份 SFTP 客户端**（不新建 SSH 连接）写进该临时文件 —— 密码只存在于宿主进程内，返回值只有 `{ok, path, bytes}`；
 4. **同一个会话里**用终端执行**一条** shell（用 `;` 串起来，任何一步失败都会继续往下走到清理）：
-   `chmod 600 <临时文件>` → 失败则**不执行** sudo → `sudo -S -p '' -i -c '<command>' < <临时文件>`（密码**只经由文件重定向**进入 sudo，绝不进命令行）→ `rm -f <临时文件> || true` → `ls -d <临时文件>` 校验已删除 → 打印退出码标记 `__DING_SUDO_RC__<退出码>__LS__<ls 退出码>__CHMOD__<0|1>`；
-5. 任何情况下都会清理：标记没出现（超时 / 静默 / 事件流关闭 / 取消）或发送失败时，会再补一条 `rm -f` + `ls` 校验，返回里的 `cleanedUp` 如实说明是否已确认删除；
+   `chmod 600 <临时文件>` → 失败则**不执行** sudo → `sudo -S -p '' -i -- /bin/sh -c '<command>' < <临时文件>`（密码**只经由文件重定向**进入 sudo，绝不进命令行；`-c` 是内层 `/bin/sh` 的参数，sudo 本身没有 `-c`）→ `rm -f <临时文件> || true` → `ls -d <临时文件>` 校验已删除 → 打印退出码标记 `__DING_SUDO_RC__<退出码>__LS__<ls 退出码>__CHMOD__<0|1>`；
+5. **清理有两条通道（任一确认删除即 `cleanedUp=true`）**：
+   - **通道 A（原 shell）**：执行那条 shell 自带的 `rm -f` + `ls -d` 校验 —— 退出码标记里带了 `ls` 的退出码（非 0 = 文件确实不在了）；
+   - **通道 B（独立 SFTP，核心）**：无论成功 / 失败 / 超时，返回前都调一次宿主 op `sudo.cleanup` —— 用**该会话已有的那份 SFTP 客户端** `Remove` 临时文件，并再 `Stat` 一次复核，返回 `{removed, existed, verified}`（幂等：文件本来就不存在时 `verified=true`）。它与终端作业无关（unlink 不受前景进程是否阻塞影响），因此**命令挂起 / 超时时也真的能删掉**；
+   - 顺序是先 B 后 A：独立通道没确认删除时，才退回再发一条 `rm -f` + `ls`（尽力而为的最后手段）；
 6. **输出净化**：返回前把捕获输出里出现的密码替换成 `***`（净化由宿主做 —— 它才是唯一持有明文的一侧），返回里的 `scrubbed=true` 表示已确认返回文本不含该密码；`false` 时会在返回里明确警告「本段输出未经打码，请勿落盘」；
-7. 返回结构与常见失败提示：`{ok, sudo:true, sessionId, matched, reason, elapsedMs, exitCode?, tempFile, cleanedUp, scrubbed, output, outputBytes, truncated, hint?}`。`ok=true` 只表示**流程走完**（拿到退出码与清理结果），命令本身的成败看 `exitCode`；`Sorry, try again` / `incorrect password` → 「保存的密码不正确或该账号无 sudo 权限（请核对后重试，或改配免密 sudo）」；超时 / 静默**不是协议错误**（返回 `matched=false` + 已捕获输出 + 中文说明）。
+7. 返回结构与常见失败提示：`{ok, sudo:true, sessionId, matched, reason, elapsedMs, exitCode?, tempFile, cleanedUp, cleanupAttempted, cleanupVerified, scrubbed, output, outputBytes, truncated, hint?}`。`ok=true` 只表示**流程走完**（拿到退出码与清理结果），命令本身的成败看 `exitCode`；`cleanedUp=true` 表示**结束时会话已确认临时文件不存在**（通道 A 或通道 B 任一确认即可），`cleanupAttempted` / `cleanupVerified` 如实说明独立通道是否被调用、是否复核确认删除；`Sorry, try again` / `incorrect password` → 「保存的密码不正确或该账号无 sudo 权限（请核对后重试，或改配免密 sudo）」；超时 / 静默**不是协议错误**（返回 `matched=false` + 已捕获输出 + 中文说明）。
+
+**超时 / 异常时的清理保证（2026-10 修的缺陷）**：
+
+- **修的是什么**：原先唯一的兜底清理是「在同一条远端 shell 里再发 `rm -f` + `ls` 校验」，排在用户命令之后。命令**永不返回**时（实测：`get_hd_smartinfo -d 1 -i 1 | head -45` 阻塞不打印）那行从未执行；随后靠 Ctrl-C 恢复终端时，tty 在 SIGINT 时会**丢弃输入队列**，兜底行同样丢失 ⇒ 目标机残留 `/tmp/.ding-sudo-<12hex>`（**含明文密码**）。
+- **现在怎么做**：收尾固定走**独立 SFTP 通道**（宿主 op `sudo.cleanup`，复用会话已有的 SFTP 客户端，不新建连接、不走终端、不走 shell），`Remove` 后再 `Stat` 复核，且**先清理再返回**（不等调用方善后）。超时批次因此也可以是 `cleanedUp=true`。
+- **`cleanupAttempted` / `cleanupVerified` 的语义**：前者 = 是否调用了独立通道（成功路径也会调用，用于如实报告）；后者 = 该通道是否复核确认文件已不存在。`cleanedUp` = 通道 A 的 `ls` 校验 **或** 通道 B 的 `cleanupVerified`（两者取或）。
+- **清理失败时**：`cleanedUp=false`，并且 `hint` 会给出**残留文件的完整路径**与中文处置建议（「请立即在目标机执行 `rm -f /tmp/.ding-sudo-xxxx` 删除，并轮换该账号密码」）。
+- **事后兜底入口 `cleanupOnly`**：`terminal.sudo{id, cleanupOnly:"/tmp/.ding-sudo-xxxx"}` —— 传了它 ⇒ **跳过取密码与写临时文件**，只对该路径做一次独立清理与复核，返回 `{ok, sudo:false, cleanupOnly:true, sessionId, path, removed, existed, cleanupAttempted, cleanupVerified, cleanedUp, hint?}`（幂等：文件不存在也算成功）。它不碰终端（因此终端仍被挂起的作业占着也能用）、不占「同会话串行化」名额，但仍要 `sudo.credential` + 两段式确认（action 仍是 `terminal.sudo`）。
+- **只接受本工具生成的路径形态**：`cleanupOnly` 与 `sudo.cleanup` 都严格要求 `^/tmp/\.ding-sudo-[0-9a-f]{12}$`，其它路径（`/etc/passwd`、`/tmp/.ding-sudo-XYZ`、相对路径、含 `..` …）一律中文拒绝，并仍要过既有远端写入白名单 —— 它不是任意删除原语。
+- **SFTP 不可用时**：返回 `cleanupVerified=false` + 中文原因，**不会**退化成「再发一条终端命令」（终端可能仍被挂起的作业占着），此时 `cleanedUp` 可能为 `false`，请按 `hint` 里的残留路径人工处理。
 
 **边界与「不做的事」**：
 
 - **不接受调用方传入的密码**：工具的 `inputSchema` 里**没有** `password` 字段，硬塞 `password` 参数会被直接拒绝（永不接受），也不支持从 `command` 里透传密码；
 - **不用于本机终端**：本机终端没有远端账号、也没有 SFTP 通道 → 中文拒绝；
-- **不在远端持久保留任何凭证**：临时文件随机命名 + `chmod 600` + 用完即删 + `ls` 校验；不写 shell history、不改 sudoers、不落任何用户配置；
-- **密码不进审计 / 日志 / 返回值 / MCP 资源**：本工具的审计 args 只有 `id` / `command` / `timeoutMs` / `idleMs`（token 本身也会被审计脱敏成 `***`）；宿主的日志只记会话 / 路径 / 字节数；返回值在净化之后才会序列化；
+- **不在远端持久保留任何凭证**：临时文件随机命名 + `chmod 600` + 用完即删 + **双通道清理/校验**（原 shell 的 `ls` 校验 + 独立 SFTP 的 `Remove`/`Stat` 复核，见上文「超时 / 异常时的清理保证」）；不写 shell history、不改 sudoers、不落任何用户配置；
+- **密码不进审计 / 日志 / 返回值 / MCP 资源**：本工具的审计 args 只有 `id` / `command` / `timeoutMs` / `idleMs` / `cleanupOnly`（token 本身也会被审计脱敏成 `***`）；宿主的日志只记会话 / 路径 / 字节数；返回值在净化之后才会序列化；
 - **白名单不含 `/tmp` 时直接拒绝**：临时文件路径同样受「远端写入白名单」约束（只按路径段前缀匹配），拒绝时给出中文说明与配置位置。
 
 **更安全的替代方案**（强烈建议优先考虑）：不要让 AI 拿着可复用的登录密码去提权，而是在该机器上配置**免密 sudo**（只放开具体命令），或者「密钥登录 + 受限 sudo 规则」：
@@ -428,7 +441,7 @@ deploy ALL=(root) /usr/bin/systemctl restart nginx, /usr/bin/journalctl -u nginx
   - `wrapExitMarker=true` 会把命令包成 `command; printf '\n__DING_EXIT__%s\n' "$?"` 以捕获退出码（返回里 `wrapped=true` 与 `wrappedCommand` 如实说明命令被改过）；这是 **POSIX shell** 语义，在 Windows 本地终端（cmd / PowerShell）上拿不到退出码。
   - `expect` 超时**不是协议错误**：返回 `matched=false` + 已捕获输出 + 中文说明。
 - `terminal.expect`：纯等待（**不发送任何数据**），`pattern` 正则命中即返回；`sinceMarker` 可跳过上一次已看过的内容。它没有「回显」可跳过，因此 pattern 在本次等待收到的全部新增文本上匹配。
-- `terminal.sudo`：用**应用里保存的密码**在当前会话对应的服务器上执行 `sudo -i`（需要 `sudo.credential` + `terminal.input`，且每次都要 `confirm.prepare(action="terminal.sudo")`）。密码只经随机临时文件喂给 `sudo -S`、用完即删，绝不进参数 / 返回值 / 日志 / 审计；`idleMs` **省略时不启用「静默提前返回」**（一直等到退出码标记或 `timeoutMs`，避免慢命令被误判成卡住），显式给出（50–60000）时按 `terminal.run` 的语义用。完整流程、边界与更安全的替代方案见上文「能力位与两段式确认」里的 `sudo.credential` 小节。
+- `terminal.sudo`：用**应用里保存的密码**在当前会话对应的服务器上执行 `sudo -i`（需要 `sudo.credential` + `terminal.input`，且每次都要 `confirm.prepare(action="terminal.sudo")`）。密码只经随机临时文件喂给 `sudo -S`、用完即删（**双通道清理**：原 shell 的 `rm`/`ls` 校验 + 独立 SFTP 的 `Remove`/`Stat` 复核，超时/挂起时后者才是可靠的），绝不进参数 / 返回值 / 日志 / 审计；`idleMs` **省略时不启用「静默提前返回」**（一直等到退出码标记或 `timeoutMs`，避免慢命令被误判成卡住），显式给出（50–60000）时按 `terminal.run` 的语义用；可选参数 `cleanupOnly`（只接受本工具生成的 `/tmp/.ding-sudo-<12hex>` 形态）是**超时/异常后的事后清理入口**：只做清理与复核，不取密码、不写临时文件、不碰终端。完整流程、边界与更安全的替代方案见上文「能力位与两段式确认」里的 `sudo.credential` 小节。
 - **同会话串行化**：同一会话上同一时刻只允许一个 `terminal.run` / `terminal.expect` / `terminal.sudo`，第二个调用被**直接拒绝**（不排队），避免两个调用互相偷走对方的输出增量。
 
 ### MCP 服务端推送（SSE）

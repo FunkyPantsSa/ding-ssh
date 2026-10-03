@@ -820,6 +820,13 @@ func (s *Server) mcpCallToolAudited(ctx context.Context, name string, args map[s
 		return nil, rec.finish(err, false, ""), err
 	}
 
+	// 1.6) sudo 域预检（M10 收尾）：cleanupOnly 是「超时 / 异常后的事后清理入口」，
+	//      它的路径必须先过「形态 + 白名单」校验再消费一次性 token ——
+	//      被拒时不烧 token，AI 不必重新 confirm.prepare（理由与上面的 M8 预检相同）。
+	if err := s.preflightSudoArgs(name, args); err != nil {
+		return nil, rec.finish(err, false, ""), err
+	}
+
 	// 2) 两段式确认：需要确认的工具必须携带 token（由 confirm.prepare 取得）。
 	//    约定：缺 token 时**不执行**，只提示怎么拿 token。
 	if action, need := ToolConfirmAction(name); need {

@@ -8,6 +8,28 @@
 
 ---
 
+## [未发布] 2026-10-01 · M10 收尾 · `terminal.sudo` 挂起/超时后的清理保证（独立 SFTP 通道 + `cleanupOnly`）
+
+工具面数量不变（仍是 89 个）：本次只给既有工具 `terminal.sudo` 加了一个可选参数 `cleanupOnly`，并新增一条**宿主 op**（`sudo.cleanup`，不进 MCP 工具清单，只在 `debug.go` 的 `Handle` 里分发）。
+
+### 修复
+
+- **命令挂起 / 超时时，含明文密码的临时文件会留在目标机** —— 现象：`get_hd_smartinfo -d 1 -i 1 | head -45` 这类**永不返回**的命令下，`terminal.sudo` 超时返回后目标机残留 `/tmp/.ding-sudo-<12hex>`（**含明文密码**）。原因：当时唯一的兜底清理是「在**同一条远端 shell** 里再发 `rm -f` + `ls` 校验」，它排在用户命令之后 —— 用户命令不返回 ⇒ 那行从未执行；随后靠 Ctrl-C 恢复终端时，tty 在 SIGINT 时会**丢弃输入队列**，兜底行同样丢失。修法：新增**独立通道清理**（宿主 op `sudo.cleanup`：复用会话已有的 SFTP 客户端 `Remove` + `Stat` 复核，不新建连接、不走终端、不走 shell），`terminal.sudo` 的收尾**无论成功 / 失败 / 超时都先走它再返回**；`cleanedUp` 的语义明确为「结束时会话确认文件已不存在」= 原 shell 的 `ls` 校验 **或** 独立通道的 `verified`（两者取或），因此超时批次也可以是 `cleanedUp=true`；独立通道失败时 `cleanedUp=false`，`hint` 给出**残留文件完整路径**与中文处置建议（删除 + 轮换该账号密码）。
+- **清理入口只能是本工具生成的路径**：`cleanupOnly` 与 `sudo.cleanup` 都严格要求 `^/tmp/\.ding-sudo-[0-9a-f]{12}$`（并仍要过既有远端写入白名单），其它路径一律中文 `ErrBadInput` —— 否则「事后清理」就成了任意删除原语。宿主拿不到 SFTP 客户端时返回 `verified=false` + 中文原因，**不退化**成「再发一条终端命令」（终端可能仍被挂起的作业占着）。
+
+### 新增
+
+- `terminal.sudo` 的返回新增 `cleanupAttempted` / `cleanupVerified` 两个布尔字段（独立通道是否被调用 / 是否复核确认删除）；成功路径也会调用独立通道，用于如实报告。
+- `terminal.sudo` 的可选参数 **`cleanupOnly`**（string，远端路径）：用于超时 / 异常后清理可能残留的临时文件；传了它 ⇒ 跳过取密码与 stage，只对指定路径执行独立清理，返回 `{ok, sudo:false, cleanupOnly:true, sessionId, path, removed, existed, cleanupAttempted, cleanupVerified, cleanedUp, hint?}`，幂等（文件不存在也算成功）。不接受任意路径，只接受本工具生成的 `/tmp/.ding-sudo-<12hex>` 形态；仍受 `sudo.credential` 能力位与两段式确认（action 仍是 `terminal.sudo`）约束；它不碰终端，因此也不占「同会话串行化」名额。相应地 `command` 不再是 schema 的必填项（cleanupOnly 模式下不需要），主流程缺 `command` 时仍报中文 `ErrBadInput`。
+- 新增宿主 op **`sudo.cleanup`**：入参 `{sessionId, path}`，返回 `{removed, existed, verified, reason}`；校验顺序为「路径形态 → 白名单 → 会话 SFTP 客户端」。
+- 用例：`internal/debugsrv/sudo_test.go` 新增「超时批次走独立清理」「独立清理先于终端兜底」「独立清理失败给残留路径」「独立清理通道报错」「cleanupOnly 正常 / 幂等 / 非法路径拒绝 / 白名单 / 能力位与两段式 / 不占终端名额」等；`sudo_cleanup_test.go`（包 main）覆盖宿主侧的入参校验、白名单、「拿不到 SFTP 客户端」的降级行为，并用 **pkg/sftp 的内存 SFTP 服务端**（`InMemHandler` + 管道）跑一遍真实的 `Remove` / `Lstat` 协议路径，验证 `verified` 的判据与幂等语义；全部用替身，**不连任何主机**。
+
+### 文档
+
+- `README.md` 的 `sudo.credential` 小节补「超时 / 异常时的清理保证」（独立 SFTP 通道 + `cleanupAttempted` / `cleanupVerified` 语义 + `cleanupOnly` 用法 + 失败时 hint 给出残留路径 + SFTP 不可用时的行为），并更新工作流程第 5–7 步、`terminal.sudo` 的工具说明与「不做的事」里的审计 args 清单。
+
+---
+
 ## [未发布] 2026-10-01 · M10 · sudo 凭证提权（`terminal.sudo`）与超长命令回显修复
 
 工具面从 88 个扩到 **89 个**（`tools/list` 与 `GET /v1/tools` 的 `count` 一致）。登记口径：**63** 个由各域在能力注册表里登记（`AllRegisteredToolNames()` 的长度 = ui 25 + 应用控制 25 + SFTP/终端 12 + `terminal.sudo` 1），另外 **26** 个内置工具的能力登记在内置表 `toolCaps` 里（`screenshot` 不登记能力位）。数量请以运行时为准，不要写死；新增用例 `TestToolEntryRegistryConsistency` 会在「有条目但没登记能力位」时直接失败。

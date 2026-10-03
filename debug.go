@@ -422,7 +422,7 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 		return c.handleSftpOp(ctx, op, m)
 	}
 
-	// ---- M10：sudo 凭证提权的宿主实现（op 形如 sudo.stage / sudo.scrub）----
+	// ---- M10：sudo 凭证提权的宿主实现（op 形如 sudo.stage / sudo.scrub / sudo.cleanup）----
 	// 这里是**唯一持有明文密码**的一侧：stage 负责「取保存的密码 + 用会话已有 SFTP 客户端写临时文件」，
 	// scrub 负责「把输出里出现的密码替换成 ***」。密码不回传、不落日志、不进审计
 	//（详见文件末尾那一节的注释）。
@@ -3471,14 +3471,16 @@ func (c *debugController) sftpHostCancel(args map[string]any) (any, error) {
 //
 // 密码的硬边界（与 internal/debugsrv/sudo.go 顶部注释一一对应）：
 //   - **不回传**：OpSudoStage 的返回值只有 {ok, path, bytes}；OpSudoScrub 只回净化后的文本；
+//     OpSudoCleanup 只回 {removed, existed, verified, reason}（它根本不需要密码）；
 //   - **不落日志**：本节的 logx 只记会话 / 路径 / 字节数，绝不记内容（也不行记前缀）；
-//   - **不进审计**：这两个 op 不是 MCP 工具，不经过审计记录；AI 传的参数里本来也没有密码字段；
-//   - **不落盘**：临时文件由 debugsrv 侧在同一条 shell 里 rm + ls 校验删除。
+//   - **不进审计**：这三个 op 不是 MCP 工具，不经过审计记录；AI 传的参数里本来也没有密码字段；
+//   - **不落盘**：临时文件由 debugsrv 侧在同一条 shell 里 rm + ls 校验删除，并且**返回前总要走一次
+//     OpSudoCleanup**（独立 SFTP 通道）—— 命令挂起 / 超时时只有这条通道真的能删掉文件。
 
 // isHostSudoOp 判断 op 是否属于 sudo 凭证提权的宿主操作。
 func isHostSudoOp(op string) bool {
 	switch strings.TrimSpace(op) {
-	case debugsrv.OpSudoStage, debugsrv.OpSudoScrub:
+	case debugsrv.OpSudoStage, debugsrv.OpSudoScrub, debugsrv.OpSudoCleanup:
 		return true
 	}
 	return false
@@ -3491,6 +3493,8 @@ func (c *debugController) handleSudoOp(ctx context.Context, op string, args map[
 		return c.sudoHostStage(ctx, args)
 	case debugsrv.OpSudoScrub:
 		return c.sudoHostScrub(ctx, args)
+	case debugsrv.OpSudoCleanup:
+		return c.sudoHostCleanup(ctx, args)
 	}
 	return nil, fmt.Errorf("%w: 未知 sudo 操作 %q", debugsrv.ErrBadInput, op)
 }
@@ -3601,6 +3605,109 @@ func (c *debugController) sudoHostStage(ctx context.Context, args map[string]any
 	// 日志只记会话 / 路径 / 字节数（长度有助于排查「写空了」），绝不记内容。
 	logx.Infof("MCP sudo 临时凭证已写入: session=%s path=%s bytes=%d server=%s", sess, norm, n, node.ID)
 	return map[string]any{"ok": true, "path": norm, "bytes": n}, nil
+}
+
+// -------- M10 收尾：独立 SFTP 清理通道（sudo.cleanup）--------
+//
+// 修的是一个真实缺陷：原来的兜底清理是「同一条远端 shell 里再发 rm -f + ls 校验」，
+// 排在用户命令之后。用户命令**永不返回**时（实测：`get_hd_smartinfo -d 1 -i 1 | head -45`
+// 阻塞不打印）那条兜底行从未执行；随后靠 Ctrl-C 恢复终端时，tty 在 SIGINT 时会丢弃输入队列，
+// 兜底行同样丢失 ⇒ 目标机残留 /tmp/.ding-sudo-<12hex>（**含明文密码**）。
+//
+// SFTP 删除与终端作业完全无关（unlink 不受前景进程是否阻塞影响），因此这条通道在超时/异常
+// 场景下才是可靠的。它由 debugsrv 侧在**超时路径返回之前**调用（见 sudo.go 的 sudoCleanupBoth）。
+//
+// sudoHostCleanup 用会话**已有的** SFTP 客户端删除 terminal.sudo 的临时文件，并复核是否真的不在了。
+//
+// 安全边界（两道都必须过，缺一即拒）：
+//  1. 路径必须严格等于本工具生成的形态 /tmp/.ding-sudo-<12 位十六进制>（debugsrv.IsSudoTempPath）
+//     —— 这条 op 因此不是「任意路径删除原语」；
+//  2. 仍要过既有远端写入白名单（与 sftp.remove 共用同一套规则函数）。
+//
+// 返回 {"removed":bool, "existed":bool, "verified":bool, "reason":string}：
+//   - removed / existed：本次删除是否成功 / 删除前文件是否存在；
+//   - verified=true：**复核（Stat）确认文件已不存在**，文件本来就不存在时同样为 true（幂等）；
+//   - 拿不到 SFTP 客户端时**不退化**成「再发一条终端命令」（终端可能仍被挂起的作业占着，
+//     那正是本次缺陷的场景），而是返回 verified=false + 中文 reason，由调用方把残留路径与
+//     处置建议写进返回的 hint。
+func (c *debugController) sudoHostCleanup(ctx context.Context, args map[string]any) (any, error) {
+	_ = ctx // 本 op 不碰终端 / 前端桥，也不需要 ctx；保留形参是为了与其它宿主 op 一致。
+	sess := ctlSftpSessionID(args)
+	raw := ctlArgStr(args, "path")
+	if raw == "" {
+		return nil, fmt.Errorf("%w: 缺少 path（sudo 临时文件路径）", debugsrv.ErrBadInput)
+	}
+	if !debugsrv.IsSudoTempPath(raw) {
+		return nil, fmt.Errorf("%w: 拒绝清理路径 %q：只接受本工具生成的临时文件（严格匹配 %s）",
+			debugsrv.ErrBadInput, raw, "/tmp/.ding-sudo-<12 位十六进制>")
+	}
+	norm, nerr := debugsrv.NormalizeRemotePath(raw)
+	if nerr != nil {
+		return nil, fmt.Errorf("%w: %v", debugsrv.ErrBadInput, nerr)
+	}
+	if norm != raw {
+		return nil, fmt.Errorf("%w: 清理路径 %q 归一化后变成 %q：拒绝使用", debugsrv.ErrBadInput, raw, norm)
+	}
+	if c.app == nil {
+		return nil, errors.New("应用未初始化")
+	}
+	allow := c.app.sftpWriteAllowlist()
+	if !debugsrv.SFTPPathAllowed(allow, norm) {
+		return nil, fmt.Errorf("sudo 临时文件 %q 不在远端写入白名单内（当前白名单：%s）："+
+			"请在 设置 → 调试模式 → MCP 能力 里把 /tmp 加进白名单前缀", norm, strings.Join(allow, "、"))
+	}
+	client, _, cerr := c.ctlSftpClient(map[string]any{"sessionId": sess})
+	if cerr != nil {
+		// 刻意不退化成终端命令：终端可能仍被挂起的作业占着（见本段顶部注释）。
+		return map[string]any{
+			"removed": false, "existed": false, "verified": false,
+			"reason": fmt.Sprintf("会话 %s 没有可用的 SFTP 客户端，无法走独立清理通道：%v", sess, cerr),
+		}, nil
+	}
+	// 1) 删除 + 复核（核心语义抽在 sudoSftpRemoveAndVerify 里，便于用内存 SFTP 服务端覆盖）。
+	removed, existed, verified, reason := sudoSftpRemoveAndVerify(client, norm)
+	if verified && removed {
+		c.app.manager.InvalidateSftpCache(path.Dir(norm))
+		logx.Infof("MCP sudo 临时凭证已清理: session=%s path=%s", sess, norm)
+	}
+	return map[string]any{"removed": removed, "existed": existed, "verified": verified, "reason": reason}, nil
+}
+
+// sudoSftpRemoveAndVerify 在给定 SFTP 客户端上做「删除 + 复核」，返回 (removed, existed, verified, reason)。
+//
+// 判定口径（幂等）：
+//   - existed：删除前 Lstat 成功（文件确实存在）；
+//   - removed：Remove 调用成功（文件不存在时 Remove 返回 os.ErrNotExist，按「本来就没有」处理）；
+//   - verified：删除后 Lstat 报 os.ErrNotExist —— **这一步才是 verified 的判据**，
+//     文件本来就不存在时同样为 true（幂等：重复清理不报错、也算成功）；
+//   - reason：未确认删除时的中文原因（绝不包含密码）。
+//
+// 为什么抽成独立函数：这条语义是「超时也能清掉含密码的临时文件」这次修复的核心，
+// 需要能被**不接真实主机**的用例覆盖（见 sudo_cleanup_test.go：用 pkg/sftp 的内存 SFTP
+// 服务端跑一遍真实的 Remove / Lstat 协议路径）。
+func sudoSftpRemoveAndVerify(client *sftp.Client, norm string) (removed, existed, verified bool, reason string) {
+	if _, serr := client.Lstat(norm); serr == nil {
+		existed = true
+	}
+	removeErr := client.Remove(norm)
+	removed = removeErr == nil
+	if removed {
+		existed = true
+	}
+	_, statErr := client.Lstat(norm)
+	verified = statErr != nil && errors.Is(statErr, os.ErrNotExist)
+	switch {
+	case verified:
+		// 已确认不存在：不需要原因。
+	case statErr == nil:
+		reason = fmt.Sprintf("删除后复核发现文件仍然存在（删除错误：%s）", ctlSftpErrText(removeErr))
+	case removeErr != nil && !errors.Is(removeErr, os.ErrNotExist):
+		reason = fmt.Sprintf("删除失败且复核未能确认已删除（删除错误：%s；复核错误：%s）",
+			ctlSftpErrText(removeErr), ctlSftpErrText(statErr))
+	default:
+		reason = fmt.Sprintf("复核失败，无法确认文件是否已删除：%s", ctlSftpErrText(statErr))
+	}
+	return removed, existed, verified, reason
 }
 
 // sudoHostScrub 把输出里出现的密码替换成 ***（唯一的明文持有者在这里）。

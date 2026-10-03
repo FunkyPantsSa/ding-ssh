@@ -11,7 +11,9 @@ package debugsrv
 //
 // 覆盖的规格点：能力位 / 确认登记、拒绝路径（本机终端 / 无服务器 / 无保存密码 / AllowSecrets=false /
 // 白名单不含 /tmp / 能力未开）、临时文件生命周期（写入 → chmod → 使用 → 删除 → 校验，失败路径也要删）、
-// 输出净化、密码错误识别、超时、静默、并发拒绝、schema 里没有 password 字段、审计 args 里没有密码。
+// 两条清理通道（原 shell 的 ls 校验 + 独立 SFTP 通道 sudo.cleanup）、超时后的事后清理入口 cleanupOnly
+// （幂等 / 非法路径拒绝 / 能力位与两段式同样生效）、输出净化、密码错误识别、超时、静默、并发拒绝、
+// schema 里没有 password 字段、审计 args 里没有密码。
 
 import (
 	"context"
@@ -31,16 +33,22 @@ import (
 // 它把「宿主才会做/才知道的事」显式建模出来：
 //   - OpSudoStage：写密码临时文件；stageErr 用来模拟三条拒绝路径；
 //   - OpSudoScrub：拿真文本做净化（密码 → ***），与 debug.go 的 sudoHostScrub 语义一致；
+//   - OpSudoCleanup：独立 SFTP 清理通道（cleanupReply / cleanupErr 用来模拟「删掉了 / 删不掉 /
+//     拿不到 SFTP 客户端」三种真实结果，与 debug.go 的 sudoHostCleanup 返回契约一致）；
 //   - 其它 op（OpTerminalInput 等）交给 sftpStubHandler（它会把输出造进 Hub）。
 type sudoStubHandler struct {
 	*sftpStubHandler
 
-	mu         sync.Mutex
-	password   string
-	stageErr   error
-	stageCalls []string // 每次 stage 的临时文件路径（同一路径出现两次 = 重复写，测试会拦）
-	scrubSeen  []string // 每次净化请求的原文（用来证明「宿主确实看到了含密码的文本」）
-	inputs     []string // 每次 OpTerminalInput 的数据（用来断言 shell 命令的构造）
+	mu           sync.Mutex
+	password     string
+	stageErr     error
+	stageCalls   []string // 每次 stage 的临时文件路径（同一路径出现两次 = 重复写，测试会拦）
+	scrubSeen    []string // 每次净化请求的原文（用来证明「宿主确实看到了含密码的文本」）
+	inputs       []string // 每次 OpTerminalInput 的数据（用来断言 shell 命令的构造）
+	cleanupReply map[string]any
+	cleanupErr   error
+	cleanupArgs  []map[string]any // 每次独立清理的入参（sessionId + path）
+	seq          []string         // 全部宿主 op 的调用顺序（断言「独立清理先于终端兜底」用）
 }
 
 func (h *sudoStubHandler) Handle(ctx context.Context, op string, raw json.RawMessage) (any, error) {
@@ -48,6 +56,9 @@ func (h *sudoStubHandler) Handle(ctx context.Context, op string, raw json.RawMes
 	if len(raw) > 0 {
 		_ = json.Unmarshal(raw, &m)
 	}
+	h.mu.Lock()
+	h.seq = append(h.seq, op)
+	h.mu.Unlock()
 	switch op {
 	case OpSudoStage:
 		p, _ := m["path"].(string)
@@ -70,6 +81,20 @@ func (h *sudoStubHandler) Handle(ctx context.Context, op string, raw json.RawMes
 			out = strings.ReplaceAll(out, pw, "***")
 		}
 		return map[string]any{"text": out, "scrubbed": true}, nil
+	case OpSudoCleanup:
+		h.mu.Lock()
+		h.cleanupArgs = append(h.cleanupArgs, m)
+		reply, err := h.cleanupReply, h.cleanupErr
+		h.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		if reply != nil {
+			return reply, nil
+		}
+		// 默认：模拟「独立通道未能确认删除」（未配置结果的用例必须显式说明自己在测哪条通道）。
+		return map[string]any{"removed": false, "existed": false, "verified": false,
+			"reason": "替身未配置清理结果：独立通道未确认删除"}, nil
 	}
 	// 记录终端输入（便于断言 shell 命令的构造），再交给通用替身（它负责把输出造进 Hub）。
 	if op == OpTerminalInput {
@@ -93,6 +118,26 @@ func (h *sudoStubHandler) setStageErr(err error) {
 	h.mu.Unlock()
 }
 
+// setCleanupResult 配置独立清理通道的返回（removed / existed / verified + 中文原因）。
+func (h *sudoStubHandler) setCleanupResult(removed, existed, verified bool, reason string) {
+	h.mu.Lock()
+	h.cleanupReply = map[string]any{"removed": removed, "existed": existed, "verified": verified, "reason": reason}
+	h.mu.Unlock()
+}
+
+// setCleanupErr 让独立清理通道整个报错（模拟宿主侧异常，例如会话管理器未就绪）。
+func (h *sudoStubHandler) setCleanupErr(err error) {
+	h.mu.Lock()
+	h.cleanupErr = err
+	h.mu.Unlock()
+}
+
+func (h *sudoStubHandler) cleanupCalls() []map[string]any {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]map[string]any(nil), h.cleanupArgs...)
+}
+
 func (h *sudoStubHandler) stages() []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -109,6 +154,13 @@ func (h *sudoStubHandler) inputData() []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return append([]string(nil), h.inputs...)
+}
+
+// callSeq 返回宿主 op 的调用顺序（供「独立清理先于终端兜底」这类顺序断言使用）。
+func (h *sudoStubHandler) callSeq() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.seq...)
 }
 
 // sudoTestEnv 一套 sudo 替身环境（Gate 可替换，便于覆盖「能力未开」）。
@@ -241,6 +293,18 @@ func installSudoInput(env *sudoTestEnv, extra string, marker string) {
 	}
 }
 
+// installHangingTerminal 模拟**命令挂起 / 永不返回**的终端（本次修复的缺陷场景）：
+// 收到任何输入都只回吐一次含密码的输出（模拟意外回显），**永远不打印退出码标记、也不回清理标记**。
+//
+// 对照实测：`get_hd_smartinfo -d 1 -i 1 | head -45` 阻塞不打印，终端既不回显也不返回；
+// 靠 Ctrl-C 恢复时 tty 还会丢弃输入队列 —— 所以「再发一条 rm 命令」这条兜底路径是不可能的，
+// 必须靠独立 SFTP 通道（OpSudoCleanup）。
+func installHangingTerminal(env *sudoTestEnv) {
+	env.h.onInput = func(id, _ string) {
+		publishOutput(env.hub, id, "hunter2\r\n")
+	}
+}
+
 // ---- 1. 能力位 / 确认登记 ----
 
 func TestSudoCapabilityAndConfirmRegistration(t *testing.T) {
@@ -349,10 +413,19 @@ func TestSudoSchemaHasNoPasswordField(t *testing.T) {
 			t.Fatalf("schema 里不允许出现密码类字段，实际有 %q", key)
 		}
 	}
-	// 规格里的四个参数都在（外加 confirm）
-	for _, want := range []string{"id", "command", "timeoutMs", "idleMs"} {
+	// 规格里的四个参数都在（外加 confirm 与 M10 收尾新增的 cleanupOnly）
+	for _, want := range []string{"id", "command", "timeoutMs", "idleMs", "cleanupOnly"} {
 		if _, has := props[want]; !has {
 			t.Fatalf("schema 缺少参数 %q：%v", want, props)
+		}
+	}
+	// command 不再是 required：cleanupOnly 是「只清理」的入口，不需要（也不该被要求）带命令。
+	// 主流程缺 command 时仍由 handler 报中文 ErrBadInput（见 TestSudoArgValidation）。
+	if req, _ := schema["required"].([]any); len(req) > 0 {
+		for _, r := range req {
+			if r == "command" {
+				t.Fatalf("command 不应出现在 required 里（cleanupOnly 模式下不需要它）：%v", req)
+			}
 		}
 	}
 	// 调用方硬塞 password → 永不接受
@@ -554,6 +627,22 @@ func TestSudoTempFileLifecycleAndScrub(t *testing.T) {
 	if out["cleanedUp"] != true {
 		t.Fatalf("ls 退出码非 0 = 文件已删除 → cleanedUp 应为 true：%v", out)
 	}
+	// 两条通道取或：这条用例让**独立通道失败**（替身默认返回 verified=false），
+	// 靠原 shell 的 ls 校验（LS=2）确认删除 ⇒ cleanedUp 仍为 true，且如实报告清理通道的状态。
+	if out["cleanupAttempted"] != true {
+		t.Fatalf("成功路径也必须走一次独立清理通道（无论成败都要调）：%v", out)
+	}
+	if out["cleanupVerified"] != false {
+		t.Fatalf("独立通道未配置成功结果时应如实返回 cleanupVerified=false：%v", out)
+	}
+	if len(env.h.cleanupCalls()) != 1 {
+		t.Fatalf("独立清理通道应被调用一次：%v", env.h.cleanupCalls())
+	}
+	if _, hasHint := out["hint"]; hasHint {
+		if h, _ := out["hint"].(string); strings.Contains(h, "残留") {
+			t.Fatalf("已确认删除（通道 A 成功）时不应出现残留警告：%q", h)
+		}
+	}
 	if out["scrubbed"] != true {
 		t.Fatalf("净化应生效：%v", out)
 	}
@@ -611,10 +700,15 @@ func TestSudoTimeoutCleansUpTempFile(t *testing.T) {
 	if out["cleanedUp"] != true {
 		t.Fatalf("超时后应兜底清理并确认删除：%v", out)
 	}
-	// 第二条输入 = 兜底清理命令（rm + ls 校验）
+	// 独立清理通道**先**被调用（超时场景下唯一可靠的通道），只是这条用例让替身没确认删除，
+	// 于是退回终端兜底 —— 顺序由 callSeq 断言（见 TestSudoCleanupRunsIndependentlyFirst）。
+	if out["cleanupAttempted"] != true || out["cleanupVerified"] != false {
+		t.Fatalf("独立清理通道应被尝试且如实报告未确认：%v", out)
+	}
+	// 第二条输入 = 终端兜底清理命令（rm + ls 校验）：只有独立通道没确认删除时才会发
 	data := env.h.inputData()
 	if len(data) < 2 {
-		t.Fatalf("超时后应再发一条兜底清理命令：%v", data)
+		t.Fatalf("独立通道未确认删除时应再发一条终端兜底清理命令：%v", data)
 	}
 	clean := data[len(data)-1]
 	if !strings.Contains(clean, "rm -f") || !strings.Contains(clean, "ls -d") ||
@@ -627,6 +721,10 @@ func TestSudoTimeoutCleansUpTempFile(t *testing.T) {
 	hint, _ := out["hint"].(string)
 	if !strings.Contains(hint, "超时") || !strings.Contains(hint, "不是协议错误") {
 		t.Fatalf("超时的中文提示不对：%q", hint)
+	}
+	// 清理成功时不应出现残留警告
+	if strings.Contains(hint, "残留") {
+		t.Fatalf("cleanedUp=true 时不应出现残留警告：%q", hint)
 	}
 }
 
@@ -846,6 +944,376 @@ func TestSudoAuditArgsHaveNoPassword(t *testing.T) {
 	for _, want := range []string{`"id"`, `"command"`, `"timeoutMs"`} {
 		if !strings.Contains(rec.Args, want) {
 			t.Fatalf("审计 args 应包含 %s：%s", want, rec.Args)
+		}
+	}
+}
+
+// ---- 8. 独立 SFTP 清理通道（OpSudoCleanup）----
+
+// 缺陷场景：命令**永不返回**（终端既不打印标记、也不回清理标记）。
+// 断言独立清理通道真的被调用、超时批次也能是 cleanedUp=true，且返回 / 审计里没有密码。
+func TestSudoTimeoutUsesIndependentCleanup(t *testing.T) {
+	ensureSudoRegistrations(t)
+	env := newSudoEnv(t, nil)
+	env.scope.set("/tmp")
+	env.h.setPassword("hunter2")
+	// 独立通道确认删除（模拟「会话已建立 SFTP，unlink 成功」）
+	env.h.setCleanupResult(true, true, true, "")
+	// 终端挂起：只回吐一次含密码的输出，永不打印标记（实测：get_hd_smartinfo | head 阻塞）
+	installHangingTerminal(env)
+
+	isErr, text, rpcErr := env.call(t, env.withToken(t, map[string]any{
+		"id": "tab-1", "command": "get_hd_smartinfo -d 1 -i 1 | head -45", "timeoutMs": 300,
+	}))
+	if rpcErr != "" {
+		t.Fatalf("terminal.sudo 返回 JSON-RPC 错误（应为 isError 文本）：%s", rpcErr)
+	}
+	if isErr {
+		t.Fatalf("超时不应是 isError（**不是协议错误**）：%s", truncateForLog(text, 300))
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("解析返回失败：%v（%s）", err, truncateForLog(text, 200))
+	}
+	if out["matched"] != false || out["reason"] != "timeout" || out["ok"] != false {
+		t.Fatalf("超时应返回 matched=false / reason=timeout / ok=false：%v", out)
+	}
+	// 核心断言：独立通道被调用且确认删除 ⇒ 超时批次 cleanedUp=true
+	if out["cleanupAttempted"] != true {
+		t.Fatalf("超时批次必须调用独立清理通道：%v", out)
+	}
+	if out["cleanupVerified"] != true {
+		t.Fatalf("独立通道确认删除时 cleanupVerified 应为 true：%v", out)
+	}
+	if out["cleanedUp"] != true {
+		t.Fatalf("独立通道确认删除 ⇒ 超时批次也必须 cleanedUp=true：%v", out)
+	}
+	tempFile, _ := out["tempFile"].(string)
+	calls := env.h.cleanupCalls()
+	if len(calls) != 1 {
+		t.Fatalf("独立清理通道应被调用一次：%v", calls)
+	}
+	if got, _ := calls[0]["path"].(string); got != tempFile {
+		t.Fatalf("独立清理的 path = %q，期望 %q（必须是同一个临时文件）", got, tempFile)
+	}
+	if got, _ := calls[0]["sessionId"].(string); got != "tab-1" {
+		t.Fatalf("独立清理的 sessionId = %q，期望 tab-1（复用该会话的 SFTP 客户端）", got)
+	}
+	// 独立通道已确认删除 ⇒ 不该再往挂起的终端里写字符（那行会被 tty 丢弃，见缺陷成因）
+	if data := env.h.inputData(); len(data) != 1 {
+		t.Fatalf("独立通道确认删除后不应再发终端兜底命令：%v", data)
+	}
+	// 密码不得出现在返回里（意外回显已被净化成 ***）
+	if strings.Contains(text, "hunter2") {
+		t.Fatalf("返回值里不允许出现密码：%s", truncateForLog(text, 300))
+	}
+	if !strings.Contains(text, "***") {
+		t.Fatalf("含密码的输出应被净化成 ***：%s", truncateForLog(text, 300))
+	}
+	// 审计里同样没有密码
+	if rec := env.lastAuditRecord(); strings.Contains(rec.Args, "hunter2") || strings.Contains(rec.Error, "hunter2") {
+		t.Fatalf("审计记录里不允许出现密码：%+v", rec)
+	}
+}
+
+// 独立清理**先**做，终端兜底只在它没确认删除时才发（顺序由宿主 op 调用序列断言）。
+func TestSudoCleanupRunsIndependentlyFirst(t *testing.T) {
+	ensureSudoRegistrations(t)
+	env := newSudoEnv(t, nil)
+	env.scope.set("/tmp")
+	env.h.setCleanupResult(false, false, false, "替身：SFTP 删除被拒绝")
+	installHangingTerminal(env)
+
+	_ = env.callJSON(t, map[string]any{"id": "tab-1", "command": "id", "timeoutMs": 250})
+
+	seq := env.h.callSeq()
+	firstCleanup, lastInput := -1, -1
+	for i, op := range seq {
+		if op == OpSudoCleanup && firstCleanup < 0 {
+			firstCleanup = i
+		}
+		if op == OpTerminalInput {
+			lastInput = i
+		}
+	}
+	if firstCleanup < 0 {
+		t.Fatalf("独立清理通道没有被调用：%v", seq)
+	}
+	if lastInput < 0 || firstCleanup > lastInput {
+		t.Fatalf("独立清理必须在终端兜底之前（超时路径要先清理再返回）：%v", seq)
+	}
+}
+
+// 独立清理失败（verified=false）⇒ cleanedUp=false，且 hint 里给出**残留文件的完整路径**与处置建议。
+func TestSudoCleanupFailureReportsResidualPath(t *testing.T) {
+	ensureSudoRegistrations(t)
+	env := newSudoEnv(t, nil)
+	env.scope.set("/tmp")
+	env.h.setPassword("hunter2")
+	env.h.setCleanupResult(false, true, false, "替身：远端删除被拒绝（permission denied）")
+	installHangingTerminal(env)
+
+	out := env.callJSON(t, map[string]any{"id": "tab-1", "command": "id", "timeoutMs": 250})
+
+	stages := env.h.stages()
+	if len(stages) != 1 {
+		t.Fatalf("应恰好写一次临时文件：%v", stages)
+	}
+	tempFile := stages[0]
+	if out["cleanupAttempted"] != true || out["cleanupVerified"] != false {
+		t.Fatalf("独立清理失败时要如实报告：%v", out)
+	}
+	if out["cleanedUp"] != false {
+		t.Fatalf("两条通道都没确认删除 ⇒ cleanedUp=false：%v", out)
+	}
+	hint, _ := out["hint"].(string)
+	if !strings.Contains(hint, tempFile) {
+		t.Fatalf("hint 必须给出残留文件的完整路径 %q，实际：%q", tempFile, hint)
+	}
+	if !strings.Contains(hint, "轮换") || !strings.Contains(hint, "rm -f") {
+		t.Fatalf("hint 必须给出中文处置建议（删除 + 轮换密码）：%q", hint)
+	}
+	if !strings.Contains(hint, "cleanupOnly") {
+		t.Fatalf("hint 应给出事后复查手段（cleanupOnly）：%q", hint)
+	}
+	// 超时说明仍要在（残留警告 + 既有判定）
+	if !strings.Contains(hint, "超时") {
+		t.Fatalf("hint 应同时保留超时说明：%q", hint)
+	}
+}
+
+// 独立清理通道整体报错（例如宿主侧会话管理器不可用）⇒ 同样 cleanedUp=false + 残留路径。
+func TestSudoCleanupHostErrorIsReported(t *testing.T) {
+	ensureSudoRegistrations(t)
+	env := newSudoEnv(t, nil)
+	env.scope.set("/tmp")
+	env.h.setCleanupErr(errors.New("会话管理器未初始化"))
+	installHangingTerminal(env)
+
+	out := env.callJSON(t, map[string]any{"id": "tab-1", "command": "id", "timeoutMs": 250})
+	if out["cleanupAttempted"] != true || out["cleanupVerified"] != false || out["cleanedUp"] != false {
+		t.Fatalf("独立通道报错时也应如实报告未确认删除：%v", out)
+	}
+	hint, _ := out["hint"].(string)
+	if !strings.Contains(hint, env.h.stages()[0]) || !strings.Contains(hint, "会话管理器未初始化") {
+		t.Fatalf("hint 应给出残留路径与独立通道失败原因：%q", hint)
+	}
+}
+
+// ---- 9. cleanupOnly：超时 / 异常后的事后清理入口 ----
+
+// cleanupOnly 正常路径：文件存在 ⇒ removed / existed / verified 全为 true，且**不**碰密码与终端。
+func TestSudoCleanupOnlyRemovesTempFile(t *testing.T) {
+	ensureSudoRegistrations(t)
+	env := newSudoEnv(t, nil)
+	env.scope.set("/tmp")
+	env.h.setPassword("hunter2")
+	env.h.setCleanupResult(true, true, true, "")
+	path := "/tmp/.ding-sudo-abcdef012345"
+
+	out := env.callJSON(t, map[string]any{"id": "tab-1", "cleanupOnly": path})
+
+	if out["ok"] != true || out["cleanedUp"] != true {
+		t.Fatalf("清理成功时 ok / cleanedUp 应为 true：%v", out)
+	}
+	if out["sudo"] != false || out["cleanupOnly"] != true {
+		t.Fatalf("cleanupOnly 模式必须标明 sudo=false / cleanupOnly=true：%v", out)
+	}
+	for _, k := range []string{"cleanupAttempted", "cleanupVerified", "removed", "existed"} {
+		if out[k] != true {
+			t.Fatalf("%s 应为 true：%v", k, out)
+		}
+	}
+	if out["path"] != path {
+		t.Fatalf("path = %v，期望 %q", out["path"], path)
+	}
+	if _, has := out["hint"]; has {
+		t.Fatalf("清理成功时不应给残留提示：%v", out)
+	}
+	// 跳过取密码与 stage：没有临时文件被写入、没有净化请求
+	if len(env.h.stages()) != 0 {
+		t.Fatalf("cleanupOnly 不应写临时文件：%v", env.h.stages())
+	}
+	if len(env.h.scrubbedTexts()) != 0 {
+		t.Fatalf("cleanupOnly 不应请求输出净化：%v", env.h.scrubbedTexts())
+	}
+	// 不碰终端：一条字符都不发
+	if data := env.h.inputData(); len(data) != 0 {
+		t.Fatalf("cleanupOnly 不应向终端写任何字符：%v", data)
+	}
+	// 只调了一次独立清理，且用的是调用方给的路径
+	calls := env.h.cleanupCalls()
+	if len(calls) != 1 {
+		t.Fatalf("应只调用一次独立清理：%v", calls)
+	}
+	if got, _ := calls[0]["path"].(string); got != path {
+		t.Fatalf("独立清理的 path = %q，期望 %q", got, path)
+	}
+	// 审计里没有密码（路径本身不是秘密，但绝不能带密码）
+	rec := env.lastAuditRecord()
+	for _, bad := range []string{"hunter2", "password"} {
+		if strings.Contains(rec.Args, bad) || strings.Contains(rec.Error, bad) {
+			t.Fatalf("审计记录不允许包含 %q：%+v", bad, rec)
+		}
+	}
+	if !strings.Contains(rec.Args, "cleanupOnly") {
+		t.Fatalf("审计 args 应记录 cleanupOnly：%s", rec.Args)
+	}
+}
+
+// 幂等：文件本来就不存在（removed=false / existed=false / verified=true）也算成功；重复调用不报错。
+func TestSudoCleanupOnlyIsIdempotent(t *testing.T) {
+	ensureSudoRegistrations(t)
+	env := newSudoEnv(t, nil)
+	env.scope.set("/tmp")
+	env.h.setCleanupResult(false, false, true, "")
+	path := "/tmp/.ding-sudo-0123456789ab"
+
+	for i := 0; i < 2; i++ {
+		out := env.callJSON(t, map[string]any{"id": "tab-1", "cleanupOnly": path})
+		if out["ok"] != true || out["cleanupVerified"] != true || out["cleanedUp"] != true {
+			t.Fatalf("第 %d 次：文件不存在也应算清理成功（幂等）：%v", i+1, out)
+		}
+		if out["removed"] != false || out["existed"] != false {
+			t.Fatalf("第 %d 次：文件不存在时 removed / existed 应为 false：%v", i+1, out)
+		}
+	}
+	if len(env.h.cleanupCalls()) != 2 {
+		t.Fatalf("两次调用各应走一次独立清理：%v", env.h.cleanupCalls())
+	}
+}
+
+// cleanupOnly 只接受本工具生成的路径形态：其它路径（含相对路径 / 含 .. / 形态不对）一律中文拒绝，
+// 且**不**触达宿主（否则它就成了任意删除原语）。
+func TestSudoCleanupOnlyRejectsArbitraryPaths(t *testing.T) {
+	ensureSudoRegistrations(t)
+	bad := []string{
+		"/etc/passwd",
+		"/tmp/.ding-sudo-XYZ",
+		"relative/path",
+		"/tmp/../tmp/.ding-sudo-abcdef012345",
+		"/tmp/.ding-sudo-abcdef01234",     // 11 位
+		"/tmp/.ding-sudo-abcdef0123456",   // 13 位
+		"/tmp/.ding-sudo-ABCDEF012345",    // 大写
+		"/tmp/.ding-sudo-abcdef0123456/x", // 子路径
+		"",
+	}
+	for _, p := range bad {
+		t.Run(fmt.Sprintf("%q", p), func(t *testing.T) {
+			env := newSudoEnv(t, nil)
+			env.scope.set("/tmp")
+			text := env.callErr(t, map[string]any{"id": "tab-1", "cleanupOnly": p})
+			if !strings.Contains(text, "拒绝清理路径") && !strings.Contains(text, "cleanupOnly 为空") {
+				t.Fatalf("非法清理路径 %q 应被拒绝，实际：%s", p, text)
+			}
+			if len(env.h.cleanupCalls()) != 0 {
+				t.Fatalf("非法路径不应触达宿主清理 op：%v", env.h.cleanupCalls())
+			}
+			if len(env.h.stages()) != 0 {
+				t.Fatalf("非法路径不应写临时文件")
+			}
+			if len(env.h.inputData()) != 0 {
+				t.Fatalf("非法路径不应向终端写字符")
+			}
+		})
+	}
+}
+
+// 白名单对 cleanupOnly 同样生效：形态合法但白名单不含 /tmp ⇒ 中文拒绝（且不触达宿主）。
+func TestSudoCleanupOnlyRequiresAllowlist(t *testing.T) {
+	ensureSudoRegistrations(t)
+	env := newSudoEnv(t, nil) // 白名单为空 = 拒绝一切写
+	text := env.callErr(t, map[string]any{"id": "tab-1", "cleanupOnly": "/tmp/.ding-sudo-abcdef012345"})
+	if !strings.Contains(text, "白名单") {
+		t.Fatalf("白名单为空时应拒绝并说明原因，实际：%s", text)
+	}
+	if len(env.h.cleanupCalls()) != 0 {
+		t.Fatalf("白名单不通过时不应触达宿主清理 op：%v", env.h.cleanupCalls())
+	}
+}
+
+// 能力位与两段式确认对 cleanupOnly 同样生效（action 仍是 terminal.sudo）。
+func TestSudoCleanupOnlyRequiresCapsAndConfirm(t *testing.T) {
+	ensureSudoRegistrations(t)
+	path := "/tmp/.ding-sudo-abcdef012345"
+
+	// 1) 缺 token ⇒ 提示先 confirm.prepare，且不执行
+	env := newSudoEnv(t, nil)
+	env.scope.set("/tmp")
+	isErr, text, rpcErr := env.call(t, map[string]any{"id": "tab-1", "cleanupOnly": path})
+	if rpcErr != "" {
+		t.Fatalf("缺 token 不应是协议错误：%s", rpcErr)
+	}
+	if !isErr || !strings.Contains(text, "confirm.prepare") {
+		t.Fatalf("cleanupOnly 也必须两段式确认：isError=%v text=%s", isErr, text)
+	}
+	if len(env.h.cleanupCalls()) != 0 {
+		t.Fatalf("缺 token 时不应清理：%v", env.h.cleanupCalls())
+	}
+
+	// 2) 能力位未开 ⇒ 中文说明缺哪一项，且不执行
+	env2 := newSudoEnv(t, &fakeGate{denied: map[Capability]string{
+		CapSudoCredential: "「sudo 凭证提权」能力未开启：还需要同时开启「允许读取敏感数据」",
+	}})
+	env2.scope.set("/tmp")
+	text = env2.callErr(t, map[string]any{"id": "tab-1", "cleanupOnly": path})
+	if !strings.Contains(text, "sudo 凭证提权") {
+		t.Fatalf("cleanupOnly 同样受 sudo.credential 约束，实际：%s", text)
+	}
+	if len(env2.h.cleanupCalls()) != 0 {
+		t.Fatalf("能力未开时不应清理：%v", env2.h.cleanupCalls())
+	}
+}
+
+// cleanupOnly 不占「同会话串行化」名额：终端被另一个调用占着时它仍可用（它不碰终端）。
+func TestSudoCleanupOnlyIgnoresTerminalSlot(t *testing.T) {
+	ensureSudoRegistrations(t)
+	env := newSudoEnv(t, nil)
+	env.scope.set("/tmp")
+	env.h.setCleanupResult(true, true, true, "")
+	if !env.srv.acquireTerminal("tab-1") {
+		t.Fatalf("测试自身应能占住名额")
+	}
+	defer env.srv.releaseTerminal("tab-1")
+
+	out := env.callJSON(t, map[string]any{"id": "tab-1", "cleanupOnly": "/tmp/.ding-sudo-abcdef012345"})
+	if out["ok"] != true || out["cleanupVerified"] != true {
+		t.Fatalf("cleanupOnly 不该被终端名额挡住（它不碰终端）：%v", out)
+	}
+}
+
+// ---- 10. 清理路径形态（安全边界单元口径）----
+
+// IsSudoTempPath 只认本工具生成的形态：12 位**小写**十六进制 + 固定前缀 /tmp/.ding-sudo-。
+// 它是 cleanupOnly / sudo.cleanup 不被当成任意删除原语的唯一依据，因此单独锁一遍。
+func TestIsSudoTempPathStrict(t *testing.T) {
+	good := []string{
+		"/tmp/.ding-sudo-0123456789ab",
+		"/tmp/.ding-sudo-abcdef012345",
+		"/tmp/.ding-sudo-000000000000",
+	}
+	for _, p := range good {
+		if !IsSudoTempPath(p) {
+			t.Fatalf("%q 应被接受", p)
+		}
+	}
+	bad := []string{
+		"",
+		"/etc/passwd",
+		"/tmp/.ding-sudo-",
+		"/tmp/.ding-sudo-abc",
+		"/tmp/.ding-sudo-0123456789a",    // 11 位
+		"/tmp/.ding-sudo-0123456789abc",  // 13 位
+		"/tmp/.ding-sudo-ABCDEF012345",   // 大写
+		"/tmp/.ding-sudo-0123456789ag",   // 非十六进制
+		"/tmp/.ding-sudo-0123456789ab/x", // 子路径
+		"/tmp/.ding-sudo-0123456789ab/../x",
+		"relative/.ding-sudo-0123456789ab",
+		"/var/tmp/.ding-sudo-0123456789ab",
+	}
+	for _, p := range bad {
+		if IsSudoTempPath(p) {
+			t.Fatalf("%q 必须被拒绝（清理入口不能是任意删除原语）", p)
 		}
 	}
 }
