@@ -12,12 +12,13 @@ import {sshService} from '../services/ssh'
 import {useCredentialsStore} from '../stores/credentials'
 import {useServersStore} from '../stores/servers'
 import {defaultAppearance, defaultFonts, defaultTheme, useSettingsStore} from '../stores/settings'
-import {ClearLogs, DebugInfo, ExportDiagnostics, GetLogInfo, OpenLogFolder, ReadLogTail, SetLogOptions} from '../../wailsjs/go/main/App'
+import {ClearLogs, DebugInfo, ExportDiagnostics, GetAuditRecords, GetCapabilities, GetLogInfo, OpenLogFolder, ReadLogTail, SetCapability, SetLogOptions, UndoAuditRecord} from '../../wailsjs/go/main/App'
+import {EventsOn} from '../../wailsjs/runtime/runtime'
 import {defaultPreset, paletteToTheme, presetById, PRESETS} from '../theme/presets'
 import {resolveTone} from '../theme/engine'
 import {APP_COMMIT, APP_VERSION, buildDateLabel, buildTimeLabel, detectPlatform, platformLabel} from '../version'
 import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
-import type {Credential, DebugSettings, Fonts, LocalShellOption, LogLevel, NavSectionOrder, RightClickAction, SecurityStatus, TabBarPlacement, Theme, UIAppearance} from '../types'
+import type {AuditRecordView, CapabilitiesView, Credential, DebugSettings, Fonts, LocalShellOption, LogLevel, NavSectionOrder, RightClickAction, SecurityStatus, TabBarPlacement, Theme, UIAppearance} from '../types'
 import CredentialDialog from './CredentialDialog.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
@@ -26,7 +27,7 @@ const credentials = useCredentialsStore()
 const servers = useServersStore()
 const saving = ref(false)
 
-// 一级菜单：通用 / 外观 / 凭证 / 安全 / 调试模式 / 日志 / 导入导出
+// 一级菜单：通用 / 外观 / 凭证 / 安全 / 调试模式 / 日志 / AI 记录 / 导入导出
 const menuItems = [
   {key: 'general', label: '通用', icon: 'clock'},
   {key: 'theme', label: '外观', icon: 'palette'},
@@ -34,10 +35,11 @@ const menuItems = [
   {key: 'security', label: '安全', icon: 'lock'},
   {key: 'debug', label: '调试模式', icon: 'terminal'},
   {key: 'logs', label: '日志', icon: 'file'},
+  {key: 'audit', label: 'AI 记录', icon: 'activity'},
   {key: 'migrate', label: '导入导出', icon: 'package'},
   {key: 'about', label: '关于', icon: 'info'},
 ] as const
-type SettingsSection = 'general' | 'theme' | 'credentials' | 'security' | 'debug' | 'logs' | 'migrate' | 'about'
+type SettingsSection = 'general' | 'theme' | 'credentials' | 'security' | 'debug' | 'logs' | 'audit' | 'migrate' | 'about'
 const section = ref<SettingsSection>('general')
 const themeForm = reactive<Theme>(defaultTheme())
 const appearanceForm = reactive<UIAppearance>(defaultAppearance())
@@ -405,8 +407,213 @@ async function onDebugPortChange(e: Event) {
   await setDebug({port: Number.isFinite(raw) ? raw : 8765})
 }
 
+// ---- MCP 能力（权限内核，对应 Go 端 internal/debugsrv 的能力位）----
+//
+// 列表顺序与 Go 端 debugsrv.AllCapabilities() 一致，说明文字来自后端的
+// GetCapabilities().descriptions（单一事实来源，避免前后端各写一份）。
+const CAP_ORDER = ['terminal.input', 'ui.write', 'config.write', 'secrets.write', 'fs.remote.write', 'sudo.credential', 'lifecycle'] as const
+/** 打开前必须二次确认的能力（与后端 GetCapabilities().requiresConfirm 一致） */
+const CAP_NEEDS_CONFIRM = new Set(['fs.remote.write', 'sudo.credential', 'lifecycle'])
+const capInfo = ref<CapabilitiesView | null>(null)
+/** 待二次确认的能力名（不为空时展示「确认开启 / 取消」） */
+const pendingCap = ref('')
+const capError = ref('')
+const capMsg = ref('')
+/** 白名单编辑区（多行文本，一行一个绝对路径前缀） */
+const allowlistText = ref('')
+const allowlistDirty = ref(false)
+
+const capRows = computed(() => {
+  const caps = capInfo.value?.caps ?? {}
+  const labels = capInfo.value?.labels ?? {}
+  const descs = capInfo.value?.descriptions ?? {}
+  return CAP_ORDER.map((name) => ({
+    name,
+    label: labels[name] ?? name,
+    desc: descs[name] ?? '',
+    enabled: !!caps[name],
+    needsConfirm: CAP_NEEDS_CONFIRM.has(name),
+    // 前置条件：必须先开启「允许读取敏感数据」
+    //（secrets.write 要读回凭据；sudo.credential 要读回该服务器保存的密码）
+    blocked: (name === 'secrets.write' || name === 'sudo.credential') && !settings.debug.allowSecrets,
+  }))
+})
+
+async function refreshCapabilities() {
+  try {
+    capInfo.value = (await GetCapabilities()) as CapabilitiesView
+    if (!allowlistDirty.value) {
+      allowlistText.value = (capInfo.value.sftpWriteAllowlist ?? []).join('\n')
+    }
+  } catch (e) {
+    capInfo.value = null
+    capError.value = String(e)
+  }
+}
+
+/** 切换能力开关：敏感能力需要先点一次「确认开启」。 */
+async function toggleCapability(name: string, next: boolean) {
+  capError.value = ''
+  capMsg.value = ''
+  if (next && CAP_NEEDS_CONFIRM.has(name)) {
+    pendingCap.value = name
+    return
+  }
+  await applyCapability(name, next)
+}
+
+/** 真正写入能力开关（前端二次确认之后才走到这里）。 */
+async function applyCapability(name: string, next: boolean) {
+  saving.value = true
+  capError.value = ''
+  capMsg.value = ''
+  try {
+    await SetCapability(name, next)
+    pendingCap.value = ''
+    // 能力写进了 settings.debug，同步镜像到前端设置模型，重开设置页仍一致
+    if (name === 'terminal.input') await settings.setDebug({capTerminalInput: next})
+    else if (name === 'ui.write') await settings.setDebug({capUiWrite: next})
+    else if (name === 'config.write') await settings.setDebug({capConfigWrite: next})
+    else if (name === 'secrets.write') await settings.setDebug({capSecretWrite: next})
+    else if (name === 'fs.remote.write') await settings.setDebug({capRemoteFsWrite: next})
+    else if (name === 'sudo.credential') await settings.setDebug({capSudoCredential: next})
+    else if (name === 'lifecycle') await settings.setDebug({capLifecycle: next})
+    await refreshCapabilities()
+    capMsg.value = next ? `已开启「${capLabelOf(name)}」` : `已关闭「${capLabelOf(name)}」`
+  } catch (e) {
+    capError.value = String(e)
+  } finally {
+    saving.value = false
+  }
+}
+
+function capLabelOf(name: string): string {
+  return capInfo.value?.labels?.[name] ?? name
+}
+
+/** 保存远端可写路径白名单（留空 = 禁止任何写入路径）。 */
+async function saveAllowlist() {
+  saving.value = true
+  capError.value = ''
+  capMsg.value = ''
+  try {
+    const list = allowlistText.value
+      .split('\n')
+      .map((s) => s.trim().replace(/\/+$/, ''))
+      .filter((s, i, arr) => s.length > 0 && arr.indexOf(s) === i)
+    await settings.setDebug({sftpWriteAllowlist: list})
+    allowlistDirty.value = false
+    await refreshCapabilities()
+    capMsg.value = list.length > 0 ? `白名单已保存（${list.length} 条）` : '白名单已清空：将禁止任何远端写入路径'
+  } catch (e) {
+    capError.value = String(e)
+  } finally {
+    saving.value = false
+  }
+}
+
+// ---- AI 记录（审计）----
+const auditRecords = ref<AuditRecordView[]>([])
+const auditLoading = ref(false)
+const auditError = ref('')
+const auditMsg = ref('')
+/** 过滤器：全部 / 仅写操作 / 仅失败 / 按能力 */
+const auditFilter = ref<'all' | 'write' | 'failed'>('all')
+const auditCap = ref('')
+const auditLimit = ref(50)
+/** 展开查看已脱敏 args 的记录 id */
+const expandedAudit = ref('')
+
+const auditCapOptions = computed(() => {
+  const caps = capInfo.value?.caps ?? {}
+  const labels = capInfo.value?.labels ?? {}
+  return Object.keys(caps).map((name) => ({value: name, label: `${labels[name] ?? name}（${name}）`}))
+})
+
+/** 审计记录按当前过滤器做前端筛选（后端只按 cap/source 过滤）。 */
+const filteredAudit = computed(() => {
+  let list = auditRecords.value
+  if (auditFilter.value === 'failed') list = list.filter((r) => !r.ok)
+  if (auditFilter.value === 'write') list = list.filter((r) => !!r.cap)
+  return list
+})
+
+async function refreshAudit() {
+  auditLoading.value = true
+  auditError.value = ''
+  try {
+    const list = (await GetAuditRecords(auditLimit.value, auditCap.value, '')) as AuditRecordView[]
+    auditRecords.value = Array.isArray(list) ? list : []
+  } catch (e) {
+    auditError.value = String(e)
+    auditRecords.value = []
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+/** 实时追加：后端每条审计记录都会发一条 debug.audit 事件。 */
+let auditOff: (() => void) | null = null
+
+function subscribeAudit() {
+  if (auditOff) return
+  auditOff = EventsOn('debug.audit', (payload: AuditRecordView) => {
+    if (!payload || !payload.id) return
+    if (auditCap.value && payload.cap !== auditCap.value) return
+    if (auditRecords.value.some((r) => r.id === payload.id)) return
+    auditRecords.value = [payload, ...auditRecords.value].slice(0, Math.max(auditLimit.value, 50))
+  })
+}
+
+function unsubscribeAudit() {
+  if (auditOff) {
+    auditOff()
+    auditOff = null
+  }
+}
+
+async function undoAudit(rec: AuditRecordView) {
+  auditError.value = ''
+  auditMsg.value = ''
+  try {
+    await UndoAuditRecord(rec.id, rec.tool, rec.args)
+    auditMsg.value = `已撤销 ${rec.tool} 的改动（设置已恢复为改动前的值）`
+    await refreshAudit()
+  } catch (e) {
+    auditError.value = String(e)
+  }
+}
+
+function formatAuditTime(ts: number): string {
+  const d = new Date(ts)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+const AUDIT_SOURCE_LABEL: Record<string, string> = {mcp: 'MCP', http: 'HTTP', ui: '界面'}
+
+function auditSourceLabel(source: string): string {
+  return AUDIT_SOURCE_LABEL[source] ?? source
+}
+
 onMounted(() => {
   void refreshDebugInfo()
+  void refreshCapabilities()
+})
+
+// 切到「AI 记录」页签时加载审计并订阅实时事件；离开时退订（避免常驻监听）。
+watch(section, (v) => {
+  if (v === 'audit') {
+    void refreshCapabilities()
+    void refreshAudit()
+    subscribeAudit()
+  } else {
+    unsubscribeAudit()
+  }
+})
+
+onBeforeUnmount(() => {
+  unsubscribeAudit()
 })
 
 // ---- 日志 ----
@@ -1597,6 +1804,89 @@ watch(
           </div>
         </div>
 
+        <!-- MCP 能力（权限内核）：AI 能做什么，由这里的开关决定 -->
+        <div class="neo">
+          <div class="px-5 py-4 border-b border-slate-800/60">
+            <p class="text-sm font-medium text-slate-200">MCP 能力</p>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+              逐项控制 AI 能做什么。读取类能力永远允许（敏感字段仍受「允许读取敏感数据」控制）；
+              关闭的能力会让工具返回中文拒绝原因，不会影响其余功能。
+            </p>
+          </div>
+          <div
+            v-for="row in capRows"
+            :key="row.name"
+            class="px-5 py-4 border-b border-slate-800/60 flex items-start justify-between gap-4"
+          >
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">
+                {{ row.label }}
+                <span class="font-mono text-[11px] text-slate-500 ml-1">{{ row.name }}</span>
+                <span v-if="row.needsConfirm" class="ml-2 text-[11px] text-amber-300/90">高风险 · 需二次确认</span>
+              </p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ row.desc }}</p>
+              <p v-if="row.blocked" class="text-[11px] text-amber-300/90 mt-1">
+                需先开启「允许读取敏感数据」（由 secrets.read 控制）才能打开本能力。
+              </p>
+            </div>
+            <!-- 敏感能力：先弹确认，再写入（关闭可直接关） -->
+            <div v-if="pendingCap === row.name" class="flex items-center gap-2 shrink-0">
+              <button class="btn btn-danger btn-sm" :disabled="saving" @click="applyCapability(row.name, true)">确认开启</button>
+              <button class="btn btn-ghost btn-sm" :disabled="saving" @click="pendingCap = ''">取消</button>
+            </div>
+            <ToggleSwitch
+              v-else
+              :model-value="row.enabled"
+              :disabled="saving"
+              @update:model-value="(v: boolean) => toggleCapability(row.name, v)"
+            />
+          </div>
+
+          <!-- 远端文件写入的路径白名单：留空 = 禁止任何写入路径 -->
+          <div class="px-5 py-4 border-b border-slate-800/60 space-y-2">
+            <p class="text-sm font-medium text-slate-200">远端可写路径白名单</p>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              一行一个<b>绝对路径前缀</b>，只有命中前缀的远端路径才允许写入 / 删除。
+              <b>留空 = 禁止任何写入路径</b>；仅「远端文件写入」能力开启时生效。
+            </p>
+            <textarea
+              v-model="allowlistText"
+              class="input font-mono text-xs"
+              rows="3"
+              spellcheck="false"
+              placeholder="/srv/app&#10;/home/deploy/releases"
+              @input="allowlistDirty = true"
+            ></textarea>
+            <div class="flex items-center gap-2">
+              <button class="btn btn-primary btn-sm" :disabled="saving" @click="saveAllowlist">保存白名单</button>
+              <span class="text-[11px] text-slate-500">当前生效：{{ (capInfo?.sftpWriteAllowlist ?? []).join('、') || '（空，禁止任何写入路径）' }}</span>
+            </div>
+          </div>
+
+          <!-- 两段式确认：固定开启，不给开关 -->
+          <div class="px-5 py-4">
+            <p class="text-sm font-medium text-slate-200">破坏性操作两段式确认（固定开启）</p>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+              只对<b>不可逆</b>操作生效（删服务器 / 删凭据 / 改隧道 / SFTP 写删 / 改设置 / 清日志 / 退出重载 / 开启敏感能力）。
+              AI / 脚本必须先调用
+              <span class="font-mono">confirm.prepare</span>
+              拿到一次性 token（默认 120 秒有效、绑定本次参数），再用
+              <span class="font-mono">confirm.commit</span>
+              或把 token 传给对应工具才会执行；缺少 token 一律拒绝。此项<b>不提供开关</b>。
+            </p>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+              <b>可逆 / 高频操作不需要 token</b>：终端输入（
+              <span class="font-mono">send_input</span>）、
+              <span class="font-mono">eval_js</span>
+              、界面写入只受上面的能力位约束 —— 否则 AI 管 SSH 与「改一点看一眼」的界面迭代都没法用。
+            </p>
+          </div>
+          <div v-if="capError || capMsg" class="px-5 pb-4 text-xs space-y-1">
+            <p v-if="capError" class="text-rose-400 break-all">{{ capError }}</p>
+            <p v-else-if="capMsg" class="text-emerald-400 break-all">{{ capMsg }}</p>
+          </div>
+        </div>
+
         <div class="neo">
           <div class="px-5 py-3 border-b border-slate-800/60 flex items-center justify-between">
             <span class="field-label">运行状态</span>
@@ -1614,6 +1904,114 @@ watch(
             <p v-if="debugInfo?.url" class="text-slate-500">
               示例：<span class="font-mono break-all">curl -H "Authorization: Bearer &lt;token&gt;" {{ debugInfo.url }}/v1/terminals</span>
             </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI 记录（审计） -->
+      <div v-else-if="section === 'audit'" class="max-w-3xl space-y-6 fade-rise">
+        <div>
+          <h3 class="text-[18px] font-semibold text-white tracking-tight">AI 记录</h3>
+          <p class="text-[13px] text-mist mt-1.5 leading-relaxed">
+            调试接口与 MCP 的每次调用都会留一条记录（参数已脱敏，密码 / token / 私钥一律打码为
+            <span class="font-mono">***</span>）；每条记录同时通过
+            <span class="font-mono">debug.audit</span> 事件实时推给本页。只保留最近
+            {{ auditLimit }} 条以内的环形缓冲（上限 500 条）。
+          </p>
+        </div>
+
+        <!-- 过滤器 -->
+        <div class="neo">
+          <div class="px-5 py-4 flex flex-wrap items-center gap-2">
+            <button
+              v-for="opt in [
+                {key: 'all', label: '全部'},
+                {key: 'write', label: '仅写操作'},
+                {key: 'failed', label: '仅失败'},
+              ]"
+              :key="opt.key"
+              class="btn btn-sm"
+              :class="auditFilter === opt.key ? 'btn-primary' : 'btn-ghost'"
+              @click="auditFilter = opt.key as 'all' | 'write' | 'failed'"
+            >
+              {{ opt.label }}
+            </button>
+            <select v-model="auditCap" class="select max-w-[16rem]" @change="refreshAudit">
+              <option value="">按能力筛选：全部</option>
+              <option v-for="c in auditCapOptions" :key="c.value" :value="c.value">{{ c.label }}</option>
+            </select>
+            <select v-model.number="auditLimit" class="select max-w-[8rem]" @change="refreshAudit">
+              <option :value="20">20 条</option>
+              <option :value="50">50 条</option>
+              <option :value="200">200 条</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" :disabled="auditLoading" @click="refreshAudit">
+              <Icon name="refresh" :size="14" />
+              {{ auditLoading ? '刷新中…' : '刷新' }}
+            </button>
+          </div>
+          <div v-if="auditError || auditMsg" class="px-5 pb-4 text-xs space-y-1">
+            <p v-if="auditError" class="text-rose-400 break-all">{{ auditError }}</p>
+            <p v-else-if="auditMsg" class="text-emerald-400 break-all">{{ auditMsg }}</p>
+          </div>
+        </div>
+
+        <!-- 记录列表 -->
+        <div class="neo">
+          <div class="px-5 py-3 border-b border-slate-800/60 flex items-center justify-between">
+            <span class="field-label">记录（{{ filteredAudit.length }} 条）</span>
+            <span class="text-[11px] text-slate-500">来源：MCP / HTTP / 界面</span>
+          </div>
+          <p v-if="filteredAudit.length === 0" class="px-5 py-6 text-xs text-slate-500">
+            暂无记录。开启调试模式并让 AI 调用一次工具后，这里会实时出现。
+          </p>
+          <div
+            v-for="rec in filteredAudit"
+            :key="rec.id"
+            class="px-5 py-3 border-b border-slate-800/60 text-xs space-y-1"
+          >
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-mono text-slate-500">{{ formatAuditTime(rec.ts) }}</span>
+              <span class="px-1.5 py-0.5 rounded bg-slate-800/70 text-slate-300">{{ auditSourceLabel(rec.source) }}</span>
+              <span class="font-mono text-slate-200 break-all">{{ rec.tool }}</span>
+              <span v-if="rec.cap" class="font-mono text-[11px] text-signal break-all">{{ rec.cap }}</span>
+              <span class="text-slate-500">{{ rec.durationMs }}ms</span>
+              <span v-if="rec.ok" class="text-emerald-400">成功</span>
+              <span v-else class="text-rose-400 break-all">失败：{{ rec.error }}</span>
+              <button class="btn btn-ghost btn-sm ml-auto" @click="expandedAudit = expandedAudit === rec.id ? '' : rec.id">
+                {{ expandedAudit === rec.id ? '收起' : '参数' }}
+              </button>
+              <button
+                v-if="rec.reversible"
+                class="btn btn-ghost btn-sm"
+                :title="rec.revertHint"
+                @click="undoAudit(rec)"
+              >
+                撤销
+              </button>
+              <button
+                v-else-if="rec.revertHint"
+                class="btn btn-ghost btn-sm opacity-50 cursor-not-allowed"
+                disabled
+                :title="rec.revertHint"
+              >
+                撤销
+              </button>
+            </div>
+            <pre
+              v-if="expandedAudit === rec.id"
+              class="mt-1 p-2 rounded bg-slate-900/70 text-[11px] text-slate-300 whitespace-pre-wrap break-all"
+            >{{ rec.args }}</pre>
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="px-5 py-4 text-xs text-slate-500 leading-relaxed">
+            撤销说明：本波只对<b>设置类改动</b>（AI 调用
+            <span class="font-mono">update_settings</span> /
+            <span class="font-mono">set_log_options</span>）提供「恢复为改动前值」，
+            快照只保留最近若干条；其余动作（删服务器、清日志、退出应用等）无法可靠回滚，
+            「撤销」按钮会置灰并给出原因，不会假装支持。
           </div>
         </div>
       </div>

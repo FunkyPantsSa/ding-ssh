@@ -268,6 +268,8 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		RightClickAction:     models.RightClickMenu,
 		NavSectionOrder:      models.DefaultNavSectionOrder,
 		LogLevel:             models.NormalizeLogLevel(""), // 日志级别默认 info
+		// 调试模式默认值：能力位里只有「终端输入」默认开启（读类永远允许）
+		Debug: models.DefaultDebugSettings(),
 	}
 	if v, ok := values["logEnabled"]; ok {
 		st.LogEnabled = v == "true"
@@ -348,6 +350,11 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		var d models.DebugSettings
 		if err := json.Unmarshal([]byte(v), &d); err == nil {
 			st.Debug = d
+		}
+		// 能力位：升级前的库里没有这些字段，反序列化得到「全 false」，
+		// 但默认值要求「终端输入」开启 —— 只在缺字段时补默认值（显式关闭必须保持关闭）。
+		if !models.HasDebugCapabilityFields([]byte(v)) {
+			st.Debug.CapTerminalInput = true
 		}
 	}
 	st.Debug = models.NormalizeDebugSettings(st.Debug)

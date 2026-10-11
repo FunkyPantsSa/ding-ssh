@@ -30,7 +30,8 @@ export function defaultFonts(): Fonts {
   }
 }
 
-// 默认调试模式设置（与 Go 端 models.DefaultDebugSettings 保持一致）：关闭、仅本机、默认端口。
+// 默认调试模式设置（与 Go 端 models.DefaultDebugSettings 保持一致）：
+// 关闭、仅本机、默认端口；能力位里只有「终端输入」默认开启（read 永远允许）。
 export function defaultDebug(): DebugSettings {
   return {
     enabled: false,
@@ -39,6 +40,15 @@ export function defaultDebug(): DebugSettings {
     allowEval: false,
     allowSecrets: false,
     cdpEnabled: false,
+    capTerminalInput: true,
+    capUiWrite: false,
+    capConfigWrite: false,
+    capSecretWrite: false,
+    capRemoteFsWrite: false,
+    // sudo.credential：用应用里保存的密码执行 sudo -i（默认关；还需 allowSecrets）
+    capSudoCredential: false,
+    capLifecycle: false,
+    sftpWriteAllowlist: [],
   }
 }
 
@@ -227,7 +237,7 @@ export const useSettingsStore = defineStore('settings', {
   },
 })
 
-// 调试模式端口：0（自动）或 1024–65535，越界回落默认端口。
+// 调试模式端口：0（自动）或 1024–65535，越界回落默认端口；白名单过滤空串/非字符串。
 function normalizeDebug(d: DebugSettings): DebugSettings {
   const port = Number(d.port)
   if (!Number.isFinite(port) || (port !== 0 && (port < 1024 || port > 65535))) {
@@ -235,7 +245,25 @@ function normalizeDebug(d: DebugSettings): DebugSettings {
   } else {
     d.port = Math.round(port)
   }
+  d.sftpWriteAllowlist = normalizeAllowlist(d.sftpWriteAllowlist)
+  // 不允许读取敏感数据时，凭据写入必然不成立（与 Go 端 NormalizeDebugSettings 一致）；
+  // sudo 提权同样要读回保存的密码，因此一并回落 false。
+  if (!d.allowSecrets) d.capSecretWrite = false
+  if (!d.allowSecrets) d.capSudoCredential = false
   return d
+}
+
+// 远端可写路径白名单：只保留字符串项、去首尾空白与尾部斜杠、去重（空 = 禁止任何写入路径）。
+function normalizeAllowlist(v: unknown): string[] {
+  if (!Array.isArray(v)) return []
+  const out: string[] = []
+  for (const item of v) {
+    if (typeof item !== 'string') continue
+    const p = item.trim().replace(/\/+$/, '')
+    if (!p || out.includes(p)) continue
+    out.push(p)
+  }
+  return out
 }
 
 // 日志级别白名单：非法值一律回落 info。

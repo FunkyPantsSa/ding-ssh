@@ -80,6 +80,14 @@ export namespace models {
 	    allowEval: boolean;
 	    allowSecrets: boolean;
 	    cdpEnabled: boolean;
+	    capTerminalInput: boolean;
+	    capUiWrite: boolean;
+	    capConfigWrite: boolean;
+	    capSecretWrite: boolean;
+	    capRemoteFsWrite: boolean;
+	    capLifecycle: boolean;
+	    capSudoCredential: boolean;
+	    sftpWriteAllowlist: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new DebugSettings(source);
@@ -93,6 +101,14 @@ export namespace models {
 	        this.allowEval = source["allowEval"];
 	        this.allowSecrets = source["allowSecrets"];
 	        this.cdpEnabled = source["cdpEnabled"];
+	        this.capTerminalInput = source["capTerminalInput"];
+	        this.capUiWrite = source["capUiWrite"];
+	        this.capConfigWrite = source["capConfigWrite"];
+	        this.capSecretWrite = source["capSecretWrite"];
+	        this.capRemoteFsWrite = source["capRemoteFsWrite"];
+	        this.capLifecycle = source["capLifecycle"];
+	        this.capSudoCredential = source["capSudoCredential"];
+	        this.sftpWriteAllowlist = source["sftpWriteAllowlist"];
 	    }
 	}
 	export class Fonts {

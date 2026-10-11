@@ -29,7 +29,7 @@ import {sysInfoService} from '../services/sysinfo'
 import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../services/zmodem'
 import {currentZoom} from '../utils/dom'
 import {patchXtermZoomCoords} from '../utils/xterm-zoom'
-import {registerDebugTerminal, unregisterDebugTerminal} from '../debug/registry'
+import {registerDebugTerminal, unregisterDebugTerminal, type DebugTerminalEntry} from '../debug/registry'
 import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
@@ -68,6 +68,8 @@ let webglAddon: WebglAddon | null = null
 let zmodem: ZmodemController | null = null
 let resizeObserver: ResizeObserver | null = null
 const disposers: Array<() => void> = []
+// 本实例在调试注册表里的那一份登记（注销时按身份匹配，见 onBeforeUnmount 的说明）
+let debugEntry: DebugTerminalEntry | null = null
 let disposed = false
 let lineBuf = ''
 let composing = false
@@ -1246,6 +1248,22 @@ onMounted(() => {
   fitAddon = new FitAddon()
   term.loadAddon(fitAddon)
   term.open(container.value!)
+  // 调试模式：把自己注册进终端注册表，供调试 API 读取 xterm 内部状态 / 输入 / 滚动。
+  // 放在 WebGL / 字号 / 事件接线之前：后面任何一步抛错都不该造成「终端已挂载、注册表却为空」
+  //（调试 API 的 list_terminals / terminal.* 全都依赖这份登记）。
+  debugEntry = {
+    clientId: props.tab.clientId,
+    title: props.tab.serverName,
+    kind: props.tab.kind ?? 'ssh',
+    term,
+    container: () => container.value ?? null,
+    write: writeRaw,
+    reconnect: () => {
+      void reconnectSession()
+    },
+    close: closeTab,
+  }
+  registerDebugTerminal(debugEntry)
   patchXtermZoomCoords(term, uiZoom)
   tryEnableWebGL()
   applyFontSize()
@@ -1310,19 +1328,6 @@ onMounted(() => {
   // 捕获阶段拦截原生粘贴（WebView2 关闭加速键时不会触发；浏览器 / 未来环境可用时避免与 xterm 重复写入）
   container.value?.addEventListener('paste', onPasteEvent, true)
   window.addEventListener('click', closeMenu)
-  // 调试模式：把自己注册进终端注册表，供调试 API 读取 xterm 内部状态 / 输入 / 滚动
-  registerDebugTerminal({
-    clientId: props.tab.clientId,
-    title: props.tab.serverName,
-    kind: props.tab.kind ?? 'ssh',
-    term,
-    container: () => container.value ?? null,
-    write: writeRaw,
-    reconnect: () => {
-      void reconnectSession()
-    },
-    close: closeTab,
-  })
   void connect()
   scheduleFocusActiveSurface()
 })
@@ -1393,7 +1398,10 @@ watch(
 
 onBeforeUnmount(() => {
   disposed = true
-  unregisterDebugTerminal(props.tab.clientId)
+  // 带上自己那一份登记的引用：只有它还是注册表里的当前项才注销，
+  // 避免 HMR「先挂新的、后卸旧的」时把新实例的登记顺手删掉（那会让注册表重新变空）。
+  if (debugEntry) unregisterDebugTerminal(props.tab.clientId, debugEntry)
+  debugEntry = null
   if (focusTimer) clearTimeout(focusTimer)
   cancelAutoReconnect()
   if (suggestTimer) clearTimeout(suggestTimer)

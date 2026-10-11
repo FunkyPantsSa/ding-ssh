@@ -85,6 +85,12 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	if !bytesContains(data, []byte(`"completionEnabled"`)) {
 		settings.CompletionEnabled = true
 	}
+	// 能力位：升级前的配置完全没有这些字段，反序列化会得到「全 false」，
+	// 但默认值要求「终端输入」开启 —— 因此只在缺字段时补默认值，
+	// 用户显式关掉（字段存在且为 false）必须保持关闭。
+	if !models.HasDebugCapabilityFields(data) {
+		settings.Debug.CapTerminalInput = true
+	}
 	if settings.CompletionNavHotkey == "" {
 		settings.CompletionNavHotkey = "Alt+ArrowDown"
 	}
@@ -144,6 +150,8 @@ func (s *JSONSettingsStore) Save(settings models.Settings) error {
 	// 归一化后再落盘：保证磁盘上的级别与跟踪列表永远是合法值
 	settings.LogLevel = models.NormalizeLogLevel(settings.LogLevel)
 	settings.LogTraceTabs = models.NormalizeLogTraceTabs(settings.LogTraceTabs)
+	// 调试模式（含能力位与 SFTP 写白名单）同样归一化：端口越界回落、白名单去空去重
+	settings.Debug = models.NormalizeDebugSettings(settings.Debug)
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err
