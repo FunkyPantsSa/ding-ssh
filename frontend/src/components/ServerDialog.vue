@@ -4,9 +4,13 @@ import Icon from './Icon.vue'
 import {sshService} from '../services/ssh'
 import {useCredentialsStore} from '../stores/credentials'
 import {useServersStore} from '../stores/servers'
-import type {ServerNode} from '../types'
+import type {Credential, ServerNode} from '../types'
 
-const props = defineProps<{editing: ServerNode | null}>()
+/**
+ * editing：编辑对象（null = 新建）。
+ * defaultGroup：新建时的默认分组（来自服务器管理左栏当前选中的分组）。
+ */
+const props = defineProps<{editing: ServerNode | null; defaultGroup?: string}>()
 const show = defineModel<boolean>({required: true})
 
 const servers = useServersStore()
@@ -15,10 +19,16 @@ const saving = ref(false)
 const errorMsg = ref('')
 const keySource = ref<'file' | 'content'>('file')
 const selectedCred = ref('')
+/** 当前选中的凭证 id：用于「私钥内容不展示、保存时按 id 取回」的间接引用。 */
+const credentialsUsed = ref('')
 
-const groups = computed(() =>
-  [...new Set(servers.servers.map((s) => s.group.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
-)
+const groups = computed(() => {
+  const set = new Set(servers.servers.map((s) => s.group.trim()).filter(Boolean))
+  // 左栏选中的分组可能还没有任何服务器（手动建的空分组），也要出现在可选项里。
+  const current = (props.defaultGroup ?? '').trim()
+  if (current) set.add(current)
+  return [...set].sort((a, b) => a.localeCompare(b))
+})
 
 /** select = 从已有分组选择；create = 手动输入新建分组名 */
 const groupMode = ref<'select' | 'create'>('select')
@@ -92,10 +102,15 @@ watch(
     errorMsg.value = ''
     keySource.value = editing?.keyContent ? 'content' : 'file'
     selectedCred.value = ''
+    credentialsUsed.value = ''
+    // 新建时默认沿用调用方（服务器管理左栏）当前选中的分组；
+    // 'all' 表示「全部服务器」，不是具体分组，回落为未分组。
+    const preset = editing ? '' : (props.defaultGroup ?? '').trim()
+    const presetGroup = preset === 'all' ? '' : preset
     Object.assign(form, {
       id: editing?.id ?? '',
       name: editing?.name ?? '',
-      group: editing?.group ?? '',
+      group: editing?.group ?? presetGroup,
       host: editing?.host ?? '',
       port: editing?.port ?? 22,
       user: editing?.user ?? 'root',
@@ -107,7 +122,7 @@ watch(
       blurAmount: editing?.blurAmount ?? 12,
       envVars: {},
     })
-    syncGroupFromForm(editing?.group ?? '')
+    syncGroupFromForm(editing?.group ?? presetGroup)
   },
 )
 
@@ -118,6 +133,20 @@ async function pickKeyFile() {
   } catch (e) {
     errorMsg.value = String(e)
   }
+}
+
+/**
+ * 解析私钥内容：优先用表单里用户自己粘贴的内容（编辑既有服务器时会回填），
+ * 否则回退到「所选用保存凭证」里的私钥明文。
+ *
+ * 这样表单 / DOM 上永远不会出现凭证的私钥，而保存结果与直接粘贴凭证私钥完全一致。
+ */
+function resolveKeyContent(): string {
+  const typed = (form.keyContent ?? '').trim()
+  if (typed) return typed
+  if (!credentialsUsed.value) return ''
+  const c = credentials.list.find((x) => x.id === credentialsUsed.value)
+  return (c?.keyContent ?? '').trim()
 }
 
 async function save() {
@@ -137,10 +166,14 @@ async function save() {
       }
       form.keyContent = ''
     } else {
-      if (!(form.keyContent ?? '').trim()) {
-        errorMsg.value = '请粘贴私钥内容'
+      const content = resolveKeyContent()
+      if (!content) {
+        errorMsg.value = usingStoredKeyContent.value
+          ? '所选凭证的私钥内容为空，请重新选择或粘贴私钥'
+          : '请粘贴私钥内容'
         return
       }
+      form.keyContent = content
       form.keyPath = ''
     }
   }
@@ -157,20 +190,61 @@ async function save() {
   }
 }
 
+/**
+ * 从已保存凭证填充表单。
+ *
+ * 关键约束（需求：选择凭证时不展示私钥）：凭证里可能保存着私钥内容，这里只复制
+ * 「用户名 / 认证方式 / 私钥文件路径 / 口令」，**绝不把凭证的私钥明文写进 form.keyContent**，
+ * 因此界面上不会出现任何私钥文本。
+ *   - 凭证带私钥文件路径 → 表单沿用该路径（keyContent 保持为空）；
+ *   - 凭证只有私钥内容 → 表单只看得到「已使用保存的私钥」提示，明文留在凭证明文库里，
+ *     由 credentialsUsed 标记在保存时从所选凭证取回。
+ */
 function applyCredential(id: string) {
   const c = credentials.list.find((x) => x.id === id)
-  if (c) {
-    form.user = c.user
-    if (c.authType === 'privateKey') {
-      form.authType = 'privateKey'
-      form.password = c.password || ''
-      form.keyPath = c.keyPath || ''
-      form.keyContent = c.keyContent || ''
-      keySource.value = c.keyContent ? 'content' : 'file'
-    } else {
-      form.authType = 'password'
-      form.password = c.password || ''
-    }
+  if (!c) return
+  credentialsUsed.value = id
+  form.user = c.user
+  form.keyPath = ''
+  form.keyContent = '' // 私钥明文永不落到表单 / DOM 上
+  if (c.authType === 'privateKey') {
+    form.authType = 'privateKey'
+    form.password = c.password || ''
+    form.keyPath = c.keyPath || ''
+    // 凭证只存了私钥内容（没有文件路径）时切到「粘贴内容」分支：
+    // 界面显示的是「已使用保存的私钥」提示，明文不展示，保存时按凭证 id 取回。
+    keySource.value = c.keyPath ? 'file' : 'content'
+  } else {
+    form.authType = 'password'
+    form.password = c.password || ''
+    keySource.value = 'file'
+  }
+}
+
+/** 清除凭证引用（用户改用手填内容时调用）。 */
+function clearCredentialRef() {
+  credentialsUsed.value = ''
+}
+
+/** 凭证下拉里的说明文案：明确标注认证方式（私钥类凭证不会展示私钥内容）。 */
+function credentialLabel(c: Credential): string {
+  const kind = c.authType === 'privateKey' ? '私钥' : '密码'
+  return `${c.name}（${c.user} · ${kind}）`
+}
+
+/** 当前是否正在使用「只有私钥内容」的保存凭证（此时表单不展示私钥明文）。 */
+const usingStoredKeyContent = computed(() => {
+  if (!credentialsUsed.value || form.authType !== 'privateKey') return false
+  const c = credentials.list.find((x) => x.id === credentialsUsed.value)
+  return !!c && !c.keyPath && !form.keyPath
+})
+
+/** 私钥来源切换：手动选择来源即视为脱离凭证（避免两个来源互相覆盖）。 */
+function setKeySource(src: 'file' | 'content') {
+  keySource.value = src
+  if (src === 'content' && usingStoredKeyContent.value) {
+    // 从「用保存的私钥」切到「手动粘贴」：清掉引用，要求用户填入内容
+    credentialsUsed.value = ''
   }
 }
 
@@ -310,9 +384,12 @@ onMounted(() => {
               >
                 <option value="">— 不使用 —</option>
                 <option v-for="c in credentials.list" :key="c.id" :value="c.id">
-                  {{ c.name }}（{{ c.user }}）
+                  {{ credentialLabel(c) }}
                 </option>
               </select>
+              <p class="mt-1 text-[12px] text-slate-500">
+                私钥类凭证同样可选：会带出用户名与认证方式，私钥内容不会显示在界面上。
+              </p>
             </label>
           </div>
 
@@ -323,14 +400,14 @@ onMounted(() => {
                 <button
                   class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 transition-colors"
                   :class="keySource === 'file' ? 'field-surface-active' : 'field-surface'"
-                  @click="keySource = 'file'"
+                  @click="setKeySource('file')"
                 >
                   密钥文件
                 </button>
                 <button
                   class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 transition-colors"
                   :class="keySource === 'content' ? 'field-surface-active' : 'field-surface'"
-                  @click="keySource = 'content'"
+                  @click="setKeySource('content')"
                 >
                   粘贴内容
                 </button>
@@ -357,14 +434,44 @@ onMounted(() => {
 
             <div v-else>
               <span class="field-label">私钥内容 *</span>
+              <div
+                v-if="usingStoredKeyContent"
+                class="mt-1 rounded-md border border-[var(--field-border)] bg-[var(--hover)] px-3 py-3 text-[12px] leading-relaxed text-slate-400"
+              >
+                <div class="flex items-center gap-2 text-[var(--mist-100)]">
+                  <Icon name="lock" :size="13" />
+                  已使用保存的私钥
+                </div>
+                <p class="mt-1">
+                  私钥内容保存在凭据库中，出于安全考虑不在界面上回显；保存后会自动写入该服务器。
+                  需要换成别的私钥时，切换上方「密钥文件」，或重新选择 / 粘贴内容。
+                </p>
+              </div>
               <textarea
+                v-else
                 v-model="form.keyContent"
                 rows="7"
                 spellcheck="false"
+                autocomplete="off"
                 class="mt-1 w-full textarea text-xs leading-relaxed resize-y"
                 placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+                @input="clearCredentialRef"
               ></textarea>
             </div>
+
+            <label v-if="credentials.list.length" class="block">
+              <span class="field-label">使用已保存凭证（可选）</span>
+              <select
+                v-model="selectedCred"
+                class="select"
+                @change="applyCredential(selectedCred)"
+              >
+                <option value="">— 不使用 —</option>
+                <option v-for="c in credentials.list" :key="c.id" :value="c.id">
+                  {{ credentialLabel(c) }}
+                </option>
+              </select>
+            </label>
 
             <label class="block">
               <span class="field-label">私钥口令（可选）</span>

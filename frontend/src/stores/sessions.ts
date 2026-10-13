@@ -75,7 +75,7 @@ export const useSessionsStore = defineStore('sessions', {
     tabs: [] as SessionTab[],
     activeId: '',
     sftpVisible: true, // 右侧 SFTP 面板显隐
-    rightPanel: 'sftp' as 'sftp' | 'sysinfo', // 右侧面板模式
+    rightPanel: 'sftp' as 'sftp' | 'sysinfo' | 'transfers', // 右侧面板模式
     // 进入分屏前右侧工具面板的显隐状态（取消分屏时自动恢复）。
     sftpVisibleBeforeSplit: true,
     // 分屏树：null = 未分屏（当前形态）。根节点 direction + children 递归嵌套。
@@ -274,7 +274,7 @@ export const useSessionsStore = defineStore('sessions', {
     toggleSftp() {
       this.sftpVisible = !this.sftpVisible
     },
-    showRightPanel(panel: 'sftp' | 'sysinfo') {
+    showRightPanel(panel: 'sftp' | 'sysinfo' | 'transfers') {
       this.rightPanel = panel
       this.sftpVisible = true
     },

@@ -906,13 +906,24 @@ img, svg { display: block; max-width: 100%; }
   display: flex;
   align-items: center;
   gap: 2px;
-  opacity: 0;
+  /* 操作按钮常显（需求：编辑等按钮不要隐藏）：悬停时仅加一层底衬强调，不再改透明度。 */
+  opacity: 1;
   transition: opacity var(--dur);
 }
-.server-row:hover .row-actions,
-.server-row.active .row-actions { opacity: 1; }
-@media (hover: none) {
-  .server-row .row-actions { opacity: 1; }
+.server-row .row-actions .btn-icon {
+  color: var(--mist-400);
+}
+.server-row:hover .row-actions .btn-icon,
+.server-row.active .row-actions .btn-icon {
+  color: var(--mist-200);
+}
+/* 拖拽中：整行降透明度，作为「正在搬走」的反馈 */
+.server-row.dragging { opacity: 0.45; }
+/* 分组条目作为拖放目标时高亮 */
+.side-group-item.drop-target {
+  background: var(--signal-weak);
+  box-shadow: inset 0 0 0 1px var(--signal-border);
+  color: var(--mist-100);
 }
 
 /* ============================================================

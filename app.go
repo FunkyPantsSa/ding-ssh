@@ -742,6 +742,25 @@ func (a *App) GetPlatform() string {
 	return runtime.GOOS
 }
 
+// RevealLocalPath 在系统文件管理器中打开本地文件 / 目录（SFTP 下载完成后「打开所在文件夹」）。
+//
+// path 可以指向文件（选中该文件）或目录（打开该目录）。空路径、不存在的路径一律返回错误，
+// 由前端把错误提示给用户。实现按平台分为 revealLocalPath（localpath_*.go）。
+func (a *App) RevealLocalPath(path string) error {
+	target := strings.TrimSpace(path)
+	if target == "" {
+		return fmt.Errorf("路径为空，无法打开所在文件夹")
+	}
+	if _, err := os.Stat(target); err != nil {
+		return fmt.Errorf("本地路径不存在或不可访问: %s", target)
+	}
+	if err := revealLocalPath(target); err != nil {
+		logx.Errorf("打开本地文件夹失败: path=%s err=%v", target, err)
+		return fmt.Errorf("打开本地文件夹失败: %w", err)
+	}
+	return nil
+}
+
 // GetLocalShellOptions 返回当前平台可选的本机 Shell 列表。
 func (a *App) GetLocalShellOptions() []localterm.ShellOption {
 	return localterm.OptionsForPlatform()
