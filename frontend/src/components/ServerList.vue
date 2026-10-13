@@ -1,11 +1,12 @@
 <script lang="ts" setup>
-import {computed, onMounted, ref, watch} from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {useGroupsStore} from '../stores/groups'
 import {useServersStore} from '../stores/servers'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import ServerDialog from './ServerDialog.vue'
+import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import type {ServerNode} from '../types'
 
 const servers = useServersStore()
@@ -82,6 +83,101 @@ function openNew() {
 function openEdit(node: ServerNode) {
   editing.value = node
   showDialog.value = true
+}
+
+// ---- 复制主机 IP ----
+const copiedHostId = ref('')
+let copiedTimer: number | undefined
+
+async function copyHost(node: ServerNode) {
+  const text = node.host.trim()
+  if (!text) return
+  try {
+    await ClipboardSetText(text)
+    copiedHostId.value = node.id
+    window.clearTimeout(copiedTimer)
+    copiedTimer = window.setTimeout(() => {
+      copiedHostId.value = ''
+    }, 1600)
+  } catch (e) {
+    console.warn('[servers] 复制主机地址失败', e)
+  }
+}
+
+// ---- 拖拽服务器到分组：修改服务器所在分组 ----
+const draggingServerId = ref('')
+const groupDragOver = ref('') // 当前悬停的分组名（'all' / '' / 分组名），用于高亮
+let dragOverTimer: number | undefined
+
+/** 清掉拖放高亮（拖拽结束 / 落下 / 取消都要清，避免残留高亮）。 */
+function clearDragOver() {
+  window.clearTimeout(dragOverTimer)
+  groupDragOver.value = ''
+}
+
+/** 从拖拽事件里取服务器 id：dataTransfer 优先（跨窗口/重排也可靠），回退到内部状态。 */
+function dragServerId(e: DragEvent): string {
+  const raw = e.dataTransfer?.getData('text/ding-ssh-server') || e.dataTransfer?.getData('text/plain') || ''
+  return raw || draggingServerId.value
+}
+
+function onRowDragStart(e: DragEvent, node: ServerNode) {
+  draggingServerId.value = node.id
+  // text/plain 兜底：某些环境下自定义类型读不到
+  e.dataTransfer?.setData('text/ding-ssh-server', node.id)
+  e.dataTransfer?.setData('text/plain', node.id)
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+}
+
+function onRowDragEnd() {
+  draggingServerId.value = ''
+  clearDragOver()
+}
+
+/** 分组条目是否接受拖放：拖拽中、且目标分组与服务器当前分组不同。 */
+function canDropInto(node: ServerNode | undefined, target: string): boolean {
+  if (!node) return false
+  return node.group.trim() !== target.trim()
+}
+
+function onGroupDragOver(e: DragEvent, target: string) {
+  const id = dragServerId(e)
+  if (!id || !canDropInto(servers.servers.find((s) => s.id === id), target)) return
+  e.preventDefault() // 只有 preventDefault 才允许 drop
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  groupDragOver.value = target
+  // 兜底：dragend 偶尔收不到（例如在拖动中切换视图），高亮最多保留 3 秒
+  window.clearTimeout(dragOverTimer)
+  dragOverTimer = window.setTimeout(() => {
+    groupDragOver.value = ''
+  }, 3000)
+}
+
+function onGroupDragLeave(target: string) {
+  if (groupDragOver.value === target) clearDragOver()
+}
+
+async function onGroupDrop(e: DragEvent, target: string) {
+  e.preventDefault()
+  const id = dragServerId(e)
+  clearDragOver()
+  draggingServerId.value = ''
+  const node = servers.servers.find((s) => s.id === id)
+  if (!node || !canDropInto(node, target)) return
+  await moveToGroup(node, target)
+}
+
+/** 把服务器保存到目标分组（空串 = 移出分组，变未分组）。 */
+async function moveToGroup(node: ServerNode, target: string) {
+  const group = target.trim()
+  const next: ServerNode = {...node, group}
+  try {
+    await servers.save(next)
+    // 拖到某个分组后，顺手把左栏切到该分组，方便确认结果
+    if (group) activeGroup.value = group
+  } catch (err) {
+    console.warn('[servers] 移动分组失败', err)
+  }
 }
 
 function connect(node: ServerNode) {
@@ -173,6 +269,11 @@ onMounted(() => {
   void servers.load()
   void groups.load()
 })
+
+onBeforeUnmount(() => {
+  window.clearTimeout(copiedTimer)
+  window.clearTimeout(dragOverTimer)
+})
 </script>
 
 <template>
@@ -204,8 +305,11 @@ onMounted(() => {
           <div class="flex-1 min-h-0 overflow-y-auto p-1.5 flex flex-col gap-0.5">
             <button
               class="side-group-item"
-              :class="activeGroup === 'all' ? 'active' : ''"
+              :class="[activeGroup === 'all' ? 'active' : '', groupDragOver === 'all' ? 'drop-target' : '']"
               @click="activeGroup = 'all'"
+              @dragover="onGroupDragOver($event, 'all')"
+              @dragleave="onGroupDragLeave('all')"
+              @drop="onGroupDrop($event, '')"
             >
               <Icon name="server" :size="14" extra-class="text-mist" />
               <span class="flex-1 text-left truncate">全部服务器</span>
@@ -214,8 +318,11 @@ onMounted(() => {
             <button
               v-if="groupCount('')"
               class="side-group-item"
-              :class="activeGroup === '' ? 'active' : ''"
+              :class="[activeGroup === '' ? 'active' : '', groupDragOver === '' ? 'drop-target' : '']"
               @click="activeGroup = ''"
+              @dragover="onGroupDragOver($event, '')"
+              @dragleave="onGroupDragLeave('')"
+              @drop="onGroupDrop($event, '')"
             >
               <Icon name="folder" :size="14" extra-class="text-mist" />
               <span class="flex-1 text-left truncate">未分组</span>
@@ -225,8 +332,11 @@ onMounted(() => {
               v-for="g in sortedGroups"
               :key="g"
               class="side-group-item"
-              :class="activeGroup === g ? 'active' : ''"
+              :class="[activeGroup === g ? 'active' : '', groupDragOver === g ? 'drop-target' : '']"
               @click="activeGroup = g"
+              @dragover="onGroupDragOver($event, g)"
+              @dragleave="onGroupDragLeave(g)"
+              @drop="onGroupDrop($event, g)"
             >
               <Icon name="folder" :size="14" extra-class="text-mist" />
               <span class="flex-1 text-left truncate">{{ g }}</span>
@@ -235,6 +345,9 @@ onMounted(() => {
           </div>
 
           <div class="p-2 shrink-0 inset-line-t">
+            <p class="mb-1.5 px-1 text-[11px] leading-snug text-mist/70">
+              把右侧服务器拖到分组上即可修改分组
+            </p>
             <button class="btn btn-ghost btn-sm w-full" @click="openGroupManager">
               <Icon name="plus" :size="14" />
               新建分组
@@ -304,8 +417,11 @@ onMounted(() => {
               v-for="node in filtered"
               :key="node.id"
               class="server-row group"
-              :class="isActiveNode(node) ? 'active' : ''"
-              :title="`连接 ${node.name}`"
+              :class="[isActiveNode(node) ? 'active' : '', draggingServerId === node.id ? 'dragging' : '']"
+              :title="`连接 ${node.name}（可拖到左侧分组改分组）`"
+              draggable="true"
+              @dragstart="onRowDragStart($event, node)"
+              @dragend="onRowDragEnd"
               @click="connect(node)"
             >
               <span class="status shrink-0" :class="nodeStatus(node)"></span>
@@ -330,6 +446,15 @@ onMounted(() => {
                 <button class="btn-icon btn-sm" title="连接" aria-label="连接" @click.stop="connect(node)">
                   <Icon name="arrow-right" :size="15" />
                 </button>
+                <button
+                  class="btn-icon btn-sm"
+                  :class="copiedHostId === node.id ? 'text-[var(--ok-500)]' : ''"
+                  :title="copiedHostId === node.id ? '已复制主机地址' : `复制主机地址 ${node.host}`"
+                  aria-label="复制主机地址"
+                  @click.stop="copyHost(node)"
+                >
+                  <Icon :name="copiedHostId === node.id ? 'check' : 'clipboard-copy'" :size="15" />
+                </button>
                 <button class="btn-icon btn-sm" title="测试在线状态" aria-label="测试在线状态" @click.stop="servers.testOne(node)">
                   <Icon name="activity" :size="15" />
                 </button>
@@ -346,7 +471,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <ServerDialog v-model="showDialog" :editing="editing" />
+    <ServerDialog v-model="showDialog" :editing="editing" :default-group="activeGroup" />
 
     <Teleport to="body">
       <div v-if="confirmNode" class="modal-root" @click.self="confirmNode = null">

@@ -5,6 +5,7 @@ import ServerList from './components/ServerList.vue'
 import SettingsPage from './components/SettingsPage.vue'
 import SftpPanel from './components/SftpPanel.vue'
 import SysInfoPanel from './components/SysInfoPanel.vue'
+import TransferHistoryPanel from './components/TransferHistoryPanel.vue'
 import ServerStatusBar from './components/ServerStatusBar.vue'
 import TabBar from './components/TabBar.vue'
 import TerminalView from './components/TerminalView.vue'
@@ -692,6 +693,13 @@ onBeforeUnmount(() => {
                 <SysInfoPanel
                   v-if="activeConnected && sessions.sftpVisible && sessions.rightPanel === 'sysinfo'"
                   :tab="activeConnected"
+                />
+                <!-- 传输记录：上传 / 下载历史（下载可从记录里直接打开本地文件夹）。
+                     与 SFTP 面板同为常驻挂载 + v-show 切换，避免切换页签时重建面板
+                     （重建会丢掉「进行中的传输」进度行）。 -->
+                <TransferHistoryPanel
+                  v-if="activeConnected && sessions.sftpVisible"
+                  v-show="sessions.rightPanel === 'transfers'"
                 />
               </div>
             </div>

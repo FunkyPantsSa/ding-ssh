@@ -252,6 +252,27 @@ export interface SFTPTransferEvent {
   error?: string
 }
 
+// SFTP 传输记录（历史上传 / 下载）：前端在每次传输结束后落本地存储。
+export type TransferStatus = 'done' | 'error' | 'cancelled'
+
+export interface TransferRecord {
+  id: string
+  direction: 'upload' | 'download'
+  name: string
+  size: number // 文件总字节数（0 = 未知）
+  transferred: number // 实际传输字节数
+  startedAt: number // 毫秒时间戳
+  finishedAt: number
+  durationMs: number
+  avgBytesPerSec: number // 平均速度（字节/秒）
+  serverName: string // 会话所属服务器名
+  host: string
+  remotePath: string // 远端路径（上传为写入目标，下载为来源）
+  localPath: string // 本地路径（上传为来源，下载为写入目标）
+  status: TransferStatus
+  error: string
+}
+
 // SSH 连接过程进度事件：每个事件代表一次步骤状态变更或一条步骤内详细日志，
 // 前端按 step 聚合日志，支持展开排查卡住原因。
 export interface ProgressEvent {

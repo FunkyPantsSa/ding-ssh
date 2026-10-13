@@ -4,12 +4,14 @@ import Icon from './Icon.vue'
 import {onSftpTransfer, onSftpDirUpdated, sshService} from '../services/ssh'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
+import {useTransfersStore} from '../stores/transfers'
 import {OnFileDrop, OnFileDropOff} from '../../wailsjs/runtime/runtime'
-import type {SFTPEntry, SessionTab} from '../types'
+import type {SFTPEntry, SessionTab, TransferRecord} from '../types'
 
 const props = defineProps<{tab: SessionTab}>()
 const sessions = useSessionsStore()
 const settings = useSettingsStore()
+const transfersStore = useTransfersStore()
 
 const entries = ref<SFTPEntry[]>([])
 const loading = ref(false)
@@ -38,6 +40,17 @@ interface TransferItem {
   total: number
   done: boolean
   error: string
+  /** 开始时间（毫秒）；-1 表示尚未开始（还没收到第一个进度事件）。 */
+  startedAt: number
+  finishedAt: number
+  /** 最近一次进度事件的时间戳与字节数：用于估算「当前速度」。 */
+  lastTs: number
+  lastBytes: number
+  /** 平滑后的当前速度（字节/秒）。 */
+  speed: number
+  /** 远端 / 本地路径：结束时写入历史记录。 */
+  remotePath: string
+  localPath: string
 }
 const transfers = ref<TransferItem[]>([])
 const disposers: Array<() => void> = []
@@ -236,9 +249,39 @@ function onDblClick(entry: SFTPEntry) {
 }
 
 function fmtSize(n: number): string {
+  if (!n || n < 0) return '0 B'
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+/** 速度文案（字节/秒 → 人类可读）。 */
+function fmtSpeed(bytesPerSec: number): string {
+  if (!bytesPerSec || bytesPerSec <= 0) return '—'
+  if (bytesPerSec < 1024) return `${bytesPerSec.toFixed(0)} B/s`
+  if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`
+  return `${(bytesPerSec / 1024 / 1024).toFixed(2)} MB/s`
+}
+
+/** 已用时间文案（秒）。 */
+function fmtElapsed(t: TransferItem): string {
+  const start = t.startedAt >= 0 ? t.startedAt : Date.now()
+  const end = t.done ? (t.finishedAt || Date.now()) : Date.now()
+  const s = Math.max(0, (end - start) / 1000)
+  if (s < 60) return `${s.toFixed(1)}s`
+  const m = Math.floor(s / 60)
+  return `${m}m${Math.round(s - m * 60)}s`
+}
+
+/** 剩余时间估算（仅在已知总大小、且有速度时给出）。 */
+function fmtEta(t: TransferItem): string {
+  if (t.done || !t.total || t.speed <= 0) return ''
+  const rest = t.total - t.transferred
+  if (rest <= 0) return ''
+  const s = Math.round(rest / t.speed)
+  if (s < 60) return `约 ${s}s`
+  return `约 ${Math.floor(s / 60)}m${s % 60}s`
 }
 
 function percent(t: TransferItem): number {
@@ -246,53 +289,135 @@ function percent(t: TransferItem): number {
   return Math.min(100, Math.round((t.transferred / t.total) * 100))
 }
 
+/**
+ * 进度事件处理：累计字节数与速度。
+ *
+ * 速度用「相邻事件差分 + 指数平滑」估算：事件本身按 100ms 节流，
+ * 直接用瞬时差分抖动很大，平滑后读数稳定且能反映实时速率变化。
+ */
 function onTransfer(evt: {direction: 'upload' | 'download'; name: string; transferred: number; total: number; done: boolean; error?: string}) {
   const key = `${evt.direction}:${evt.name}`
   let t = transfers.value.find((x) => x.key === key)
   if (!t) {
     if (evt.done && !evt.error) return
-    t = {key, direction: evt.direction, name: evt.name, transferred: 0, total: 0, done: false, error: ''}
+    t = newTransferItem(evt.direction, evt.name)
     transfers.value.push(t)
   }
-  if (!evt.done && evt.transferred < t.transferred) return
+  if (!evt.done && evt.transferred < t.transferred) return // 乱序的旧事件，丢弃
+  const now = Date.now()
+  if (t.startedAt < 0) t.startedAt = now
+  // 速度采样：只在有实际增量时更新，避免 100ms 空转把速度拉低
+  const deltaBytes = evt.transferred - t.lastBytes
+  const deltaMs = now - t.lastTs
+  if (deltaMs > 0 && deltaBytes > 0) {
+    const instant = (deltaBytes * 1000) / deltaMs
+    t.speed = t.speed > 0 ? t.speed * 0.6 + instant * 0.4 : instant
+    t.lastTs = now
+    t.lastBytes = evt.transferred
+  } else if (t.lastTs === 0) {
+    t.lastTs = now
+  }
   t.transferred = evt.transferred
   t.total = evt.total || t.total
   if (evt.done) {
     t.done = true
+    t.finishedAt = now
     if (t.total > 0) t.transferred = Math.max(t.transferred, t.total)
     if (evt.error) t.error = evt.error
   }
 }
 
-async function runTransfer(direction: 'upload' | 'download', name: string, task: () => Promise<void>) {
+/** 新建一条进行中的传输项。 */
+function newTransferItem(direction: 'upload' | 'download', name: string): TransferItem {
+  return {
+    key: `${direction}:${name}`,
+    direction,
+    name,
+    transferred: 0,
+    total: 0,
+    done: false,
+    error: '',
+    startedAt: Date.now(),
+    finishedAt: 0,
+    lastTs: Date.now(),
+    lastBytes: 0,
+    speed: 0,
+    remotePath: '',
+    localPath: '',
+  }
+}
+
+/** 传输结束时写入历史记录（成功 / 失败 / 取消都会记一条）。 */
+function recordHistory(t: TransferItem, cancelled: boolean) {
+  const finishedAt = t.finishedAt || Date.now()
+  const durationMs = Math.max(0, finishedAt - t.startedAt)
+  const record: TransferRecord = {
+    id: `${finishedAt}-${Math.random().toString(36).slice(2, 8)}`,
+    direction: t.direction,
+    name: t.name,
+    size: t.total,
+    transferred: t.transferred,
+    startedAt: t.startedAt,
+    finishedAt,
+    durationMs,
+    avgBytesPerSec: durationMs > 0 ? (t.transferred * 1000) / durationMs : 0,
+    serverName: props.tab.serverName,
+    host: props.tab.host,
+    remotePath: t.remotePath,
+    localPath: t.localPath,
+    status: t.error ? (cancelled ? 'cancelled' : 'error') : 'done',
+    error: t.error,
+  }
+  transfersStore.add(record)
+}
+
+async function runTransfer(
+  direction: 'upload' | 'download',
+  name: string,
+  paths: {remotePath: string; localPath: string},
+  task: () => Promise<void>,
+) {
   const key = `${direction}:${name}`
   if (transfers.value.some((t) => t.key === key && !t.done)) return
-  const t: TransferItem = {key, direction, name, transferred: 0, total: 0, done: false, error: ''}
+  const t = newTransferItem(direction, name)
+  t.remotePath = paths.remotePath
+  t.localPath = paths.localPath
   transfers.value.push(t)
+  let cancelled = false
   try {
     await task()
     if (!t.error) {
       t.done = true
+      t.finishedAt = Date.now()
       if (t.total > 0) t.transferred = t.total
+      // 用服务端最终进度事件可能还没到，这里按实际字节数补齐速度展示
+      const dur = t.finishedAt - t.startedAt
+      if (dur > 0 && t.transferred > 0) t.speed = (t.transferred * 1000) / dur
     }
   } catch (e) {
     t.error = String(e)
     t.done = true
+    t.finishedAt = Date.now()
   }
+  // 取消的判定：错误文案由后端在取消时给出「已取消」
+  if (t.error && t.error.includes('已取消')) cancelled = true
+  recordHistory(t, cancelled)
+  // 完成的行保留一小会儿再移除，让用户看到「完成 / 失败」状态；
+  // 记录本身已经进入「传输记录」页签，不会丢。
   setTimeout(() => {
     const idx = transfers.value.findIndex((x) => x.key === key)
     if (idx >= 0 && !transfers.value[idx].error) transfers.value.splice(idx, 1)
     void refresh()
-  }, 800)
+  }, 1200)
 }
 
 async function upload() {
   const files = await sshService.selectLocalFiles()
   if (!files.length) return
   for (const localPath of files) {
-    const name = localPath.split('/').pop() || 'file'
+    const name = localPath.split(/[/\\]/).pop() || 'file'
     const remotePath = joinPath(path.value, name)
-    await runTransfer('upload', name, () =>
+    await runTransfer('upload', name, {remotePath, localPath}, () =>
       sshService.sftpUpload(props.tab.sessionId, localPath, remotePath),
     )
   }
@@ -306,7 +431,7 @@ async function uploadPaths(localPaths: string[]) {
   for (const localPath of localPaths) {
     const name = localPath.split(/[/\\]/).pop() || 'file'
     const remotePath = joinPath(path.value, name)
-    await runTransfer('upload', name, () =>
+    await runTransfer('upload', name, {remotePath, localPath}, () =>
       sshService.sftpUpload(props.tab.sessionId, localPath, remotePath),
     )
   }
@@ -315,7 +440,7 @@ async function uploadPaths(localPaths: string[]) {
 async function download(entry: SFTPEntry) {
   const localPath = await sshService.selectSavePath(entry.name)
   if (!localPath) return
-  await runTransfer('download', entry.name, () =>
+  await runTransfer('download', entry.name, {remotePath: entry.path, localPath}, () =>
     sshService.sftpDownload(props.tab.sessionId, entry.path, localPath),
   )
 }
@@ -344,6 +469,16 @@ function bindSessionEvents(sessionId: string) {
       )
     }
   }))
+}
+
+// 调试/自动化入口：把面板上的传输动作挂到 window，便于用调试 API 驱动真实传输
+// （与界面点「上传 / 下载」走同一条路径：同样的进度事件、同样的传输记录）。
+// 只在浏览器上下文里注册，无副作用；未开启调试模式时也没人会调用它。
+if (typeof window !== 'undefined') {
+  ;(window as unknown as Record<string, unknown>).__dingSftpPanel = {
+    uploadPaths,
+    download,
+  }
 }
 
 onMounted(() => {
@@ -398,7 +533,15 @@ onBeforeUnmount(() => {
         <button class="active">SFTP</button>
         <button @click="sessions.showRightPanel('sysinfo')">看板</button>
       </div>
-      <button class="btn-icon btn-sm ml-auto" title="收起" @click="sessions.sftpVisible = false">
+      <button
+        class="btn-icon btn-sm ml-auto"
+        :title="transfersStore.records.length ? `传输记录（${transfersStore.records.length} 条）` : '传输记录'"
+        aria-label="传输记录"
+        @click="sessions.showRightPanel('transfers')"
+      >
+        <Icon name="clock" :size="14" />
+      </button>
+      <button class="btn-icon btn-sm" title="收起" @click="sessions.sftpVisible = false">
         <Icon name="close" :size="14" />
       </button>
     </div>
@@ -509,13 +652,20 @@ onBeforeUnmount(() => {
         <span class="truncate text-[var(--mist-200)]">{{ t.direction === 'upload' ? '↑' : '↓' }} {{ t.name }}</span>
         <span class="flex items-center gap-2">
           <button v-if="!t.done && !t.error" class="btn btn-ghost btn-sm" @click="cancelTransfer(t)">取消</button>
-          <span class="font-mono text-signal">{{ percent(t) }}%</span>
+          <span class="font-mono" :class="t.error ? 'text-danger' : 'text-signal'">
+            {{ t.error ? (t.error.includes('已取消') ? '已取消' : '失败') : percent(t) + '%' }}
+          </span>
         </span>
         <div class="prog col-span-2" :class="{indeterminate: !t.done && !t.error && percent(t) === 0}">
           <i :style="{width: (percent(t) === 0 && !t.done ? 30 : percent(t)) + '%'}"></i>
         </div>
-        <div class="col-span-2 font-mono text-[11px] text-mist">
-          {{ t.total ? `${fmtSize(t.transferred)} / ${fmtSize(t.total)}` : t.done ? '完成' : '传输中…' }}
+        <div class="col-span-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-mist">
+          <span>{{ t.total ? `${fmtSize(t.transferred)} / ${fmtSize(t.total)}` : t.done ? '完成' : fmtSize(t.transferred) }}</span>
+          <span v-if="!t.error" :title="t.done ? '平均速度' : '当前速度'">
+            {{ t.done ? '平均' : '' }}{{ fmtSpeed(t.speed) }}
+          </span>
+          <span>{{ fmtElapsed(t) }}</span>
+          <span v-if="fmtEta(t)">{{ fmtEta(t) }}</span>
         </div>
         <div v-if="t.error" class="col-span-2 flex justify-between text-danger">
           <span class="break-all">{{ t.error }}</span>

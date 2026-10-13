@@ -105,6 +105,15 @@ export const sshService = {
   // Phase 2: SFTP→Shell 目录同步
   syncSftpToTerminal: (sessionId: string, path: string): Promise<void> =>
     (window as any)?.go?.main?.App?.SyncSftpToTerminal(sessionId, path),
+  // 在系统文件管理器中打开本地文件 / 目录（SFTP 下载完成后「打开所在文件夹」）。
+  // 走 window 上的绑定，避免 wails 绑定尚未重新生成时报错。
+  revealLocalPath: (path: string): Promise<void> => {
+    const fn = (window as any)?.go?.main?.App?.RevealLocalPath
+    if (typeof fn !== 'function') {
+      return Promise.reject(new Error('当前版本不支持打开本地文件夹，请重新构建应用'))
+    }
+    return fn(path)
+  },
 }
 
 export function onSessionOutput(sessionId: string, handler: (data: string) => void): () => void {
