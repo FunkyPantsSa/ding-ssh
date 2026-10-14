@@ -13,14 +13,19 @@ import {
   SelectImageFile,
   SelectLocalFile,
   SelectLocalFiles,
+  SelectLocalFolder,
+  SelectSaveFolder,
   SelectSavePath,
+  LocalPathIsDir,
   SftpCancelTransfer,
   SftpDownload,
+  SftpDownloadFolder,
   SftpList,
   SftpMkdir,
   SftpRemove,
   SftpRename,
   SftpUpload,
+  SftpUploadFolder,
   StartTunnel,
   StopTunnel,
   TestServer,
@@ -57,11 +62,20 @@ export const sshService = {
     SftpList(sessionID, path),
   selectLocalFile: (): Promise<string> => SelectLocalFile(),
   selectLocalFiles: (): Promise<string[]> => SelectLocalFiles(),
+  selectLocalFolder: (): Promise<string> => SelectLocalFolder(),
+  localPathIsDir: (path: string): Promise<boolean> => LocalPathIsDir(path),
   selectSavePath: (defaultName: string): Promise<string> => SelectSavePath(defaultName),
   sftpUpload: (sessionID: string, localPath: string, remotePath: string): Promise<void> =>
     SftpUpload(sessionID, localPath, remotePath),
+  // 上传文件夹：后端保留本地文件夹名，作为 remoteDir 下的子目录递归上传。
+  sftpUploadFolder: (sessionID: string, localDir: string, remoteDir: string): Promise<void> =>
+    SftpUploadFolder(sessionID, localDir, remoteDir),
   sftpDownload: (sessionID: string, remotePath: string, localPath: string): Promise<void> =>
     SftpDownload(sessionID, remotePath, localPath),
+  // 下载文件夹：后端保留远端文件夹名，作为 localDir 下的子目录递归下载。
+  sftpDownloadFolder: (sessionID: string, remoteDir: string, localDir: string): Promise<void> =>
+    SftpDownloadFolder(sessionID, remoteDir, localDir),
+  selectSaveFolder: (): Promise<string> => SelectSaveFolder(),
   sftpMkdir: (sessionID: string, path: string): Promise<void> =>
     SftpMkdir(sessionID, path),
   sftpRename: (sessionID: string, oldPath: string, newPath: string): Promise<void> =>

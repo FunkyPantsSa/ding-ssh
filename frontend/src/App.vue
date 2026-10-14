@@ -511,6 +511,15 @@ onBeforeUnmount(() => {
               </button>
               <button
                 class="nav-item"
+                :class="sessions.activeTab?.kind === 'local' ? 'active' : ''"
+                title="本地终端"
+                @click="ui.showWorkspace(); sessions.openLocalTab()"
+              >
+                <Icon name="monitor" :size="15" extra-class="nav-ico" />
+                <span class="nav-text">本地终端</span>
+              </button>
+              <button
+                class="nav-item"
                 :class="ui.view === 'servers' ? 'active' : ''"
                 :aria-current="ui.view === 'servers' ? 'page' : undefined"
                 title="服务器管理"
@@ -544,10 +553,6 @@ onBeforeUnmount(() => {
 
             <template v-else-if="sec === 'sessions'">
               <div class="nav-label">会话</div>
-              <button class="nav-item" title="本地终端" @click="ui.showWorkspace(); sessions.openLocalTab()">
-                <Icon name="monitor" :size="15" extra-class="nav-ico" />
-                <span class="nav-text">本地终端</span>
-              </button>
               <button
                 class="nav-item"
                 title="快速连接"
