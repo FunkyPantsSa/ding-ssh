@@ -5,6 +5,8 @@ build/AppDir
 dist/
 node_modules
 frontend/dist
+# 本机构建缓存（沙箱内 go build 的 GOCACHE 落点）
+.go-cache/
 # 权限修复记录，不入版本控制
 .acl-recovery/
 .DS_Store

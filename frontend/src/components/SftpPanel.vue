@@ -101,15 +101,16 @@ async function load(dir: string) {
 
 function enter(entry: SFTPEntry) {
   if (!entry.isDir) return
-  path.value = entry.path
-  // SFTP → 终端目录同步（受配置项控制，默认开启）
-  if (settings.sftpToTerminalSync && props.tab.sessionId) {
-    sshService.syncSftpToTerminal(props.tab.sessionId, entry.path).catch(() => {})
-  }
+  go(entry.path)
 }
 
+// 所有面板内导航（进入目录 / 返回上层 / 面包屑 / 手输路径）统一走这里：
+// 切换面板目录的同时把终端 cd 到同一目录（SFTP → 终端目录同步，受配置项控制）。
 function go(dir: string) {
   path.value = dir
+  if (settings.sftpToTerminalSync && props.tab.sessionId) {
+    sshService.syncSftpToTerminal(props.tab.sessionId, dir).catch(() => {})
+  }
 }
 
 // 终端写入 tab.sftpPath 后，由 watch 加载目录；失败不打断用户
@@ -156,6 +157,11 @@ function menuEnter() {
 
 function menuDownload() {
   if (menu.value && !menu.value.entry.isDir) void download(menu.value.entry)
+  closeMenu()
+}
+
+function menuDownloadFolder() {
+  if (menu.value?.entry.isDir) void downloadFolder(menu.value.entry)
   closeMenu()
 }
 
@@ -423,17 +429,42 @@ async function upload() {
   }
 }
 
-// 拖拽上传：Wails OnFileDrop 回调拿到本地文件路径数组，逐个上传到当前目录
+// 上传文件夹：选择本地文件夹后整体递归上传到当前远端目录，
+// 后端保留文件夹名（当前目录/<本地文件夹名>/...），整条传输显示一个聚合进度。
+async function uploadFolder() {
+  if (!props.tab.sessionId) return
+  const localDir = await sshService.selectLocalFolder()
+  if (!localDir) return
+  const name = localDir.split(/[/\\]/).filter(Boolean).pop() || 'folder'
+  await runTransfer('upload', name, {remotePath: joinPath(path.value, name), localPath: localDir}, () =>
+    sshService.sftpUploadFolder(props.tab.sessionId, localDir, path.value),
+  )
+}
+
+// 拖拽上传：Wails OnFileDrop 回调拿到本地路径数组，逐个上传到当前目录。
+// 路径是文件夹时走递归上传（保留文件夹名），是文件时沿用原来的单文件上传。
 const dragOver = ref(false)
 
 async function uploadPaths(localPaths: string[]) {
   if (!props.tab.sessionId || !localPaths.length) return
   for (const localPath of localPaths) {
-    const name = localPath.split(/[/\\]/).pop() || 'file'
-    const remotePath = joinPath(path.value, name)
-    await runTransfer('upload', name, {remotePath, localPath}, () =>
-      sshService.sftpUpload(props.tab.sessionId, localPath, remotePath),
-    )
+    let isDir = false
+    try {
+      isDir = await sshService.localPathIsDir(localPath)
+    } catch {
+      // 路径不可访问：按文件交给后端，传输时报错会如实展示
+    }
+    const name = localPath.split(/[/\\]/).filter(Boolean).pop() || 'file'
+    if (isDir) {
+      await runTransfer('upload', name, {remotePath: joinPath(path.value, name), localPath}, () =>
+        sshService.sftpUploadFolder(props.tab.sessionId, localPath, path.value),
+      )
+    } else {
+      const remotePath = joinPath(path.value, name)
+      await runTransfer('upload', name, {remotePath, localPath}, () =>
+        sshService.sftpUpload(props.tab.sessionId, localPath, remotePath),
+      )
+    }
   }
 }
 
@@ -442,6 +473,16 @@ async function download(entry: SFTPEntry) {
   if (!localPath) return
   await runTransfer('download', entry.name, {remotePath: entry.path, localPath}, () =>
     sshService.sftpDownload(props.tab.sessionId, entry.path, localPath),
+  )
+}
+
+// 下载文件夹：选择本地保存位置后，远端文件夹整体递归下载到该目录下
+// （后端保留文件夹名：所选目录/<远端文件夹名>/...），整条传输显示一个聚合进度。
+async function downloadFolder(entry: SFTPEntry) {
+  const localDir = await sshService.selectSaveFolder()
+  if (!localDir) return
+  await runTransfer('download', entry.name, {remotePath: entry.path, localPath: localDir}, () =>
+    sshService.sftpDownloadFolder(props.tab.sessionId, entry.path, localDir),
   )
 }
 
@@ -478,6 +519,7 @@ if (typeof window !== 'undefined') {
   ;(window as unknown as Record<string, unknown>).__dingSftpPanel = {
     uploadPaths,
     download,
+    downloadFolder,
   }
 }
 
@@ -576,6 +618,7 @@ onBeforeUnmount(() => {
       </div>
       <button class="btn btn-ghost btn-sm" @click="startNewFolder">新建</button>
       <button class="btn btn-ghost btn-sm" @click="upload">上传</button>
+      <button class="btn btn-ghost btn-sm" title="选择本地文件夹，整体递归上传到当前目录（保留文件夹名）" @click="uploadFolder">上传文件夹</button>
     </div>
 
     <div v-if="newFolderActive" class="flex items-center gap-2 px-3 py-2 inset-line-b">
@@ -683,6 +726,7 @@ onBeforeUnmount(() => {
         @click.stop
       >
         <button v-if="menu.entry.isDir" @click="menuEnter">进入目录</button>
+        <button v-if="menu.entry.isDir" @click="menuDownloadFolder">下载文件夹到本地</button>
         <button v-else @click="menuDownload">下载到本地</button>
         <button @click="startRename(menu.entry)">重命名</button>
         <button class="danger" @click="requestDelete(menu.entry)">删除</button>

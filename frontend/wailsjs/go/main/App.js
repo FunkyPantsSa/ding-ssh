@@ -118,6 +118,10 @@ export function ListTunnels() {
   return window['go']['main']['App']['ListTunnels']();
 }
 
+export function LocalPathIsDir(arg1) {
+  return window['go']['main']['App']['LocalPathIsDir'](arg1);
+}
+
 export function LogClient(arg1, arg2) {
   return window['go']['main']['App']['LogClient'](arg1, arg2);
 }
@@ -162,6 +166,10 @@ export function RestartTunnel(arg1) {
   return window['go']['main']['App']['RestartTunnel'](arg1);
 }
 
+export function RevealLocalPath(arg1) {
+  return window['go']['main']['App']['RevealLocalPath'](arg1);
+}
+
 export function SaveCredential(arg1) {
   return window['go']['main']['App']['SaveCredential'](arg1);
 }
@@ -188,6 +196,14 @@ export function SelectLocalFile() {
 
 export function SelectLocalFiles() {
   return window['go']['main']['App']['SelectLocalFiles']();
+}
+
+export function SelectLocalFolder() {
+  return window['go']['main']['App']['SelectLocalFolder']();
+}
+
+export function SelectSaveFolder() {
+  return window['go']['main']['App']['SelectSaveFolder']();
 }
 
 export function SelectSavePath(arg1) {
@@ -222,6 +238,10 @@ export function SftpDownload(arg1, arg2, arg3) {
   return window['go']['main']['App']['SftpDownload'](arg1, arg2, arg3);
 }
 
+export function SftpDownloadFolder(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SftpDownloadFolder'](arg1, arg2, arg3);
+}
+
 export function SftpList(arg1, arg2) {
   return window['go']['main']['App']['SftpList'](arg1, arg2);
 }
@@ -240,6 +260,10 @@ export function SftpRename(arg1, arg2, arg3) {
 
 export function SftpUpload(arg1, arg2, arg3) {
   return window['go']['main']['App']['SftpUpload'](arg1, arg2, arg3);
+}
+
+export function SftpUploadFolder(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SftpUploadFolder'](arg1, arg2, arg3);
 }
 
 export function StartSysInfoCollector(arg1) {

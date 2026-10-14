@@ -260,7 +260,12 @@ func (s *Session) guessHome() string {
 	return "/home/" + u
 }
 
-// expandPath 把 ~ 展开为绝对路径；非绝对路径返回空。
+// expandPath 把解析出的目录补全为绝对路径：
+//   - 绝对路径 / 以 ~ 开头：直接规范化；
+//   - 其余（提示符后 cd 回显的相对参数，如 ..、subdir）：基于最近一次已知目录 lastDir 解析。
+//
+// 只有 cd 回显会产生相对参数（prompt / osc7 / osc3008 给出的都是绝对路径或 ~），
+// 因此这里按 lastDir 拼接是安全的；解析不了时返回空串。
 func (s *Session) expandPath(p string) string {
 	p = strings.TrimSpace(p)
 	if strings.HasPrefix(p, "/") {
@@ -272,7 +277,17 @@ func (s *Session) expandPath(p string) string {
 	if strings.HasPrefix(p, "~/") {
 		return path.Join(s.guessHome(), p[2:])
 	}
-	return ""
+	// cd - 会回显 OLDPWD（非目标路径），cd . 指向当前目录，均不构成目录变更。
+	if p == "-" || p == "" || p == "." {
+		return ""
+	}
+	s.mu.Lock()
+	base := s.lastDir
+	s.mu.Unlock()
+	if base == "" {
+		return ""
+	}
+	return path.Clean(path.Join(base, p))
 }
 
 // prefetchHomeAndSync 用 SFTP Getwd 校正 home，并在尚未同步过目录时推一次，

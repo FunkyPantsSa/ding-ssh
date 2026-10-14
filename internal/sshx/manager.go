@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -475,6 +476,423 @@ func (m *Manager) SftpDownload(sessionID, remotePath, localPath string) error {
 	}
 	m.cache.Invalidate(parentDir(remotePath))
 	return nil
+}
+
+// SftpUploadFolder 递归上传本地文件夹到远端目录，保留本地文件夹名与内部目录结构。
+//
+// 远端目标为 remoteDir/<本地文件夹名>/...：用户选择「上传文件夹」后，本地文件夹
+// 整体成为当前远端目录下的一个子目录（目录结构与本地一致）。
+//
+// 整个文件夹作为**一条**传输记录（name=本地文件夹名）：进度按全部文件的累计字节上报，
+// 取消即取消整个文件夹（与 SftpUpload / SftpDownload 共用取消表与限速器）。
+func (m *Manager) SftpUploadFolder(sessionID, localDir, remoteDir string) error {
+	s, err := m.get(sessionID)
+	if err != nil {
+		return err
+	}
+	client, err := s.SftpClient()
+	if err != nil {
+		return fmt.Errorf("建立 SFTP 连接失败: %w", err)
+	}
+	localDir = filepath.Clean(localDir)
+	fi, err := os.Stat(localDir)
+	if err != nil {
+		return fmt.Errorf("读取本地文件夹失败: %w", err)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("本地路径不是文件夹: %s", localDir)
+	}
+	// 第一遍统计总字节数，让进度条一开始就有确定的总数。
+	total, err := dirBytes(localDir)
+	if err != nil {
+		return fmt.Errorf("统计文件夹字节数失败: %w", err)
+	}
+
+	name := filepath.Base(localDir)
+	root := joinRemote(remoteDir, name)
+	// 远端目标目录整体创建（已存在时 MkdirAll 不报错）。
+	if err := client.MkdirAll(root); err != nil {
+		return fmt.Errorf("创建远端目录失败: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	tr := m.registerTransfer(sessionID, "upload", name, cancel)
+	defer m.unregisterTransfer(tr)
+
+	var transferred atomic.Int64
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		emit := func() {
+			m.notify("sftp:transfer:"+sessionID, models.SFTPTransferEvent{
+				SessionID:   sessionID,
+				Direction:   "upload",
+				Name:        name,
+				Transferred: transferred.Load(),
+				Total:       total,
+				Done:        false,
+			})
+		}
+		emit()
+		ticker := time.NewTicker(transferNotifyInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				emit()
+			case <-stop:
+				return
+			}
+		}
+	}()
+
+	finish := func(errMsg string) {
+		close(stop)
+		wg.Wait()
+		m.notify("sftp:transfer:"+sessionID, models.SFTPTransferEvent{
+			SessionID:   sessionID,
+			Direction:   "upload",
+			Name:        name,
+			Transferred: transferred.Load(),
+			Total:       total,
+			Done:        true,
+			Error:       errMsg,
+		})
+	}
+
+	uploadErr := m.uploadFolderTree(ctx, client, localDir, root, &transferred)
+	if uploadErr != nil {
+		if errors.Is(uploadErr, ErrTransferCancelled) {
+			finish("已取消")
+			return nil // 已取消，进度事件已上报
+		}
+		finish(uploadErr.Error())
+		return fmt.Errorf("上传文件夹失败: %w", uploadErr)
+	}
+	finish("")
+	m.cache.Invalidate(parentDir(root))
+	return nil
+}
+
+// SftpDownloadFolder 递归下载远端文件夹到本地目录，保留远端文件夹名与内部目录结构。
+//
+// 本地目标为 localDir/<远端文件夹名>/...：与「上传文件夹」对称，远端文件夹整体成为
+// 用户所选本地目录下的一个子目录（目录结构与远端一致）。
+//
+// 整个文件夹作为**一条**传输记录（name=远端文件夹名）：进度按全部文件的累计字节上报，
+// 取消即取消整个文件夹（与 SftpUpload / SftpDownload 共用取消表与限速器）。
+func (m *Manager) SftpDownloadFolder(sessionID, remoteDir, localDir string) error {
+	s, err := m.get(sessionID)
+	if err != nil {
+		return err
+	}
+	client, err := s.SftpClient()
+	if err != nil {
+		return fmt.Errorf("建立 SFTP 连接失败: %w", err)
+	}
+	remoteDir = strings.TrimRight(remoteDir, "/")
+	fi, err := client.Stat(remoteDir)
+	if err != nil {
+		return fmt.Errorf("读取远端文件夹失败: %w", err)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("远端路径不是文件夹: %s", remoteDir)
+	}
+	name := filepath.Base(remoteDir)
+	if name == "" || name == "." || name == "/" {
+		return fmt.Errorf("不支持下载根目录: %s", remoteDir)
+	}
+	localRoot := filepath.Join(localDir, name)
+	if err := os.MkdirAll(localRoot, 0o755); err != nil {
+		return fmt.Errorf("创建本地目录失败: %w", err)
+	}
+	// 第一遍统计总字节数，让进度条一开始就有确定的总数。
+	total, err := remoteDirBytes(client, remoteDir)
+	if err != nil {
+		return fmt.Errorf("统计远端文件夹字节数失败: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	tr := m.registerTransfer(sessionID, "download", name, cancel)
+	defer m.unregisterTransfer(tr)
+
+	var transferred atomic.Int64
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		emit := func() {
+			m.notify("sftp:transfer:"+sessionID, models.SFTPTransferEvent{
+				SessionID:   sessionID,
+				Direction:   "download",
+				Name:        name,
+				Transferred: transferred.Load(),
+				Total:       total,
+				Done:        false,
+			})
+		}
+		emit()
+		ticker := time.NewTicker(transferNotifyInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				emit()
+			case <-stop:
+				return
+			}
+		}
+	}()
+
+	finish := func(errMsg string) {
+		close(stop)
+		wg.Wait()
+		m.notify("sftp:transfer:"+sessionID, models.SFTPTransferEvent{
+			SessionID:   sessionID,
+			Direction:   "download",
+			Name:        name,
+			Transferred: transferred.Load(),
+			Total:       total,
+			Done:        true,
+			Error:       errMsg,
+		})
+	}
+
+	downloadErr := m.downloadFolderTree(ctx, client, remoteDir, localRoot, &transferred)
+	if downloadErr != nil {
+		if errors.Is(downloadErr, ErrTransferCancelled) {
+			finish("已取消")
+			return nil // 已取消，进度事件已上报
+		}
+		finish(downloadErr.Error())
+		return fmt.Errorf("下载文件夹失败: %w", downloadErr)
+	}
+	finish("")
+	return nil
+}
+
+// remoteDirBytes 统计远端目录树内全部常规文件的总字节数（用于文件夹下载的进度总数）。
+// 符号链接不跟随、不计入（与下载时的跳过规则一致）。
+func remoteDirBytes(client *sftp.Client, root string) (int64, error) {
+	var total int64
+	err := walkRemote(client, root, func(_ string, fi os.FileInfo) error {
+		if fi.Mode().IsRegular() {
+			total += fi.Size()
+		}
+		return nil
+	})
+	return total, err
+}
+
+// walkRemote 深度优先遍历远端目录树（目录本身与其子项都访问，目录先于子项），
+// 对每个条目调用 fn(path, fi)。符号链接一律跳过，避免跟随链接造成循环或意外访问。
+func walkRemote(client *sftp.Client, root string, fn func(path string, fi os.FileInfo) error) error {
+	fi, err := client.Stat(root)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return fn(root, fi)
+	}
+	if err := fn(root, fi); err != nil {
+		return err
+	}
+	children, err := client.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	for _, c := range children {
+		if c.Mode()&fs.ModeSymlink != 0 {
+			continue
+		}
+		child := joinRemote(root, c.Name())
+		if c.IsDir() {
+			if err := walkRemote(client, child, fn); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := fn(child, c); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// downloadFolderTree 深度优先下载远端目录树到本地：
+//   - 目录：在本地对应路径 MkdirAll；
+//   - 常规文件：逐一流式下载，字节数累计进 transferred（整条文件夹传输共用一个计数器）。
+//
+// 符号链接等非常规条目一律跳过（与上传对称，避免链接循环）。
+func (m *Manager) downloadFolderTree(ctx context.Context, client *sftp.Client, remoteRoot, localRoot string, transferred *atomic.Int64) error {
+	return walkRemote(client, remoteRoot, func(path string, fi os.FileInfo) error {
+		if err := ctx.Err(); err != nil {
+			return ErrTransferCancelled
+		}
+		rel, err := filepath.Rel(remoteRoot, path)
+		if err != nil {
+			return err
+		}
+		localPath := filepath.Join(localRoot, rel)
+		if fi.IsDir() {
+			if rel == "." {
+				return nil // 本地根目录已由 SftpDownloadFolder 创建
+			}
+			return os.MkdirAll(localPath, 0o755)
+		}
+		if !fi.Mode().IsRegular() {
+			return nil
+		}
+		src, err := client.Open(path)
+		if err != nil {
+			return fmt.Errorf("打开远端文件失败: %w", err)
+		}
+		dst, err := os.Create(localPath)
+		if err != nil {
+			src.Close()
+			return fmt.Errorf("创建本地文件失败: %w", err)
+		}
+		copyErr := copyFolderChunk(ctx, src, dst, transferred)
+		closeSrcErr := src.Close()
+		closeDstErr := dst.Close()
+		if copyErr != nil {
+			_ = os.Remove(localPath) // 清理不完整的下载文件
+			if errors.Is(copyErr, ErrTransferCancelled) {
+				return ErrTransferCancelled
+			}
+			return copyErr
+		}
+		if closeSrcErr != nil {
+			_ = os.Remove(localPath)
+			return fmt.Errorf("关闭远端文件失败: %w", closeSrcErr)
+		}
+		if closeDstErr != nil {
+			_ = os.Remove(localPath)
+			return fmt.Errorf("关闭本地文件失败: %w", closeDstErr)
+		}
+		return nil
+	})
+}
+
+// dirBytes 统计本地文件夹内全部常规文件的总字节数（用于文件夹上传的进度总数）。
+// 符号链接 / 设备等非常规条目不计入（与上传时的跳过规则一致）。
+func dirBytes(root string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !d.Type().IsRegular() {
+			return nil
+		}
+		fi, err := d.Info()
+		if err != nil {
+			return err
+		}
+		total += fi.Size()
+		return nil
+	})
+	return total, err
+}
+
+// uploadFolderTree 深度优先遍历本地文件夹：
+//   - 目录：在远端对应路径 MkdirAll（父目录先于子项被访问，天然满足自底向上的依赖）；
+//   - 常规文件：逐一流式上传，字节数累计进 transferred（整条文件夹传输共用一个计数器）。
+//
+// 符号链接 / 设备等非常规条目一律跳过，避免链接循环或意外传输。
+func (m *Manager) uploadFolderTree(ctx context.Context, client *sftp.Client, localRoot, remoteRoot string, transferred *atomic.Int64) error {
+	return filepath.WalkDir(localRoot, func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return ErrTransferCancelled
+		}
+		rel, err := filepath.Rel(localRoot, p)
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if rel == "." {
+				return nil // 远端根目录已由 SftpUploadFolder 创建
+			}
+			return client.MkdirAll(joinRemote(remoteRoot, rel))
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		remotePath := joinRemote(remoteRoot, rel)
+		src, err := os.Open(p)
+		if err != nil {
+			return fmt.Errorf("打开本地文件失败: %w", err)
+		}
+		dst, err := client.Create(remotePath)
+		if err != nil {
+			src.Close()
+			return fmt.Errorf("创建远程文件失败: %w", err)
+		}
+		copyErr := copyFolderChunk(ctx, src, dst, transferred)
+		closeSrcErr := src.Close()
+		closeDstErr := dst.Close()
+		if copyErr != nil {
+			_ = client.Remove(remotePath) // 清理不完整的上传文件
+			if errors.Is(copyErr, ErrTransferCancelled) {
+				return ErrTransferCancelled
+			}
+			return copyErr
+		}
+		if closeSrcErr != nil {
+			_ = client.Remove(remotePath)
+			return fmt.Errorf("关闭本地文件失败: %w", closeSrcErr)
+		}
+		if closeDstErr != nil {
+			_ = client.Remove(remotePath)
+			return fmt.Errorf("关闭远程文件失败: %w", closeDstErr)
+		}
+		return nil
+	})
+}
+
+// copyFolderChunk 带取消与全局限速的逐块拷贝（无单文件进度事件 —— 进度由调用方按累计字节上报）。
+// 上传 / 下载文件夹共用：src / dst 分别是本地或远端的 Reader / Writer。
+func copyFolderChunk(ctx context.Context, src io.Reader, dst io.Writer, transferred *atomic.Int64) error {
+	buf := make([]byte, 64*1024)
+	for {
+		if err := ctx.Err(); err != nil {
+			return ErrTransferCancelled
+		}
+		n, rerr := src.Read(buf)
+		if n > 0 {
+			if err := DefaultTransferPool.Limiter().Wait(ctx, n); err != nil {
+				if err == context.Canceled {
+					return ErrTransferCancelled
+				}
+				return err
+			}
+			if _, werr := dst.Write(buf[:n]); werr != nil {
+				return werr
+			}
+			transferred.Add(int64(n))
+		}
+		if rerr == io.EOF {
+			return nil
+		}
+		if rerr != nil {
+			return rerr
+		}
+	}
+}
+
+// joinRemote 拼接远端路径（一律用 / 分隔，容忍 base 以 / 结尾、name 带 \ 或首尾 /）。
+func joinRemote(base, name string) string {
+	name = strings.Trim(strings.ReplaceAll(name, "\\", "/"), "/")
+	if base == "" || base == "/" {
+		return "/" + name
+	}
+	return strings.TrimRight(base, "/") + "/" + name
 }
 
 // streamTransfer 通用流式拷贝并上报进度（限频 100ms）。

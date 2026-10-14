@@ -61,6 +61,8 @@ export function ListSessions():Promise<Array<models.SessionInfo>>;
 
 export function ListTunnels():Promise<Array<models.TunnelInfo>>;
 
+export function LocalPathIsDir(arg1:string):Promise<boolean>;
+
 export function LogClient(arg1:string,arg2:string):Promise<void>;
 
 export function OpenLogFolder():Promise<void>;
@@ -83,6 +85,8 @@ export function Resize(arg1:string,arg2:number,arg3:number):Promise<void>;
 
 export function RestartTunnel(arg1:string):Promise<void>;
 
+export function RevealLocalPath(arg1:string):Promise<void>;
+
 export function SaveCredential(arg1:models.Credential):Promise<models.Credential>;
 
 export function SaveServer(arg1:models.ServerNode):Promise<models.ServerNode>;
@@ -96,6 +100,10 @@ export function SelectKeyFile():Promise<string>;
 export function SelectLocalFile():Promise<string>;
 
 export function SelectLocalFiles():Promise<Array<string>>;
+
+export function SelectLocalFolder():Promise<string>;
+
+export function SelectSaveFolder():Promise<string>;
 
 export function SelectSavePath(arg1:string):Promise<string>;
 
@@ -113,6 +121,8 @@ export function SftpCancelTransfer(arg1:string,arg2:string,arg3:string):Promise<
 
 export function SftpDownload(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function SftpDownloadFolder(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function SftpList(arg1:string,arg2:string):Promise<Array<models.SFTPEntry>>;
 
 export function SftpMkdir(arg1:string,arg2:string):Promise<void>;
@@ -122,6 +132,8 @@ export function SftpRemove(arg1:string,arg2:string):Promise<void>;
 export function SftpRename(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SftpUpload(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SftpUploadFolder(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function StartSysInfoCollector(arg1:string):Promise<void>;
 

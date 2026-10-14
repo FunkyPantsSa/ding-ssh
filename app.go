@@ -479,6 +479,37 @@ func (a *App) SelectLocalFiles() ([]string, error) {
 	return files, nil
 }
 
+// SelectLocalFolder 弹出系统文件夹选择框，返回所选文件夹路径（用于 SFTP 上传文件夹）。
+func (a *App) SelectLocalFolder() (string, error) {
+	dir, err := wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "选择要上传的文件夹",
+	})
+	if err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// SelectSaveFolder 弹出系统文件夹选择框，返回所选保存位置（用于 SFTP 下载文件夹）。
+func (a *App) SelectSaveFolder() (string, error) {
+	dir, err := wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "选择保存到本地文件夹",
+	})
+	if err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// LocalPathIsDir 判断本地路径是否为文件夹（拖拽上传时前端据此分流文件 / 文件夹）。
+func (a *App) LocalPathIsDir(path string) (bool, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false, fmt.Errorf("本地路径不存在或不可访问: %s", path)
+	}
+	return fi.IsDir(), nil
+}
+
 // SelectSavePath 选择本地保存路径（用于 SFTP 下载）。
 func (a *App) SelectSavePath(defaultName string) (string, error) {
 	path, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
@@ -500,10 +531,28 @@ func (a *App) SftpUpload(sessionID, localPath, remotePath string) error {
 	return nil
 }
 
+// SftpUploadFolder 递归上传本地文件夹到远端目录（保留文件夹名与内部结构，整条传输带进度事件）。
+func (a *App) SftpUploadFolder(sessionID, localDir, remoteDir string) error {
+	if err := a.manager.SftpUploadFolder(sessionID, localDir, remoteDir); err != nil {
+		logx.Errorf("SFTP 上传文件夹失败: session=%s local=%s remote=%s err=%v", sessionID, localDir, remoteDir, err)
+		return err
+	}
+	return nil
+}
+
 // SftpDownload 下载远程文件到本地路径（含进度事件）。
 func (a *App) SftpDownload(sessionID, remotePath, localPath string) error {
 	if err := a.manager.SftpDownload(sessionID, remotePath, localPath); err != nil {
 		logx.Errorf("SFTP 下载失败: session=%s remote=%s local=%s err=%v", sessionID, remotePath, localPath, err)
+		return err
+	}
+	return nil
+}
+
+// SftpDownloadFolder 递归下载远端文件夹到本地目录（保留文件夹名与内部结构，整条传输带进度事件）。
+func (a *App) SftpDownloadFolder(sessionID, remoteDir, localDir string) error {
+	if err := a.manager.SftpDownloadFolder(sessionID, remoteDir, localDir); err != nil {
+		logx.Errorf("SFTP 下载文件夹失败: session=%s remote=%s local=%s err=%v", sessionID, remoteDir, localDir, err)
 		return err
 	}
 	return nil

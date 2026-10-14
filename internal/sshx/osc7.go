@@ -10,11 +10,19 @@ import (
 )
 
 // ParseDirFromOutput 从终端输出中提取当前工作目录。
-// 优先级：末行 Prompt 路径 > 最近一次 cd 参数 > 缓冲区中最后一次 OSC 7。
-// 未匹配时返回 ("", false)。
+// 优先级：末行 Prompt 路径 > 最近一次 cd 回显参数 > 缓冲区中最后一次 OSC 7 > shell integration 的
+// type=shell cwd（OSC 3008）。未匹配时返回 ("", false)。
 
 // OSC 7：\033]7;file://[hostname]/path\007 或 ST(\033\\) 终止；hostname 可为空。
 var osc7Pattern = regexp.MustCompile(`\x1b\]7;file://[^/\x07\x1b]*(/[^\x07\x1b]*)(?:\x07|\x1b\\)`)
+
+// osc3008ShellPattern 匹配 bash/zsh shell integration 的 type=shell 事件并提取 cwd 字段：
+//
+//	\x1b]3008;start=<uuid>;type=shell;machineid=…;user=…;hostname=…;cwd=/tmp\x1b\\
+//
+// 只认 type=shell：它是命令结束后、新提示符出现前的「当前目录」；command-start 事件里的 cwd
+// 是命令**开始前**的目录（对 cd 命令而言是旧目录），解析它会短暂把面板闪回旧路径。
+var osc3008ShellPattern = regexp.MustCompile(`\x1b\]3008;[^\x07\x1b]*type=shell[^\x07\x1b]*cwd=([^\x07\x1b;]+)(?:\x07|\x1b\\)`)
 
 // promptPatterns 末行提示符。按优先级：
 // 1. [user@host /path]$   （CentOS/RHEL）
@@ -26,8 +34,14 @@ var promptPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?:^|[\s])(/[^\s]*)\s*[#%$]\s*$`),                 // ... /path$
 }
 
-// cdPattern 捕获输出中回显的 cd 命令（ECHO 开启时会出现在 stdout）。
-var cdPattern = regexp.MustCompile(`(?:^|[\n])cd[ \t]+([^\n#;|&]+)\n`)
+// cdLinePattern 独立成行的 cd 回显（脚本输出 / 粘贴文本 / 无提示符前缀的回显）：\ncd /path\n。
+var cdLinePattern = regexp.MustCompile(`(?:^|[\n])cd[ \t]+([^\n#;|&]+)\n`)
+
+// cdPromptPattern 提示符后同行的 cd 回显：bash/zsh 把键入内容回显在提示符所在行，
+// 即 `…$ cd /path`（#、$、% 后跟空白再接 cd）。这是交互输入最常见的形态，
+// 旧的"行首 cd"锚点（cdLinePattern）匹配不到它，导致 cd /tmp 这类命令一直无法同步。
+// 提示符回显允许相对路径（cd ..、cd subdir），由上层基于 lastDir 补全为绝对路径。
+var cdPromptPattern = regexp.MustCompile(`[#%$][ \t]+cd[ \t]+([^\n#;|&]+)\n`)
 
 // ansiPattern 仅剥离 CSI / OSC / 单字符 ESC，保留换行以便取末行。
 var ansiPattern = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[ -/]*[A-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-B]|[NO])`)
@@ -112,6 +126,23 @@ func ParseOSC7(data []byte) (string, bool) {
 	return p, true
 }
 
+// ParseOSC3008 提取 shell integration 输出中最近一次 type=shell 事件的 cwd。
+func ParseOSC3008(data []byte) (string, bool) {
+	matches := osc3008ShellPattern.FindAllSubmatch(data, -1)
+	if len(matches) == 0 {
+		return "", false
+	}
+	raw := string(matches[len(matches)-1][1])
+	if decoded, err := url.PathUnescape(raw); err == nil {
+		raw = decoded
+	}
+	p := normalizeRemotePath(raw)
+	if p == "" {
+		return "", false
+	}
+	return p, true
+}
+
 // ParsePrompt 从输出末行匹配 Shell Prompt 提取路径。
 func ParsePrompt(data []byte) (string, bool) {
 	tail := stripANSI(tailWindow(data, 512))
@@ -143,22 +174,29 @@ func firstArg(s string) string {
 	return strings.Trim(fields[0], `"'`)
 }
 
-// ParseCdFromOutput 从回显的 cd 命令提取目标路径（仅绝对路径）。
+// ParseCdFromOutput 从回显的 cd 命令提取目标路径。
+// 提示符后回显（…$ cd /tmp、…$ cd ..）返回原始参数——可能是相对路径，
+// 由上层（Session.expandPath）基于 lastDir 补全为绝对路径；
+// 独立成行的 cd 回显仍只接受绝对路径（脚本输出里的裸 cd 相对参数不可靠）。
 func ParseCdFromOutput(data []byte) (string, bool) {
 	tail := stripANSI(tailWindow(data, 1024))
-	matches := cdPattern.FindAllStringSubmatch(tail, -1)
-	if len(matches) == 0 {
-		return "", false
+	if m := cdPromptPattern.FindAllStringSubmatch(tail, -1); len(m) > 0 {
+		arg := firstArg(m[len(m)-1][1])
+		if arg != "" {
+			return arg, true
+		}
 	}
-	p := normalizeRemotePath(firstArg(matches[len(matches)-1][1]))
-	if p == "" {
-		return "", false
+	if m := cdLinePattern.FindAllStringSubmatch(tail, -1); len(m) > 0 {
+		p := normalizeRemotePath(firstArg(m[len(m)-1][1]))
+		if p != "" {
+			return p, true
+		}
 	}
-	return p, true
+	return "", false
 }
 
 // ParseDirFromOutput 综合解析终端输出中的目录变更。
-// source 为 prompt / cd / osc7，便于日志排查。
+// source 为 prompt / cd / osc7 / osc3008，便于日志排查。
 func ParseDirFromOutput(data []byte) (string, string, bool) {
 	if p, ok := ParsePrompt(data); ok {
 		return p, "prompt", true
@@ -168,6 +206,9 @@ func ParseDirFromOutput(data []byte) (string, string, bool) {
 	}
 	if p, ok := ParseOSC7(data); ok {
 		return p, "osc7", true
+	}
+	if p, ok := ParseOSC3008(data); ok {
+		return p, "osc3008", true
 	}
 	return "", "", false
 }
