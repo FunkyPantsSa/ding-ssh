@@ -150,6 +150,11 @@ onBeforeUnmount(() => {
           <h4 class="text-[12px] font-semibold tracking-widest uppercase text-mist mb-3">Memory</h4>
           <div class="text-[22px] font-semibold tracking-tight text-[var(--mist-100)] tabular-nums">
             {{ snap?.memUsedMb ?? 0 }}<small class="text-xs font-medium text-mist ml-1">/ {{ snap?.memTotalMb ?? 0 }} MB</small>
+            <small
+              v-if="snap?.memTotalMb"
+              class="text-xs font-medium ml-1"
+              :class="memPct > 85 ? 'text-warn' : 'text-copper'"
+            >({{ memPct.toFixed(0) }}%)</small>
           </div>
           <svg viewBox="0 0 200 36" class="w-full h-9 mt-3" preserveAspectRatio="none">
             <path v-if="memFill" :d="memFill" fill="var(--copper-glow)"/>

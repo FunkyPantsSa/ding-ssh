@@ -305,6 +305,15 @@ async function toggleKeepAlive(v: boolean) {
   }
 }
 
+async function toggleAutoLoginLastServer(v: boolean) {
+  saving.value = true
+  try {
+    await settings.setAutoLoginLastServer(v)
+  } finally {
+    saving.value = false
+  }
+}
+
 const platform = ref('')
 const localShellOptions = ref<LocalShellOption[]>([])
 
@@ -1302,6 +1311,22 @@ watch(
               :model-value="settings.autoReconnect"
               :disabled="saving"
               @update:model-value="toggleAutoReconnect"
+            />
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="flex items-center justify-between gap-4 px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">启动时自动连接上次的服务器</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                开启后，重启应用（解锁完成）会自动重新打开上次关闭时仍在连接的服务器会话，并先弹确认框供你取消。
+              </p>
+            </div>
+            <ToggleSwitch
+              :model-value="settings.autoLoginLastServer"
+              :disabled="saving"
+              @update:model-value="toggleAutoLoginLastServer"
             />
           </div>
         </div>

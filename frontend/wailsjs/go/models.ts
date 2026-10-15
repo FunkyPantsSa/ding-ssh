@@ -357,6 +357,8 @@ export namespace models {
 	    autoReconnect: boolean;
 	    keepAliveEnabled: boolean;
 	    localShell: string;
+	    autoLoginLastServer: boolean;
+	    lastOpenServers: string[];
 	    tabBarPlacement: string;
 	    rightClickAction: string;
 	    navSectionOrder: string;
@@ -387,6 +389,8 @@ export namespace models {
 	        this.autoReconnect = source["autoReconnect"];
 	        this.keepAliveEnabled = source["keepAliveEnabled"];
 	        this.localShell = source["localShell"];
+	        this.autoLoginLastServer = source["autoLoginLastServer"];
+	        this.lastOpenServers = source["lastOpenServers"];
 	        this.tabBarPlacement = source["tabBarPlacement"];
 	        this.rightClickAction = source["rightClickAction"];
 	        this.navSectionOrder = source["navSectionOrder"];

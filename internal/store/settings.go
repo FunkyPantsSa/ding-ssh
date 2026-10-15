@@ -63,6 +63,8 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 			TabBarPlacement:      "side", // 会话标签页默认放在左侧导航
 			RightClickAction:     models.RightClickMenu,
 			NavSectionOrder:      models.DefaultNavSectionOrder,
+			// 自动恢复上次会话：默认关闭，无历史记录
+			AutoLoginLastServer: false,
 			// 日志：控制台 / 文件 / 调用日志默认全关，级别默认 info，无跟踪会话
 			LogLevel:   models.NormalizeLogLevel(""),
 			Debug:      models.DefaultDebugSettings(),
@@ -136,6 +138,8 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	// 级别与跟踪列表可能被写脏，统一归一化（非法级别回落 info）。
 	settings.LogLevel = models.NormalizeLogLevel(settings.LogLevel)
 	settings.LogTraceTabs = models.NormalizeLogTraceTabs(settings.LogTraceTabs)
+	// 上次打开的服务器列表：可能被写脏（空串 / 非字符串），统一归一化（去空白项，保持顺序）
+	settings.LastOpenServers = models.NormalizeLastOpenServers(settings.LastOpenServers)
 	return settings, nil
 }
 
@@ -150,6 +154,8 @@ func (s *JSONSettingsStore) Save(settings models.Settings) error {
 	// 归一化后再落盘：保证磁盘上的级别与跟踪列表永远是合法值
 	settings.LogLevel = models.NormalizeLogLevel(settings.LogLevel)
 	settings.LogTraceTabs = models.NormalizeLogTraceTabs(settings.LogTraceTabs)
+	// 上次打开的服务器列表：去空白项、保持顺序与重复项（重复 = 同一服务器开了多个标签）
+	settings.LastOpenServers = models.NormalizeLastOpenServers(settings.LastOpenServers)
 	// 调试模式（含能力位与 SFTP 写白名单）同样归一化：端口越界回落、白名单去空去重
 	settings.Debug = models.NormalizeDebugSettings(settings.Debug)
 	data, err := json.MarshalIndent(settings, "", "  ")

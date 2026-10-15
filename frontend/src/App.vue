@@ -32,6 +32,8 @@ const servers = useServersStore()
 // 左侧导航折叠状态：同时把导航宽度写到 <html>，供 Teleport 到 body 的浮层
 // （快速连接侧栏、遮罩等）正确定位。
 const NAV_COLLAPSED_KEY = 'ding-ssh:nav-collapsed'
+// 启动恢复确认框：本次应用启动已提示过（sessionStorage 随进程重启重置）。
+const RESTORE_PROMPT_SESSION_KEY = 'ding-ssh:restore-prompt-settled'
 
 function readNavCollapsed(): boolean {
   try {
@@ -363,6 +365,99 @@ function onGlobalKeydown(e: KeyboardEvent) {
   }
 }
 
+// ---- 启动时恢复「上次关闭时仍在打开的服务器」 ----
+// 工作区标签增删时（防抖）把当前打开的服务器 ID 写入设置；下次启动根据开关提示并恢复。
+// restoreSettled 在启动恢复决策落定前为 false：避免启动瞬间（尚未提示）把历史列表误清空。
+let restoreSettled = false
+let lastServersSyncTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 当前打开的 SSH 服务器标签对应的节点 ID（保持标签顺序，重复标签 = 重复 ID）。 */
+function currentOpenServerIds(): string[] {
+  const ids: string[] = []
+  for (const t of sessions.tabs) {
+    if (t.kind === 'ssh' && t.node?.id) ids.push(t.node.id)
+  }
+  return ids
+}
+
+function sameIds(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
+
+/** 标签增删 → 防抖写入「上次打开的服务器列表」。 */
+function scheduleSyncOpenServers() {
+  if (!settings.loaded || !restoreSettled) return
+  if (lastServersSyncTimer !== null) clearTimeout(lastServersSyncTimer)
+  lastServersSyncTimer = setTimeout(() => {
+    lastServersSyncTimer = null
+    void syncOpenServers()
+  }, 600)
+}
+
+async function syncOpenServers() {
+  const ids = currentOpenServerIds()
+  if (sameIds(ids, settings.lastOpenServers)) return
+  await settings.setLastOpenServers(ids)
+}
+
+watch(() => sessions.tabs, scheduleSyncOpenServers, {deep: true})
+
+const restorePromptVisible = ref(false)
+const restorePromptCount = ref(0)
+
+/**
+ * 启动（或解锁）完成后调用：开关开启且有可恢复的服务器时弹确认框。
+ * 已删除的服务器静默跳过；无任何可恢复项则不提示。
+ * sessionStorage 标记保证「每次应用启动只提示一次」：开发时 HMR / 页面刷新不重复弹。
+ */
+async function maybeRestoreLastServers() {
+  restoreSettled = true
+  if (lastServersSyncTimer !== null) {
+    clearTimeout(lastServersSyncTimer)
+    lastServersSyncTimer = null
+  }
+  if (!settings.loaded || !settings.autoLoginLastServer) return
+  try {
+    if (sessionStorage.getItem(RESTORE_PROMPT_SESSION_KEY) === '1') return
+  } catch {
+    /* 存储不可用时忽略：本次仍提示 */
+  }
+  const ids = settings.lastOpenServers
+  if (!ids.length) return
+  const recoverable = ids.filter((id) => servers.servers.some((s) => s.id === id))
+  if (!recoverable.length) return
+  restorePromptCount.value = recoverable.length
+  restorePromptVisible.value = true
+}
+
+/** 用户确认：按上次顺序逐个重新打开并连接（TerminalView 挂载即自动连接）。 */
+function confirmRestore() {
+  restorePromptVisible.value = false
+  markRestorePromptSettled()
+  ui.showWorkspace()
+  for (const id of settings.lastOpenServers) {
+    const node = servers.servers.find((s) => s.id === id)
+    if (node) sessions.openTab(node)
+  }
+}
+
+/** 用户取消：本次不恢复（历史列表保留，下次启动仍会提示）。 */
+function cancelRestore() {
+  restorePromptVisible.value = false
+  markRestorePromptSettled()
+}
+
+/** 标记本次启动已处理过恢复提示（下次应用进程启动时自动重置）。 */
+function markRestorePromptSettled() {
+  try {
+    sessionStorage.setItem(RESTORE_PROMPT_SESSION_KEY, '1')
+  } catch {
+    /* 存储不可用时忽略 */
+  }
+}
+
 onMounted(async () => {
   try {
     const st = await securityService.getStatus()
@@ -371,8 +466,9 @@ onMounted(async () => {
     needsUnlock.value = false
   }
   if (!needsUnlock.value) {
-    void settings.load()
-    void servers.load()
+    await settings.load()
+    await servers.load()
+    await maybeRestoreLastServers()
   }
   window.addEventListener('keydown', onGlobalKeydown)
   window.matchMedia?.('(prefers-color-scheme: light)').addEventListener?.('change', onSchemeChange)
@@ -387,6 +483,7 @@ async function doUnlock() {
     unlockPassword.value = ''
     await settings.load()
     await servers.load()
+    await maybeRestoreLastServers()
   } catch (e) {
     unlockError.value = String(e)
   } finally {
@@ -716,6 +813,27 @@ onBeforeUnmount(() => {
     </div>
 
     <QuickConnectPanel v-if="!needsUnlock" />
+
+    <!-- 启动恢复确认框 -->
+    <div v-if="restorePromptVisible" class="modal-root" @click.self="cancelRestore">
+      <div
+        class="modal"
+        style="width: min(460px, 100%); padding: 0; overflow: hidden"
+        role="dialog"
+        aria-label="恢复上次的会话"
+      >
+        <div class="px-5 pt-5 pb-2">
+          <h3 class="text-[16px] font-semibold text-[var(--mist-100)]">恢复上次的会话</h3>
+          <p class="text-[12.5px] text-mist mt-2 leading-relaxed">
+            检测到上次关闭应用时有 {{ restorePromptCount }} 台服务器仍在连接，是否自动重新连接？
+          </p>
+        </div>
+        <div class="flex items-center justify-end gap-2 px-5 py-4" style="box-shadow: inset 0 1px 0 var(--line)">
+          <button class="btn btn-ghost btn-sm" @click="cancelRestore">取消</button>
+          <button class="btn btn-primary btn-sm" @click="confirmRestore">自动连接</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 命令面板 -->
     <div v-if="ui.cmdOpen" class="modal-root" @click.self="closeCmd">

@@ -108,6 +108,11 @@ type Settings struct {
 	AutoReconnect        bool         `json:"autoReconnect"`        // 断开后自动重连（默认开启）
 	KeepAliveEnabled     bool         `json:"keepAliveEnabled"`     // 发送心跳包防止终端超时（默认开启）
 	LocalShell           string       `json:"localShell"`           // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
+	// AutoLoginLastServer 启动（解锁）后自动重新连接「上次关闭时仍在打开的服务器」（默认关闭）。
+	// LastOpenServers 记录上次关闭应用时仍在打开的服务器 ID 列表（按打开顺序，可重复），
+	// 由前端在标签页增删时写入，启动时据此提示并恢复会话。
+	AutoLoginLastServer bool     `json:"autoLoginLastServer"`
+	LastOpenServers     []string `json:"lastOpenServers"`
 	TabBarPlacement      string       `json:"tabBarPlacement"`      // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 top）
 	RightClickAction     string       `json:"rightClickAction"`     // 终端鼠标右键行为：menu 打开选项栏（默认）| paste 直接粘贴
 	NavSectionOrder      string       `json:"navSectionOrder"`      // 左侧导航区段顺序：nav / sessions / tabs 三键排列（默认 "nav,sessions,tabs"）
@@ -266,6 +271,27 @@ func NormalizeLogTraceTabs(tabs []string) []string {
 		}
 		seen[t] = true
 		out = append(out, t)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// NormalizeLastOpenServers 规范化「上次打开的服务器 ID 列表」：去掉空白项，保持原始顺序与重复项。
+// 重复项有意保留：同一台服务器可以同时开多个标签（如分屏），恢复时逐项重开才能还原标签数量。
+// 空列表返回 nil，让 JSON 序列化为 null 而不是 []（与「默认空」语义一致）。
+func NormalizeLastOpenServers(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		out = append(out, id)
 	}
 	if len(out) == 0 {
 		return nil

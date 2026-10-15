@@ -745,3 +745,95 @@ func TestDebugSettingsSudoCredentialNormalization(t *testing.T) {
 		t.Fatalf("capSudoCredential 往返后丢失：%+v", reloaded.Debug)
 	}
 }
+
+// 自动恢复上次会话：默认关闭、无历史列表；JSON 旧配置缺字段回落默认；显式保存后往返不丢；
+// 脏列表（空白项）归一化去除。
+func TestSettingsStoreAutoLoginLastServer(t *testing.T) {
+	// ---- JSON 存储 ----
+	path := filepath.Join(t.TempDir(), "settings.json")
+	legacy := `{"logEnabled":false,"uiScale":100,"autoReconnect":true}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("写入旧配置失败: %v", err)
+	}
+	s, err := NewJSONSettingsStore(path)
+	if err != nil {
+		t.Fatalf("创建设置存储失败: %v", err)
+	}
+	got, err := s.Get()
+	if err != nil {
+		t.Fatalf("读取设置失败: %v", err)
+	}
+	if got.AutoLoginLastServer {
+		t.Fatalf("旧配置缺字段 → 自动恢复默认必须关闭")
+	}
+	if got.LastOpenServers != nil {
+		t.Fatalf("旧配置缺字段 → 上次打开列表默认应为空，得到 %v", got.LastOpenServers)
+	}
+
+	got.AutoLoginLastServer = true
+	got.LastOpenServers = []string{"srv-a", "srv-b", "srv-a", "", "  "}
+	if err := s.Save(got); err != nil {
+		t.Fatalf("保存设置失败: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读取配置文件失败: %v", err)
+	}
+	if !strings.Contains(string(raw), `"autoLoginLastServer": true`) {
+		t.Fatalf("配置文件里应写入 autoLoginLastServer：%s", string(raw))
+	}
+	reloaded, err := s.Get()
+	if err != nil {
+		t.Fatalf("重新读取设置失败: %v", err)
+	}
+	if !reloaded.AutoLoginLastServer {
+		t.Fatalf("autoLoginLastServer 往返后丢失：%+v", reloaded)
+	}
+	// 空白项被归一化去掉，重复项（同一服务器开多个标签）保留
+	want := []string{"srv-a", "srv-b", "srv-a"}
+	if len(reloaded.LastOpenServers) != len(want) {
+		t.Fatalf("LastOpenServers 归一化后 = %v，期望 %v", reloaded.LastOpenServers, want)
+	}
+	for i, id := range want {
+		if reloaded.LastOpenServers[i] != id {
+			t.Fatalf("LastOpenServers[%d] = %q，期望 %q（完整 %v）", i, reloaded.LastOpenServers[i], id, reloaded.LastOpenServers)
+		}
+	}
+
+	// ---- SQLite 存储（主存储）：默认值 + 保存落库 + 往返 ----
+	db, err := OpenSQLite(filepath.Join(t.TempDir(), "ding-ssh.db"))
+	if err != nil {
+		t.Fatalf("打开数据库失败: %v", err)
+	}
+	defer db.Close()
+
+	qs := NewSQLiteSettingsStore(db)
+	settings, err := qs.Get()
+	if err != nil {
+		t.Fatalf("读取设置失败: %v", err)
+	}
+	if settings.AutoLoginLastServer {
+		t.Fatalf("SQLite 默认 autoLoginLastServer 必须关闭")
+	}
+	settings.AutoLoginLastServer = true
+	settings.LastOpenServers = []string{"srv-a", "", "srv-b", "srv-a"}
+	if err := qs.Save(settings); err != nil {
+		t.Fatalf("保存设置失败: %v", err)
+	}
+	round, err := qs.Get()
+	if err != nil {
+		t.Fatalf("重新读取设置失败: %v", err)
+	}
+	if !round.AutoLoginLastServer {
+		t.Fatalf("SQLite autoLoginLastServer 往返后丢失")
+	}
+	wantSQLite := []string{"srv-a", "srv-b", "srv-a"}
+	if len(round.LastOpenServers) != len(wantSQLite) {
+		t.Fatalf("SQLite LastOpenServers = %v，期望 %v", round.LastOpenServers, wantSQLite)
+	}
+	for i, id := range wantSQLite {
+		if round.LastOpenServers[i] != id {
+			t.Fatalf("SQLite LastOpenServers[%d] = %q，期望 %q", i, round.LastOpenServers[i], id)
+		}
+	}
+}

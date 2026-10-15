@@ -130,6 +130,10 @@ export interface Settings {
   autoReconnect: boolean // 断开后自动重连，默认开启
   keepAliveEnabled: boolean // 心跳包防终端超时，默认开启
   localShell: string // 本机终端：darwin zsh|bash；windows powershell|cmd；linux default
+  // 启动（解锁）后自动重新连接「上次关闭时仍在打开的服务器」（默认关闭）
+  autoLoginLastServer: boolean
+  // 上次关闭应用时仍在打开的服务器 ID 列表（按打开顺序，可重复 = 同一服务器开了多个标签）
+  lastOpenServers: string[]
   tabBarPlacement: TabBarPlacement // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 side）
   rightClickAction: RightClickAction // 终端鼠标右键行为：menu 打开选项栏（默认）| paste 直接粘贴
   navSectionOrder: NavSectionOrder // 左侧导航区段顺序：nav / sessions / tabs 的排列（默认 "nav,sessions,tabs"）

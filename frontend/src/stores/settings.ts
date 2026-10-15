@@ -69,6 +69,10 @@ export const useSettingsStore = defineStore('settings', {
     autoReconnect: true,
     keepAliveEnabled: true,
     localShell: '',
+    // 启动时自动重新连接「上次关闭时仍在打开的服务器」：默认关闭
+    autoLoginLastServer: false,
+    // 上次关闭应用时打开的服务器 ID 列表（由工作区在标签增删时写入）
+    lastOpenServers: [] as string[],
     tabBarPlacement: 'side' as TabBarPlacement,
     rightClickAction: 'menu' as RightClickAction,
     navSectionOrder: 'nav,sessions,tabs' as NavSectionOrder,
@@ -98,6 +102,8 @@ export const useSettingsStore = defineStore('settings', {
       this.autoReconnect = settings.autoReconnect ?? true
       this.keepAliveEnabled = settings.keepAliveEnabled ?? true
       this.localShell = settings.localShell ?? ''
+      this.autoLoginLastServer = settings.autoLoginLastServer ?? false
+      this.lastOpenServers = normalizeLastOpenServers(settings.lastOpenServers)
       // 缺省 / 非法值一律回落「左侧导航」（新默认）
       this.tabBarPlacement = settings.tabBarPlacement === 'top' ? 'top' : 'side'
       // 缺省 / 非法值一律回落「打开选项栏」
@@ -180,6 +186,15 @@ export const useSettingsStore = defineStore('settings', {
       this.localShell = v
       await this.save()
     },
+    async setAutoLoginLastServer(v: boolean) {
+      this.autoLoginLastServer = v
+      await this.save()
+    },
+    // 工作区标签增删时更新「上次打开的服务器」列表（去空白项，保留顺序与重复项）
+    async setLastOpenServers(ids: string[]) {
+      this.lastOpenServers = normalizeLastOpenServers(ids)
+      await this.save()
+    },
     async setTabBarPlacement(v: TabBarPlacement) {
       this.tabBarPlacement = v === 'top' ? 'top' : 'side'
       await this.save()
@@ -224,6 +239,8 @@ export const useSettingsStore = defineStore('settings', {
         autoReconnect: this.autoReconnect,
         keepAliveEnabled: this.keepAliveEnabled,
         localShell: this.localShell,
+        autoLoginLastServer: this.autoLoginLastServer,
+        lastOpenServers: normalizeLastOpenServers(this.lastOpenServers),
         tabBarPlacement: this.tabBarPlacement,
         rightClickAction: this.rightClickAction,
         navSectionOrder: this.navSectionOrder,
@@ -271,6 +288,19 @@ const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const
 
 function normalizeLogLevel(v: string | undefined): LogLevel {
   return (LOG_LEVELS as readonly string[]).includes(v ?? '') ? (v as LogLevel) : 'info'
+}
+
+// 上次打开的服务器列表：只保留非空字符串项，保持原始顺序与重复项
+//（重复 = 同一台服务器同时开了多个标签，恢复时逐项重开才能还原标签数量）。
+function normalizeLastOpenServers(v: unknown): string[] {
+  if (!Array.isArray(v)) return []
+  const out: string[] = []
+  for (const item of v) {
+    if (typeof item !== 'string') continue
+    const id = item.trim()
+    if (id) out.push(id)
+  }
+  return out
 }
 
 // 追踪列表：只保留字符串项（防止后端返回脏数据）。

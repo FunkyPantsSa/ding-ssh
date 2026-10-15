@@ -310,6 +310,17 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	if v, ok := values["keepAliveEnabled"]; ok {
 		st.KeepAliveEnabled = v == "true"
 	}
+	// 自动恢复上次会话：旧库没有该键 → 保持默认（关闭）
+	if v, ok := values["autoLoginLastServer"]; ok {
+		st.AutoLoginLastServer = v == "true"
+	}
+	// 上次打开的服务器 ID 列表落库为 JSON 数组字符串；解析失败按空处理（不阻断其余设置）
+	if v, ok := values["lastOpenServers"]; ok && v != "" {
+		var ids []string
+		if err := json.Unmarshal([]byte(v), &ids); err == nil {
+			st.LastOpenServers = ids
+		}
+	}
 	// 日志：旧库没有这些键 → 保持默认（控制台 / 文件 / 调用日志全关，级别 info）
 	if v, ok := values["logToFile"]; ok {
 		st.LogToFile = v == "true"
@@ -377,6 +388,8 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	// 日志：级别与跟踪列表统一归一化（非法级别回落 info，列表去空去重）
 	st.LogLevel = models.NormalizeLogLevel(st.LogLevel)
 	st.LogTraceTabs = models.NormalizeLogTraceTabs(st.LogTraceTabs)
+	// 上次打开的服务器列表：去空白项、保持顺序与重复项
+	st.LastOpenServers = models.NormalizeLastOpenServers(st.LastOpenServers)
 	return st, nil
 }
 
@@ -426,6 +439,11 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 	if err != nil {
 		return fmt.Errorf("序列化日志跟踪列表失败: %w", err)
 	}
+	// 上次打开的服务器 ID 列表：去空白项、保持顺序与重复项，落库为 JSON 数组字符串
+	openServersJSON, err := json.Marshal(models.NormalizeLastOpenServers(st.LastOpenServers))
+	if err != nil {
+		return fmt.Errorf("序列化上次打开的服务器列表失败: %w", err)
+	}
 	entries := []struct{ k, v string }{
 		{"logEnabled", boolStr(st.LogEnabled)},
 		{"logToFile", boolStr(st.LogToFile)},
@@ -445,6 +463,8 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"fonts", string(fonts)},
 		{"autoReconnect", boolStr(st.AutoReconnect)},
 		{"keepAliveEnabled", boolStr(st.KeepAliveEnabled)},
+		{"autoLoginLastServer", boolStr(st.AutoLoginLastServer)},
+		{"lastOpenServers", string(openServersJSON)},
 		{"localShell", st.LocalShell},
 		{"tabBarPlacement", st.TabBarPlacement},
 		{"rightClickAction", st.RightClickAction},
