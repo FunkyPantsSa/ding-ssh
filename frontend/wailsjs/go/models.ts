@@ -350,6 +350,7 @@ export namespace models {
 	    completionPanelLimit: number;
 	    sftpToTerminalSync: boolean;
 	    terminalToSftpSync: boolean;
+	    terminalColorMode: string;
 	    uiScale: number;
 	    theme: Theme;
 	    appearance: UIAppearance;
@@ -357,6 +358,8 @@ export namespace models {
 	    autoReconnect: boolean;
 	    keepAliveEnabled: boolean;
 	    localShell: string;
+	    autoLoginLastServer: boolean;
+	    lastOpenServers: string[];
 	    tabBarPlacement: string;
 	    rightClickAction: string;
 	    navSectionOrder: string;
@@ -380,6 +383,7 @@ export namespace models {
 	        this.completionPanelLimit = source["completionPanelLimit"];
 	        this.sftpToTerminalSync = source["sftpToTerminalSync"];
 	        this.terminalToSftpSync = source["terminalToSftpSync"];
+	        this.terminalColorMode = source["terminalColorMode"];
 	        this.uiScale = source["uiScale"];
 	        this.theme = this.convertValues(source["theme"], Theme);
 	        this.appearance = this.convertValues(source["appearance"], UIAppearance);
@@ -387,6 +391,8 @@ export namespace models {
 	        this.autoReconnect = source["autoReconnect"];
 	        this.keepAliveEnabled = source["keepAliveEnabled"];
 	        this.localShell = source["localShell"];
+	        this.autoLoginLastServer = source["autoLoginLastServer"];
+	        this.lastOpenServers = source["lastOpenServers"];
 	        this.tabBarPlacement = source["tabBarPlacement"];
 	        this.rightClickAction = source["rightClickAction"];
 	        this.navSectionOrder = source["navSectionOrder"];

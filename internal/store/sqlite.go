@@ -267,6 +267,8 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		TabBarPlacement:      "side", // 默认会话标签页放在左侧导航
 		RightClickAction:     models.RightClickMenu,
 		NavSectionOrder:      models.DefaultNavSectionOrder,
+		// 语义着色默认开启：旧库没有该键 → 语义着色
+		TerminalColorMode:    models.ColorModeAuto,
 		LogLevel:             models.NormalizeLogLevel(""), // 日志级别默认 info
 		// 调试模式默认值：能力位里只有「终端输入」默认开启（读类永远允许）
 		Debug: models.DefaultDebugSettings(),
@@ -310,6 +312,17 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	if v, ok := values["keepAliveEnabled"]; ok {
 		st.KeepAliveEnabled = v == "true"
 	}
+	// 自动恢复上次会话：旧库没有该键 → 保持默认（关闭）
+	if v, ok := values["autoLoginLastServer"]; ok {
+		st.AutoLoginLastServer = v == "true"
+	}
+	// 上次打开的服务器 ID 列表落库为 JSON 数组字符串；解析失败按空处理（不阻断其余设置）
+	if v, ok := values["lastOpenServers"]; ok && v != "" {
+		var ids []string
+		if err := json.Unmarshal([]byte(v), &ids); err == nil {
+			st.LastOpenServers = ids
+		}
+	}
 	// 日志：旧库没有这些键 → 保持默认（控制台 / 文件 / 调用日志全关，级别 info）
 	if v, ok := values["logToFile"]; ok {
 		st.LogToFile = v == "true"
@@ -341,6 +354,10 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	// 导航区段顺序：旧库没有该键 → 保持默认「导航 → 会话 → 标签页」；非法排列同样回落默认
 	if v, ok := values["navSectionOrder"]; ok {
 		st.NavSectionOrder = models.NormalizeNavSectionOrder(v)
+	}
+	// 语义着色档位：旧库没有该键 → 保持默认「语义着色」；非法值同样回落默认
+	if v, ok := values["terminalColorMode"]; ok {
+		st.TerminalColorMode = models.NormalizeTerminalColorMode(v)
 	}
 	if v, ok := values["theme"]; ok && v != "" {
 		_ = json.Unmarshal([]byte(v), &st.Theme)
@@ -377,6 +394,10 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	// 日志：级别与跟踪列表统一归一化（非法级别回落 info，列表去空去重）
 	st.LogLevel = models.NormalizeLogLevel(st.LogLevel)
 	st.LogTraceTabs = models.NormalizeLogTraceTabs(st.LogTraceTabs)
+	// 上次打开的服务器列表：去空白项、保持顺序与重复项
+	st.LastOpenServers = models.NormalizeLastOpenServers(st.LastOpenServers)
+	// 语义着色档位：无论来源（旧库缺键 / 非法值）统一归一化，空值回落「语义着色」
+	st.TerminalColorMode = models.NormalizeTerminalColorMode(st.TerminalColorMode)
 	return st, nil
 }
 
@@ -426,6 +447,11 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 	if err != nil {
 		return fmt.Errorf("序列化日志跟踪列表失败: %w", err)
 	}
+	// 上次打开的服务器 ID 列表：去空白项、保持顺序与重复项，落库为 JSON 数组字符串
+	openServersJSON, err := json.Marshal(models.NormalizeLastOpenServers(st.LastOpenServers))
+	if err != nil {
+		return fmt.Errorf("序列化上次打开的服务器列表失败: %w", err)
+	}
 	entries := []struct{ k, v string }{
 		{"logEnabled", boolStr(st.LogEnabled)},
 		{"logToFile", boolStr(st.LogToFile)},
@@ -445,10 +471,13 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"fonts", string(fonts)},
 		{"autoReconnect", boolStr(st.AutoReconnect)},
 		{"keepAliveEnabled", boolStr(st.KeepAliveEnabled)},
+		{"autoLoginLastServer", boolStr(st.AutoLoginLastServer)},
+		{"lastOpenServers", string(openServersJSON)},
 		{"localShell", st.LocalShell},
 		{"tabBarPlacement", st.TabBarPlacement},
 		{"rightClickAction", st.RightClickAction},
 		{"navSectionOrder", st.NavSectionOrder},
+		{"terminalColorMode", st.TerminalColorMode},
 		{"debug", string(debugJSON)},
 	}
 	for _, e := range entries {

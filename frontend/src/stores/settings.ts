@@ -2,7 +2,7 @@ import {defineStore} from 'pinia'
 import {DEFAULT_COMPLETION_NAV_HOTKEY} from '../completion/hotkey'
 import {settingsService} from '../services/settings'
 import {paletteToTheme, defaultPreset} from '../theme/presets'
-import type {DebugSettings, Fonts, LogLevel, NavSectionOrder, RightClickAction, TabBarPlacement, Theme, UIAppearance} from '../types'
+import type {DebugSettings, Fonts, LogLevel, NavSectionOrder, RightClickAction, TabBarPlacement, TerminalColorMode, Theme, UIAppearance} from '../types'
 
 // 默认终端主题（与 Go 端 models.DefaultTheme 保持一致，含 ANSI 16 色）。
 export function defaultTheme(): Theme {
@@ -69,9 +69,15 @@ export const useSettingsStore = defineStore('settings', {
     autoReconnect: true,
     keepAliveEnabled: true,
     localShell: '',
+    // 启动时自动重新连接「上次关闭时仍在打开的服务器」：默认关闭
+    autoLoginLastServer: false,
+    // 上次关闭应用时打开的服务器 ID 列表（由工作区在标签增删时写入）
+    lastOpenServers: [] as string[],
     tabBarPlacement: 'side' as TabBarPlacement,
     rightClickAction: 'menu' as RightClickAction,
     navSectionOrder: 'nav,sessions,tabs' as NavSectionOrder,
+    // 终端输出语义着色：默认「语义着色」（off 关 | auto 语义 | vivid 语义 + 强调）
+    terminalColorMode: 'auto' as TerminalColorMode,
     debug: defaultDebug() as DebugSettings,
     // 日志页签（对应 Go 端 models.Settings 的日志字段）
     logToFile: false,
@@ -98,12 +104,16 @@ export const useSettingsStore = defineStore('settings', {
       this.autoReconnect = settings.autoReconnect ?? true
       this.keepAliveEnabled = settings.keepAliveEnabled ?? true
       this.localShell = settings.localShell ?? ''
+      this.autoLoginLastServer = settings.autoLoginLastServer ?? false
+      this.lastOpenServers = normalizeLastOpenServers(settings.lastOpenServers)
       // 缺省 / 非法值一律回落「左侧导航」（新默认）
       this.tabBarPlacement = settings.tabBarPlacement === 'top' ? 'top' : 'side'
       // 缺省 / 非法值一律回落「打开选项栏」
       this.rightClickAction = settings.rightClickAction === 'paste' ? 'paste' : 'menu'
       // 缺省 / 非法排列一律回落「导航 → 会话 → 标签页」
       this.navSectionOrder = normalizeNavSectionOrder(settings.navSectionOrder)
+      // 语义着色：缺值 / 非法值一律回落「语义着色」
+      this.terminalColorMode = normalizeTerminalColorMode(settings.terminalColorMode)
       // 调试模式：缺省字段用默认值补齐（端口越界回落默认）
       this.debug = normalizeDebug({...defaultDebug(), ...(settings.debug ?? {})})
       // 日志：级别非法回落 info，追踪列表过滤掉非字符串项
@@ -180,6 +190,15 @@ export const useSettingsStore = defineStore('settings', {
       this.localShell = v
       await this.save()
     },
+    async setAutoLoginLastServer(v: boolean) {
+      this.autoLoginLastServer = v
+      await this.save()
+    },
+    // 工作区标签增删时更新「上次打开的服务器」列表（去空白项，保留顺序与重复项）
+    async setLastOpenServers(ids: string[]) {
+      this.lastOpenServers = normalizeLastOpenServers(ids)
+      await this.save()
+    },
     async setTabBarPlacement(v: TabBarPlacement) {
       this.tabBarPlacement = v === 'top' ? 'top' : 'side'
       await this.save()
@@ -190,6 +209,11 @@ export const useSettingsStore = defineStore('settings', {
     },
     async setNavSectionOrder(v: NavSectionOrder) {
       this.navSectionOrder = normalizeNavSectionOrder(v)
+      await this.save()
+    },
+    // 终端输出语义着色档位：局部更新立即持久化（非法值回落 auto）
+    async setTerminalColorMode(v: TerminalColorMode) {
+      this.terminalColorMode = normalizeTerminalColorMode(v)
       await this.save()
     },
     // 调试模式：局部更新后立即持久化（设置页每次改一个开关就调一次）
@@ -224,9 +248,12 @@ export const useSettingsStore = defineStore('settings', {
         autoReconnect: this.autoReconnect,
         keepAliveEnabled: this.keepAliveEnabled,
         localShell: this.localShell,
+        autoLoginLastServer: this.autoLoginLastServer,
+        lastOpenServers: normalizeLastOpenServers(this.lastOpenServers),
         tabBarPlacement: this.tabBarPlacement,
         rightClickAction: this.rightClickAction,
         navSectionOrder: this.navSectionOrder,
+        terminalColorMode: normalizeTerminalColorMode(this.terminalColorMode),
         debug: this.debug,
         logToFile: this.logToFile,
         logLevel: normalizeLogLevel(this.logLevel),
@@ -273,6 +300,19 @@ function normalizeLogLevel(v: string | undefined): LogLevel {
   return (LOG_LEVELS as readonly string[]).includes(v ?? '') ? (v as LogLevel) : 'info'
 }
 
+// 上次打开的服务器列表：只保留非空字符串项，保持原始顺序与重复项
+//（重复 = 同一台服务器同时开了多个标签，恢复时逐项重开才能还原标签数量）。
+function normalizeLastOpenServers(v: unknown): string[] {
+  if (!Array.isArray(v)) return []
+  const out: string[] = []
+  for (const item of v) {
+    if (typeof item !== 'string') continue
+    const id = item.trim()
+    if (id) out.push(id)
+  }
+  return out
+}
+
 // 追踪列表：只保留字符串项（防止后端返回脏数据）。
 function normalizeLogTraceTabs(v: unknown): string[] {
   if (!Array.isArray(v)) return []
@@ -292,6 +332,15 @@ function normalizeNavSectionOrder(v: string | undefined): NavSectionOrder {
     return parts.join(',') as NavSectionOrder
   }
   return 'nav,sessions,tabs'
+}
+
+// 语义着色档位白名单：非法值一律回落 auto（与 Go 端 NormalizeTerminalColorMode 一致）。
+const TERMINAL_COLOR_MODES = ['off', 'auto', 'vivid'] as const
+
+function normalizeTerminalColorMode(v: string | undefined): TerminalColorMode {
+  return (TERMINAL_COLOR_MODES as readonly string[]).includes(v ?? '')
+    ? (v as TerminalColorMode)
+    : 'auto'
 }
 
 function clampPanelLimit(v: number | undefined): number {

@@ -106,7 +106,8 @@ onBeforeUnmount(() => window.clearTimeout(copiedTimer))
       </button>
     </div>
 
-    <div class="flex items-center gap-1.5 p-3 inset-line-b">
+    <!-- 面板宽度可拖动（最窄 260px）：窄的时候让按钮换行而不是溢出到终端上 -->
+    <div class="flex flex-wrap items-center gap-1.5 p-3 inset-line-b">
       <span class="text-[12.5px] font-medium text-[var(--mist-100)]">传输记录</span>
       <span class="text-[11.5px] text-mist">
         {{ transfers.records.length ? `共 ${transfers.records.length} 条` : '暂无' }}

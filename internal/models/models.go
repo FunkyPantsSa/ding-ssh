@@ -101,6 +101,7 @@ type Settings struct {
 	CompletionPanelLimit int          `json:"completionPanelLimit"` // 补全面板最多展示条数，默认 8
 	SftpToTerminalSync   bool         `json:"sftpToTerminalSync"`   // SFTP 目录变化是否同步到终端（发 cd 命令），默认开启
 	TerminalToSftpSync   bool         `json:"terminalToSftpSync"`   // 终端目录变化是否同步到 SFTP 面板，默认开启
+	TerminalColorMode    string       `json:"terminalColorMode"`    // 终端输出语义着色：off 关 | auto 语义（默认）| vivid 语义 + 数值/路径/键名强调
 	UIScale              int          `json:"uiScale"`              // 界面缩放百分比，默认 100（80–150）
 	Theme                Theme        `json:"theme"`                // 终端主题（含 ANSI 16 色）
 	Appearance           UIAppearance `json:"appearance"`           // UI 外观（品牌色 + 明暗模式）
@@ -108,6 +109,11 @@ type Settings struct {
 	AutoReconnect        bool         `json:"autoReconnect"`        // 断开后自动重连（默认开启）
 	KeepAliveEnabled     bool         `json:"keepAliveEnabled"`     // 发送心跳包防止终端超时（默认开启）
 	LocalShell           string       `json:"localShell"`           // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
+	// AutoLoginLastServer 启动（解锁）后自动重新连接「上次关闭时仍在打开的服务器」（默认关闭）。
+	// LastOpenServers 记录上次关闭应用时仍在打开的服务器 ID 列表（按打开顺序，可重复），
+	// 由前端在标签页增删时写入，启动时据此提示并恢复会话。
+	AutoLoginLastServer bool     `json:"autoLoginLastServer"`
+	LastOpenServers     []string `json:"lastOpenServers"`
 	TabBarPlacement      string       `json:"tabBarPlacement"`      // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 top）
 	RightClickAction     string       `json:"rightClickAction"`     // 终端鼠标右键行为：menu 打开选项栏（默认）| paste 直接粘贴
 	NavSectionOrder      string       `json:"navSectionOrder"`      // 左侧导航区段顺序：nav / sessions / tabs 三键排列（默认 "nav,sessions,tabs"）
@@ -273,6 +279,27 @@ func NormalizeLogTraceTabs(tabs []string) []string {
 	return out
 }
 
+// NormalizeLastOpenServers 规范化「上次打开的服务器 ID 列表」：去掉空白项，保持原始顺序与重复项。
+// 重复项有意保留：同一台服务器可以同时开多个标签（如分屏），恢复时逐项重开才能还原标签数量。
+// 空列表返回 nil，让 JSON 序列化为 null 而不是 []（与「默认空」语义一致）。
+func NormalizeLastOpenServers(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		out = append(out, id)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // 左侧导航区段标识（对应 Settings.NavSectionOrder 的排列元素）。
 const (
 	NavSectionNav      = "nav"      // 导航：工作区 / 服务器 / 隧道 / 设置
@@ -320,6 +347,25 @@ func NormalizeRightClickAction(v string) string {
 		return RightClickPaste
 	}
 	return RightClickMenu
+}
+
+// 终端输出语义着色档位（对应 Settings.TerminalColorMode）。
+// 语义着色只在客户端注入颜色，远端自带 ANSI 颜色（ls --color 等）始终原样显示。
+const (
+	ColorModeOff   = "off"   // 不注入任何颜色
+	ColorModeAuto  = "auto"  // 语义着色：错误红 / 警告黄 / 成功绿 / 信息青
+	ColorModeVivid = "vivid" // auto + 数值、百分比、路径、键名强调
+)
+
+// NormalizeTerminalColorMode 校验语义着色档位，未知 / 空值一律回落「语义着色」。
+func NormalizeTerminalColorMode(v string) string {
+	if v == ColorModeOff {
+		return ColorModeOff
+	}
+	if v == ColorModeVivid {
+		return ColorModeVivid
+	}
+	return ColorModeAuto
 }
 
 // CommandHistory 命令历史记录（SQLite command_history 表）。
