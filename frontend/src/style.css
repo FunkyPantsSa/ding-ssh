@@ -170,7 +170,7 @@
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --dur: 160ms;
   --dur-slow: 240ms;
-  /* 布局 */
+  /* 布局（可拖动，运行时由 App.vue 写入 <html>；这两个值是首帧默认） */
   --nav-w-expanded: 216px;
   --nav-w-collapsed: 56px;
   --nav-w: var(--nav-w-expanded);
@@ -245,8 +245,15 @@ img, svg { display: block; max-width: 100%; }
   display: grid;
   grid-template-columns: var(--nav-w) minmax(0, 1fr);
   transition: grid-template-columns var(--dur-slow) var(--ease);
+  /* 宽度分隔条（WidthResizer）按 var(--nav-w) 绝对定位，需要本层做定位祖先 */
+  position: relative;
 }
 .shell.nav-collapsed { grid-template-columns: var(--nav-w-collapsed) minmax(0, 1fr); }
+/* 拖动分隔条时关掉折叠动画：否则网格列宽会带缓动，跟手延迟明显 */
+.shell.resizing { transition: none; }
+/* 拖动侧栏宽度期间全局保持列宽光标：终端（xterm）等元素自带 cursor，会把分隔条的手型盖掉 */
+body.col-resizing,
+body.col-resizing * { cursor: col-resize !important; }
 .shell-main {
   min-width: 0;
   min-height: 0;
@@ -992,6 +999,9 @@ img, svg { display: block; max-width: 100%; }
   background: var(--ink-900);
   box-shadow: inset 1px 0 0 var(--line);
   flex-shrink: 0;
+  /* 宽度可拖动（最窄 260px）：兜底裁剪，避免内部不换行的工具条把内容溢出到终端上。
+     面板内的右键菜单是 Teleport 到 body 的，不受这里裁剪影响。 */
+  overflow: hidden;
 }
 .tool-head {
   height: 40px;

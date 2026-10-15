@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect} from 'vue'
 import Icon from './components/Icon.vue'
 import ServerList from './components/ServerList.vue'
 import SettingsPage from './components/SettingsPage.vue'
@@ -10,6 +10,7 @@ import ServerStatusBar from './components/ServerStatusBar.vue'
 import TabBar from './components/TabBar.vue'
 import TerminalView from './components/TerminalView.vue'
 import SplitView from './components/SplitView.vue'
+import WidthResizer from './components/WidthResizer.vue'
 import {layoutPanes} from './panes/layout'
 import type {NavSectionKey, PaneDirection, SplitDirection, Theme} from './types'
 import TunnelPage from './components/TunnelPage.vue'
@@ -44,21 +45,14 @@ function readNavCollapsed(): boolean {
 }
 
 const navCollapsed = ref(readNavCollapsed())
-watch(
-  navCollapsed,
-  (v) => {
-    try {
-      localStorage.setItem(NAV_COLLAPSED_KEY, v ? '1' : '0')
-    } catch {
-      // 存储不可用时忽略：折叠状态仅影响本次会话
-    }
-    document.documentElement.style.setProperty(
-      '--nav-w',
-      v ? 'var(--nav-w-collapsed)' : 'var(--nav-w-expanded)',
-    )
-  },
-  {immediate: true},
-)
+// 折叠状态落盘；导航宽度本身由下面的宽度逻辑驱动（--nav-w 见 watchEffect）
+watch(navCollapsed, (v) => {
+  try {
+    localStorage.setItem(NAV_COLLAPSED_KEY, v ? '1' : '0')
+  } catch {
+    // 存储不可用时忽略：折叠状态仅影响本次会话
+  }
+})
 
 // 系统明暗监听：auto 模式下跟随 prefers-color-scheme
 const systemTone = ref<Tone>(resolveTone('auto'))
@@ -153,6 +147,120 @@ const activeConnected = computed(() => {
   return tab
 })
 
+// ---- 侧栏宽度：左侧导航与右侧工具面板都可拖动，宽度记在 localStorage ----
+// 宽度值一律是「布局（未缩放）像素」，与 CSS 变量、clientWidth 同一坐标系；
+// 界面缩放走 .app-shell 的 zoom，鼠标增量需用 unzoom 折算（见 components/WidthResizer.vue）。
+const NAV_WIDTH_KEY = 'ding-ssh:nav-width'
+const TOOL_WIDTH_KEY = 'ding-ssh:tool-width'
+const NAV_W_DEFAULT = 216
+const NAV_W_MIN = 176
+const NAV_W_MAX = 420
+const TOOL_W_DEFAULT = 340
+const TOOL_W_MIN = 260
+const TOOL_W_MAX = 760
+// 终端区最小可用宽度：拖动时按窗口可用空间收紧，保证终端不被挤没
+const TERM_MIN_W = 420
+
+function readStoredWidth(key: string, fallback: number, min: number, max: number): number {
+  try {
+    const raw = Number(localStorage.getItem(key))
+    if (Number.isFinite(raw) && raw > 0) return clampWidth(raw, min, max)
+  } catch {
+    // 存储不可用时回落默认宽度
+  }
+  return fallback
+}
+
+function clampWidth(v: number, min: number, max: number): number {
+  const lo = Math.min(min, max)
+  const hi = Math.max(min, max)
+  return Math.round(Math.min(Math.max(v, lo), hi))
+}
+
+const navWidth = ref(readStoredWidth(NAV_WIDTH_KEY, NAV_W_DEFAULT, NAV_W_MIN, NAV_W_MAX))
+const toolWidth = ref(readStoredWidth(TOOL_WIDTH_KEY, TOOL_W_DEFAULT, TOOL_W_MIN, TOOL_W_MAX))
+const resizing = ref(false)
+const shellEl = ref<HTMLElement | null>(null)
+const toolRowEl = ref<HTMLElement | null>(null)
+// 窗口尺寸：与界面缩放、导航宽度一起构成下面的 layoutKey（clientWidth 本身不是响应式的）
+const viewportW = ref(window.innerWidth)
+
+// clientWidth 不是响应式的：把「会影响它的量」（窗口尺寸、界面缩放、导航宽度与折叠态）
+// 聚成一个依赖键，上限计算时读一下它，就能在布局变化后重新按可用空间收紧。
+// 只放原始输入（不放 effectiveXxx），否则会形成 toolMaxW ↔ effectiveNavW 的循环依赖。
+const layoutKey = computed(
+  () => `${viewportW.value}:${settings.uiScale}:${navWidth.value}:${navCollapsed.value}`,
+)
+
+// 右侧三个面板（SFTP / 看板 / 传输记录）共用一个显隐条件与宽度
+const toolVisible = computed(() => !!activeConnected.value && sessions.sftpVisible)
+
+const toolMaxW = computed(() => {
+  void layoutKey.value // 依赖登记
+  // 未挂载 / 工作区被 v-show 隐藏时 clientWidth 为 0：不收紧，直接用用户宽度
+  const avail = toolRowEl.value?.clientWidth ?? 0
+  if (!avail) return TOOL_W_MAX
+  return Math.max(TOOL_W_MIN, Math.min(TOOL_W_MAX, avail - TERM_MIN_W))
+})
+const effectiveToolW = computed(() => clampWidth(toolWidth.value, TOOL_W_MIN, toolMaxW.value))
+
+const navMaxW = computed(() => {
+  void layoutKey.value // 依赖登记
+  const avail = shellEl.value?.clientWidth ?? 0
+  if (!avail) return NAV_W_MAX
+  // 右侧工具面板同样占宽，一并扣掉；窗口实在不够时至少让导航落在下限
+  const reserved = toolVisible.value ? effectiveToolW.value : 0
+  return Math.max(NAV_W_MIN, Math.min(NAV_W_MAX, avail - reserved - TERM_MIN_W))
+})
+const effectiveNavW = computed(() => clampWidth(navWidth.value, NAV_W_MIN, navMaxW.value))
+
+// 拖动结束（而不是每帧）才写 localStorage，避免拖动过程中高频写盘
+function persistWidth(key: string, w: number): void {
+  try {
+    localStorage.setItem(key, String(w))
+  } catch {
+    // 存储不可用：本次会话内仍然生效
+  }
+}
+
+function onNavResize(w: number) {
+  navWidth.value = w
+}
+function onToolResize(w: number) {
+  toolWidth.value = w
+}
+function onNavDrag(active: boolean) {
+  resizing.value = active
+  if (!active) persistWidth(NAV_WIDTH_KEY, navWidth.value)
+}
+function onToolDrag(active: boolean) {
+  resizing.value = active
+  if (!active) persistWidth(TOOL_WIDTH_KEY, toolWidth.value)
+}
+function resetNavWidth() {
+  navWidth.value = NAV_W_DEFAULT
+  persistWidth(NAV_WIDTH_KEY, NAV_W_DEFAULT)
+}
+function resetToolWidth() {
+  toolWidth.value = TOOL_W_DEFAULT
+  persistWidth(TOOL_WIDTH_KEY, TOOL_W_DEFAULT)
+}
+function onWindowResize() {
+  viewportW.value = window.innerWidth
+}
+
+// 宽度 → CSS 变量。写在 <html> 上：--nav-w 供 .shell 网格使用，同时被 Teleport 到 body 的
+// 浮层（快速连接侧栏 / 遮罩）复用；--tool-w 供三个右侧面板共用的 .tool 使用。
+watchEffect(() => {
+  document.documentElement.style.setProperty(
+    '--nav-w',
+    navCollapsed.value ? 'var(--nav-w-collapsed)' : `${effectiveNavW.value}px`,
+  )
+})
+watchEffect(() => {
+  document.documentElement.style.setProperty('--tool-w', `${effectiveToolW.value}px`)
+})
+
 // ---- 分屏：槽位显隐与定位 ----
 // 所有标签的 TerminalView 常驻（不随分屏卸载/重挂，避免重连/断会话）。
 // 未分屏：仅 activeId 可见（现状 v-show 逻辑）。
@@ -187,11 +295,14 @@ onMounted(() => {
     paneRO = new ResizeObserver(measurePanes)
     paneRO.observe(terminalArea.value)
   }
+  // 窗口变窄时按可用空间重新收紧侧栏宽度（存的值保留，窗口变大后自动还原）
+  window.addEventListener('resize', onWindowResize)
 })
 
 onBeforeUnmount(() => {
   paneRO?.disconnect()
   paneRO = null
+  window.removeEventListener('resize', onWindowResize)
 })
 
 /** 分屏布局（叶子 rect + 分隔条），由 App 统一计算供槽位与 SplitView 共用。 */
@@ -567,7 +678,12 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 主壳 -->
-    <div v-else class="shell" :class="navCollapsed ? 'nav-collapsed' : ''">
+    <div
+      v-else
+      ref="shellEl"
+      class="shell"
+      :class="[navCollapsed ? 'nav-collapsed' : '', resizing ? 'resizing' : '']"
+    >
       <aside class="nav" aria-label="主导航">
         <div class="nav-brand">
           <button
@@ -678,6 +794,20 @@ onBeforeUnmount(() => {
         </div>
       </aside>
 
+      <!-- 导航宽度分隔条：拖动改宽度，双击复位；折叠态与快速连接面板打开时不显示 -->
+      <WidthResizer
+        v-if="!navCollapsed && !ui.terminalSidebarOpen"
+        side="left"
+        :inset="`calc(${effectiveNavW}px - 4px)`"
+        :width="effectiveNavW"
+        :min="NAV_W_MIN"
+        :max="navMaxW"
+        label="导航栏"
+        @resize="onNavResize"
+        @drag="onNavDrag"
+        @reset="resetNavWidth"
+      />
+
       <div class="shell-main">
         <header class="topbar">
           <button
@@ -737,7 +867,7 @@ onBeforeUnmount(() => {
             <div v-show="ui.view === 'workspace'" class="flex-1 min-h-0 flex flex-col">
               <TabBar v-if="sessions.tabs.length && !sideTabs" />
 
-              <div class="flex-1 min-h-0 flex">
+              <div ref="toolRowEl" class="flex-1 min-h-0 flex relative">
                 <div
                   ref="terminalArea"
                   class="flex-1 min-w-0 relative terminal-bg terminal-drop"
@@ -802,6 +932,20 @@ onBeforeUnmount(() => {
                 <TransferHistoryPanel
                   v-if="activeConnected && sessions.sftpVisible"
                   v-show="sessions.rightPanel === 'transfers'"
+                />
+
+                <!-- 右侧面板宽度分隔条：SFTP / 看板 / 传输记录 共用一个宽度 -->
+                <WidthResizer
+                  v-if="toolVisible && !ui.terminalSidebarOpen"
+                  side="right"
+                  :inset="`calc(${effectiveToolW}px - 4px)`"
+                  :width="effectiveToolW"
+                  :min="TOOL_W_MIN"
+                  :max="toolMaxW"
+                  label="右侧面板"
+                  @resize="onToolResize"
+                  @drag="onToolDrag"
+                  @reset="resetToolWidth"
                 />
               </div>
             </div>

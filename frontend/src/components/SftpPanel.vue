@@ -588,7 +588,8 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div class="flex items-center gap-1.5 p-3 inset-line-b">
+    <!-- 工具条：面板宽度可拖动（最窄 260px），窄的时候让按钮换行而不是溢出到终端上 -->
+    <div class="flex flex-wrap items-center gap-1.5 p-3 inset-line-b">
       <button class="btn-icon btn-sm" title="上级" @click="up">
         <Icon name="up" :size="14" />
       </button>
