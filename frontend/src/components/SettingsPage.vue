@@ -18,7 +18,7 @@ import {defaultPreset, paletteToTheme, presetById, PRESETS} from '../theme/prese
 import {resolveTone} from '../theme/engine'
 import {APP_COMMIT, APP_VERSION, buildDateLabel, buildTimeLabel, detectPlatform, platformLabel} from '../version'
 import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
-import type {AuditRecordView, CapabilitiesView, Credential, DebugSettings, Fonts, LocalShellOption, LogLevel, NavSectionOrder, RightClickAction, SecurityStatus, TabBarPlacement, Theme, UIAppearance} from '../types'
+import type {AuditRecordView, CapabilitiesView, Credential, DebugSettings, Fonts, LocalShellOption, LogLevel, NavSectionOrder, RightClickAction, SecurityStatus, TabBarPlacement, TerminalColorMode, Theme, UIAppearance} from '../types'
 import CredentialDialog from './CredentialDialog.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
@@ -68,6 +68,12 @@ const TAB_PLACEMENT_OPTIONS = [
 const RIGHT_CLICK_OPTIONS = [
   {key: 'menu', label: '打开选项栏'},
   {key: 'paste', label: '直接粘贴'},
+] as const
+// 终端输出语义着色：关 / 语义着色 / 语义着色 + 数值路径强调
+const TERMINAL_COLOR_OPTIONS = [
+  {key: 'off', label: '关'},
+  {key: 'auto', label: '语义'},
+  {key: 'vivid', label: '强调'},
 ] as const
 // 左侧导航区段顺序：导航 / 会话 / 标签页 三块的六种排列
 const NAV_SECTION_ORDER_OPTIONS = [
@@ -381,6 +387,16 @@ async function setNavSectionOrder(v: NavSectionOrder) {
   saving.value = true
   try {
     await settings.setNavSectionOrder(v)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function setTerminalColorMode(v: TerminalColorMode) {
+  if (settings.terminalColorMode === v) return
+  saving.value = true
+  try {
+    await settings.setTerminalColorMode(v)
   } finally {
     saving.value = false
   }
@@ -1058,7 +1074,7 @@ watch(
       <div v-if="section === 'general'" class="max-w-2xl space-y-6 fade-rise">
         <div>
           <h3 class="text-[18px] font-semibold text-white tracking-tight">通用</h3>
-          <p class="text-[13px] text-mist mt-1.5 leading-relaxed">控制选中复制、鼠标右键行为、导航区段顺序、补全热键与命令历史。</p>
+          <p class="text-[13px] text-mist mt-1.5 leading-relaxed">控制选中复制、鼠标右键行为、终端输出语义着色、导航区段顺序、补全热键与命令历史。</p>
         </div>
 
         <div class="neo">
@@ -1089,6 +1105,31 @@ watch(
                 :aria-pressed="settings.rightClickAction === opt.key"
                 :disabled="saving"
                 @click="setRightClickAction(opt.key)"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="neo">
+          <div class="flex items-center justify-between gap-4 px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-200">终端输出语义着色</p>
+              <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                按输出含义着色：错误红、警告黄、成功绿、信息青。「强调」额外高亮数值、路径与键名。
+                只补充颜色，远端自带颜色（如 ls --color）与 vim / top 等全屏程序的画面始终原样显示。
+              </p>
+            </div>
+            <div class="seg shrink-0">
+              <button
+                v-for="opt in TERMINAL_COLOR_OPTIONS"
+                :key="opt.key"
+                type="button"
+                :class="settings.terminalColorMode === opt.key ? 'active' : ''"
+                :aria-pressed="settings.terminalColorMode === opt.key"
+                :disabled="saving"
+                @click="setTerminalColorMode(opt.key)"
               >
                 {{ opt.label }}
               </button>

@@ -101,6 +101,7 @@ type Settings struct {
 	CompletionPanelLimit int          `json:"completionPanelLimit"` // 补全面板最多展示条数，默认 8
 	SftpToTerminalSync   bool         `json:"sftpToTerminalSync"`   // SFTP 目录变化是否同步到终端（发 cd 命令），默认开启
 	TerminalToSftpSync   bool         `json:"terminalToSftpSync"`   // 终端目录变化是否同步到 SFTP 面板，默认开启
+	TerminalColorMode    string       `json:"terminalColorMode"`    // 终端输出语义着色：off 关 | auto 语义（默认）| vivid 语义 + 数值/路径/键名强调
 	UIScale              int          `json:"uiScale"`              // 界面缩放百分比，默认 100（80–150）
 	Theme                Theme        `json:"theme"`                // 终端主题（含 ANSI 16 色）
 	Appearance           UIAppearance `json:"appearance"`           // UI 外观（品牌色 + 明暗模式）
@@ -346,6 +347,25 @@ func NormalizeRightClickAction(v string) string {
 		return RightClickPaste
 	}
 	return RightClickMenu
+}
+
+// 终端输出语义着色档位（对应 Settings.TerminalColorMode）。
+// 语义着色只在客户端注入颜色，远端自带 ANSI 颜色（ls --color 等）始终原样显示。
+const (
+	ColorModeOff   = "off"   // 不注入任何颜色
+	ColorModeAuto  = "auto"  // 语义着色：错误红 / 警告黄 / 成功绿 / 信息青
+	ColorModeVivid = "vivid" // auto + 数值、百分比、路径、键名强调
+)
+
+// NormalizeTerminalColorMode 校验语义着色档位，未知 / 空值一律回落「语义着色」。
+func NormalizeTerminalColorMode(v string) string {
+	if v == ColorModeOff {
+		return ColorModeOff
+	}
+	if v == ColorModeVivid {
+		return ColorModeVivid
+	}
+	return ColorModeAuto
 }
 
 // CommandHistory 命令历史记录（SQLite command_history 表）。

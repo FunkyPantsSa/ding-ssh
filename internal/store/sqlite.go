@@ -267,6 +267,8 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		TabBarPlacement:      "side", // 默认会话标签页放在左侧导航
 		RightClickAction:     models.RightClickMenu,
 		NavSectionOrder:      models.DefaultNavSectionOrder,
+		// 语义着色默认开启：旧库没有该键 → 语义着色
+		TerminalColorMode:    models.ColorModeAuto,
 		LogLevel:             models.NormalizeLogLevel(""), // 日志级别默认 info
 		// 调试模式默认值：能力位里只有「终端输入」默认开启（读类永远允许）
 		Debug: models.DefaultDebugSettings(),
@@ -353,6 +355,10 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	if v, ok := values["navSectionOrder"]; ok {
 		st.NavSectionOrder = models.NormalizeNavSectionOrder(v)
 	}
+	// 语义着色档位：旧库没有该键 → 保持默认「语义着色」；非法值同样回落默认
+	if v, ok := values["terminalColorMode"]; ok {
+		st.TerminalColorMode = models.NormalizeTerminalColorMode(v)
+	}
 	if v, ok := values["theme"]; ok && v != "" {
 		_ = json.Unmarshal([]byte(v), &st.Theme)
 	}
@@ -390,6 +396,8 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	st.LogTraceTabs = models.NormalizeLogTraceTabs(st.LogTraceTabs)
 	// 上次打开的服务器列表：去空白项、保持顺序与重复项
 	st.LastOpenServers = models.NormalizeLastOpenServers(st.LastOpenServers)
+	// 语义着色档位：无论来源（旧库缺键 / 非法值）统一归一化，空值回落「语义着色」
+	st.TerminalColorMode = models.NormalizeTerminalColorMode(st.TerminalColorMode)
 	return st, nil
 }
 
@@ -469,6 +477,7 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"tabBarPlacement", st.TabBarPlacement},
 		{"rightClickAction", st.RightClickAction},
 		{"navSectionOrder", st.NavSectionOrder},
+		{"terminalColorMode", st.TerminalColorMode},
 		{"debug", string(debugJSON)},
 	}
 	for _, e := range entries {

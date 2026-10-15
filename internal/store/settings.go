@@ -63,6 +63,8 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 			TabBarPlacement:      "side", // 会话标签页默认放在左侧导航
 			RightClickAction:     models.RightClickMenu,
 			NavSectionOrder:      models.DefaultNavSectionOrder,
+			// 语义着色：默认「语义着色」，用户显式选「关」时才落 off
+			TerminalColorMode:    models.ColorModeAuto,
 			// 自动恢复上次会话：默认关闭，无历史记录
 			AutoLoginLastServer: false,
 			// 日志：控制台 / 文件 / 调用日志默认全关，级别默认 info，无跟踪会话
@@ -122,6 +124,8 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	settings.RightClickAction = models.NormalizeRightClickAction(settings.RightClickAction)
 	// 导航区段顺序：旧配置没有该字段 → 默认「导航 → 会话 → 标签页」；非法排列同样回落默认
 	settings.NavSectionOrder = models.NormalizeNavSectionOrder(settings.NavSectionOrder)
+	// 语义着色档位：旧配置没有该字段（空值）→ 默认「语义着色」；非法值同样回落默认
+	settings.TerminalColorMode = models.NormalizeTerminalColorMode(settings.TerminalColorMode)
 	// 调试模式：端口越界 / 旧配置缺字段时回落默认
 	settings.Debug = models.NormalizeDebugSettings(settings.Debug)
 	// 旧配置文件缺少外观 / 字体 / ANSI 色字段：补默认值
@@ -158,6 +162,8 @@ func (s *JSONSettingsStore) Save(settings models.Settings) error {
 	settings.LastOpenServers = models.NormalizeLastOpenServers(settings.LastOpenServers)
 	// 调试模式（含能力位与 SFTP 写白名单）同样归一化：端口越界回落、白名单去空去重
 	settings.Debug = models.NormalizeDebugSettings(settings.Debug)
+	// 语义着色档位：落盘永远写合法值（空 / 非法值回落 auto）
+	settings.TerminalColorMode = models.NormalizeTerminalColorMode(settings.TerminalColorMode)
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err

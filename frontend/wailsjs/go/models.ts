@@ -350,6 +350,7 @@ export namespace models {
 	    completionPanelLimit: number;
 	    sftpToTerminalSync: boolean;
 	    terminalToSftpSync: boolean;
+	    terminalColorMode: string;
 	    uiScale: number;
 	    theme: Theme;
 	    appearance: UIAppearance;
@@ -382,6 +383,7 @@ export namespace models {
 	        this.completionPanelLimit = source["completionPanelLimit"];
 	        this.sftpToTerminalSync = source["sftpToTerminalSync"];
 	        this.terminalToSftpSync = source["terminalToSftpSync"];
+	        this.terminalColorMode = source["terminalColorMode"];
 	        this.uiScale = source["uiScale"];
 	        this.theme = this.convertValues(source["theme"], Theme);
 	        this.appearance = this.convertValues(source["appearance"], UIAppearance);

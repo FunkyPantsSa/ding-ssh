@@ -2,7 +2,7 @@ import {defineStore} from 'pinia'
 import {DEFAULT_COMPLETION_NAV_HOTKEY} from '../completion/hotkey'
 import {settingsService} from '../services/settings'
 import {paletteToTheme, defaultPreset} from '../theme/presets'
-import type {DebugSettings, Fonts, LogLevel, NavSectionOrder, RightClickAction, TabBarPlacement, Theme, UIAppearance} from '../types'
+import type {DebugSettings, Fonts, LogLevel, NavSectionOrder, RightClickAction, TabBarPlacement, TerminalColorMode, Theme, UIAppearance} from '../types'
 
 // 默认终端主题（与 Go 端 models.DefaultTheme 保持一致，含 ANSI 16 色）。
 export function defaultTheme(): Theme {
@@ -76,6 +76,8 @@ export const useSettingsStore = defineStore('settings', {
     tabBarPlacement: 'side' as TabBarPlacement,
     rightClickAction: 'menu' as RightClickAction,
     navSectionOrder: 'nav,sessions,tabs' as NavSectionOrder,
+    // 终端输出语义着色：默认「语义着色」（off 关 | auto 语义 | vivid 语义 + 强调）
+    terminalColorMode: 'auto' as TerminalColorMode,
     debug: defaultDebug() as DebugSettings,
     // 日志页签（对应 Go 端 models.Settings 的日志字段）
     logToFile: false,
@@ -110,6 +112,8 @@ export const useSettingsStore = defineStore('settings', {
       this.rightClickAction = settings.rightClickAction === 'paste' ? 'paste' : 'menu'
       // 缺省 / 非法排列一律回落「导航 → 会话 → 标签页」
       this.navSectionOrder = normalizeNavSectionOrder(settings.navSectionOrder)
+      // 语义着色：缺值 / 非法值一律回落「语义着色」
+      this.terminalColorMode = normalizeTerminalColorMode(settings.terminalColorMode)
       // 调试模式：缺省字段用默认值补齐（端口越界回落默认）
       this.debug = normalizeDebug({...defaultDebug(), ...(settings.debug ?? {})})
       // 日志：级别非法回落 info，追踪列表过滤掉非字符串项
@@ -207,6 +211,11 @@ export const useSettingsStore = defineStore('settings', {
       this.navSectionOrder = normalizeNavSectionOrder(v)
       await this.save()
     },
+    // 终端输出语义着色档位：局部更新立即持久化（非法值回落 auto）
+    async setTerminalColorMode(v: TerminalColorMode) {
+      this.terminalColorMode = normalizeTerminalColorMode(v)
+      await this.save()
+    },
     // 调试模式：局部更新后立即持久化（设置页每次改一个开关就调一次）
     async setDebug(patch: Partial<DebugSettings>) {
       this.debug = normalizeDebug({...this.debug, ...patch})
@@ -244,6 +253,7 @@ export const useSettingsStore = defineStore('settings', {
         tabBarPlacement: this.tabBarPlacement,
         rightClickAction: this.rightClickAction,
         navSectionOrder: this.navSectionOrder,
+        terminalColorMode: normalizeTerminalColorMode(this.terminalColorMode),
         debug: this.debug,
         logToFile: this.logToFile,
         logLevel: normalizeLogLevel(this.logLevel),
@@ -322,6 +332,15 @@ function normalizeNavSectionOrder(v: string | undefined): NavSectionOrder {
     return parts.join(',') as NavSectionOrder
   }
   return 'nav,sessions,tabs'
+}
+
+// 语义着色档位白名单：非法值一律回落 auto（与 Go 端 NormalizeTerminalColorMode 一致）。
+const TERMINAL_COLOR_MODES = ['off', 'auto', 'vivid'] as const
+
+function normalizeTerminalColorMode(v: string | undefined): TerminalColorMode {
+  return (TERMINAL_COLOR_MODES as readonly string[]).includes(v ?? '')
+    ? (v as TerminalColorMode)
+    : 'auto'
 }
 
 function clampPanelLimit(v: number | undefined): number {

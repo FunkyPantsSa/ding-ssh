@@ -28,6 +28,7 @@ import {historyService} from '../services/history'
 import {sysInfoService} from '../services/sysinfo'
 import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../services/zmodem'
 import {currentZoom} from '../utils/dom'
+import {Colorizer} from '../utils/output-color'
 import {patchXtermZoomCoords} from '../utils/xterm-zoom'
 import {registerDebugTerminal, unregisterDebugTerminal, type DebugTerminalEntry} from '../debug/registry'
 import Icon from './Icon.vue'
@@ -72,6 +73,8 @@ const disposers: Array<() => void> = []
 let debugEntry: DebugTerminalEntry | null = null
 let disposed = false
 let lineBuf = ''
+// 语义着色器：只往输出里注入 SGR（颜色），不改可见字符；一个终端实例一个（alt-buffer 闸门是会话状态）
+const colorize = new Colorizer(settings.terminalColorMode)
 let composing = false
 let suggestTimer: ReturnType<typeof setTimeout> | null = null
 let inputLocked = false // Zmodem 进行中挂起键盘
@@ -786,6 +789,8 @@ function trackLineInput(data: string) {
       }
       const cmd = sanitizeHistoryCommand(resolveExecutedCommand())
       if (cmd) historyService.add(props.tab.node.id, cmd)
+      // 回显行（prompt + 命令）不着色：`cat error.log` 这类命令本身含关键字，整行红会误导
+      if (cmd) colorize.noteCommand(cmd)
       lineBuf = ''
       escState = 'none'
       hideSuggestions()
@@ -982,6 +987,8 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
   hideSuggestions()
   lineBuf = ''
   escState = 'none'
+  // 新会话：清掉上一个会话的挂起半行、alt-buffer 闸门与命令回显记录
+  colorize.reset()
   if (lineBufSyncTimer) {
     clearTimeout(lineBufSyncTimer)
     lineBufSyncTimer = null
@@ -1049,7 +1056,8 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
       if (disposed || !term) return
       const bytes = base64ToBytes(data)
       if (zmodem) zmodem.consume(bytes)
-      else term.write(bytes)
+      // 语义着色：只注入 SGR；off 档 / TUI（alt-buffer）内部直接原样返回输入字节
+      else term.write(colorize.feed(bytes))
     }),
   )
 
@@ -1338,6 +1346,16 @@ watch(
   {deep: true},
 )
 
+// 语义着色档位：把闸门里挂起的半行补写出去，后续输出按新档处理
+watch(
+  () => settings.terminalColorMode,
+  (mode) => {
+    if (!term) return
+    const flushed = colorize.setMode(mode)
+    if (flushed.length) term.write(flushed)
+  },
+)
+
 watch(
   () => settings.fonts,
   () => {
@@ -1414,6 +1432,11 @@ onBeforeUnmount(() => {
   disableWebGL()
   if (props.tab.sessionId) {
     void sshService.disconnect(props.tab.sessionId).catch(() => {})
+  }
+  // 补写挂起的半行（没有换行结尾的最后一段输出，否则会随终端一起丢掉）
+  if (term) {
+    const tail = colorize.flush()
+    if (tail.length) term.write(tail)
   }
   term?.dispose()
   term = null

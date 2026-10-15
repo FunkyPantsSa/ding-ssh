@@ -137,6 +137,7 @@ export interface Settings {
   tabBarPlacement: TabBarPlacement // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 side）
   rightClickAction: RightClickAction // 终端鼠标右键行为：menu 打开选项栏（默认）| paste 直接粘贴
   navSectionOrder: NavSectionOrder // 左侧导航区段顺序：nav / sessions / tabs 的排列（默认 "nav,sessions,tabs"）
+  terminalColorMode: TerminalColorMode // 终端输出语义着色：off 关 | auto 语义（默认）| vivid 语义 + 数值/路径强调
   debug: DebugSettings // 调试模式（本地控制面，供 AI / 自动化调用）
   logToFile: boolean // 是否把运行日志写入日志文件（默认 false）
   logLevel: LogLevel // 日志级别（默认 info）
@@ -146,6 +147,10 @@ export interface Settings {
 
 // 日志级别（对应 Go 端日志设置 LogLevel）。
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+// 终端输出语义着色档位（对应 Go 端 Settings.TerminalColorMode）。
+// 语义着色只在客户端注入颜色，远端自带 ANSI 颜色（ls --color 等）始终原样显示。
+export type TerminalColorMode = 'off' | 'auto' | 'vivid'
 
 // 调试模式设置（对应 Go 端 models.DebugSettings）。
 export interface DebugSettings {
