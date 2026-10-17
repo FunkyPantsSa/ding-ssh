@@ -89,18 +89,77 @@ function openEdit(node: ServerNode) {
 const copiedHostId = ref('')
 let copiedTimer: number | undefined
 
-async function copyHost(node: ServerNode) {
-  const text = node.host.trim()
+/** 复制文本并让对应入口短暂显示「已复制」对勾（图标按钮与右键菜单共用）。 */
+async function copyText(text: string, markId: string, what: string) {
   if (!text) return
   try {
     await ClipboardSetText(text)
-    copiedHostId.value = node.id
+    copiedHostId.value = markId
     window.clearTimeout(copiedTimer)
     copiedTimer = window.setTimeout(() => {
       copiedHostId.value = ''
     }, 1600)
   } catch (e) {
-    console.warn('[servers] 复制主机地址失败', e)
+    console.warn(`[servers] 复制${what}失败`, e)
+  }
+}
+
+async function copyHost(node: ServerNode) {
+  await copyText(node.host.trim(), node.id, '主机地址')
+}
+
+// ---- 服务器右键菜单 ----
+const serverMenu = ref<{x: number; y: number; node: ServerNode} | null>(null)
+const cloning = ref(false)
+
+function openRowMenu(e: MouseEvent, node: ServerNode) {
+  e.preventDefault()
+  // 菜单高度约 250px：贴底时上移，避免被窗口裁掉
+  serverMenu.value = {
+    x: Math.min(e.clientX, window.innerWidth - 180),
+    y: Math.min(e.clientY, Math.max(8, window.innerHeight - 250)),
+    node,
+  }
+}
+
+function closeRowMenu() {
+  serverMenu.value = null
+}
+
+function menuCopyHost() {
+  const node = serverMenu.value?.node
+  if (!node) return
+  void copyHost(node)
+  closeRowMenu()
+}
+
+function menuEdit() {
+  const node = serverMenu.value?.node
+  closeRowMenu()
+  if (node) openEdit(node)
+}
+
+function menuTest() {
+  const node = serverMenu.value?.node
+  closeRowMenu()
+  if (node) void servers.testOne(node)
+}
+
+/** 复制配置：新增一条「原名.new」并直接打开编辑弹窗，方便改 IP / 端口。 */
+async function menuDuplicate() {
+  const node = serverMenu.value?.node
+  closeRowMenu()
+  if (!node || cloning.value) return
+  cloning.value = true
+  try {
+    const clone = await servers.duplicate(node)
+    if (clone.group) activeGroup.value = clone.group
+    // 直接跳到新配置继续修改（跳转 = 打开它的编辑弹窗）
+    openEdit(clone)
+  } catch (e) {
+    console.warn('[servers] 复制配置失败', e)
+  } finally {
+    cloning.value = false
   }
 }
 
@@ -122,6 +181,7 @@ function dragServerId(e: DragEvent): string {
 }
 
 function onRowDragStart(e: DragEvent, node: ServerNode) {
+  closeRowMenu()
   draggingServerId.value = node.id
   // text/plain 兜底：某些环境下自定义类型读不到
   e.dataTransfer?.setData('text/ding-ssh-server', node.id)
@@ -268,11 +328,13 @@ async function removeGroup(name: string) {
 onMounted(() => {
   void servers.load()
   void groups.load()
+  window.addEventListener('click', closeRowMenu)
 })
 
 onBeforeUnmount(() => {
   window.clearTimeout(copiedTimer)
   window.clearTimeout(dragOverTimer)
+  window.removeEventListener('click', closeRowMenu)
 })
 </script>
 
@@ -418,10 +480,11 @@ onBeforeUnmount(() => {
               :key="node.id"
               class="server-row group"
               :class="[isActiveNode(node) ? 'active' : '', draggingServerId === node.id ? 'dragging' : '']"
-              :title="`连接 ${node.name}（可拖到左侧分组改分组）`"
+              :title="`连接 ${node.name}（右键更多操作，可拖到左侧分组改分组）`"
               draggable="true"
               @dragstart="onRowDragStart($event, node)"
               @dragend="onRowDragEnd"
+              @contextmenu="openRowMenu($event, node)"
               @click="connect(node)"
             >
               <span class="status shrink-0" :class="nodeStatus(node)"></span>
@@ -472,6 +535,40 @@ onBeforeUnmount(() => {
     </div>
 
     <ServerDialog v-model="showDialog" :editing="editing" :default-group="activeGroup" />
+
+    <!-- 服务器右键菜单：编辑 / 复制IP / 复制配置 / 测试 / 删除 -->
+    <Teleport to="body">
+      <div
+        v-if="serverMenu"
+        class="menu-pop neo fixed"
+        :style="{left: serverMenu.x + 'px', top: serverMenu.y + 'px'}"
+        @contextmenu.prevent
+        @click.stop
+      >
+        <div class="px-2.5 pt-1.5 pb-1 text-[11px] text-mist truncate">{{ serverMenu.node.name }}</div>
+        <button class="!flex items-center gap-1.5" @click="menuEdit">
+          <Icon name="pencil" :size="13" />
+          编辑
+        </button>
+        <button class="!flex items-center gap-1.5" @click="menuCopyHost">
+          <Icon :name="copiedHostId === serverMenu.node.id ? 'check' : 'clipboard-copy'" :size="13" />
+          {{ copiedHostId === serverMenu.node.id ? '已复制IP' : '复制IP' }}
+        </button>
+        <button class="!flex items-center gap-1.5" :disabled="cloning" @click="menuDuplicate">
+          <Icon name="copy" :size="13" />
+          复制配置（生成 .new）
+        </button>
+        <button class="!flex items-center gap-1.5" @click="menuTest">
+          <Icon name="activity" :size="13" />
+          测试在线状态
+        </button>
+        <div class="divider-h my-1"></div>
+        <button class="danger !flex items-center gap-1.5" @click="confirmNode = serverMenu.node; closeRowMenu()">
+          <Icon name="trash" :size="13" />
+          删除
+        </button>
+      </div>
+    </Teleport>
 
     <Teleport to="body">
       <div v-if="confirmNode" class="modal-root" @click.self="confirmNode = null">

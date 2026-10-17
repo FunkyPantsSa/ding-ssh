@@ -4,6 +4,7 @@ import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import {getElementRect} from '../utils/dom'
+import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import type {SessionTab, SplitDirection} from '../types'
 
 const sessions = useSessionsStore()
@@ -171,6 +172,31 @@ function duplicateTab(clientId: string) {
   closeTabMenu()
 }
 
+// ---- 复制标签对应服务器 IP ----
+const copiedTabId = ref('')
+let copiedTimer: number | undefined
+
+/** 复制当前标签对应服务器的主机地址/IP（纯 IP，不含端口）。 */
+async function copyTabHost(clientId: string) {
+  const tab = sessions.tabs.find((t) => t.clientId === clientId)
+  const host = (tab?.host || tab?.node.host || '').trim()
+  if (!host) {
+    closeTabMenu()
+    return
+  }
+  try {
+    await ClipboardSetText(host)
+    copiedTabId.value = clientId
+    window.clearTimeout(copiedTimer)
+    copiedTimer = window.setTimeout(() => {
+      copiedTabId.value = ''
+    }, 1600)
+  } catch (e) {
+    console.warn('[tabs] 复制 IP 失败', e)
+  }
+  closeTabMenu()
+}
+
 function closeOthers(clientId: string) {
   if (sessions.tabs.length <= 1) { closeTabMenu(); return }
   for (const t of sessions.tabs) {
@@ -189,6 +215,11 @@ const submenuStyle = computed(() => {
   // 子菜单出现在主菜单右侧
   return {left: (tabMenu.value.x + 160) + 'px', top: tabMenu.value.y + 'px'}
 })
+
+/** 右键菜单当前对应的标签（用于文案/禁用态判断）。 */
+const tabMenuTab = computed<SessionTab | undefined>(() =>
+  tabMenu.value ? sessions.tabs.find((t) => t.clientId === tabMenu.value!.clientId) : undefined,
+)
 
 function clearDragState() {
   draggingId.value = ''
@@ -256,6 +287,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   cancelSplitClose()
+  window.clearTimeout(copiedTimer)
   window.removeEventListener('click', closeTabMenu)
 })
 </script>
@@ -393,6 +425,15 @@ onBeforeUnmount(() => {
       <button class="!flex items-center gap-1.5" @click="duplicateTab(tabMenu.clientId)">
         <Icon name="copy" :size="13" />
         复制终端
+      </button>
+      <button
+        class="!flex items-center gap-1.5"
+        :disabled="tabMenuTab?.kind === 'local'"
+        :title="tabMenuTab?.kind === 'local' ? '本机终端没有远程 IP' : `复制 IP ${tabMenuTab?.host ?? ''}`"
+        @click="copyTabHost(tabMenu.clientId)"
+      >
+        <Icon :name="copiedTabId === tabMenu.clientId ? 'check' : 'clipboard-copy'" :size="13" />
+        {{ copiedTabId === tabMenu.clientId ? '已复制 IP' : '复制IP' }}
       </button>
       <div class="divider-h my-1"></div>
       <!-- 分屏子菜单 -->
