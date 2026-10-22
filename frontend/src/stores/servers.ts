@@ -37,6 +37,27 @@ export const useServersStore = defineStore('servers', {
       delete this.testResults[id]
       delete this.testing[id]
     },
+    /**
+     * 复制配置：把 node 克隆为一条新服务器，命名为「原名.new」。
+     *
+     * - 清空 id → 由后端生成新 id，因此不会覆盖原服务器；
+     * - 名称已在用则追加序号（xxx.new2 / xxx.new3…），避免重名难以分辨；
+     * - 密码 / 私钥等内容一并复制，改完 IP、端口即可直接连接。
+     */
+    async duplicate(node: ServerNode): Promise<ServerNode> {
+      const base = `${node.name || node.host}.new`
+      const used = new Set(this.servers.map((s) => s.name))
+      let name = base
+      for (let i = 2; used.has(name); i++) name = `${base}${i}`
+      const clone: ServerNode = {
+        ...node,
+        id: '',
+        name,
+        // envVars 是对象：深拷贝一份，避免与源服务器共享引用
+        envVars: {...(node.envVars ?? {})},
+      }
+      return await this.save(clone)
+    },
     async testOne(node: ServerNode) {
       this.testing[node.id] = true
       try {
