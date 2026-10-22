@@ -46,7 +46,7 @@
 
 | 模块 | 你能做什么 | 实现要点 |
 | --- | --- | --- |
-| **终端** | 多标签会话；左右 / 上下分屏，分隔条可拖；把标签拖到终端区域按落点方向分屏 | xterm.js + WebGL 渲染（界面缩放 ≠ 100% 时自动回退 Canvas）；5000 行回滚；字号 `Ctrl+=` / `Ctrl+-` / `Ctrl+0` |
+| **终端** | 多标签会话；左右 / 上下分屏，分隔条可拖；把标签拖到终端区域按落点方向分屏 | xterm.js + WebGL 渲染（已修正 CSS `zoom` 下的画布位图，任意缩放档位都可用；环境不支持 / 上下文丢失时自动降级 Canvas）；5000 行回滚；字号 `Ctrl+=` / `Ctrl+-` / `Ctrl+0` |
 | **连接** | 密码或私钥认证（粘贴内容或选文件）；分组、搜索、在线状态测试 | 五步进度（DNS/直连 → TCP → 鉴权 → 分配 PTY → 就绪）带逐步日志；15s 心跳保活；断线按 2/5/10/20/30s 退避自动重连，**重连不清屏** |
 | **SFTP** | 浏览、上传（拖拽 / 多选）、下载、重命名、删除、新建目录、路径直编；底部进度条可取消 | 目录读取走 SWR 缓存（`sync.Map` + 异步 revalidate + 增量推送）；传输并发 = CPU 核心 × 2，令牌桶限速（默认不限速）；rz/sz（Zmodem）可接管 |
 | **目录联动** | shell 里 `cd` 同步到 SFTP 面板；SFTP 跳转同步回终端 | 优先解析 OSC 7，拿不到时用 prompt 兜底；两个方向可分别开关 |
@@ -422,7 +422,9 @@ go build -o ding-ssh-mcp ./cmd/ding-ssh-mcp
 
 ## 十一、已知限制
 
-**WebGL 与界面缩放**：缩放通过 `.app-shell { zoom }` 实现，而 `@xterm/addon-webgl` 在存在 CSS `zoom` 的祖先时会把画布内容整体上移数行——缓冲与 DOM 几何都对，只是像素错位，`refresh()` 也纠不回来。因此仅在 `uiScale = 100` 时启用 WebGL，其余情况自动回退 Canvas；上下文丢失或环境不支持时同样降级并提示。
+**WebGL 与界面缩放（已修复）**：缩放通过 `.app-shell { zoom }` 实现，而 `@xterm/addon-webgl` 用 ResizeObserver 的 `devicePixelContentBoxSize` 给 canvas 定尺寸——Chromium 下该值**含 CSS zoom**（zoom=1.25 时位图 990×553、渲染器网格只有 792×442），而 `_setCanvasDevicePixelDimensions()` 只改位图、不重设 GL viewport / resolution uniform / 顶点归一化，于是整幅网格被画进超大位图的左下角：缓冲区与 DOM 几何都对，只有像素错位，表现为「顶部前几行看不到、缓冲区已在顶部无法上滚」，`refresh()` / `clearTextureAtlas()` 都纠不回来。
+
+修法见 `frontend/src/utils/xterm-webgl-zoom.ts`：zoom ≠ 1 时丢弃观察器上报的（含 zoom 的）尺寸，位图保持 `handleResize()` 按未缩放网格算出的尺寸；每次 `fit()` / 缩放切换后再自检「位图 == 网格」，不一致就重跑 `handleResize()` 把 viewport / uniform / 顶点一起补齐。因此现在**任意缩放档位都启用 WebGL**；只有补丁打不上（addon 私有 API 变化）且缩放 ≠ 100% 时才回退 Canvas，上下文丢失 / 环境不支持时同样降级并提示。排查时看 `[webgl] enabled …` 日志行，含 `uiScale / dpr / grid / bitmap / css / rect / cols×rows / viewport / baseY` 快照。
 
 **`wails dev` 的 `runtime:ready` 噪音**：用浏览器打开 dev 地址时，后端会打印两条 `Unknown message from front end: runtime:ready`。这是 Wails v2.13.0 的框架问题（devserver 未拦截 runtime 的内部消息），不影响功能，生产构建与桌面窗口都不会出现；本项目用 `internal/logfilter` 精确过滤这两条。
 

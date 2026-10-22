@@ -30,6 +30,7 @@ import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../servi
 import {currentZoom} from '../utils/dom'
 import {Colorizer} from '../utils/output-color'
 import {patchXtermZoomCoords} from '../utils/xterm-zoom'
+import {patchWebglZoomCanvas, syncWebglCanvas, webglCanvasReport} from '../utils/xterm-webgl-zoom'
 import {registerDebugTerminal, unregisterDebugTerminal, type DebugTerminalEntry} from '../debug/registry'
 import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
@@ -66,6 +67,8 @@ const webglFallbackToast = ref('')
 let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let webglAddon: WebglAddon | null = null
+// WebGL 画布位图补丁探测结果：null = 尚未探测，false = 私有 API 不可用（缩放≠100% 时回退 Canvas）
+let webglZoomPatched: boolean | null = null
 let zmodem: ZmodemController | null = null
 let resizeObserver: ResizeObserver | null = null
 const disposers: Array<() => void> = []
@@ -209,21 +212,44 @@ function applyFontSettings() {
 /**
  * 是否允许使用 WebGL 渲染。
  *
- * 实测结论（调试模式 A/B/C 对照实验）：界面缩放走的是 `.app-shell { zoom }`，而
- * `@xterm/addon-webgl` 在 CSS zoom ≠ 1 时会把画布内容整体上移数行（缓冲区与 DOM 几何都正确，
- * 只是画出来的像素错位，且 `clearTextureAtlas()+refresh()` 无法纠正）。
- * zoom = 1 时 WebGL 正常。因此仅在缩放 100% 时启用 WebGL，其余情况回退 Canvas。
+ * 历史结论（已推翻并修正）：界面缩放走 `.app-shell { zoom }`，`@xterm/addon-webgl`
+ * 在 Chromium 下会把 canvas 位图按「含 zoom 的 devicePixelContentBoxSize」放大，而渲染器
+ * 内部网格仍按未缩放的 CSS 像素算，于是整幅网格被画进超大位图的左下角 —— 表现为
+ * 「顶部前几行看不到、缓冲区已在顶部无法上滚」（缓冲区与 DOM 几何都正确，只是像素错位，
+ * `refresh()` / `clearTextureAtlas()` 都纠不回来）。
+ *
+ * 现在由 `patchWebglZoomCanvas()`（见 utils/xterm-webgl-zoom.ts）把位图拉回网格尺寸并
+ * 重设 GL viewport / uniform，任意缩放档位都能正常使用 WebGL；只有补丁打不上
+ * （addon 私有 API 变化）且缩放 ≠ 100% 时，才回退 Canvas。
  */
 function webglUsable(): boolean {
-  return uiZoom() === 1
+  if (!settings.webGLEnabled) return false
+  if (uiZoom() === 1) return true
+  return webglZoomPatched !== false
+}
+
+/** 渲染诊断串：WebGL 画布几何 + xterm 行列 + 视口滚动状态（用于定位「顶部缺行」类问题）。 */
+function renderDiag(): string {
+  const parts: string[] = []
+  if (webglAddon) parts.push(webglCanvasReport(webglAddon, uiZoom()) ?? 'webgl=?')
+  if (term) {
+    parts.push(`cols=${term.cols} rows=${term.rows}`)
+    const vp = term.element?.querySelector('.xterm-viewport') as HTMLElement | null
+    if (vp) {
+      parts.push(`viewport=${vp.clientHeight}/${vp.scrollHeight} scrollTop=${Math.round(vp.scrollTop)}`)
+    }
+    const buf = term.buffer.active
+    parts.push(`baseY=${buf.baseY} viewportY=${buf.viewportY}`)
+  }
+  return parts.join(' ')
 }
 
 function tryEnableWebGL() {
   if (!term || !settings.webGLEnabled) return
   if (!webglUsable()) {
     disableWebGL()
-    console.info('[webgl] 界面缩放 ≠ 100%，已使用 Canvas 渲染（WebGL 在 CSS zoom 下顶部会错位）')
-    logClient('info', `[webgl] uiScale=${settings.uiScale} → Canvas 渲染（WebGL 在 CSS zoom 下会错位）`)
+    console.info('[webgl] 界面缩放 ≠ 100% 且无法修正画布位图，已使用 Canvas 渲染')
+    logClient('info', `[webgl] uiScale=${settings.uiScale} → Canvas 渲染（画布位图补丁不可用）`)
     return
   }
   try {
@@ -238,7 +264,21 @@ function tryEnableWebGL() {
       }, 4000)
     })
     term.loadAddon(webglAddon)
-    logClient('debug', `[webgl] enabled (uiScale=${settings.uiScale}, dpr=${window.devicePixelRatio})`)
+    // CSS zoom 修正：必须在 loadAddon 之后（此时才拿得到渲染器实例）
+    const patched = patchWebglZoomCanvas(webglAddon, uiZoom)
+    if (webglZoomPatched === null) webglZoomPatched = patched
+    if (!patched && uiZoom() !== 1) {
+      // 私有 API 变了 → 老策略兜底：缩放 ≠ 100% 时宁可用 Canvas，也不画错位
+      disableWebGL()
+      webglFallbackToast.value = 'WebGL 在界面缩放下不可用，已降级 Canvas 渲染'
+      setTimeout(() => {
+        webglFallbackToast.value = ''
+      }, 4000)
+      logClient('warn', `[webgl] 画布位图补丁不可用（uiScale=${settings.uiScale}）→ Canvas 渲染`)
+      return
+    }
+    syncWebglCanvas(webglAddon)
+    logClient('debug', `[webgl] enabled ${renderDiag()}`)
   } catch {
     webglAddon = null
     webglFallbackToast.value = '当前环境不支持 WebGL，已降级 Canvas 渲染'
@@ -311,6 +351,9 @@ function scheduleFocusActiveSurface() {
 function fit() {
   if (!term || !fitAddon || disposed) return
   fitAddon.fit()
+  // fit 改了网格尺寸：WebGL 下确保 canvas 位图 / GL viewport 跟着对齐
+  // （CSS zoom 下观察器上报的是含 zoom 的尺寸，不能直接采用）
+  if (webglAddon) syncWebglCanvas(webglAddon)
   if (props.tab.sessionId) {
     sshService.resize(props.tab.sessionId, term.cols, term.rows).catch(() => {})
   }
@@ -1406,10 +1449,15 @@ watch(
     if (!term || disposed) return
     nextTick(() => {
       applyFontSize()
-      // 缩放变化会改变 CSS zoom：zoom≠1 时 WebGL 会画偏，需要重新评估渲染器
+      // 缩放变化会改变 CSS zoom：补丁可用的环境继续用 WebGL（位图已在 fit() 里重新对齐），
+      // 补丁不可用且缩放 ≠ 100% 时回退 Canvas
       if (!settings.webGLEnabled) return
       if (webglAddon && !webglUsable()) disableWebGL()
       else if (!webglAddon && webglUsable()) tryEnableWebGL()
+      else if (webglAddon) {
+        syncWebglCanvas(webglAddon)
+        logClient('debug', `[webgl] uiScale→${settings.uiScale}% ${renderDiag()}`)
+      }
     })
   },
 )

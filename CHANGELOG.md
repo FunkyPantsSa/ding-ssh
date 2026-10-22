@@ -8,6 +8,24 @@
 
 ---
 
+## [未发布] 2026-10-22 · 修复 WebGL 在界面缩放下的顶部缺行（画布位图 / 网格一致性）
+
+### 修复
+
+- **界面缩放 ≠ 100% 时终端顶部前几行看不到，且缓冲区已在顶部无法上滚** —— 现象：把界面缩放调到 110% / 125% 后，终端最上面几行不显示，往回滚也没用（缓冲区 `baseY` 已在顶部）；关掉「WebGL 硬件加速」即恢复正常。
+  原因：`@xterm/addon-webgl` 用 `ResizeObserver` 的 `devicePixelContentBoxSize` 给 canvas 定尺寸，**Chromium 的这个值含 CSS zoom**（zoom=1.25 实测位图 990×553，渲染器内部网格只有 792×442）；而 `_setCanvasDevicePixelDimensions()` 只改位图，**不重设 GL viewport / resolution uniform / 顶点归一化**（那三件事只在 `handleResize()` 里做）。于是整幅网格被画进超大位图的左下角（WebGL 原点在左下），内容整体下移、比例也不对——缓冲区与 DOM 几何都正确，只是像素错位，`refresh()` / `clearTextureAtlas()` 都纠不回来。
+  修法：新增 `frontend/src/utils/xterm-webgl-zoom.ts`——zoom ≠ 1 时丢弃观察器上报的（含 zoom 的）尺寸，位图保持 `handleResize()` 按未缩放网格算出的尺寸；并在每次 `fit()` / 缩放切换后自检「位图 == 网格」，不一致就重跑 `handleResize()`，把 viewport / uniform / 顶点一起补齐（其它引擎或 addon 私有实现变化时也能自愈）。因此**不再因为缩放 ≠ 100% 就关掉 WebGL**：任意档位都走硬件加速，只有补丁打不上（addon 私有 API 变化）且缩放 ≠ 100% 时才回退 Canvas。
+
+### 变更
+
+- `TerminalView.vue` 的 WebGL 开关策略：由「仅 `uiScale = 100` 启用」改为「补丁可用即启用」，缩放变化时重新对齐位图并重新评估；上下文丢失 / 环境不支持仍降级 Canvas 并提示。
+- 新增渲染诊断日志：`[webgl] enabled …` / `[webgl] uiScale→…% …`，含 `uiScale / dpr / grid / bitmap / css / rect / cols×rows / viewport / scrollTop / baseY`，便于线上取证（日志级别 `debug`）。
+
+### 验证
+
+- 无头 Chromium（Blink）：`uiScale` 80/90/100/110/125/150 六档，逐档对比 DOM 与 WebGL 的「首行 y / 末行 y」，修前 125% 顶部空 74px、150% 空 156px，修后与 DOM 基线一致（±2px）。
+- WKWebView（macOS 真实渲染引擎）：100% / 125% 两档无回归（WKWebView 不支持 `device-pixel-content-box`，观察器本就自动断开，位图由 xterm 自己按 device 尺寸设定）。
+
 ## [未发布] 2026-10-01 · M10 收尾 · `terminal.sudo` 挂起/超时后的清理保证（独立 SFTP 通道 + `cleanupOnly`）
 
 工具面数量不变（仍是 89 个）：本次只给既有工具 `terminal.sudo` 加了一个可选参数 `cleanupOnly`，并新增一条**宿主 op**（`sudo.cleanup`，不进 MCP 工具清单，只在 `debug.go` 的 `Handle` 里分发）。
