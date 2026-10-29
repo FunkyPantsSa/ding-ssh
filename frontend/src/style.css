@@ -179,6 +179,9 @@
   --status-h: 30px;
   --qconn-w: 288px;
   --tool-w: 340px;
+  /* 界面缩放倍率（运行时由 App.vue 写入 <html>；首帧默认 1）。供 Teleport 到 body、
+     不继承 .app-shell zoom 的快速连接侧栏/遮罩使用。 */
+  --ui-zoom: 1;
   /* 兼容旧变量名 */
   --rail-w: 56px;
   --title-h: 48px;
@@ -913,17 +916,31 @@ body.col-resizing * { cursor: col-resize !important; }
   display: flex;
   align-items: center;
   gap: 2px;
-  /* 操作按钮常显（需求：编辑等按钮不要隐藏）：悬停时仅加一层底衬强调，不再改透明度。 */
+  /* 操作按钮常显（需求：编辑等按钮不要隐藏） */
   opacity: 1;
-  transition: opacity var(--dur);
 }
-.server-row .row-actions .btn-icon {
+/* 行内操作：图标 + 短标签常显，避免纯图标不易辨认（连接 / 复制 / 测试 / 编辑 / 删除） */
+.row-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
   color: var(--mist-400);
+  background: transparent;
+  white-space: nowrap;
+  transition: color var(--dur), background var(--dur);
 }
-.server-row:hover .row-actions .btn-icon,
-.server-row.active .row-actions .btn-icon {
+.row-act:hover:not(:disabled) { color: var(--mist-100); background: var(--hover-strong); }
+.server-row:hover .row-act:not(.row-act-danger),
+.server-row.active .row-act:not(.row-act-danger) {
   color: var(--mist-200);
 }
+/* 删除用暖色做语义区分，避免与其它操作混淆 */
+.row-act-danger { color: #ff8a8a; }
+.row-act-danger:hover { color: #ff6b6b; background: rgba(255, 107, 107, 0.14); }
 /* 拖拽中：整行降透明度，作为「正在搬走」的反馈 */
 .server-row.dragging { opacity: 0.45; }
 /* 分组条目作为拖放目标时高亮 */
@@ -1290,6 +1307,9 @@ body.col-resizing * { cursor: col-resize !important; }
   inset: 0 0 0 var(--nav-w);
   z-index: 40;
   background: var(--overlay);
+  /* 继承界面缩放：面板/遮罩 Teleport 到 body，不继承 .app-shell 的 zoom，
+     否则导航放大后右边界外移，遮罩与面板会停在未缩放的导航宽度处。 */
+  zoom: var(--ui-zoom, 1);
   /* 独立合成层：淡入淡出只做透明度混合，不重绘下方终端 */
   will-change: opacity;
 }
@@ -1298,6 +1318,7 @@ body.col-resizing * { cursor: col-resize !important; }
   left: var(--nav-w); top: 0; bottom: 0;
   width: var(--qconn-w);
   z-index: 50;
+  zoom: var(--ui-zoom, 1);
   display: flex;
   flex-direction: column;
   min-height: 0;

@@ -506,26 +506,31 @@ onBeforeUnmount(() => {
               <span v-else class="latency shrink-0 text-mist">未测试</span>
 
               <div class="row-actions shrink-0">
-                <button class="btn-icon btn-sm" title="连接" aria-label="连接" @click.stop="connect(node)">
-                  <Icon name="arrow-right" :size="15" />
+                <button class="row-act" title="连接" aria-label="连接" @click.stop="connect(node)">
+                  <Icon name="terminal" :size="14" />
+                  <span>连接</span>
                 </button>
                 <button
-                  class="btn-icon btn-sm"
+                  class="row-act"
                   :class="copiedHostId === node.id ? 'text-[var(--ok-500)]' : ''"
                   :title="copiedHostId === node.id ? '已复制主机地址' : `复制主机地址 ${node.host}`"
                   aria-label="复制主机地址"
                   @click.stop="copyHost(node)"
                 >
-                  <Icon :name="copiedHostId === node.id ? 'check' : 'clipboard-copy'" :size="15" />
+                  <Icon :name="copiedHostId === node.id ? 'check' : 'copy'" :size="14" />
+                  <span>{{ copiedHostId === node.id ? '已复制' : '复制' }}</span>
                 </button>
-                <button class="btn-icon btn-sm" title="测试在线状态" aria-label="测试在线状态" @click.stop="servers.testOne(node)">
-                  <Icon name="activity" :size="15" />
+                <button class="row-act" title="测试在线状态" aria-label="测试在线状态" @click.stop="servers.testOne(node)">
+                  <Icon name="activity" :size="14" />
+                  <span>测试</span>
                 </button>
-                <button class="btn-icon btn-sm" title="编辑" aria-label="编辑" @click.stop="openEdit(node)">
-                  <Icon name="pencil" :size="15" />
+                <button class="row-act" title="编辑" aria-label="编辑" @click.stop="openEdit(node)">
+                  <Icon name="pencil" :size="14" />
+                  <span>编辑</span>
                 </button>
-                <button class="btn-icon btn-sm" title="删除" aria-label="删除" @click.stop="confirmNode = node">
-                  <Icon name="trash" :size="15" />
+                <button class="row-act row-act-danger" title="删除" aria-label="删除" @click.stop="confirmNode = node">
+                  <Icon name="trash" :size="14" />
+                  <span>删除</span>
                 </button>
               </div>
             </div>

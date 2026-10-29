@@ -260,6 +260,12 @@ watchEffect(() => {
 watchEffect(() => {
   document.documentElement.style.setProperty('--tool-w', `${effectiveToolW.value}px`)
 })
+// 界面缩放（.app-shell 的 zoom）同步到 <html> 上的 --ui-zoom：快速连接侧栏与遮罩
+// Teleport 到 body，不在 .app-shell 内，若不单独继承 zoom，导航被放大后面板会停在
+// 未缩放的导航宽度处，与放大后的导航右边界错位（面板盖住导航）。
+watchEffect(() => {
+  document.documentElement.style.setProperty('--ui-zoom', String((settings.uiScale || 100) / 100))
+})
 
 // ---- 分屏：槽位显隐与定位 ----
 // 所有标签的 TerminalView 常驻（不随分屏卸载/重挂，避免重连/断会话）。
