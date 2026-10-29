@@ -290,6 +290,10 @@ export function TestServer(arg1) {
   return window['go']['main']['App']['TestServer'](arg1);
 }
 
+export function TestServerLogin(arg1) {
+  return window['go']['main']['App']['TestServerLogin'](arg1);
+}
+
 export function TestServers(arg1) {
   return window['go']['main']['App']['TestServers'](arg1);
 }

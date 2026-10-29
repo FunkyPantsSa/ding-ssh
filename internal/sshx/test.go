@@ -36,6 +36,30 @@ func TestConnectivity(host string, port int) models.ServerTestResult {
 	}
 }
 
+// TestServerLogin 使用节点配置实际完成一次 SSH 登录（TCP 拨号 + 版本协商 + 用户鉴权），
+// 用于验证「当前表单里的用户名 / 密码 / 私钥」能否登录成功。
+// 成功时 Reachable=true、LatencyMS 为登录耗时；失败时 Reachable=false、Error 为失败原因。
+func TestServerLogin(node models.ServerNode) models.ServerTestResult {
+	res := models.ServerTestResult{NodeID: node.ID}
+	config, err := buildClientConfig(node, noopProgress)
+	if err != nil {
+		// 构造鉴权配置失败（例如私钥无法解析、未选择私钥文件）
+		res.Error = err.Error()
+		return res
+	}
+	start := time.Now()
+	client, err := dialSSH(node.Host, node.Port, config, noopProgress)
+	if err != nil {
+		res.LatencyMS = -1
+		res.Error = connectError(err).Error()
+		return res
+	}
+	res.LatencyMS = time.Since(start).Milliseconds()
+	res.Reachable = true
+	_ = client.Close()
+	return res
+}
+
 // testDialError 将拨号错误转换为简洁的失败原因文案。
 func testDialError(err error) string {
 	var netErr net.Error

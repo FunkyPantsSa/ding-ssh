@@ -314,6 +314,12 @@ func (a *App) TestServer(node models.ServerNode) models.ServerTestResult {
 	return res
 }
 
+// TestServerLogin 使用节点配置实际完成一次 SSH 登录，验证用户名 / 密码 / 私钥能否通过鉴权
+// （供新建 / 编辑服务器对话框的「测试连接」使用）。
+func (a *App) TestServerLogin(node models.ServerNode) models.ServerTestResult {
+	return sshx.TestServerLogin(node)
+}
+
 // TestServers 并发测试多台服务器在线状态，结果按传入顺序返回。
 func (a *App) TestServers(nodes []models.ServerNode) []models.ServerTestResult {
 	results := make([]models.ServerTestResult, len(nodes))
