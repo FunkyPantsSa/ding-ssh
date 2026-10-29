@@ -3,9 +3,12 @@ import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {onSysInfoSnapshot, sysInfoService} from '../services/sysinfo'
 import {getElementRect} from '../utils/dom'
+import {useSettingsStore} from '../stores/settings'
 import type {SessionTab, SysInfoSnapshot} from '../types'
 
 const props = defineProps<{tab?: SessionTab}>()
+
+const settings = useSettingsStore()
 
 const snap = ref<SysInfoSnapshot | null>(null)
 const diskKey = ref('')
@@ -177,7 +180,10 @@ function bind(sessionId: string) {
       }
     }
   })
-  void sysInfoService.start(sessionId).catch(() => {})
+  // 「登录后自动采集」开关关闭时，不启动远端采集（底部状态栏因此显示占位提示）。
+  if (settings.sysInfoCollectEnabled) {
+    void sysInfoService.start(sessionId).catch(() => {})
+  }
 }
 
 watch(
@@ -215,7 +221,7 @@ function fmtMbps(v: number): string {
 
 <template>
   <footer class="status-bar">
-    <template v-if="tab?.status === 'connected' && tab.sessionId">
+    <template v-if="tab?.status === 'connected' && tab.sessionId && settings.sysInfoCollectEnabled">
       <div class="metric">
         <span>CPU</span>
         <strong>{{ hasCPU ? `${(snap?.cpuUsage ?? 0).toFixed(0)}%` : '—' }}</strong>
@@ -254,7 +260,8 @@ function fmtMbps(v: number): string {
       <span v-if="snap?.error" class="text-warn truncate max-w-[14rem]" :title="snap.error">{{ snap.error }}</span>
     </template>
     <template v-else>
-      <span>连接服务器后显示 CPU / 内存 / 磁盘 / 网卡状态</span>
+      <span v-if="settings.sysInfoCollectEnabled">连接服务器后显示 CPU / 内存 / 磁盘 / 网卡状态</span>
+      <span v-else class="text-warn">「登录后自动采集」已关闭：登录服务器不执行任何采集命令</span>
     </template>
   </footer>
 

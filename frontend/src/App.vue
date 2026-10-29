@@ -124,7 +124,7 @@ const pageMeta: Record<string, [string, string]> = {
   workspace: ['工作区', '终端 · 会话 · 文件'],
   servers: ['服务器管理', '节点 · 分组 · 在线状态'],
   tunnel: ['SSH 隧道', '本地 / 远程 / 动态转发'],
-  settings: ['设置', '通用 · 主题 · 安全 · 迁移'],
+  settings: ['设置', '通用 · 连接说明 · 外观 · 安全 · 迁移'],
 }
 
 const pageTitle = computed(() => pageMeta[ui.view]?.[0] ?? '工作区')

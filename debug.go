@@ -2766,6 +2766,8 @@ func ctlDefaultSettings() models.Settings {
 		UIScale:              100,
 		AutoReconnect:        true,
 		KeepAliveEnabled:     true,
+		// 登录后自动采集系统指标：默认开启（关闭后登录服务器不再向远端执行采集命令）
+		SysInfoCollectEnabled: true,
 		TabBarPlacement:      "side",
 		RightClickAction:     models.RightClickMenu,
 		NavSectionOrder:      models.DefaultNavSectionOrder,
@@ -2790,6 +2792,7 @@ func ctlSettingsFieldMeta() map[string]any {
 		"navSectionOrder":          map[string]any{"note": "nav / sessions / tabs 三个键的排列，逗号分隔（如 \"nav,sessions,tabs\"）"},
 		"completionNavHotkey":      map[string]any{"note": "补全导航开关键，如 Alt+ArrowDown"},
 		"uiScale":                  map[string]any{"note": "界面缩放百分比（80-150）"},
+		"sysInfoCollectEnabled":    map[string]any{"note": "登录 SSH 服务器后是否自动采集系统指标；关闭后登录服务器不再向远端执行任何采集命令（状态栏 / 系统看板无数据）"},
 		"logTraceTabs":             map[string]any{"risky": true, "note": "被跟踪会话的终端输出会写入日志文件（含命令与输出内容），注意隐私"},
 		"appearance.mode":          map[string]any{"enum": []any{"preset", "custom"}},
 		"appearance.baseTone":      map[string]any{"enum": []any{"auto", "light", "dark"}},

@@ -1120,10 +1120,13 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
     }
     // 本机会话无远程 SFTP / 系统监控
     if (!isLocal) {
-      void sysInfoService.start(result.sessionId).catch(() => {})
-      disposers.push(() => {
-        void sysInfoService.stop(result.sessionId).catch(() => {})
-      })
+      // 「登录后自动采集」开关关闭时，不在远端启动采集（status bar / 看板无数据）。
+      if (settings.sysInfoCollectEnabled) {
+        void sysInfoService.start(result.sessionId).catch(() => {})
+        disposers.push(() => {
+          void sysInfoService.stop(result.sessionId).catch(() => {})
+        })
+      }
     }
     fit()
   } catch (e) {

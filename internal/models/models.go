@@ -108,6 +108,9 @@ type Settings struct {
 	Fonts                Fonts        `json:"fonts"`                // 字体设置
 	AutoReconnect        bool         `json:"autoReconnect"`        // 断开后自动重连（默认开启）
 	KeepAliveEnabled     bool         `json:"keepAliveEnabled"`     // 发送心跳包防止终端超时（默认开启）
+	// SysInfoCollectEnabled 登录 SSH 服务器后是否自动采集系统指标（默认开启）。
+	// 关闭后连接服务器不再向远端执行任何采集命令；系统看板与底部状态栏不再有数据。
+	SysInfoCollectEnabled bool `json:"sysInfoCollectEnabled"`
 	LocalShell           string       `json:"localShell"`           // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
 	// AutoLoginLastServer 启动（解锁）后自动重新连接「上次关闭时仍在打开的服务器」（默认关闭）。
 	// LastOpenServers 记录上次关闭应用时仍在打开的服务器 ID 列表（按打开顺序，可重复），

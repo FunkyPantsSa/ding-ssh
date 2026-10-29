@@ -264,6 +264,8 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		UIScale:              100,
 		AutoReconnect:        true,
 		KeepAliveEnabled:     true,
+		// 登录后自动采集系统指标：默认开启（旧库缺键时同样补默认值）
+		SysInfoCollectEnabled: true,
 		TabBarPlacement:      "side", // 默认会话标签页放在左侧导航
 		RightClickAction:     models.RightClickMenu,
 		NavSectionOrder:      models.DefaultNavSectionOrder,
@@ -311,6 +313,10 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	}
 	if v, ok := values["keepAliveEnabled"]; ok {
 		st.KeepAliveEnabled = v == "true"
+	}
+	// 登录后自动采集系统指标：旧库没有该键 → 保持默认（开启）
+	if v, ok := values["sysInfoCollectEnabled"]; ok {
+		st.SysInfoCollectEnabled = v == "true"
 	}
 	// 自动恢复上次会话：旧库没有该键 → 保持默认（关闭）
 	if v, ok := values["autoLoginLastServer"]; ok {
@@ -471,6 +477,7 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"fonts", string(fonts)},
 		{"autoReconnect", boolStr(st.AutoReconnect)},
 		{"keepAliveEnabled", boolStr(st.KeepAliveEnabled)},
+		{"sysInfoCollectEnabled", boolStr(st.SysInfoCollectEnabled)},
 		{"autoLoginLastServer", boolStr(st.AutoLoginLastServer)},
 		{"lastOpenServers", string(openServersJSON)},
 		{"localShell", st.LocalShell},

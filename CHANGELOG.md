@@ -8,6 +8,19 @@
 
 ---
 
+## [未发布] 2026-10-29 · 设置页「连接说明」分区 + 「登录后自动采集」开关
+
+### 新增
+
+- 设置页新增 **连接说明** 分区（左侧菜单「通用」下方）：按代码梳理 SSH 登录一台服务器后会自动执行什么、采集什么信息——`internal/sshx/sysinfo.go` 的采集脚本（`sh -c` 在独立无 PTY 会话上周期运行 `cat /proc/stat` / `cat /proc/meminfo` / `df -k -P` / `cat /proc/net/dev` / `ip -o -4 addr show` / `cat /proc/uptime`）、SSH 保活请求 `keepalive@openssh.com`、SFTP `Getwd`，以及被动目录同步，并逐项标注用途。
+- 该分区内置 **「登录后自动采集系统信息」开关**（`Settings.sysInfoCollectEnabled`，默认开启）。关闭后登录服务器不再向远端执行任何采集命令，并明确告知受影响（底部状态栏 / 系统看板无数据）与不受影响（终端、SFTP、传输、隧道、重连、目录同步）的功能。
+
+### 变更
+
+- `Settings` 新增字段 `sysInfoCollectEnabled`：JSON 与 SQLite 两套设置存储在「无字段时补默认（开启）」的迁移路径上保持一致，`settings.schema` / `settings.reset` 的默认值抽到 `ctlDefaultSettings`。
+- `Manager.StartSysInfoCollector` 依据该设置放行：关闭时直接返回并停掉可能残留的采集器；`App.SaveSettings` 在关闭时调用新增的 `Manager.StopAllSysInfoCollectors()`，已连接会话立即停止采集。
+- 前端 `TerminalView` / `ServerStatusBar` 在开关关闭时不发起采集；底部状态栏改为显示「已关闭」占位提示。
+
 ## [未发布] 2026-10-22 · 修复 WebGL 在界面缩放下的顶部缺行（画布位图 / 网格一致性）
 
 ### 修复

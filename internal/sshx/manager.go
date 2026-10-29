@@ -77,7 +77,7 @@ func (m *Manager) currentSettings() models.Settings {
 	if m.getSettings != nil {
 		return m.getSettings()
 	}
-	return models.Settings{KeepAliveEnabled: true, AutoReconnect: true}
+	return models.Settings{KeepAliveEnabled: true, AutoReconnect: true, SysInfoCollectEnabled: true}
 }
 
 // Connect 建立新会话。
@@ -1220,7 +1220,22 @@ func (m *Manager) remove(sessionID string) {
 // ---- SysInfo Dashboard ----
 
 // StartSysInfoCollector 为已连接会话启动系统指标采集。
+//
+// 只有应用设置允许自动采集（sysInfoCollectEnabled，默认开启）时才启动；关闭时
+// 登录服务器不会向远端执行任何采集命令（底层直接返回，并顺手停掉可能残留的采集器）。
 func (m *Manager) StartSysInfoCollector(sessionID string) error {
+	if !m.currentSettings().SysInfoCollectEnabled {
+		m.mu.Lock()
+		c, ok := m.sysinfo[sessionID]
+		if ok {
+			delete(m.sysinfo, sessionID)
+		}
+		m.mu.Unlock()
+		if ok {
+			c.Stop()
+		}
+		return nil
+	}
 	s, err := m.get(sessionID)
 	if err != nil {
 		return err
@@ -1269,6 +1284,21 @@ func (m *Manager) SetSysInfoIdle(sessionID string, idle bool) {
 	m.mu.RUnlock()
 	if c != nil {
 		c.SetIdle(idle)
+	}
+}
+
+// StopAllSysInfoCollectors 停止全部会话的系统指标采集。
+// 用于「登录后自动采集」开关被关闭时立即生效：已连接的会话也不再向远端执行任何采集命令。
+func (m *Manager) StopAllSysInfoCollectors() {
+	m.mu.Lock()
+	collectors := make([]*SysInfoCollector, 0, len(m.sysinfo))
+	for id, c := range m.sysinfo {
+		collectors = append(collectors, c)
+		delete(m.sysinfo, id)
+	}
+	m.mu.Unlock()
+	for _, c := range collectors {
+		c.Stop()
 	}
 }
 
