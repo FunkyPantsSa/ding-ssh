@@ -2,9 +2,6 @@ package debugsrv
 
 // 工具清单一致性用例（注册表驱动）。
 //
-// 注：文件名沿用最初的临时探针名（zz_temp_count_test.go）—— 本工作区对文件删除 / 改名有约束，
-// 内容已改为长期回归用例：数出来的东西变成了一条会失败的断言。
-//
 // 它守住的不变量：`mcpToolEntries()` 里的每个工具都必须有**能力登记**，
 // 且只能来自两处之一 —— 各域自己的注册表（RegisterToolCap，见 AllRegisteredToolNames）
 // 或内置信表 `toolCaps`。这样后续再加工具时，「有条目但忘登记能力位」会被当场抓住
