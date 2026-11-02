@@ -20,6 +20,7 @@ import {APP_COMMIT, APP_VERSION, buildDateLabel, buildTimeLabel, detectPlatform,
 import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import type {AuditRecordView, CapabilitiesView, Credential, DebugSettings, Fonts, LocalShellOption, LogLevel, NavSectionOrder, RightClickAction, SecurityStatus, TabBarPlacement, TerminalColorMode, Theme, UIAppearance} from '../types'
 import CredentialDialog from './CredentialDialog.vue'
+import ConnectionInfoSection from './ConnectionInfoSection.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
 const settings = useSettingsStore()
@@ -27,9 +28,10 @@ const credentials = useCredentialsStore()
 const servers = useServersStore()
 const saving = ref(false)
 
-// 一级菜单：通用 / 外观 / 凭证 / 安全 / 调试模式 / 日志 / AI 记录 / 导入导出
+// 一级菜单：通用 / 连接说明 / 外观 / 凭证 / 安全 / 调试模式 / 日志 / AI 记录 / 导入导出
 const menuItems = [
   {key: 'general', label: '通用', icon: 'clock'},
+  {key: 'connectionInfo', label: '连接说明', icon: 'info'},
   {key: 'theme', label: '外观', icon: 'palette'},
   {key: 'credentials', label: '保存的凭证', icon: 'key'},
   {key: 'security', label: '安全', icon: 'lock'},
@@ -39,7 +41,7 @@ const menuItems = [
   {key: 'migrate', label: '导入导出', icon: 'package'},
   {key: 'about', label: '关于', icon: 'info'},
 ] as const
-type SettingsSection = 'general' | 'theme' | 'credentials' | 'security' | 'debug' | 'logs' | 'audit' | 'migrate' | 'about'
+type SettingsSection = 'general' | 'connectionInfo' | 'theme' | 'credentials' | 'security' | 'debug' | 'logs' | 'audit' | 'migrate' | 'about'
 const section = ref<SettingsSection>('general')
 const themeForm = reactive<Theme>(defaultTheme())
 const appearanceForm = reactive<UIAppearance>(defaultAppearance())
@@ -1453,6 +1455,11 @@ watch(
             <p v-else class="text-emerald-400">{{ historyMsg }}</p>
           </div>
         </div>
+      </div>
+
+      <!-- 连接说明 -->
+      <div v-else-if="section === 'connectionInfo'" class="max-w-3xl fade-rise">
+        <ConnectionInfoSection />
       </div>
 
       <!-- 外观 -->

@@ -4,6 +4,8 @@ import Icon from './Icon.vue'
 import {sshService} from '../services/ssh'
 import {useCredentialsStore} from '../stores/credentials'
 import {useServersStore} from '../stores/servers'
+import {useSessionsStore} from '../stores/sessions'
+import {useUIStore} from '../stores/ui'
 import type {Credential, ServerNode} from '../types'
 
 /**
@@ -15,8 +17,13 @@ const show = defineModel<boolean>({required: true})
 
 const servers = useServersStore()
 const credentials = useCredentialsStore()
+const sessions = useSessionsStore()
+const ui = useUIStore()
 const saving = ref(false)
+const testing = ref(false)
 const errorMsg = ref('')
+const testMsg = ref('')
+const testOk = ref(false)
 const keySource = ref<'file' | 'content'>('file')
 const selectedCred = ref('')
 /** 当前选中的凭证 id：用于「私钥内容不展示、保存时按 id 取回」的间接引用。 */
@@ -100,6 +107,8 @@ watch(
   ([open, editing]) => {
     if (!open) return
     errorMsg.value = ''
+    testMsg.value = ''
+    testOk.value = false
     keySource.value = editing?.keyContent ? 'content' : 'file'
     selectedCred.value = ''
     credentialsUsed.value = ''
@@ -149,44 +158,112 @@ function resolveKeyContent(): string {
   return (c?.keyContent ?? '').trim()
 }
 
-async function save() {
-  if (!form.name.trim() || !form.host.trim() || !form.user.trim()) {
-    errorMsg.value = '请填写名称、主机和用户名'
-    return
+/**
+ * 校验并构造待保存 / 待测试的服务器节点。
+ *
+ * - requireName：保存时需要名称，测试连接只关心登录凭据（主机 / 用户名 / 密码 / 私钥）。
+ * - 私钥内容在此解析：既支持表单里粘贴的内容，也支持「所选凭证」里的私钥明文
+ *   （resolveKeyContent 负责按 id 取回），同时不把明文写回 form，避免出现在 DOM 上。
+ * - 校验失败时写入 errorMsg 并返回 null。
+ */
+function buildPayload(requireName: boolean): ServerNode | null {
+  if (requireName && !form.name.trim()) {
+    errorMsg.value = '请填写名称'
+    return null
   }
+  if (!form.host.trim()) {
+    errorMsg.value = '请填写主机'
+    return null
+  }
+  if (!form.user.trim()) {
+    errorMsg.value = '请填写用户名'
+    return null
+  }
+  const node: ServerNode = {...form}
   if (form.authType === 'password' && !form.password) {
     errorMsg.value = '请填写密码'
-    return
+    return null
   }
   if (form.authType === 'privateKey') {
     if (keySource.value === 'file') {
       if (!(form.keyPath ?? '').trim()) {
         errorMsg.value = '请选择私钥文件'
-        return
+        return null
       }
-      form.keyContent = ''
+      // 文件来源：清掉可能残留的粘贴内容，优先用文件。
+      node.keyContent = ''
     } else {
       const content = resolveKeyContent()
       if (!content) {
         errorMsg.value = usingStoredKeyContent.value
           ? '所选凭证的私钥内容为空，请重新选择或粘贴私钥'
           : '请粘贴私钥内容'
-        return
+        return null
       }
-      form.keyContent = content
-      form.keyPath = ''
+      node.keyContent = content
+      node.keyPath = ''
     }
   }
+  return node
+}
+
+async function save() {
+  applyGroupToForm()
+  const payload = buildPayload(true)
+  if (!payload) return
   saving.value = true
   errorMsg.value = ''
   try {
-    applyGroupToForm()
-    await servers.save({...form, group: form.group.trim()})
+    await servers.save({...payload, group: payload.group.trim()})
     show.value = false
   } catch (e) {
     errorMsg.value = String(e)
   } finally {
     saving.value = false
+  }
+}
+
+/** 保存并连接：保存成功后回到终端页，并新开一个标签连接刚保存的服务器。 */
+async function saveAndConnect() {
+  applyGroupToForm()
+  const payload = buildPayload(true)
+  if (!payload) return
+  saving.value = true
+  errorMsg.value = ''
+  try {
+    const saved = await servers.save({...payload, group: payload.group.trim()})
+    show.value = false
+    ui.showWorkspace()
+    sessions.openTab(saved)
+  } catch (e) {
+    errorMsg.value = String(e)
+  } finally {
+    saving.value = false
+  }
+}
+
+/** 测试连接：用当前表单的凭据实际完成一次 SSH 登录，不写入服务器列表。 */
+async function testConnection() {
+  const payload = buildPayload(false)
+  if (!payload) return
+  testing.value = true
+  errorMsg.value = ''
+  testMsg.value = ''
+  testOk.value = false
+  try {
+    const res = await sshService.testServerLogin(payload)
+    if (res.reachable) {
+      testOk.value = true
+      testMsg.value = `登录成功，耗时 ${res.latencyMs}ms`
+    } else {
+      testOk.value = false
+      testMsg.value = `登录失败：${res.error || '未知错误'}`
+    }
+  } catch (e) {
+    testOk.value = false
+    testMsg.value = `登录失败：${String(e)}`
+  } finally {
+    testing.value = false
   }
 }
 
@@ -485,12 +562,24 @@ onMounted(() => {
           </div>
 
           <p v-if="errorMsg" class="text-xs text-rose-400 break-all">{{ errorMsg }}</p>
+          <p v-else-if="testMsg" class="text-xs break-all" :class="testOk ? 'text-[var(--ok-500)]' : 'text-rose-400'">
+            <Icon :name="testOk ? 'check' : 'alert'" :size="13" />
+            {{ testMsg }}
+          </p>
         </div>
 
         <div class="flex justify-end gap-2 px-6 py-5">
-          <button class="btn btn-ghost" :disabled="saving" @click="close">取消</button>
-          <button class="btn btn-primary" :disabled="saving" @click="save">
+          <button class="btn btn-ghost" :disabled="saving || testing" @click="close">取消</button>
+          <button class="btn btn-ghost" :disabled="testing || saving" @click="testConnection">
+            <Icon name="activity" :size="14" :extra-class="testing ? 'animate-spin' : ''" />
+            {{ testing ? '测试中…' : '测试连接' }}
+          </button>
+          <button class="btn btn-ghost" :disabled="saving || testing" @click="save">
             {{ saving ? '保存中…' : '保存' }}
+          </button>
+          <button class="btn btn-primary" :disabled="saving || testing" @click="saveAndConnect">
+            <Icon name="check" :size="14" />
+            保存并连接
           </button>
         </div>
       </div>

@@ -1050,6 +1050,7 @@ async function storePatchOp(args: Args): Promise<unknown> {
 
 const SETTINGS_SECTIONS: Record<string, string> = {
   general: '通用',
+  connectionInfo: '连接说明',
   theme: '外观',
   credentials: '保存的凭证',
   security: '安全',

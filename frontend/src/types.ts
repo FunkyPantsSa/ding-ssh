@@ -129,6 +129,8 @@ export interface Settings {
   fonts: Fonts
   autoReconnect: boolean // 断开后自动重连，默认开启
   keepAliveEnabled: boolean // 心跳包防终端超时，默认开启
+  // 登录 SSH 服务器后是否自动采集系统指标（默认开启）。关闭后连接服务器不会向远端执行任何采集命令。
+  sysInfoCollectEnabled: boolean
   localShell: string // 本机终端：darwin zsh|bash；windows powershell|cmd；linux default
   // 启动（解锁）后自动重新连接「上次关闭时仍在打开的服务器」（默认关闭）
   autoLoginLastServer: boolean

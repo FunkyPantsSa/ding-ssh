@@ -147,6 +147,8 @@ export function SyncSftpToTerminal(arg1:string,arg2:string):Promise<void>;
 
 export function TestServer(arg1:models.ServerNode):Promise<models.ServerTestResult>;
 
+export function TestServerLogin(arg1:models.ServerNode):Promise<models.ServerTestResult>;
+
 export function TestServers(arg1:Array<models.ServerNode>):Promise<Array<models.ServerTestResult>>;
 
 export function UndoAuditRecord(arg1:string,arg2:string,arg3:string):Promise<void>;

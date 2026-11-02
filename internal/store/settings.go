@@ -60,6 +60,8 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 			UIScale:              100,
 			AutoReconnect:        true,
 			KeepAliveEnabled:     true,
+			// 登录后自动采集系统指标：默认开启
+			SysInfoCollectEnabled: true,
 			TabBarPlacement:      "side", // 会话标签页默认放在左侧导航
 			RightClickAction:     models.RightClickMenu,
 			NavSectionOrder:      models.DefaultNavSectionOrder,
@@ -115,6 +117,10 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	}
 	if !bytesContains(data, []byte(`"keepAliveEnabled"`)) {
 		settings.KeepAliveEnabled = true
+	}
+	// 登录后自动采集系统指标：旧配置没有该字段 → 默认开启
+	if !bytesContains(data, []byte(`"sysInfoCollectEnabled"`)) {
+		settings.SysInfoCollectEnabled = true
 	}
 	// 标签页位置：旧配置没有该字段 → 新默认「左侧导航」；非法值同样回落默认
 	if settings.TabBarPlacement != "top" && settings.TabBarPlacement != "side" {

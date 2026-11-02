@@ -124,7 +124,7 @@ const pageMeta: Record<string, [string, string]> = {
   workspace: ['工作区', '终端 · 会话 · 文件'],
   servers: ['服务器管理', '节点 · 分组 · 在线状态'],
   tunnel: ['SSH 隧道', '本地 / 远程 / 动态转发'],
-  settings: ['设置', '通用 · 主题 · 安全 · 迁移'],
+  settings: ['设置', '通用 · 连接说明 · 外观 · 安全 · 迁移'],
 }
 
 const pageTitle = computed(() => pageMeta[ui.view]?.[0] ?? '工作区')
@@ -259,6 +259,12 @@ watchEffect(() => {
 })
 watchEffect(() => {
   document.documentElement.style.setProperty('--tool-w', `${effectiveToolW.value}px`)
+})
+// 界面缩放（.app-shell 的 zoom）同步到 <html> 上的 --ui-zoom：快速连接侧栏与遮罩
+// Teleport 到 body，不在 .app-shell 内，若不单独继承 zoom，导航被放大后面板会停在
+// 未缩放的导航宽度处，与放大后的导航右边界错位（面板盖住导航）。
+watchEffect(() => {
+  document.documentElement.style.setProperty('--ui-zoom', String((settings.uiScale || 100) / 100))
 })
 
 // ---- 分屏：槽位显隐与定位 ----

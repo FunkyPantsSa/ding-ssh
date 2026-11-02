@@ -314,6 +314,12 @@ func (a *App) TestServer(node models.ServerNode) models.ServerTestResult {
 	return res
 }
 
+// TestServerLogin 使用节点配置实际完成一次 SSH 登录，验证用户名 / 密码 / 私钥能否通过鉴权
+// （供新建 / 编辑服务器对话框的「测试连接」使用）。
+func (a *App) TestServerLogin(node models.ServerNode) models.ServerTestResult {
+	return sshx.TestServerLogin(node)
+}
+
 // TestServers 并发测试多台服务器在线状态，结果按传入顺序返回。
 func (a *App) TestServers(nodes []models.ServerNode) []models.ServerTestResult {
 	results := make([]models.ServerTestResult, len(nodes))
@@ -354,6 +360,10 @@ func (a *App) SaveSettings(settings models.Settings) error {
 		settings.LogEnabled, logx.FileEnabled(), logx.Level(), logx.APILogEnabled())
 	// 立即同步所有活跃会话的心跳开关
 	a.manager.SetKeepAliveEnabled(settings.KeepAliveEnabled)
+	// 「登录后自动采集」开关关闭时，立即停掉所有会话的远端采集（登录后不再执行采集命令）
+	if !settings.SysInfoCollectEnabled {
+		a.manager.StopAllSysInfoCollectors()
+	}
 	// 调试模式开关 / 端口变化立即生效（CDP 端口需下次启动）
 	a.reloadDebug(settings.Debug)
 	return nil

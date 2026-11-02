@@ -392,7 +392,7 @@ func uiToolEntries() []mcpTool {
 				"deep":  boolProp("true 表示函数式深合并（$patch 的函数形式），默认 false（$patch 对象形式 = 浅合并）"),
 			}, "name", "patch")},
 		{Name: OpUINavigate, Description: "切换主导航视图：workspace | servers | tunnel | settings；view=settings 时可带 section" +
-			"（general/theme/credentials/security/debug/logs/audit/migrate/about，通过点击设置页左侧分区实现）。" +
+			"（general/connectionInfo/theme/credentials/security/debug/logs/audit/migrate/about，通过点击设置页左侧分区实现）。" +
 			"返回前会等一帧，尽量让目标处于可截图状态。" + writeNote,
 			InputSchema: obj(map[string]any{
 				"view":    strProp("目标视图：workspace | servers | tunnel | settings"),
