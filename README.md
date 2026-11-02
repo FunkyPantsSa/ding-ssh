@@ -28,7 +28,8 @@
 - [十、日志与诊断](#十日志与诊断)
 - [十一、已知限制](#十一已知限制)
 - [十二、CI 与发布](#十二ci-与发布)
-- [十三、更多文档与许可](#十三更多文档与许可)
+- [十三、TODO：UI 设计规范化路线](#十三todoui-设计规范化路线)
+- [十四、更多文档与许可](#十四更多文档与许可)
 
 ---
 
@@ -454,7 +455,41 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-## 十三、更多文档与许可
+## 十三、TODO：UI 设计规范化路线
+
+> 目标：把前端**已经是风格的东西变成规范**，而不是换皮。当前 Grid Desk 视觉语言本身已统一
+> （深色优先、平面、1px 发丝线、单一强调色、严格字阶），真正的缺口是 token 层、密度档位与无障碍基线。
+
+**为什么不是 Material Design 3**：MD3 移动优先、tonal 抬升、低密度，与本应用的高密度桌面工作台
+（服务器列表 / SFTP 文件表 / 状态栏）冲突；且 MD3 不改渲染管线，既不提升显示效果，也不提升性能。
+
+**规范选型（已评估，按适配度）**
+
+| 规范 | 作用 | 结论 |
+| --- | --- | --- |
+| W3C Design Tokens (DTCG) | 设计令牌标准化格式，单一来源 | 作为统一骨架采用 |
+| IBM Carbon | 企业级、高密度、density 档位、暗色成熟 | 最佳借鉴对象（借架构，不搬组件） |
+| WCAG 2.2 AA + WAI-ARIA APG | 无障碍与键盘交互 | 必选基线 |
+| Microsoft Fluent 2 | 桌面密度模型 | 次级参考 |
+| Material Design 3 | 移动优先 | 不采用 |
+| Apple HIG | 仅 macOS 壳层 | 不作全平台统一规范 |
+
+**统一蓝图**
+
+- **身份层**：Grid Desk，保留现有审美，写成明文原则，不再凭感觉；
+- **令牌层**：现有 117 个 CSS 变量重组织为 `primitive → semantic → component` 三层，7 套预设从 semantic 派生；
+- **密度层**：借鉴 Carbon 思路，`compact`（SFTP / 列表 / 状态栏）与 `comfortable`（设置 / 命令面板）两档；
+- **基线**：WCAG 2.2 AA + WAI-ARIA APG（键盘优先）+ `prefers-reduced-motion`；
+- **动效**：补全 duration / easing 状态动效表。
+
+**落地顺序**
+
+1. **token 分层**：整理 `frontend/src/style.css` 的变量为 `tokens.json`（零视觉风险，立即验证思路）。
+2. **无障碍基线**：按 APG 补 `dialog` / `menu` / `tabs` 键盘模式与 `aria-*`。
+3. **密度档位**：给表格类组件加 `data-density`，复用现有 Tailwind 体系。
+4. **资源治理**：收敛 `@fontsource` 字体（当前 293 个字体文件 / 161 条 `@font-face`，CSS 214 KB）。
+
+## 十四、更多文档与许可
 
 - [`CHANGELOG.md`](CHANGELOG.md)：按开发顺序倒序记录已完成变更（现象 → 原因 → 修法）。
 - [`docs/design.md`](docs/design.md)、[`docs/prd.md`](docs/prd.md)：技术选型、模块设计与需求背景。
