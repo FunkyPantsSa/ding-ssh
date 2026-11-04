@@ -43,6 +43,7 @@ const settings = useSettingsStore()
 const servers = useServersStore()
 const commandStore = useCommandStore()
 const toast = useToast()
+const isMacOS = navigator.userAgent.includes('Macintosh')
 
 // 左侧导航折叠状态：同时把导航宽度写到 <html>，供 Teleport 到 body 的浮层
 // （快速连接侧栏、遮罩等）正确定位。
@@ -520,7 +521,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-shell" :style="{zoom: (settings.uiScale || 100) / 100}" data-ui="app" :data-view="ui.view">
+  <div class="app-shell" :class="{'platform-macos': isMacOS}" :style="{zoom: (settings.uiScale || 100) / 100}" data-ui="app" :data-view="ui.view">
     <!-- 解锁页 -->
     <AppUnlock v-if="needsUnlock" v-model="unlockPassword" :unlocking="unlocking" :error="unlockError" @submit="doUnlock" />
 
