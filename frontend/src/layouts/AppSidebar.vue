@@ -8,6 +8,7 @@ import {useSessionsStore} from '@/stores/sessions'
 import {useSettingsStore} from '@/stores/settings'
 import {useUIStore} from '@/stores/ui'
 import type {NavSectionKey} from '@/types'
+import appLogo from '@/assets/images/ding-logo.png'
 
 const props = defineProps<{collapsed: boolean; onlineCount: number}>()
 const emit = defineEmits<{'update:collapsed': [value: boolean]}>()
@@ -43,7 +44,7 @@ function onBrandClick() {
         :aria-label="collapsed ? '展开导航' : '返回工作区'"
         @click="onBrandClick"
       >
-        <Icon name="zap" :size="15" />
+        <img :src="appLogo" alt="" class="brand-logo nav-logo" />
       </button>
       <span class="nav-word">ding<span>-ssh</span></span>
       <Button
