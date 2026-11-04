@@ -6,7 +6,7 @@ import {deriveTerminalTheme, resolveTone} from '../theme/engine'
 import type {Fonts, Theme, UIAppearance} from '../types'
 
 export const UI_FONT_OPTIONS = ['Geist Sans', 'system'] as const
-export const TERMINAL_FONT_OPTIONS = ['Geist Mono', 'system'] as const
+export const TERMINAL_FONT_OPTIONS = ['Geist Mono', 'JetBrains Mono', 'Fira Code', 'system'] as const
 export const TONE_OPTIONS = [{key: 'auto', label: '跟随系统'}, {key: 'light', label: '浅色'}, {key: 'dark', label: '深色'}] as const
 export const MODE_OPTIONS = [{key: 'preset', label: '预设主题'}, {key: 'custom', label: '自定义'}] as const
 type AnsiColorKey = 'black' | 'red' | 'green' | 'yellow' | 'blue' | 'magenta' | 'cyan' | 'white' | 'brightBlack' | 'brightRed' | 'brightGreen' | 'brightYellow' | 'brightBlue' | 'brightMagenta' | 'brightCyan' | 'brightWhite'
@@ -46,7 +46,7 @@ export function useSettingsAppearance(settings: ReturnType<typeof useSettingsSto
   }
   async function setTone(tone: UIAppearance['baseTone']) {
     syncing = true; appearanceForm.baseTone = tone
-    if (appearanceForm.mode === 'preset') Object.assign(themeForm, paletteToTheme(tone === 'light' ? activePreset.value.light : activePreset.value.dark))
+    if (appearanceForm.mode === 'preset') Object.assign(themeForm, paletteToTheme(resolveTone(tone) === 'light' ? activePreset.value.light : activePreset.value.dark))
     else Object.assign(themeForm, deriveTerminalTheme(themeForm, appearanceForm.primary, resolveTone(tone)))
     syncing = false; await persistLook()
   }

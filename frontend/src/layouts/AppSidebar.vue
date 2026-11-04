@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed} from 'vue'
+import {computed, onBeforeUnmount, ref, watch} from 'vue'
 import Icon from '@/components/Icon.vue'
 import TabBar from '@/components/TabBar.vue'
 import {Button} from '@/components/ui'
@@ -25,35 +25,72 @@ const navSections = computed<NavSectionKey[]>(() => {
   return order.filter((key) => key !== 'tabs' || sideTabs.value)
 })
 
+const preview = ref(false)
+const sidebar = ref<HTMLElement | null>(null)
+let openTimer: ReturnType<typeof setTimeout> | undefined
+let closeTimer: ReturnType<typeof setTimeout> | undefined
+let dragging = false
+let pointerInside = false
+let keyboardFocus = false
+const visuallyCollapsed = computed(() => props.collapsed && !preview.value)
+function cancelOpen() { clearTimeout(openTimer) }
+function clearTimers() { clearTimeout(openTimer); clearTimeout(closeTimer) }
+function scheduleOpen() {
+  clearTimers()
+  if (props.collapsed && !preview.value) openTimer = setTimeout(() => { preview.value = true }, 500)
+}
+function enterSidebar() { pointerInside = true; clearTimeout(closeTimer) }
+function scheduleClose() {
+  clearTimeout(openTimer); clearTimeout(closeTimer)
+  if (!preview.value) return
+  closeTimer = setTimeout(() => {
+    if (pointerInside) return
+    if (dragging || (keyboardFocus && sidebar.value?.contains(document.activeElement)) || document.querySelector('.menu-pop, [role="menu"], .ui-dialog-root')) { scheduleClose(); return }
+    preview.value = false
+  }, 250)
+}
+function leaveSidebar() { pointerInside = false; scheduleClose() }
+function finishDrag() { dragging = false; if (!pointerInside) scheduleClose() }
+function focusTrigger(event: FocusEvent) { keyboardFocus = (event.target as HTMLElement).matches(':focus-visible'); scheduleOpen() }
+function leaveFocus(event: FocusEvent) {
+  if (!sidebar.value?.contains(event.relatedTarget as Node | null) && !pointerInside) scheduleClose()
+}
+watch(() => props.collapsed, () => { clearTimers(); preview.value = false })
+onBeforeUnmount(clearTimers)
+
 function toggleCollapsed() {
   emit('update:collapsed', !props.collapsed)
 }
 
 function onBrandClick() {
   if (props.collapsed) emit('update:collapsed', false)
-  else ui.showWorkspace()
+  else ui.showHome()
 }
 </script>
 
 <template>
-  <aside class="nav" :class="{'nav-collapsed': collapsed}" aria-label="主导航" data-ui="sidebar">
+  <aside ref="sidebar" class="nav" :class="{'nav-collapsed': visuallyCollapsed, 'nav-preview': collapsed && preview}" @pointerdown="keyboardFocus = false" @keydown.tab="keyboardFocus = true" @pointerenter="enterSidebar" @pointerleave="leaveSidebar" @focusout="leaveFocus" @dragstart="dragging = true" @dragend="finishDrag" @drop="finishDrag" @keydown.esc="preview = false" aria-label="主导航" data-ui="sidebar">
     <div class="nav-brand">
       <button
         class="nav-mark"
+        @pointerenter="scheduleOpen"
+        @pointerleave="cancelOpen"
+        @focus="focusTrigger"
+        :aria-expanded="!visuallyCollapsed"
         :title="collapsed ? '展开导航' : '返回工作区'"
         :aria-label="collapsed ? '展开导航' : '返回工作区'"
         @click="onBrandClick"
       >
         <img :src="appLogo" alt="" class="brand-logo nav-logo" />
       </button>
-      <span class="nav-word">ding<span>-ssh</span></span>
+      <span class="nav-word">Ding<span>-ssh</span></span>
       <Button
-        v-if="!collapsed"
+        v-if="!visuallyCollapsed"
         variant="ghost"
         size="icon"
         class="ml-auto"
-        title="收起导航"
-        aria-label="收起导航"
+        :title="collapsed ? '固定展开导航' : '收起导航'"
+        :aria-label="collapsed ? '固定展开导航' : '收起导航'"
         @click="toggleCollapsed"
       >
         <Icon name="chevrons-left" :size="14" />
@@ -68,19 +105,18 @@ function onBrandClick() {
           <button
             class="nav-item"
             data-ui="nav-item-workspace"
-            :class="ui.view === 'workspace' ? 'active' : ''"
-            :aria-current="ui.view === 'workspace' ? 'page' : undefined"
-            title="工作区"
-            @click="ui.showWorkspace()"
+            :class="ui.view === 'home' ? 'active' : ''"
+            :aria-current="ui.view === 'home' ? 'page' : undefined"
+            title="首页"
+            @click="ui.showHome()"
           >
             <Icon name="terminal" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">工作区</span>
+            <span class="nav-text">首页</span>
             <span v-if="onlineCount" class="nav-count">{{ onlineCount }}</span>
           </button>
           <button
             class="nav-item"
             data-ui="nav-item-local"
-            :class="sessions.activeTab?.kind === 'local' ? 'active' : ''"
             title="本地终端"
             @click="ui.showWorkspace(); sessions.openLocalTab()"
           >
@@ -154,3 +190,9 @@ function onBrandClick() {
     </div>
   </aside>
 </template>
+
+<style scoped>
+.nav-preview{position:absolute;inset:0 auto 0 0;width:var(--nav-expanded-w,216px);max-width:calc(100% - 48px);z-index:60;box-shadow:var(--shadow-pop);animation:sidebar-preview-in 160ms var(--ease-out)}
+@keyframes sidebar-preview-in{from{opacity:.7;transform:translateX(-6px)}to{opacity:1;transform:translateX(0)}}
+@media(prefers-reduced-motion:reduce){.nav-preview{animation:none}}
+</style>

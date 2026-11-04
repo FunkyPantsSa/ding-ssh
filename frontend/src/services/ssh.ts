@@ -1,3 +1,5 @@
+import {requestPassphrase} from './passphrase'
+
 // 封装 Wails 自动生成的绑定与事件，统一供各组件使用。
 import {
   Connect,
@@ -56,7 +58,7 @@ export const sshService = {
   saveServer: (node: ServerNode): Promise<ServerNode> => SaveServer(node),
   deleteServer: (id: string): Promise<void> => DeleteServer(id),
   testServer: (node: ServerNode): Promise<ServerTestResult> => TestServer(node),
-  testServerLogin: (node: ServerNode): Promise<ServerTestResult> => TestServerLogin(node),
+  testServerLogin: (node: ServerNode): Promise<ServerTestResult> => withAuthentication(phrases => withHostTrustResult(() => (window as any).go.main.App.TestServerLoginAuthenticated(node, phrases))),
   testServers: (nodes: ServerNode[]): Promise<ServerTestResult[]> => TestServers(nodes),
   selectKeyFile: (): Promise<string> => SelectKeyFile(),
   selectImageFile: (): Promise<string> => SelectImageFile(),
@@ -93,7 +95,7 @@ export const sshService = {
     localPort: number,
     remoteHost: string,
     remotePort: number,
-  ): Promise<TunnelInfo> => StartTunnel(node, name, mode, localPort, remoteHost, remotePort),
+  ): Promise<TunnelInfo> => withAuthentication(phrases => withHostTrust(() => (window as any).go.main.App.StartTunnelAuthenticated(node, name, mode, localPort, remoteHost, remotePort, phrases))),
   updateTunnel: (
     id: string,
     node: ServerNode,
@@ -107,8 +109,8 @@ export const sshService = {
   restartTunnel: (id: string): Promise<void> => RestartTunnel(id),
   removeTunnel: (id: string): Promise<void> => RemoveTunnel(id),
   listTunnels: (): Promise<TunnelInfo[]> => ListTunnels(),
-  connect: (sessionID: string, node: ServerNode, cols: number, rows: number): Promise<ConnectResult> =>
-    Connect(sessionID, node, cols, rows),
+  connect: (sessionID: string, node: ServerNode, cols: number, rows: number, interactive = true): Promise<ConnectResult> =>
+    interactive ? withAuthentication(phrases => withHostTrust(() => (window as any).go.main.App.ConnectAuthenticated(sessionID, node, cols, rows, phrases))) : Connect(sessionID,node,cols,rows),
   connectLocal: (sessionID: string, cols: number, rows: number): Promise<ConnectResult> =>
     ConnectLocal(sessionID, cols, rows),
   getPlatform: (): Promise<string> => GetPlatform(),
@@ -269,4 +271,49 @@ export function onSftpDirUpdated(sessionId: string, handler: (evt: { path: strin
   const event = `sftp:dir-updated:${sessionId}`
   EventsOn(event, (payload: { path: string; entries: SFTPEntry[] }) => handler(payload))
   return () => EventsOff(event)
+}
+
+// Only explicit UI actions call this wrapper; reconnect and backend API calls
+// retain fail-closed behavior for unknown hosts.
+async function approveUnknownHost(error: unknown): Promise<boolean> {
+  const match = String(error).match(/SSH_HOST_TRUST:([A-Za-z0-9_-]+)/)
+  if (!match) return false
+  const raw = match[1]!.replace(/-/g, '+').replace(/_/g, '/')
+  const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0))
+  const challenge = JSON.parse(new TextDecoder().decode(bytes))
+  return (window as any).go.main.App.ConfirmHostTrust(challenge.host, challenge.key)
+}
+async function withHostTrust<T>(action: () => Promise<T>): Promise<T> {
+  // Bounded retries also support a chain with up to five intermediate hosts.
+  for (let attempt = 0; ; attempt++) {
+    try { return await action() }
+    catch (error) {
+      if (attempt >= 6 || !await approveUnknownHost(error)) throw error
+    }
+  }
+}
+async function withHostTrustResult(action: () => Promise<ServerTestResult>): Promise<ServerTestResult> {
+  for (let attempt = 0; ; attempt++) {
+    const result = await action()
+    if (result.reachable || attempt >= 6 || !await approveUnknownHost(result.error)) return result
+  }
+}
+
+async function withAuthentication<T>(action: (phrases: Record<string, string>) => Promise<T>): Promise<T> {
+ const phrases: Record<string, string> = {}
+ try {
+  for (let attempt = 0; ; attempt++) {
+   let result: T | undefined
+   let failure: unknown
+   try { result = await action(phrases); failure = (result as any)?.error }
+   catch (error) { failure = error }
+   const match = String(failure ?? '').match(/SSH_KEY_PASSPHRASE:([A-Za-z0-9_-]+)/)
+   if (!match || attempt >= 6) { if (result !== undefined) return result; throw failure }
+   const raw = match[1]!.replace(/-/g, '+').replace(/_/g, '/')
+   const path = new TextDecoder().decode(Uint8Array.from(atob(raw), c => c.charCodeAt(0)))
+   const value = await requestPassphrase(path)
+   if (value === null) { if (result !== undefined) return result; throw new Error('已取消私钥解锁') }
+   phrases[path] = value
+  }
+ } finally { for (const path of Object.keys(phrases)) delete phrases[path] }
 }

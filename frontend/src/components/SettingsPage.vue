@@ -39,23 +39,35 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex min-h-0" data-ui="settings">
-    <SettingsNavigation :items="menuItems" :model-value="section" @update:model-value="section = $event as SettingsSection" />
+  <div class="settings-shell h-full flex min-h-0" data-ui="settings">
+    <div class="settings-workspace flex flex-1 min-w-0 min-h-0">
+      <SettingsNavigation :items="menuItems" :model-value="section" @update:model-value="section = $event as SettingsSection" />
 
-    <div class="flex-1 min-w-0 overflow-y-auto px-8 py-6" :data-ui="`settings-section-${section}`" :data-section="section">
-      <SettingsGeneralSection v-if="section === 'general'" />
-      <HotkeysSection v-else-if="section === 'hotkeys'" />
-      <div v-else-if="section === 'connectionInfo'" class="max-w-3xl fade-rise">
-        <ConnectionInfoSection />
+      <div class="settings-content flex-1 min-w-0 overflow-y-auto px-6 py-6" :data-ui="`settings-section-${section}`" :data-section="section">
+        <SettingsGeneralSection v-if="section === 'general'" />
+        <HotkeysSection v-else-if="section === 'hotkeys'" />
+        <div v-else-if="section === 'connectionInfo'" class="max-w-3xl fade-rise">
+          <ConnectionInfoSection />
+        </div>
+        <SettingsThemeSection v-else-if="section === 'theme'" />
+        <SettingsCredentialsSection v-else-if="section === 'credentials'" />
+        <SettingsSecuritySection v-else-if="section === 'security'" />
+        <SettingsDebugSection v-else-if="section === 'debug'" />
+        <SettingsLogsSection v-else-if="section === 'logs'" />
+        <SettingsAuditSection v-else-if="section === 'audit'" />
+        <SettingsMigrateSection v-else-if="section === 'migrate'" />
+        <SettingsAboutSection v-else />
       </div>
-      <SettingsThemeSection v-else-if="section === 'theme'" />
-      <SettingsCredentialsSection v-else-if="section === 'credentials'" />
-      <SettingsSecuritySection v-else-if="section === 'security'" />
-      <SettingsDebugSection v-else-if="section === 'debug'" />
-      <SettingsLogsSection v-else-if="section === 'logs'" />
-      <SettingsAuditSection v-else-if="section === 'audit'" />
-      <SettingsMigrateSection v-else-if="section === 'migrate'" />
-      <SettingsAboutSection v-else />
     </div>
   </div>
 </template>
+
+<style scoped>
+.settings-shell{background:transparent}
+.settings-workspace{overflow:hidden;border-radius:var(--radius-layout);background:transparent}
+.settings-content{border-radius:var(--radius-layout);background:transparent}
+:deep(.set-nav){background:transparent}
+:deep([data-section-content] > .neo){border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:none;background:var(--theme-bg-surface)}
+:deep([data-section-content] > :not(:first-child)){margin-top:var(--space-4)}
+@media(max-width:760px){.settings-content{padding:var(--space-4)}.settings-shell :deep(.set-nav){width:156px;padding:var(--space-2)}}
+</style>

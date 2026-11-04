@@ -41,14 +41,8 @@ func TestConnectivity(host string, port int) models.ServerTestResult {
 // 成功时 Reachable=true、LatencyMS 为登录耗时；失败时 Reachable=false、Error 为失败原因。
 func TestServerLogin(node models.ServerNode) models.ServerTestResult {
 	res := models.ServerTestResult{NodeID: node.ID}
-	config, err := buildClientConfig(node, noopProgress)
-	if err != nil {
-		// 构造鉴权配置失败（例如私钥无法解析、未选择私钥文件）
-		res.Error = err.Error()
-		return res
-	}
 	start := time.Now()
-	client, err := dialSSH(node.Host, node.Port, config, noopProgress)
+	client, err := dialNode(node, noopProgress)
 	if err != nil {
 		res.LatencyMS = -1
 		res.Error = connectError(err).Error()

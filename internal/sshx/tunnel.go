@@ -29,9 +29,9 @@ const (
 type TunnelMode string
 
 const (
-	TunnelLocal    TunnelMode = "local"    // -L 本地转发
-	TunnelRemote   TunnelMode = "remote"   // -R 远程转发
-	TunnelDynamic  TunnelMode = "dynamic"  // -D SOCKS5
+	TunnelLocal   TunnelMode = "local"   // -L 本地转发
+	TunnelRemote  TunnelMode = "remote"  // -R 远程转发
+	TunnelDynamic TunnelMode = "dynamic" // -D SOCKS5
 )
 
 // Tunnel 一条 SSH 隧道（支持 Local / Remote / Dynamic）。
@@ -133,11 +133,7 @@ func (t *Tunnel) Start() error {
 	t.stopFn = cancel
 	t.mu.Unlock()
 
-	config, err := buildClientConfig(t.node, noopProgress)
-	if err != nil {
-		return err
-	}
-	client, err := dialSSH(t.node.Host, t.node.Port, config, noopProgress)
+	client, err := dialNodeContext(ctx, t.node, noopProgress)
 	if err != nil {
 		return err
 	}
@@ -166,6 +162,12 @@ func (t *Tunnel) Start() error {
 	}
 
 	t.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		t.mu.Unlock()
+		ln.Close()
+		client.Close()
+		return err
+	}
 	t.client = client
 	t.listener = ln
 	t.status = TunnelRunning

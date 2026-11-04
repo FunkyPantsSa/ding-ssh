@@ -6,6 +6,11 @@
 @import "@fontsource/geist-mono/latin-400.css";
 @import "@fontsource/geist-mono/latin-500.css";
 @import "@fontsource/geist-mono/latin-600.css";
+@import "@fontsource/jetbrains-mono/latin-400.css";
+@import "@fontsource/jetbrains-mono/latin-700.css";
+@import "@fontsource/fira-code/latin-400.css";
+@import "@fontsource/fira-code/latin-700.css";
+@import "@fontsource/noto-sans-sc/400.css";
 @import "./theme/tokens.css";
 @import "./theme/semantic.css";
 @import "./theme/components.css";
@@ -48,7 +53,7 @@ html, body, #app {
 }
 body {
   font-family: var(--font-sans);
-  background: var(--background);
+  background: transparent;
   color: var(--foreground);
   font-size: 13px;
   line-height: 1.5;
@@ -79,8 +84,20 @@ img, svg { display: block; max-width: 100%; }
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--background);
+  border-radius: var(--radius-window);
+  background: transparent;
   overflow: hidden;
+}
+.app-shell.platform-macos { padding-top: 28px; }
+.window-drag-region {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 28px;
+  background: var(--theme-bg-sidebar, var(--surface-1));
+  box-shadow: inset 0 -1px 0 var(--line);
+  -webkit-app-region: drag;
+  --wails-draggable: drag;
+  z-index: 70;
 }
 /* 顶栏一条极细的品牌色高光线，替代原先的噪点 + 网格纹理 */
 .app-shell::before {
@@ -124,10 +141,13 @@ body.col-resizing * { cursor: col-resize !important; }
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: color-mix(in srgb, var(--theme-bg-sidebar, var(--surface-1)) var(--theme-glass-opacity, 100%), transparent);
-  backdrop-filter: blur(var(--theme-glass-blur, 0));
-  -webkit-backdrop-filter: blur(var(--theme-glass-blur, 0));
-  box-shadow: inset -1px 0 0 var(--line);
+  background: var(--theme-bg-sidebar, var(--surface-1));
+  backdrop-filter: blur(var(--theme-glass-blur, 0)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--theme-glass-blur, 0)) saturate(120%);
+  border: 0;
+  border-right: 1px solid var(--border-subtle);
+  border-radius: var(--radius-layout);
+  box-shadow: none;
   overflow: hidden;
   /* 高于快速连接面板（.qconn z 50）：面板开合滑动时从导航右边界下方划出/划入，
      而不是盖着导航从屏幕最左边划过。其余浮层（右键菜单 80 / 弹窗 100 / 提示 200）仍在其上。 */
@@ -143,17 +163,16 @@ body.col-resizing * { cursor: col-resize !important; }
   flex-shrink: 0;
 }
 .nav-mark {
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  background: color-mix(in srgb, var(--surface-2) 82%, transparent);
-  overflow: hidden;
+  background: transparent;
+  overflow: visible;
 }
 .brand-logo { width: 100%; height: 100%; object-fit: contain; display: block; }
-.nav-logo { width: 25px; height: 25px; }
+.nav-logo { width: 34px; height: 34px; }
 .nav-word {
   font-size: 13.5px;
   font-weight: 600;
@@ -167,16 +186,16 @@ body.col-resizing * { cursor: col-resize !important; }
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px;
+  padding: var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: 6px; /* 区段（导航 / 会话 / 标签页）之间的间距 */
+  gap: var(--space-2); /* 区段（导航 / 会话 / 标签页）之间的间距 */
 }
-/* 左侧导航区段：内部按钮保持 1px 间距（与原先 nav-body 直接排列一致） */
+/* 左侧导航区段：导航项使用统一的 4px 节奏。 */
 .nav-sec {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--space-1);
   min-height: 0;
 }
 .nav-label {
@@ -195,7 +214,7 @@ body.col-resizing * { cursor: col-resize !important; }
   gap: 10px;
   height: 34px;
   padding: 0 8px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-nav-active);
   font-size: 13px;
   font-weight: 500;
   color: var(--foreground-secondary);
@@ -230,13 +249,16 @@ body.col-resizing * { cursor: col-resize !important; }
   background: var(--hover);
 }
 .nav-foot {
-  padding: 8px;
+  height: var(--status-h);
+  padding: 0 var(--space-3);
   box-shadow: inset 0 1px 0 var(--line);
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--space-1);
   flex-shrink: 0;
 }
+.nav-foot .nav-item { height: var(--status-h); font-size: 12px; }
+.nav-foot .nav-ico { width: 14px; height: 14px; }
 /* 收起态：仅图标 */
 .nav-collapsed .nav-brand { justify-content: center; padding: 0; }
 .nav-collapsed .nav-word,
@@ -249,7 +271,7 @@ body.col-resizing * { cursor: col-resize !important; }
 .nav-collapsed .nav-item { width: 38px; }
 .nav-collapsed .nav-brand .btn-icon { display: none; }
 .nav-collapsed .nav-item.active::before { left: -6px; }
-.nav-collapsed .nav-foot { padding: 8px 6px; }
+.nav-collapsed .nav-foot { padding: 0 6px; }
 
 /* ---------- 导航内标签页（设置：标签页位置 = 左侧导航；作为「标签页」区段并入 nav-body） ---------- */
 .side-tabs {
@@ -298,6 +320,7 @@ body.col-resizing * { cursor: col-resize !important; }
   align-items: center;
   gap: 10px;
   padding: 0 12px 0 14px;
+  border-radius: var(--radius-layout);
   background: var(--surface-1);
   box-shadow: inset 0 -1px 0 var(--line);
   flex-shrink: 0;
@@ -387,7 +410,7 @@ body.col-resizing * { cursor: col-resize !important; }
    ============================================================ */
 .panel {
   background: var(--surface-1);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   box-shadow: inset 0 0 0 1px var(--line);
 }
 .panel-head {
@@ -402,7 +425,7 @@ body.col-resizing * { cursor: col-resize !important; }
 /* 兼容旧类名：neo 系列改为平面卡片 */
 .neo {
   background: var(--surface-2);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   box-shadow: inset 0 0 0 1px var(--line);
   transition: box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
 }
@@ -606,7 +629,7 @@ body.col-resizing * { cursor: col-resize !important; }
 .seg button {
   height: 26px;
   padding: 0 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-small);
   font-size: 12px;
   font-weight: 500;
   color: var(--muted-foreground);
@@ -615,7 +638,8 @@ body.col-resizing * { cursor: col-resize !important; }
 .seg button:hover { color: var(--foreground); }
 .seg button.active {
   color: var(--foreground);
-  background: var(--hover-strong);
+  background: var(--primary-weak);
+  box-shadow: inset 0 0 0 1px var(--primary-border);
 }
 .toggle {
   width: 36px; height: 20px;
@@ -713,9 +737,10 @@ body.col-resizing * { cursor: col-resize !important; }
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-  box-shadow: inset 0 0 0 1px var(--line);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--surface-2) var(--theme-glass-opacity, 88%), transparent);
+  box-shadow: 0 14px 36px rgb(0 0 0 / 6%);
 }
 .side-group-item {
   display: flex;
@@ -744,9 +769,10 @@ body.col-resizing * { cursor: col-resize !important; }
   background: var(--hover);
 }
 .server-list-panel {
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-  box-shadow: inset 0 0 0 1px var(--line);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--surface-2) var(--theme-glass-opacity, 88%), transparent);
+  box-shadow: 0 14px 36px rgb(0 0 0 / 6%);
 }
 /* 列表行：密集、发丝分隔 */
 .server-row {
@@ -896,6 +922,7 @@ body.col-resizing * { cursor: col-resize !important; }
   align-items: center;
   gap: 16px;
   padding: 0 14px;
+  border-radius: var(--radius-layout);
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--muted-foreground);
@@ -1114,18 +1141,19 @@ body.col-resizing * { cursor: col-resize !important; }
    ============================================================ */
 .set-nav {
   width: 188px;
-  padding: 12px 8px;
-  box-shadow: inset -1px 0 0 var(--line);
+  padding: var(--space-3);
+  border-radius: var(--radius-layout);
+  border-right: 1px solid var(--border-subtle);
   background: var(--surface-1);
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--space-1);
   flex-shrink: 0;
 }
 .set-nav button {
   height: 32px;
   padding: 0 9px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-nav-active);
   text-align: left;
   font-size: 12.5px;
   font-weight: 500;
@@ -1161,7 +1189,7 @@ body.col-resizing * { cursor: col-resize !important; }
    ============================================================ */
 .qconn-mask {
   position: fixed;
-  inset: 0 0 0 var(--nav-w);
+  inset: var(--window-titlebar-h, 0px) 0 0 var(--nav-w);
   z-index: 40;
   background: var(--overlay);
   /* 继承界面缩放：面板/遮罩 Teleport 到 body，不继承 .app-shell 的 zoom，
@@ -1172,15 +1200,18 @@ body.col-resizing * { cursor: col-resize !important; }
 }
 .qconn {
   position: fixed;
-  left: var(--nav-w); top: 0; bottom: 0;
+  left: calc(var(--nav-w) + 12px); top: calc(var(--window-titlebar-h, 0px) + 10px); bottom: 10px;
   width: var(--qconn-w);
   z-index: 50;
   zoom: var(--ui-zoom, 1);
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--surface-1);
-  box-shadow: inset -1px 0 0 var(--line), var(--shadow-side-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--surface-2) var(--theme-glass-opacity, 90%), transparent);
+  box-shadow: var(--shadow-side-panel), inset 0 1px rgb(255 255 255 / 5%);
+  backdrop-filter: blur(var(--theme-glass-blur, 24px));
   /* 面板内部重绘不外溢：开合位移时模糊阴影与列表内容不会牵连整屏 */
   contain: paint;
 }
@@ -1202,7 +1233,7 @@ body.col-resizing * { cursor: col-resize !important; }
 /* ============================================================
    终端
    ============================================================ */
-.terminal-bg { background: var(--background); }
+.terminal-bg { background: transparent; }
 .xterm { height: 100%; padding: 14px 16px; }
 .xterm .xterm-rows { text-shadow: var(--terminal-text-shadow); }
 .xterm-viewport { background: transparent !important; }
@@ -1312,3 +1343,19 @@ body.col-resizing * { cursor: col-resize !important; }
 }
 
 } /* @layer components */
+
+/* One glass layer per shell region, with opaque fallback on unsupported engines. */
+.topbar,.status-bar{background:var(--theme-bg-toolbar,var(--surface-2));backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%);-webkit-backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.nav,.window-drag-region{background:var(--surface-1)}.topbar,.status-bar{background:var(--surface-2)}}
+
+/* Main pages share the same tinted material; terminal glyphs remain opaque. */
+.app-layout-main{background:var(--theme-bg-main)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.app-layout-main{background:var(--background)}}
+
+/* Keep page backgrounds on the shared native material rather than hiding it
+   behind opaque cards. Server data uses a quieter blur for legibility. */
+.app-layout-main{backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%);-webkit-backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%)}
+.app-layout-main:has(.workspace-home){background:var(--theme-bg-sidebar,var(--surface-1))}
+.server-sidebar,.server-list-panel{background:var(--theme-bg-surface,var(--surface-2));backdrop-filter:blur(calc(var(--theme-glass-blur,0px) / 2));-webkit-backdrop-filter:blur(calc(var(--theme-glass-blur,0px) / 2))}
+.panel,.neo,.neo-flat{background:var(--theme-bg-surface,var(--surface-2))}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.app-layout-main:has(.workspace-home){background:var(--background)}.server-sidebar,.server-list-panel,.panel,.neo,.neo-flat{background:var(--surface-2)}}
