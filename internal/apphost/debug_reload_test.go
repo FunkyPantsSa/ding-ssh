@@ -1,4 +1,4 @@
-package main
+package apphost
 
 // M9：调试服务「就地生效」的回归测试。
 //

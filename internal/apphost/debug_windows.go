@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package apphost
 
 import (
 	"ding-ssh/internal/logx"
@@ -8,7 +8,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 )
 
-// applyDebugBrowserArgs Windows 下暂时无能为力：
+// ApplyDebugBrowserArgs Windows 下暂时无能为力：
 // Wails v2.13 在创建 WebView2 环境前会执行 preventEnvAndRegistryOverrides()，
 // 直接覆盖 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS，而 windows.Options 又没有暴露
 // AdditionalBrowserArgs 字段 —— 因此无法从应用侧注入 --remote-debugging-port。
@@ -19,7 +19,7 @@ import (
 //   - 截图计划在 M2 用原生窗口捕获（PrintWindow/BitBlt）实现。
 //
 // 若确实需要 CDP，可对 Wails 打补丁（go.mod replace）后再在此处注入。
-func applyDebugBrowserArgs(_ *options.App, boot DebugBoot) {
+func ApplyDebugBrowserArgs(_ *options.App, boot DebugBoot) {
 	if boot.Enabled && boot.CDPEnabled {
 		logx.Infof("提示：WebView2 远程调试（CDP）在 Wails v2.13 下无法注入，已改用调试 API（/v1/eval）")
 	}

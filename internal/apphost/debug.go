@@ -1,4 +1,4 @@
-package main
+package apphost
 
 import (
 	"archive/zip"
@@ -62,8 +62,8 @@ func DebugInfoPath() string {
 	return filepath.Join(appdir.ConfigDir(), "debug.json")
 }
 
-// readDebugBoot 在 wails.Run 之前读一次设置（此时 startup 尚未初始化存储层）。
-func readDebugBoot() DebugBoot {
+// ReadDebugBoot 在 wails.Run 之前读一次设置（此时 Startup 尚未初始化存储层）。
+func ReadDebugBoot() DebugBoot {
 	d := models.DefaultDebugSettings()
 	if db, err := store.OpenSQLite(store.DefaultSQLitePath()); err == nil {
 		if st, gerr := store.NewSQLiteSettingsStore(db).Get(); gerr == nil {

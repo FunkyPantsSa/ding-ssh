@@ -84,7 +84,7 @@
 
 ## [未发布] 2026-10-01 · M10 收尾 · `terminal.sudo` 挂起/超时后的清理保证（独立 SFTP 通道 + `cleanupOnly`）
 
-工具面数量不变（仍是 89 个）：本次只给既有工具 `terminal.sudo` 加了一个可选参数 `cleanupOnly`，并新增一条**宿主 op**（`sudo.cleanup`，不进 MCP 工具清单，只在 `debug.go` 的 `Handle` 里分发）。
+工具面数量不变（仍是 89 个）：本次只给既有工具 `terminal.sudo` 加了一个可选参数 `cleanupOnly`，并新增一条**宿主 op**（`sudo.cleanup`，不进 MCP 工具清单，只在 `internal/apphost/debug.go` 的 `Handle` 里分发）。
 
 ### 修复
 
@@ -96,7 +96,7 @@
 - `terminal.sudo` 的返回新增 `cleanupAttempted` / `cleanupVerified` 两个布尔字段（独立通道是否被调用 / 是否复核确认删除）；成功路径也会调用独立通道，用于如实报告。
 - `terminal.sudo` 的可选参数 **`cleanupOnly`**（string，远端路径）：用于超时 / 异常后清理可能残留的临时文件；传了它 ⇒ 跳过取密码与 stage，只对指定路径执行独立清理，返回 `{ok, sudo:false, cleanupOnly:true, sessionId, path, removed, existed, cleanupAttempted, cleanupVerified, cleanedUp, hint?}`，幂等（文件不存在也算成功）。不接受任意路径，只接受本工具生成的 `/tmp/.ding-sudo-<12hex>` 形态；仍受 `sudo.credential` 能力位与两段式确认（action 仍是 `terminal.sudo`）约束；它不碰终端，因此也不占「同会话串行化」名额。相应地 `command` 不再是 schema 的必填项（cleanupOnly 模式下不需要），主流程缺 `command` 时仍报中文 `ErrBadInput`。
 - 新增宿主 op **`sudo.cleanup`**：入参 `{sessionId, path}`，返回 `{removed, existed, verified, reason}`；校验顺序为「路径形态 → 白名单 → 会话 SFTP 客户端」。
-- 用例：`internal/debugsrv/sudo_test.go` 新增「超时批次走独立清理」「独立清理先于终端兜底」「独立清理失败给残留路径」「独立清理通道报错」「cleanupOnly 正常 / 幂等 / 非法路径拒绝 / 白名单 / 能力位与两段式 / 不占终端名额」等；`sudo_cleanup_test.go`（包 main）覆盖宿主侧的入参校验、白名单、「拿不到 SFTP 客户端」的降级行为，并用 **pkg/sftp 的内存 SFTP 服务端**（`InMemHandler` + 管道）跑一遍真实的 `Remove` / `Lstat` 协议路径，验证 `verified` 的判据与幂等语义；全部用替身，**不连任何主机**。
+- 用例：`internal/debugsrv/sudo_test.go` 新增「超时批次走独立清理」「独立清理先于终端兜底」「独立清理失败给残留路径」「独立清理通道报错」「cleanupOnly 正常 / 幂等 / 非法路径拒绝 / 白名单 / 能力位与两段式 / 不占终端名额」等；`internal/apphost/sudo_cleanup_test.go`（包 apphost）覆盖宿主侧的入参校验、白名单、「拿不到 SFTP 客户端」的降级行为，并用 **pkg/sftp 的内存 SFTP 服务端**（`InMemHandler` + 管道）跑一遍真实的 `Remove` / `Lstat` 协议路径，验证 `verified` 的判据与幂等语义；全部用替身，**不连任何主机**。
 
 ### 文档
 
@@ -145,7 +145,7 @@
 - **`terminal.run` 未给 `expect` 时不再把回显当「真实输出」** —— 现象是「先回显、后静默、最后才吐输出」的命令（如 `docker ps`）在 ~400ms 就被判定跑完，只拿到回显；原因是首个输出块（其实是回显）把静默窗口从 1500ms 宽限重置成 400ms；修法是只有出现**回显之外的真实输出**才把窗口收窄到 `idleMs`，并要求真实输出前保持更宽的宽限；同时新增 `idleMs` 参数（默认 400，范围 50–60000）并在返回里回显。
 - **`ui.diff` 的 `styles` 指纹细化到 CSS 属性级** —— 现象是 `changed[].fields[]` 里 `styles` 整份 `from`/`to` 丢回来，AI 还得自己做一遍 diff；修法是只报**真正变化**的属性（`{name:"styles", styles:{属性:{from,to}}}`，没有属性变化就不出现该条目），其余字段（`rect` / `classes` / `zIndex` / `visible` / `text`）形状不变。
 - **`sftp.read` 对 `/etc/hostname` 报错的排查结论：不是缺陷** —— 完整错误是 `打开远端文件 "/etc/hostname" 失败：远端路径不存在（file does not exist）`（`isError=true`）；同会话 `sftp.list /etc` 的 147 条里确实没有 `hostname`（该 Arch 主机没生成这个文件），`/etc/os-release`（符号链接）、`/etc/passwd`、无换行结尾的文件、0 字节文件读取均正常，目录路径会返回「是目录，请用 sftp.list」。调用方需要注意：错误是 `isError=true` + 文本，不要当 JSON 解析。
-- **`sftp.write` 写不出 0 字节文件** —— 现象是 `sftp.write{path:"/tmp/x", content:""}` 返回 `缺少写入内容（content / base64）`，而 `sftpWriteContent` 的中文提示里明确写了「写空文件请显式传 content: ""」；原因是宿主按 base64 的**值**是否为空判断有没有内容，而 debugsrv 侧总是把内容编码成 base64 传下来（空内容编码后正好是空串），于是「空内容」与「没给内容」被混为一谈；修法是改成按**键是否存在**判定（base64 优先、其次 content，空字符串是合法内容），并补了参数解释规则的回归用例（`sftp_write_test.go`）。
+- **`sftp.write` 写不出 0 字节文件** —— 现象是 `sftp.write{path:"/tmp/x", content:""}` 返回 `缺少写入内容（content / base64）`，而 `sftpWriteContent` 的中文提示里明确写了「写空文件请显式传 content: ""」；原因是宿主按 base64 的**值**是否为空判断有没有内容，而 debugsrv 侧总是把内容编码成 base64 传下来（空内容编码后正好是空串），于是「空内容」与「没给内容」被混为一谈；修法是改成按**键是否存在**判定（base64 优先、其次 content，空字符串是合法内容），并补了参数解释规则的回归用例（`internal/apphost/sftp_write_test.go`）。
 
 ### 变更
 

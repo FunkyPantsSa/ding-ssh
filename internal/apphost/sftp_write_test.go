@@ -1,4 +1,4 @@
-package main
+package apphost
 
 // M9 收尾：sftp.write 的「写入内容」解释规则回归测试。
 //

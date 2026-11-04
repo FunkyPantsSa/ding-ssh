@@ -1,4 +1,4 @@
-package main
+package apphost
 
 // M10 收尾：独立 SFTP 清理通道（宿主 op sudo.cleanup）的**宿主侧**用例。
 //
