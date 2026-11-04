@@ -4,6 +4,8 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "moduleResolution": "Node",
+    "baseUrl": ".",
+    "paths": {"@/*": ["src/*"]},
     "strict": true,
     "jsx": "preserve",
     "sourceMap": true,

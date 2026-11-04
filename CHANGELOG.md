@@ -8,6 +8,49 @@
 
 ---
 
+## [未发布] 2026-11-04 · UI 2.0 评审回归修复
+
+### 变更
+
+- **恢复原信息架构**：移除「概览」「传输」两个新增顶级导航与独立页面；传输历史仍从工作区右侧面板进入。命令面板不再提供 `overview` / `transfers` 路由，`ui.navigate` 仅把这两个旧值作为兼容别名映射到工作区（传输额外打开右侧面板）。`SettingsView` / `ServersPage` / `TunnelsPage` 三个四行转发壳删除，页面组件由 `App.vue` 直接挂载。
+- **Token 单一来源**：`tokens.css` 成为颜色基色、间距、圆角、字体、动效与布局变量的唯一定义处；`style.css` 删除整套重复颜色 / 尺度定义，只保留组件与布局规则；`semantic.css` 负责深浅语义色，`components.css` 只保留派生别名。`--radius-lg` 统一为 8px、`--radius-xl` 统一为 12px。
+- **字体兜底改为 Geist**：静态 `--font-sans` / `--font-mono` 与 `engine.ts` 的默认栈均以 Geist Sans / Geist Mono 开头；`system` 选项仍显式回落到系统中文字体，不再出现 Inter / Sora / JetBrains Mono 兜底。
+- **基础组件落地**：`App.vue` 解锁页、服务器列表 / 工具栏 / 编辑弹窗、凭证弹窗、隧道页 / 卡片、设置各分区、SFTP 与传输面板、终端连接浮层均改用 `Button` / `Input` / `Field` / `Select` / `Textarea` / `Dialog` / `ErrorState` / `EmptyState`。生产模板中不再使用 `.btn` / `.input` / `.select` / `.textarea` 旧类。
+- **继续拆分大组件**：`App.vue` 903 → 683 行（导航抽到 `AppSidebar.vue`、解锁页抽到 `AppUnlock.vue`）；`SettingsPage.vue` 2191 → 61 行，拆成通用 / 快捷键 / 连接说明 / 外观 / 凭证 / 安全 / 调试 / 日志 / AI 记录 / 导入导出 / 关于 11 个分区组件；`TerminalView.vue` 1582 → 1173 行，补全状态与输入跟踪抽到 `useTerminalCompletion.ts`，命令解析抽到 `terminal/command-line.ts`。
+- **无障碍补齐**：服务器行改为真实 `<button>`（Enter / Space 可连接，Shift+F10 打开菜单）；导入导出密码框使用显式 `label[for]`；终端 / 服务器右键菜单使用 `role="menu"` + `menuitem`、方向键 / Home / End / Esc 与打开后聚焦；`Dialog` 增加初始焦点、Tab 焦点陷阱、Esc 关闭与关闭后焦点恢复。
+
+### 修复
+
+- **本机 zsh 提示符与光标错行** —— 现象：oh-my-zsh / powerlevel10k 的 `➜  ~ ` 在上一行，光标和输入落在下一行；原因不是 WebGL，而是语义着色器为了按行着色，把「不以换行结尾」且不匹配 `$` / `#` 的 ANSI zsh 提示符留在 `pending`，直到下次回车才写入 xterm。修法：半行中出现 ANSI/OSC/CSI/C0 控制序列时立即原样透传，不参与语义着色；新增无换行 ANSI zsh prompt 和连续回车的回归用例。通过运行中调试接口实测：首行 `cursorX=5,cursorY=0`，回车后 `cursorX=5,cursorY=1`，均紧跟提示符。
+- **语义着色默认值恢复**：新安装的 `terminalColorMode` 从 `off` 恢复为 `auto`（前端 store、JSON 设置存储、SQLite 设置存储三处一致）；显式 `off` / `vivid` 仍原样保留。
+- `types.ts` 删除重复的 `tabBarPlacement` 字段声明，`Fonts.uiFont` 注释改为 Geist。
+
+### 验证
+
+- 前端 16 个测试文件 / 24 个用例通过：新增服务器连接与删除确认、隧道创建、SFTP 目录进入与终端目录同步、设置保存、终端节点常驻、IA 契约、Token 单一来源、Dialog / 菜单 / 服务器行 / 导入导出无障碍等用例。
+- Go 全量测试通过，并新增 `terminalColorMode` 默认 `auto`（JSON 新装 / 旧配置缺字段 / SQLite 新库）与显式 `off` 保留的存储测试。
+- `scripts/verify-ui2.sh` 通过：CSS 79,392 B（gzip 15,868 B）、入口 JS 409,107 B（gzip 128,134 B）、字体 12 个、dist 1,384,448 B；vendor 拆分为 `vendor-vue` / `vendor-xterm` 两个可缓存 chunk。迁移守卫在没有 `rg` 的环境下自动回退到 `grep`，避免漏扫。
+- 本机 Node 22.11 低于 Vite 7 / Vitest 5 要求的 22.12，验证使用 `.nvmrc` 中的 22.23.4；`verify-ui2.sh` 已加入版本前置检查。
+
+## [未发布] 2026-11-03 · UI 2.0 P4 交互、自动化与性能门禁
+
+### 新增
+
+- 命令面板新增最近记录、服务器 / 操作 / 导航分组、标题 / 地址 / id 搜索、1000 台服务器场景的 80ms 防抖与 60 项渲染上限；执行成功后才记录最近命令。
+- 新增唯一快捷键注册表与设置页「快捷键」速查，统一处理输入法组合、表单焦点、标签切换、侧栏开关和工作区作用域。
+- 新增统一 Toast、Skeleton、ErrorState 基础组件；错误 Toast 6 秒、普通 Toast 3 秒，同一操作按 key 去重。
+
+### 变更
+
+- 关键布局、导航、标签、菜单、设置分区与命令项改用稳定 `data-ui` / `data-section` / `data-tab-id` / `data-testid`，`ui.layout` 优先查询语义选择器。
+- 动效收敛到 100–180ms；`prefers-reduced-motion` 下同时关闭时长与位移。
+- Geist 字体从全字符集入口改为 Latin 400/500/600 子集：构建产物字体由 30 个降至 12 个，CSS 由 138 KB 降至 77 KB，dist 为 1.34 MB。
+
+### 验证
+
+- `scripts/verify-ui2.sh` 通过：Vue 类型检查 / Vite 构建、`go test ./...`、CSS 77,371 B（gzip 15,950 B）、JS 889,246 B（gzip 260,449 B）、12 个字体文件、dist 1,335,296 B。
+- 三平台 WebView、IME、高 DPI 与真实窗口快照仍由发布流水线和人工冒烟清单确认，不以本机静态门禁替代。
+
 ## [未发布] 2026-10-29 · 设置页「连接说明」分区 + 「登录后自动采集」开关
 
 ### 新增

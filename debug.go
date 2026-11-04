@@ -23,6 +23,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"ding-ssh/internal/appdir"
 	"ding-ssh/internal/debugsrv"
 	"ding-ssh/internal/logx"
 	"ding-ssh/internal/models"
@@ -47,22 +48,18 @@ type DebugBoot struct {
 
 	// 能力位：运行期由设置存储实时读取（见 App.currentDebugSettings），
 	// 这里只作为「存储不可用」时的兜底快照。
-	CapTerminalInput bool
-	CapUIWrite       bool
-	CapConfigWrite   bool
-	CapSecretWrite   bool
-	CapRemoteFSWrite bool
+	CapTerminalInput  bool
+	CapUIWrite        bool
+	CapConfigWrite    bool
+	CapSecretWrite    bool
+	CapRemoteFSWrite  bool
 	CapSudoCredential bool
-	CapLifecycle     bool
+	CapLifecycle      bool
 }
 
 // DebugInfoPath 调试信息文件：端口 / token / CDP 端口，供 AI 与脚本自动发现。
 func DebugInfoPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		dir = "."
-	}
-	return filepath.Join(dir, "ding-ssh", "debug.json")
+	return filepath.Join(appdir.ConfigDir(), "debug.json")
 }
 
 // readDebugBoot 在 wails.Run 之前读一次设置（此时 startup 尚未初始化存储层）。
@@ -86,13 +83,13 @@ func readDebugBoot() DebugBoot {
 		AllowSecrets: d.AllowSecrets,
 		CDPEnabled:   d.CDPEnabled,
 
-		CapTerminalInput: d.CapTerminalInput,
-		CapUIWrite:       d.CapUIWrite,
-		CapConfigWrite:   d.CapConfigWrite,
-		CapSecretWrite:   d.CapSecretWrite,
-		CapRemoteFSWrite: d.CapRemoteFSWrite,
+		CapTerminalInput:  d.CapTerminalInput,
+		CapUIWrite:        d.CapUIWrite,
+		CapConfigWrite:    d.CapConfigWrite,
+		CapSecretWrite:    d.CapSecretWrite,
+		CapRemoteFSWrite:  d.CapRemoteFSWrite,
 		CapSudoCredential: d.CapSudoCredential,
-		CapLifecycle:     d.CapLifecycle,
+		CapLifecycle:      d.CapLifecycle,
 	}
 	if !boot.Enabled {
 		return boot
@@ -1462,19 +1459,19 @@ func (a *App) currentDebugSettings() models.DebugSettings {
 // （存储不可用时的兜底：至少让能力位与启动时一致，而不是全部关闭）。
 func (b DebugBoot) settings() models.DebugSettings {
 	return models.DebugSettings{
-		Enabled:          b.Enabled,
-		Port:             b.Port,
-		BindLAN:          b.BindLAN,
-		AllowEval:        b.AllowEval,
-		AllowSecrets:     b.AllowSecrets,
-		CDPEnabled:       b.CDPEnabled,
-		CapTerminalInput: b.CapTerminalInput,
-		CapUIWrite:       b.CapUIWrite,
-		CapConfigWrite:   b.CapConfigWrite,
-		CapSecretWrite:   b.CapSecretWrite,
-		CapRemoteFSWrite: b.CapRemoteFSWrite,
+		Enabled:           b.Enabled,
+		Port:              b.Port,
+		BindLAN:           b.BindLAN,
+		AllowEval:         b.AllowEval,
+		AllowSecrets:      b.AllowSecrets,
+		CDPEnabled:        b.CDPEnabled,
+		CapTerminalInput:  b.CapTerminalInput,
+		CapUIWrite:        b.CapUIWrite,
+		CapConfigWrite:    b.CapConfigWrite,
+		CapSecretWrite:    b.CapSecretWrite,
+		CapRemoteFSWrite:  b.CapRemoteFSWrite,
 		CapSudoCredential: b.CapSudoCredential,
-		CapLifecycle:     b.CapLifecycle,
+		CapLifecycle:      b.CapLifecycle,
 	}
 }
 
@@ -2768,14 +2765,14 @@ func ctlDefaultSettings() models.Settings {
 		KeepAliveEnabled:     true,
 		// 登录后自动采集系统指标：默认开启（关闭后登录服务器不再向远端执行采集命令）
 		SysInfoCollectEnabled: true,
-		TabBarPlacement:      "side",
-		RightClickAction:     models.RightClickMenu,
-		NavSectionOrder:      models.DefaultNavSectionOrder,
-		LogLevel:             models.NormalizeLogLevel(""),
-		Theme:                models.DefaultTheme(),
-		Appearance:           models.DefaultAppearance(),
-		Fonts:                models.DefaultFonts(),
-		Debug:                models.DefaultDebugSettings(),
+		TabBarPlacement:       "side",
+		RightClickAction:      models.RightClickMenu,
+		NavSectionOrder:       models.DefaultNavSectionOrder,
+		LogLevel:              models.NormalizeLogLevel(""),
+		Theme:                 models.DefaultTheme(),
+		Appearance:            models.DefaultAppearance(),
+		Fonts:                 models.DefaultFonts(),
+		Debug:                 models.DefaultDebugSettings(),
 	}
 }
 

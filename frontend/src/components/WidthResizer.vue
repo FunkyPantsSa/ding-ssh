@@ -118,6 +118,6 @@ onBeforeUnmount(() => {
 }
 .width-resizer:hover .width-resizer-line,
 .width-resizer[data-dragging='true'] .width-resizer-line {
-  background: var(--signal-400, #3ec4b4);
+  background: var(--primary-hover);
 }
 </style>

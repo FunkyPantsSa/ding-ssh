@@ -1,0 +1,22 @@
+/* Component-facing aliases. All values derive from semantic tokens so there is
+   exactly one source of truth for colors, spacing, radii and motion. */
+:root {
+  --button-primary-bg: var(--primary);
+  --button-primary-fg: var(--primary-foreground);
+  --button-ghost-hover: var(--hover);
+  --input-bg: var(--field-bg);
+  --input-border: var(--field-border);
+  --panel-bg: var(--surface-1);
+  --panel-border: var(--border);
+  --nav-bg: var(--surface-1);
+  --topbar-bg: var(--surface-1);
+  --statusbar-bg: var(--surface-1);
+  --context-panel-bg: var(--surface-1);
+
+  /* Legacy hairlines used by the shell styles. */
+  --line: var(--border-subtle);
+  --line-strong: var(--border);
+  --line-faint: var(--border-subtle);
+  --surface-hi: var(--hover);
+  --surface-border: var(--border-subtle);
+}

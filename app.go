@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	rdebug "runtime/debug"
 	"sort"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"ding-ssh/internal/appdir"
 	"ding-ssh/internal/cryptox"
 	"ding-ssh/internal/debugsrv"
 	"ding-ssh/internal/localterm"
@@ -72,9 +72,7 @@ func NewApp(boot DebugBoot) *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.startedAt = time.Now().UnixMilli()
-	if dir, err := os.UserConfigDir(); err == nil {
-		a.dataDir = filepath.Join(dir, "ding-ssh")
-	}
+	a.dataDir = appdir.ConfigDir()
 	// 审计 + 两段式确认：先于 startDebug 创建，保证启动早期的调用也被记录
 	// （调试模式关闭时它们仍然被前端「AI 记录」页签使用）。
 	a.audits = debugsrv.NewAuditLog()
@@ -95,14 +93,7 @@ func (a *App) startup(ctx context.Context) {
 	a.startDebug()
 
 	// 安全保险库（主密钥 / 主密码）
-	configDir := filepath.Join(func() string {
-		d, err := os.UserConfigDir()
-		if err != nil {
-			return "."
-		}
-		return d
-	}(), "ding-ssh")
-	vault, err := cryptox.OpenVault(configDir)
+	vault, err := cryptox.OpenVault(a.dataDir)
 	if err != nil {
 		logx.Errorf("初始化安全保险库失败: %v", err)
 	} else {

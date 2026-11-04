@@ -38,10 +38,10 @@ type ServerTestResult struct {
 type SessionStatus string
 
 const (
-	StatusConnecting SessionStatus = "connecting"
-	StatusConnected  SessionStatus = "connected"
-	StatusClosed     SessionStatus = "closed"
-	StatusError      SessionStatus = "error"
+	StatusConnecting   SessionStatus = "connecting"
+	StatusConnected    SessionStatus = "connected"
+	StatusClosed       SessionStatus = "closed"
+	StatusError        SessionStatus = "error"
 	StatusDisconnected SessionStatus = "disconnected"
 )
 
@@ -89,6 +89,7 @@ type ProgressEvent struct {
 
 // Settings 应用设置（持久化到 settings.json / SQLite settings 表）。
 type Settings struct {
+	UISchema             int          `json:"uiSchema"`             // UI 外观配置版本；2 为 Geist 设计系统
 	LogEnabled           bool         `json:"logEnabled"`           // 是否输出调试日志（默认关闭）
 	LogToFile            bool         `json:"logToFile"`            // 是否把日志写入文件（默认关闭）
 	LogLevel             string       `json:"logLevel"`             // 日志级别：debug|info|warn|error（默认 info，非法值回落 info）
@@ -110,17 +111,17 @@ type Settings struct {
 	KeepAliveEnabled     bool         `json:"keepAliveEnabled"`     // 发送心跳包防止终端超时（默认开启）
 	// SysInfoCollectEnabled 登录 SSH 服务器后是否自动采集系统指标（默认开启）。
 	// 关闭后连接服务器不再向远端执行任何采集命令；系统看板与底部状态栏不再有数据。
-	SysInfoCollectEnabled bool `json:"sysInfoCollectEnabled"`
-	LocalShell           string       `json:"localShell"`           // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
+	SysInfoCollectEnabled bool   `json:"sysInfoCollectEnabled"`
+	LocalShell            string `json:"localShell"` // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
 	// AutoLoginLastServer 启动（解锁）后自动重新连接「上次关闭时仍在打开的服务器」（默认关闭）。
 	// LastOpenServers 记录上次关闭应用时仍在打开的服务器 ID 列表（按打开顺序，可重复），
 	// 由前端在标签页增删时写入，启动时据此提示并恢复会话。
-	AutoLoginLastServer bool     `json:"autoLoginLastServer"`
-	LastOpenServers     []string `json:"lastOpenServers"`
-	TabBarPlacement      string       `json:"tabBarPlacement"`      // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 top）
-	RightClickAction     string       `json:"rightClickAction"`     // 终端鼠标右键行为：menu 打开选项栏（默认）| paste 直接粘贴
-	NavSectionOrder      string       `json:"navSectionOrder"`      // 左侧导航区段顺序：nav / sessions / tabs 三键排列（默认 "nav,sessions,tabs"）
-	Debug                DebugSettings `json:"debug"`               // 调试模式（本地控制面，供 AI / 自动化调用）
+	AutoLoginLastServer bool          `json:"autoLoginLastServer"`
+	LastOpenServers     []string      `json:"lastOpenServers"`
+	TabBarPlacement     string        `json:"tabBarPlacement"`  // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 top）
+	RightClickAction    string        `json:"rightClickAction"` // 终端鼠标右键行为：menu 打开选项栏（默认）| paste 直接粘贴
+	NavSectionOrder     string        `json:"navSectionOrder"`  // 左侧导航区段顺序：nav / sessions / tabs 三键排列（默认 "nav,sessions,tabs"）
+	Debug               DebugSettings `json:"debug"`            // 调试模式（本地控制面，供 AI / 自动化调用）
 }
 
 // DebugSettings 调试模式：应用内置的本地控制面（HTTP + MCP），供 AI / 自动化调用。
@@ -141,12 +142,12 @@ type DebugSettings struct {
 	// 能力位 = 「允不允许这类操作」；破坏性 / 不可逆操作另外还要两段式确认
 	// （confirm.prepare → confirm.commit，固定开启）；可逆 / 高频操作（终端输入、
 	// 界面写入、eval）只受能力位约束，不要求 token。
-	CapTerminalInput bool     `json:"capTerminalInput"` // terminal.input（向终端写入，默认开；不需要 token）
-	CapUIWrite       bool     `json:"capUiWrite"`       // ui.write（改 CSS / 令牌 / store / 合成事件，默认关；不需要 token）
-	CapConfigWrite   bool     `json:"capConfigWrite"`   // config.write（服务器 / 隧道 / 设置写入，默认关；设置类改动需 token）
-	CapSecretWrite   bool     `json:"capSecretWrite"`   // secrets.write（凭据写入，默认关；还需 AllowSecrets==true，需 token）
-	CapRemoteFSWrite bool     `json:"capRemoteFsWrite"` // fs.remote.write（SFTP 写 / 删，默认关；需 token）
-	CapLifecycle     bool     `json:"capLifecycle"`     // lifecycle（reload / 退出 / 重启 / 清日志，默认关；需 token）
+	CapTerminalInput bool `json:"capTerminalInput"` // terminal.input（向终端写入，默认开；不需要 token）
+	CapUIWrite       bool `json:"capUiWrite"`       // ui.write（改 CSS / 令牌 / store / 合成事件，默认关；不需要 token）
+	CapConfigWrite   bool `json:"capConfigWrite"`   // config.write（服务器 / 隧道 / 设置写入，默认关；设置类改动需 token）
+	CapSecretWrite   bool `json:"capSecretWrite"`   // secrets.write（凭据写入，默认关；还需 AllowSecrets==true，需 token）
+	CapRemoteFSWrite bool `json:"capRemoteFsWrite"` // fs.remote.write（SFTP 写 / 删，默认关；需 token）
+	CapLifecycle     bool `json:"capLifecycle"`     // lifecycle（reload / 退出 / 重启 / 清日志，默认关；需 token）
 
 	// CapSudoCredential sudo.credential（用应用里保存的密码在当前会话的服务器上执行 sudo -i，默认关；需 token）。
 	//
@@ -434,23 +435,23 @@ type Fonts struct {
 	TerminalFontSize int    `json:"terminalFontSize"` // 终端字号（默认 13）
 }
 
-// DefaultAppearance 返回默认外观（信号青绿预设 + 跟随系统明暗）。
+// DefaultAppearance 返回默认外观（Geist + 跟随系统明暗）。
 func DefaultAppearance() UIAppearance {
 	return UIAppearance{
 		Mode:      "preset",
-		PresetID:  "signal",
+		PresetID:  "geist",
 		BaseTone:  "auto",
-		Primary:   "#3ec4b4",
-		Secondary: "#c97a4a",
-		UiText:    "#eef1f5",
+		Primary:   "#3b82f6",
+		Secondary: "#a1a1aa",
+		UiText:    "#fafafa",
 	}
 }
 
 // DefaultFonts 返回默认字体设置。
 func DefaultFonts() Fonts {
 	return Fonts{
-		UiFont:           "Inter",
-		TerminalFont:     "IBM Plex Mono",
+		UiFont:           "Geist Sans",
+		TerminalFont:     "Geist Mono",
 		TerminalFontSize: 13,
 	}
 }
@@ -458,30 +459,30 @@ func DefaultFonts() Fonts {
 // DefaultTheme 返回默认终端主题。
 func DefaultTheme() Theme {
 	return Theme{
-		Background: "#0c1016",
-		Foreground: "#d4dae3",
-		Cursor:     "#3ec4b4",
-		Selection:  "rgba(42, 168, 154, 0.28)",
+		Background: "#09090b",
+		Foreground: "#fafafa",
+		Cursor:     "#3b82f6",
+		Selection:  "rgba(59, 130, 246, 0.28)",
 		BgImage:    "",
 		BlurAmount: 12,
 		TextShadow: false,
 		ShadowBlur: 3,
 
-		Black:         "#0c1016",
-		Red:           "#d45a5a",
-		Green:         "#4caf7a",
-		Yellow:        "#d4a04a",
-		Blue:          "#5c8fe6",
-		Magenta:       "#b26cd9",
-		Cyan:          "#3ec4b4",
-		White:         "#d4dae3",
-		BrightBlack:   "#6b7684",
-		BrightRed:     "#f08080",
-		BrightGreen:   "#7ad8a3",
-		BrightYellow:  "#e8c070",
-		BrightBlue:    "#8fb0f2",
-		BrightMagenta: "#d39cf0",
-		BrightCyan:    "#6dd9cb",
+		Black:         "#09090b",
+		Red:           "#ef4444",
+		Green:         "#22c55e",
+		Yellow:        "#f59e0b",
+		Blue:          "#3b82f6",
+		Magenta:       "#a855f7",
+		Cyan:          "#06b6d4",
+		White:         "#fafafa",
+		BrightBlack:   "#52525b",
+		BrightRed:     "#f87171",
+		BrightGreen:   "#4ade80",
+		BrightYellow:  "#fbbf24",
+		BrightBlue:    "#60a5fa",
+		BrightMagenta: "#c084fc",
+		BrightCyan:    "#22d3ee",
 		BrightWhite:   "#ffffff",
 	}
 }
@@ -574,15 +575,15 @@ type TunnelStatusEvent struct {
 
 // SysInfoSnapshot 系统信息快照（SysInfo Dashboard / 状态栏）。
 type SysInfoSnapshot struct {
-	SessionID   string      `json:"sessionId"`
-	CPUUsage    float64     `json:"cpuUsage"`
-	MemUsedMB   uint64      `json:"memUsedMb"`
-	MemTotalMB  uint64      `json:"memTotalMb"`
-	DiskUsage   []DiskInfo  `json:"diskUsage"`
-	NetIfaces   []NetIface  `json:"netIfaces"`
-	Uptime      string      `json:"uptime"`
-	CollectedAt int64       `json:"collectedAt"`
-	Error       string      `json:"error,omitempty"`
+	SessionID   string     `json:"sessionId"`
+	CPUUsage    float64    `json:"cpuUsage"`
+	MemUsedMB   uint64     `json:"memUsedMb"`
+	MemTotalMB  uint64     `json:"memTotalMb"`
+	DiskUsage   []DiskInfo `json:"diskUsage"`
+	NetIfaces   []NetIface `json:"netIfaces"`
+	Uptime      string     `json:"uptime"`
+	CollectedAt int64      `json:"collectedAt"`
+	Error       string     `json:"error,omitempty"`
 }
 
 // DiskInfo 磁盘分区用量。

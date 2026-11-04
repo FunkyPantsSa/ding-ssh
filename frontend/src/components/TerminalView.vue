@@ -4,13 +4,6 @@ import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import {WebglAddon} from '@xterm/addon-webgl'
 import {
-  acceptSuffix,
-  completionPrefix,
-  extractScreenWords,
-  mergeSuggestions,
-  type Suggestion,
-} from '../completion/engine'
-import {
   DEFAULT_COMPLETION_NAV_HOTKEY,
   formatHotkeyLabel,
   matchHotkey,
@@ -24,20 +17,24 @@ import {
   reconnect,
   sshService,
 } from '../services/ssh'
-import {historyService} from '../services/history'
 import {sysInfoService} from '../services/sysinfo'
 import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../services/zmodem'
-import {currentZoom} from '../utils/dom'
 import {Colorizer} from '../utils/output-color'
 import {patchXtermZoomCoords} from '../utils/xterm-zoom'
 import {patchWebglZoomCanvas, syncWebglCanvas, webglCanvasReport} from '../utils/xterm-webgl-zoom'
 import {registerDebugTerminal, unregisterDebugTerminal, type DebugTerminalEntry} from '../debug/registry'
 import Icon from './Icon.vue'
+import TerminalContextMenu from './terminal/TerminalContextMenu.vue'
+import TerminalCompletionPanel from './terminal/TerminalCompletionPanel.vue'
+import TerminalConnectionOverlay from './terminal/TerminalConnectionOverlay.vue'
+import TerminalTransferOverlay from './terminal/TerminalTransferOverlay.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
+import {useTerminalCompletion} from '../composables/useTerminalCompletion'
 import {ClipboardGetText, ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import {LogClient, SetLogTrace} from '../../wailsjs/go/main/App'
-import {monoFontStack} from '../theme/engine'
+import {monoFontStack, readableOn} from '../theme/engine'
+import {recordRecentServer} from '../services/recent'
 import type {SessionTab} from '../types'
 
 const props = defineProps<{tab: SessionTab; paneId?: string}>()
@@ -50,16 +47,9 @@ const isActiveTab = computed(() => {
 })
 
 const container = ref<HTMLElement>()
-const statusPanel = ref<HTMLElement | null>(null)
-const disconnectedPanel = ref<HTMLElement | null>(null)
+const connectionOverlay = ref<{focus: () => void} | null>(null)
 const menu = ref<{x: number; y: number} | null>(null)
 const fontSize = ref(settings.fonts.terminalFontSize || 13)
-const suggestions = ref<Suggestion[]>([])
-const selectedIdx = ref(0)
-/** 是否已进入补全导航（自定义热键 / 鼠标悬停）；未导航时不拦截 Tab/↑↓/Enter */
-const navigating = ref(false)
-const panelPos = ref<{left: number; top: number} | null>(null)
-const panelEl = ref<HTMLElement | null>(null)
 const zmodemMsg = ref('')
 const zmodemProgress = ref<ZmodemProgress | null>(null)
 const webglFallbackToast = ref('')
@@ -75,50 +65,32 @@ const disposers: Array<() => void> = []
 // 本实例在调试注册表里的那一份登记（注销时按身份匹配，见 onBeforeUnmount 的说明）
 let debugEntry: DebugTerminalEntry | null = null
 let disposed = false
-let lineBuf = ''
 // 语义着色器：只往输出里注入 SGR（颜色），不改可见字符；一个终端实例一个（alt-buffer 闸门是会话状态）
 const colorize = new Colorizer(settings.terminalColorMode)
 let composing = false
-let suggestTimer: ReturnType<typeof setTimeout> | null = null
 let inputLocked = false // Zmodem 进行中挂起键盘
 let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null
 let autoReconnectAttempt = 0
 const autoReconnectCountdown = ref(0)
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 let focusTimer: ReturnType<typeof setTimeout> | null = null
-/** trackLineInput 解析 ANSI/方向键转义，避免 [A [B 写入历史 */
-type EscState = 'none' | 'esc' | 'csi' | 'osc'
-let escState: EscState = 'none'
 
-function sanitizeHistoryCommand(cmd: string): string {
-  let s = cmd
-    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g, '')
-    .replace(/\x1b./g, '')
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
-    .replace(/^(\[[A-D]|O[A-D])+$/g, '')
-    .trim()
-  if (looksLikeCommandPollution(s)) {
-    s = trimPollutedCommand(s)
-  }
-  s = s
-    .split(/\s+/)
-    .filter(Boolean)
-    .join(' ')
-  // 仍明显污染则丢弃，避免脏历史进面板
-  if (looksLikeCommandPollution(s) || s.length > 300) return ''
-  return s
-}
+// 命令补全的候选、输入行跟踪与快捷键从视图层抽出（见 composables/useTerminalCompletion.ts）。
+const completion = useTerminalCompletion({
+  term: () => term,
+  container: () => container.value,
+  tab: props.tab,
+  settings,
+  isComposing: () => composing,
+  write: writeRaw,
+  colorize,
+})
+const {
+  suggestions, selectedIdx, navigating, panelPos, panelEl,
+  hideSuggestions, enterNavigation, scheduleSuggest, trackLineInput,
+  acceptSuggestion, handleCompletionKey, resetInput, dispose: disposeCompletion,
+} = completion
 
-function xtermCore(t: Terminal): {
-  _renderService?: {dimensions?: {css?: {cell?: {width: number; height: number}}}}
-} | undefined {
-  return (t as unknown as {_core?: {
-    _renderService?: {dimensions?: {css?: {cell?: {width: number; height: number}}}}
-  }})._core
-}
-
-/** 界面缩放比（app-shell 的 CSS zoom）；100% 时为 1。 */
 function uiZoom(): number {
   const z = (settings.uiScale || 100) / 100
   return Number.isFinite(z) && z > 0 ? z : 1
@@ -144,8 +116,9 @@ const bgImageStyle = computed(() => {
 
 const terminalStyle = computed(() => ({
   '--xterm-text-shadow': settings.theme.textShadow
-    ? `0 1px 3px rgba(0, 0, 0, 0.8), 0 0 ${settings.theme.shadowBlur}px rgba(0, 0, 0, 0.5)`
+    ? 'var(--terminal-text-shadow)'
     : 'none',
+  '--terminal-shadow-blur': `${settings.theme.shadowBlur}px`,
   // 终端容器底色跟随终端主题：xterm 的内边距区域也呈现终端背景色，
   // 避免浅色界面下终端四周露出一圈界面底色边框（终端主题与界面明暗相互独立）。
   background: settings.theme.background,
@@ -168,7 +141,7 @@ function applyTheme() {
     background,
     foreground: t.foreground,
     cursor: t.cursor,
-    cursorAccent: contrastText(t.cursor),
+    cursorAccent: readableOn(t.cursor),
     selectionBackground: t.selection,
     black: t.black,
     red: t.red,
@@ -188,18 +161,6 @@ function applyTheme() {
     brightWhite: t.brightWhite,
   }
   term.refresh(0, term.rows - 1)
-}
-
-// 根据光标颜色亮度选择光标上的文字色
-function contrastText(hex: string): string {
-  const h = (hex || '').trim().replace('#', '')
-  const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16)
-  if (Number.isNaN(n)) return '#ffffff'
-  const r = (n >> 16) & 255
-  const g = (n >> 8) & 255
-  const b = n & 255
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-  return lum > 0.55 ? '#0c1016' : '#ffffff'
 }
 
 function applyFontSettings() {
@@ -329,11 +290,11 @@ function focusActiveSurface() {
   if (props.tab.status === 'disconnected' || props.tab.status === 'closed') {
     // 先释放 xterm 隐藏输入框持有的键盘焦点，避免焦点残留在终端光标处
     term?.blur()
-    disconnectedPanel.value?.focus()
+    connectionOverlay.value?.focus()
     return
   }
   if (props.tab.status === 'connecting' || props.tab.status === 'error') {
-    statusPanel.value?.focus()
+    connectionOverlay.value?.focus()
   }
 }
 
@@ -488,8 +449,14 @@ function openMenu(e: MouseEvent) {
   menu.value = {x: Math.min(e.clientX, window.innerWidth - 160), y: Math.min(e.clientY, window.innerHeight - 160)}
 }
 
-function closeMenu() {
+function closeMenu(restoreFocus = false) {
   menu.value = null
+  if (restoreFocus) focusTerminal()
+}
+
+/** window click 监听不接收布尔参数：单独包一层，避免 click 事件被当成 restoreFocus。 */
+function onWindowClick() {
+  closeMenu()
 }
 
 function doCopy() {
@@ -512,379 +479,6 @@ function doSelectAll() {
   term?.selectAll()
   closeMenu()
   focusTerminal()
-}
-
-function hideSuggestions() {
-  suggestions.value = []
-  panelPos.value = null
-  selectedIdx.value = 0
-  navigating.value = false
-}
-
-function enterNavigation(idx = 0) {
-  if (!suggestions.value.length) return
-  navigating.value = true
-  selectedIdx.value = Math.max(0, Math.min(idx, suggestions.value.length - 1))
-}
-
-/**
- * 补全快捷键。返回 false = 拦截不交给终端；true = 放行。
- * 未导航：↑↓/Tab 放行，Enter 关面板后放行执行；自定义热键切换导航。
- * 已导航：↑↓ 切换，Tab/Enter 只采纳插入不执行；同一热键退出导航。
- */
-function handleCompletionKey(e: KeyboardEvent): boolean {
-  if (!suggestions.value.length) return true
-
-  if (e.key === 'Escape') {
-    hideSuggestions()
-    return false
-  }
-
-  const hotkey = settings.completionNavHotkey || DEFAULT_COMPLETION_NAV_HOTKEY
-  if (matchHotkey(e, hotkey)) {
-    if (navigating.value) {
-      navigating.value = false
-    } else {
-      enterNavigation(0)
-    }
-    return false
-  }
-
-  if (navigating.value) {
-    if (e.key === 'ArrowDown') {
-      selectedIdx.value = (selectedIdx.value + 1) % suggestions.value.length
-      return false
-    }
-    if (e.key === 'ArrowUp') {
-      selectedIdx.value = (selectedIdx.value - 1 + suggestions.value.length) % suggestions.value.length
-      return false
-    }
-    if (e.key === 'Tab') {
-      acceptSuggestion()
-      return false
-    }
-    if (e.key === 'Enter') {
-      acceptSuggestion()
-      return false
-    }
-    return true
-  }
-
-  // 未导航：Enter 关面板并放行执行；其余快捷键不拦截
-  if (e.key === 'Enter') {
-    hideSuggestions()
-    return true
-  }
-  return true
-}
-
-async function updatePanelPosition() {
-  if (!term || !container.value) return
-  const dims = xtermCore(term)?._renderService?.dimensions?.css?.cell
-  const cellW = dims?.width ?? 8
-  const cellH = dims?.height ?? 16
-  const buf = term.buffer.active
-  // container 的 gBCR 相对 viewport（含 app-shell 的 zoom），而面板用绝对定位（未缩放坐标）。
-  // 统一先折算回布局像素，cursor 位置与面板尺寸才不会随 uiScale 漂移。
-  const z = currentZoom(container.value)
-  const rect = container.value.getBoundingClientRect()
-  const left = Math.min(Math.max(8, rect.left / z + buf.cursorX * cellW), window.innerWidth / z - 320)
-  // 先占位再量真实高度，保证面板底边在光标行上方
-  const cursorLineTop = rect.top / z + buf.cursorY * cellH
-  const gap = 10
-  panelPos.value = {left, top: Math.max(8, cursorLineTop - 180)}
-  await nextTick()
-  const h = panelEl.value?.offsetHeight ?? Math.min(240, 36 + suggestions.value.length * 30)
-  let top = cursorLineTop - gap - h
-  if (top < 8) {
-    // 上方不够：放到光标行下方，额外留出一行高度
-    top = cursorLineTop + cellH + gap
-  }
-  panelPos.value = {
-    left,
-    top: Math.max(8, Math.min(top, window.innerHeight / z - h - 8)),
-  }
-}
-
-const PROMPT_MARKERS = ['# ', '$ ', '% ', '> ']
-
-/** 读取 buffer 某一绝对行的可见文本。 */
-function readLineTextAt(absY: number): string {
-  if (!term) return ''
-  const line = term.buffer.active.getLine(absY)
-  if (!line) return ''
-  let text = ''
-  for (let i = 0; i < line.length; i++) {
-    const cell = line.getCell(i)
-    if (!cell) continue
-    text += cell.getChars() || (cell.getWidth() ? ' ' : '')
-  }
-  return text.replace(/\s+$/, '')
-}
-
-function findPromptCut(line: string): number {
-  let cut = -1
-  for (const m of PROMPT_MARKERS) {
-    const i = line.lastIndexOf(m)
-    if (i >= 0) cut = Math.max(cut, i + m.length)
-  }
-  return cut
-}
-
-/** 是否把命令输出/二次 prompt 粘进了「命令」串。 */
-function looksLikeCommandPollution(cmd: string): boolean {
-  if (!cmd) return false
-  if (cmd.length > 400) return true
-  if (/warning\s*:/i.test(cmd)) return true
-  if (/\bNAME\s+STATUS\b/.test(cmd)) return true
-  if (/\bReady\b.*\b(?:control-plane|master|worker)\b/i.test(cmd)) return true
-  // kubectl get node...root@host:~#
-  if (/[a-z0-9](?:warning|NAME|STATUS|Ready|error:)/i.test(cmd)) return true
-  if (/[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+:/.test(cmd) && /[#$]/.test(cmd)) return true
-  return false
-}
-
-/** 截到输出污染起点，尽量保留纯命令。 */
-function trimPollutedCommand(cmd: string): string {
-  if (!cmd) return ''
-  const idxs = [
-    cmd.search(/warning\s*:/i),
-    cmd.search(/\bNAME\s+STATUS\b/),
-    cmd.search(/[a-z0-9](?=warning\s*:)/i),
-    cmd.search(/[a-z0-9](?=NAME\s+STATUS)/),
-    cmd.search(/[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+:[~\/]/),
-  ].filter((i) => i > 0)
-  let s = idxs.length ? cmd.slice(0, Math.min(...idxs)) : cmd
-  return s.replace(/\s+$/, '').trim()
-}
-
-/**
- * 只读当前输入逻辑行：沿 xterm soft-wrap（isWrapped）向上拼。
- * 禁止跨过输出区拼到上一条 prompt（否则会变成 kubectl…NAME…root@…）。
- */
-function readScreenCommand(): {cmd: string; viaPrompt: boolean} {
-  if (!term) return {cmd: '', viaPrompt: false}
-  const buf = term.buffer.active
-  const curY = buf.baseY + buf.cursorY
-
-  let startY = curY
-  while (startY > 0) {
-    const line = buf.getLine(startY)
-    if (!line?.isWrapped) break
-    startY--
-  }
-
-  let text = ''
-  for (let y = startY; y <= curY; y++) {
-    text += readLineTextAt(y)
-  }
-  text = text.replace(/\s+$/, '')
-
-  const cut = findPromptCut(text)
-  if (cut >= 0) {
-    return {cmd: text.slice(cut).replace(/^\s+/, '').replace(/\s+$/, ''), viaPrompt: true}
-  }
-  return {cmd: text.replace(/^\s+/, ''), viaPrompt: false}
-}
-
-/** tracked 去空白后是否为 screen 子序列（Tab 补全后 lineBuf 缺 ctl 等字符）。 */
-function isLooseSubsequence(tracked: string, screen: string): boolean {
-  const a = tracked.replace(/\s+/g, '')
-  const b = screen.replace(/\s+/g, '')
-  if (!a || !b || a.length > b.length) return false
-  let i = 0
-  for (const ch of b) {
-    if (ch === a[i]) i++
-    if (i >= a.length) return true
-  }
-  return false
-}
-
-/**
- * 解析即将执行的命令。
- * 屏上（去 prompt / 软折行）优先；污染则截断或回退 lineBuf。
- */
-function resolveExecutedCommand(): string {
-  const trackedRaw = lineBuf
-  const tracked = looksLikeCommandPollution(trackedRaw) ? trimPollutedCommand(trackedRaw) : trackedRaw
-  let {cmd: fromScreen, viaPrompt} = readScreenCommand()
-  if (looksLikeCommandPollution(fromScreen)) {
-    fromScreen = trimPollutedCommand(fromScreen)
-  }
-
-  if (!fromScreen) return tracked
-  if (!tracked) return fromScreen
-  if (fromScreen === tracked) return fromScreen
-
-  if (fromScreen.includes(tracked) && !looksLikeCommandPollution(fromScreen)) return fromScreen
-  if (tracked.includes(fromScreen) && tracked.length > fromScreen.length + 2) return tracked
-  if (isLooseSubsequence(tracked, fromScreen) && fromScreen.length >= tracked.length) {
-    return fromScreen
-  }
-  if (viaPrompt) return fromScreen
-  if (fromScreen.length > tracked.length) return fromScreen
-  return tracked
-}
-
-let lineBufSyncTimer: ReturnType<typeof setTimeout> | null = null
-/** Tab / ↑↓ 后延时从屏上同步 lineBuf，避免缺字与补全面板前缀错位。 */
-function scheduleLineBufSyncFromScreen() {
-  if (lineBufSyncTimer) clearTimeout(lineBufSyncTimer)
-  lineBufSyncTimer = setTimeout(() => {
-    lineBufSyncTimer = null
-    if (!term || props.tab.status !== 'connected') return
-    const {cmd} = readScreenCommand()
-    // 命令执行后输出刷屏时勿把输出并进 lineBuf
-    if (!cmd || looksLikeCommandPollution(cmd)) return
-    lineBuf = cmd
-    if (settings.completionEnabled) scheduleSuggest()
-  }, 40)
-}
-
-async function refreshSuggestions() {
-  if (!settings.completionEnabled || !term || composing || props.tab.status !== 'connected') {
-    hideSuggestions()
-    return
-  }
-  const {full, token} = completionPrefix(lineBuf)
-  const query = full.length >= 1 ? full : token
-  if (!query || query.length < 1) {
-    hideSuggestions()
-    return
-  }
-  const limit = Math.max(3, Math.min(30, settings.completionPanelLimit || 8))
-  const hist = await historyService.query(props.tab.node.id, full || token, limit)
-  const screen = extractScreenWords(term)
-  // 历史整行；屏幕为路径/Pod 等 token；字典按末 token
-  const merged = mergeSuggestions(
-    token || full,
-    hist.map((h) => ({command: h.command, source: 'history' as const, count: h.count})),
-    screen,
-    limit,
-  )
-  if (merged.length === 0) {
-    hideSuggestions()
-    return
-  }
-  suggestions.value = merged
-  // 输入变化导致列表刷新时退出导航，避免误拦 Tab/历史键
-  navigating.value = false
-  selectedIdx.value = 0
-  await updatePanelPosition()
-}
-
-function scheduleSuggest() {
-  if (suggestTimer) clearTimeout(suggestTimer)
-  suggestTimer = setTimeout(() => {
-    void refreshSuggestions()
-  }, 60)
-}
-
-function trackLineInput(data: string) {
-  for (const ch of data) {
-    // 过滤 CSI / OSC / 短 ESC 序列（↑↓ 等方向键）
-    if (escState === 'none' && ch === '\x1b') {
-      escState = 'esc'
-      continue
-    }
-    if (escState === 'esc') {
-      if (ch === '[') {
-        escState = 'csi'
-        continue
-      }
-      if (ch === ']') {
-        escState = 'osc'
-        continue
-      }
-      // SS3：ESC O A/B/C/D
-      if (ch === 'O') {
-        escState = 'csi'
-        continue
-      }
-      escState = 'none'
-      continue
-    }
-    if (escState === 'csi') {
-      if (ch >= '\x40' && ch <= '\x7e') {
-        escState = 'none'
-        // shell 历史 ↑↓（含 ESC [ A / ESC O A）：屏上已替换整行，同步 lineBuf
-        if (ch === 'A' || ch === 'B') scheduleLineBufSyncFromScreen()
-      }
-      continue
-    }
-    if (escState === 'osc') {
-      if (ch === '\x07') {
-        escState = 'none'
-        continue
-      }
-      if (ch === '\x1b') {
-        escState = 'esc'
-        continue
-      }
-      continue
-    }
-
-    if (ch === '\r' || ch === '\n') {
-      // 取消待执行的屏合同步，避免回车后输出刷屏把 lineBuf 污染
-      if (lineBufSyncTimer) {
-        clearTimeout(lineBufSyncTimer)
-        lineBufSyncTimer = null
-      }
-      const cmd = sanitizeHistoryCommand(resolveExecutedCommand())
-      if (cmd) historyService.add(props.tab.node.id, cmd)
-      // 回显行（prompt + 命令）不着色：`cat error.log` 这类命令本身含关键字，整行红会误导
-      if (cmd) colorize.noteCommand(cmd)
-      lineBuf = ''
-      escState = 'none'
-      hideSuggestions()
-      continue
-    }
-    if (ch === '\x7f' || ch === '\b') {
-      lineBuf = lineBuf.slice(0, -1)
-      continue
-    }
-    if (ch === '\u0015') {
-      // Ctrl+U
-      lineBuf = ''
-      continue
-    }
-    if (ch === '\u0003') {
-      // Ctrl+C
-      lineBuf = ''
-      escState = 'none'
-      hideSuggestions()
-      continue
-    }
-    if (ch === '\t') {
-      // shell Tab 补全只反映在回显里，延时从屏上拉回完整行
-      scheduleLineBufSyncFromScreen()
-      continue
-    }
-    if (ch >= ' ') lineBuf += ch
-  }
-}
-
-function acceptSuggestion(idx = selectedIdx.value) {
-  const item = suggestions.value[idx]
-  if (!item || !props.tab.sessionId || !term) return
-  let suffix: string
-  if (item.source === 'history') {
-    // 历史为整行：Ctrl+U 清行再写入（比按 lineBuf 长度退格更稳，避免 Tab 后屏上更长）
-    suffix = '\u0015' + item.command
-    lineBuf = item.command
-  } else {
-    suffix = acceptSuffix(lineBuf, item.command)
-    if (suffix.startsWith('\x7f')) {
-      const backs = suffix.match(/^\x7f+/)?.[0].length ?? 0
-      lineBuf = lineBuf.slice(0, Math.max(0, lineBuf.length - backs)) + suffix.slice(backs)
-    } else {
-      lineBuf += suffix
-    }
-  }
-  hideSuggestions()
-  writeRaw(suffix)
-  // 等 shell 回显后校正（退格/宽字符极端情况）
-  scheduleLineBufSyncFromScreen()
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -910,7 +504,7 @@ function onKeydown(e: KeyboardEvent) {
   }
 
   if (e.key === 'Escape' && menu.value && !suggestions.value.length) {
-    menu.value = null
+    closeMenu(true)
     e.preventDefault()
     return
   }
@@ -1027,15 +621,9 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
   disposers.length = 0
   sessions.setStatus(props.tab.clientId, 'connecting')
   resetSteps()
-  hideSuggestions()
-  lineBuf = ''
-  escState = 'none'
+  resetInput()
   // 新会话：清掉上一个会话的挂起半行、alt-buffer 闸门与命令回显记录
   colorize.reset()
-  if (lineBufSyncTimer) {
-    clearTimeout(lineBufSyncTimer)
-    lineBufSyncTimer = null
-  }
 
   const sid = props.tab.clientId
   props.tab.sessionId = sid
@@ -1115,6 +703,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
     }
     sessions.bindSession(props.tab.clientId, result.sessionId)
     sessions.setStatus(props.tab.clientId, 'connected')
+    if (!isLocal) recordRecentServer({id: props.tab.node.id, name: props.tab.serverName, host: props.tab.host, connectedAt: Date.now()})
     if (!isLocal) {
       await setupZmodem(result.sessionId)
     }
@@ -1197,6 +786,7 @@ async function reconnectSession(): Promise<boolean> {
     try {
       await reconnect(props.tab.sessionId, term.cols, term.rows)
       sessions.setStatus(props.tab.clientId, 'connected')
+      recordRecentServer({id: props.tab.node.id, name: props.tab.serverName, host: props.tab.host, connectedAt: Date.now()})
       autoReconnectAttempt = 0
       await setupZmodem(props.tab.sessionId)
       fit()
@@ -1291,7 +881,7 @@ onMounted(() => {
       background: settings.theme.background,
       foreground: settings.theme.foreground,
       cursor: settings.theme.cursor,
-      cursorAccent: '#071210',
+      cursorAccent: readableOn(settings.theme.cursor),
       selectionBackground: settings.theme.selection,
     },
     scrollback: 5000,
@@ -1351,9 +941,7 @@ onMounted(() => {
     if (inputLocked || zmodem?.active()) return
     // 粘贴大段文本抑制补全
     if (data.length > 80) {
-      hideSuggestions()
-      lineBuf = ''
-      escState = 'none'
+      resetInput()
       writeRaw(data)
       return
     }
@@ -1381,7 +969,7 @@ onMounted(() => {
   container.value?.addEventListener('contextmenu', openMenu)
   // 捕获阶段拦截原生粘贴（WebView2 关闭加速键时不会触发；浏览器 / 未来环境可用时避免与 xterm 重复写入）
   container.value?.addEventListener('paste', onPasteEvent, true)
-  window.addEventListener('click', closeMenu)
+  window.addEventListener('click', onWindowClick)
   void connect()
   scheduleFocusActiveSurface()
 })
@@ -1473,12 +1061,11 @@ onBeforeUnmount(() => {
   debugEntry = null
   if (focusTimer) clearTimeout(focusTimer)
   cancelAutoReconnect()
-  if (suggestTimer) clearTimeout(suggestTimer)
-  if (lineBufSyncTimer) clearTimeout(lineBufSyncTimer)
+  disposeCompletion()
   disposers.forEach((d) => d())
   resizeObserver?.disconnect()
   container.value?.removeEventListener('paste', onPasteEvent, true)
-  window.removeEventListener('click', closeMenu)
+  window.removeEventListener('click', onWindowClick)
   zmodem?.dispose()
   disableWebGL()
   if (props.tab.sessionId) {
@@ -1510,236 +1097,32 @@ onBeforeUnmount(() => {
       @focus.self
     ></div>
 
-    <!-- 连接中 / 连接失败：可展开的分步日志面板（本机终端仅显示简要状态） -->
-    <div
-      v-if="tab.status === 'connecting' || tab.status === 'error'"
-      ref="statusPanel"
-      class="absolute inset-0 z-30 grid place-items-center pointer-events-auto overlay-backdrop"
-      tabindex="0"
-    >
-      <div class="neo w-[min(460px,92%)] p-6 max-h-[86vh] overflow-y-auto">
-        <div class="flex items-center justify-between gap-3 mb-1">
-          <h3 class="text-[15px] font-semibold text-[var(--mist-100)] truncate">
-            <template v-if="tab.kind === 'local'">
-              {{ tab.status === 'connecting' ? `正在打开 ${tab.serverName}` : `打开 ${tab.serverName} 失败` }}
-            </template>
-            <template v-else>
-              {{ tab.status === 'connecting' ? `正在连接 ${tab.serverName}` : `连接 ${tab.serverName} 失败` }}
-            </template>
-          </h3>
-          <button class="btn-icon btn-sm shrink-0" title="关闭标签页" aria-label="关闭标签页" @click.stop="closeTab">
-            <Icon name="close" :size="14" />
-          </button>
-        </div>
-        <p v-if="tab.status === 'error' && tab.message" class="text-xs text-[#e57373] break-all mb-3">
-          {{ tab.message }}
-        </p>
-        <template v-if="tab.kind === 'local'">
-          <p class="text-xs text-mist mb-4">
-            {{ tab.status === 'connecting' ? '正在启动本机 Shell…' : '可关闭后重试，或在设置中更换本机 Shell。' }}
-          </p>
-          <div class="flex gap-2">
-            <button v-if="tab.status === 'error'" class="btn btn-primary btn-sm" @click="connect()">重试</button>
-            <button class="btn btn-ghost btn-sm" @click="closeTab">关闭</button>
-          </div>
-        </template>
-        <template v-else>
-        <p class="text-xs text-mist mb-4">
-          <template v-if="activeStepLabel">
-            当前：<span class="text-[var(--mist-100)]">{{ activeStepLabel }}</span>
-            <span v-if="anyStepError" class="text-[#e57373]"> · 已失败</span>
-          </template>
-          <template v-else-if="tab.status === 'connecting'">解析主机 → 鉴权 → 打开 PTY → 同步环境</template>
-        </p>
+    <TerminalConnectionOverlay
+      ref="connectionOverlay"
+      :tab="tab"
+      :settings="settings"
+      :steps="steps"
+      :connect-steps="CONNECT_STEPS"
+      :active-step-label="activeStepLabel"
+      :any-step-error="anyStepError"
+      :auto-reconnect-countdown="autoReconnectCountdown"
+      :auto-reconnect-attempt="autoReconnectAttempt"
+      @close="closeTab"
+      @connect="connect"
+      @reconnect="reconnectSession"
+      @cancel-auto-reconnect="cancelAutoReconnect"
+      @toggle-step="toggleStep"
+    />
 
-        <div class="conn-steps">
-          <div
-            v-for="(s, i) in CONNECT_STEPS"
-            :key="s.key"
-            class="conn-step"
-            :class="[steps[s.key].status, {open: steps[s.key].expanded}]"
-          >
-            <button
-              class="conn-step-head"
-              @click="toggleStep(s.key)"
-              :aria-expanded="steps[s.key].expanded"
-            >
-              <span class="n">
-                <Icon v-if="steps[s.key].status === 'done'" name="check" :size="12" />
-                <span v-else>{{ i + 1 }}</span>
-              </span>
-              <span class="flex-1 min-w-0 text-left truncate">{{ s.label }}</span>
-              <span v-if="steps[s.key].status === 'running'" class="badge run">进行中</span>
-              <span v-else-if="steps[s.key].status === 'error'" class="badge err">失败</span>
-              <span v-else-if="steps[s.key].status === 'done'" class="badge done">完成</span>
-              <Icon
-                v-if="steps[s.key].logs.length"
-                name="chevron-down"
-                :size="14"
-                extra-class="chev transition-transform"
-                :class="steps[s.key].expanded ? 'open' : ''"
-              />
-            </button>
-            <div v-if="steps[s.key].expanded && steps[s.key].logs.length" class="conn-step-logs">
-              <p
-                v-for="(l, j) in steps[s.key].logs"
-                :key="j"
-                class="log-line"
-                :class="j === steps[s.key].logs.length - 1 && steps[s.key].status === 'error' ? 'err' : ''"
-              >{{ l }}</p>
-              <p v-if="steps[s.key].status === 'error' && steps[s.key].message" class="log-line err">
-                {{ steps[s.key].message }}
-              </p>
-              <p v-else-if="steps[s.key].status === 'running'" class="log-line hint">等待该步骤完成…</p>
-            </div>
-          </div>
-        </div>
+    <TerminalTransferOverlay
+      :webgl-fallback-toast="webglFallbackToast"
+      :zmodem-msg="zmodemMsg"
+      :zmodem-progress="zmodemProgress"
+    />
 
-        <div class="flex gap-2 mt-5">
-          <template v-if="tab.status === 'connecting'">
-            <button class="btn btn-ghost btn-sm" @click.stop="closeTab">关闭标签页</button>
-          </template>
-          <template v-else>
-            <button class="btn btn-primary btn-sm" @click.stop="reconnectSession">重试连接</button>
-            <button class="btn btn-ghost btn-sm" @click.stop="closeTab">关闭标签页</button>
-          </template>
-        </div>
-        </template>
-      </div>
-    </div>
+    <TerminalCompletionPanel v-if="suggestions.length && panelPos" ref="panelEl" :items="suggestions" :position="panelPos" :navigating="navigating" :selected-index="selectedIdx" :hotkey-label="formatHotkeyLabel(settings.completionNavHotkey || DEFAULT_COMPLETION_NAV_HOTKEY)" :source-label="sourceLabel" @hover="enterNavigation" @accept="acceptSuggestion" />
 
-    <!-- 已断开 / 已关闭：顶部横幅（不遮屏，断开前的终端画面保留可回看/滚屏/复制） -->
-    <div
-      v-else-if="tab.status === 'closed' || tab.status === 'disconnected'"
-      ref="disconnectedPanel"
-      class="absolute inset-x-3 top-3 z-30 pointer-events-auto disconnect-banner flex items-center gap-3 px-4 py-2.5"
-      tabindex="0"
-      @keydown.enter.prevent="reconnectSession"
-    >
-      <span class="banner-accent" aria-hidden="true"></span>
-      <div class="min-w-0 flex-1">
-        <p class="text-[14px] font-semibold leading-snug truncate text-[var(--warn-500)]">
-          <template v-if="tab.kind === 'local'">本机终端已结束</template>
-          <template v-else>连接已断开</template>
-          <span class="font-normal text-[12px] text-[var(--mist-200)]"> · {{ tab.serverName }}</span>
-        </p>
-        <p v-if="tab.message" class="mt-0.5 text-[11px] font-normal text-[var(--mist-300)] truncate">{{ tab.message }}</p>
-        <!-- 自动重连倒计时 -->
-        <p
-          v-if="tab.status === 'disconnected' && settings.autoReconnect && autoReconnectCountdown > 0"
-          class="mt-0.5 text-[11px] text-amber-400 flex items-center gap-1.5"
-        >
-          <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-          </svg>
-          {{ autoReconnectAttempt > 1 ? `第 ${autoReconnectAttempt - 1} 次失败，` : '' }}{{ autoReconnectCountdown }}s 后自动重连…
-        </p>
-      </div>
-      <div class="flex shrink-0 items-center gap-2">
-        <button class="btn btn-primary btn-sm" @click.stop="reconnectSession">立即重连</button>
-        <button
-          v-if="tab.status === 'disconnected' && settings.autoReconnect && autoReconnectCountdown > 0"
-          class="btn btn-ghost btn-sm"
-          @click.stop="cancelAutoReconnect"
-        >取消自动重连</button>
-        <button class="btn btn-ghost btn-sm" @click.stop="closeTab">关闭标签页</button>
-      </div>
-    </div>
-
-    <!-- WebGL / Zmodem 状态条 -->
-    <div
-      v-if="webglFallbackToast || zmodemMsg || (zmodemProgress && !zmodemProgress.done)"
-      class="absolute left-3 right-3 bottom-3 z-40 pointer-events-none flex flex-col gap-2 items-start"
-    >
-      <div
-        v-if="webglFallbackToast"
-        class="toast neo"
-        style="min-width:auto"
-      >
-        {{ webglFallbackToast }}
-      </div>
-      <div v-if="zmodemMsg" class="toast neo ok" style="min-width:auto">
-        {{ zmodemMsg }}
-      </div>
-      <div
-        v-if="zmodemProgress && !zmodemProgress.done"
-        class="neo w-full max-w-sm px-3 py-2 text-xs"
-      >
-        <div class="flex justify-between gap-2 mb-1">
-          <span class="truncate">{{ zmodemProgress.direction === 'upload' ? '上传' : '下载' }} · {{ zmodemProgress.name }}</span>
-          <span class="text-signal shrink-0">
-            {{ zmodemProgress.total > 0 ? Math.min(100, Math.round((zmodemProgress.transferred / zmodemProgress.total) * 100)) : 0 }}%
-          </span>
-        </div>
-        <div class="prog">
-          <i
-            :style="{
-              width:
-                zmodemProgress.total > 0
-                  ? `${Math.min(100, (zmodemProgress.transferred / zmodemProgress.total) * 100)}%`
-                  : '10%',
-            }"
-          ></i>
-        </div>
-      </div>
-    </div>
-
-    <!-- 智能补全面板 -->
-    <Teleport to="body">
-      <div
-        v-if="suggestions.length && panelPos"
-        ref="panelEl"
-        class="fixed z-[60] min-w-[240px] max-w-[360px] neo p-1.5 text-xs completion-panel"
-        :style="{left: panelPos.left + 'px', top: panelPos.top + 'px'}"
-        @mousedown.prevent
-      >
-        <button
-          v-for="(item, i) in suggestions"
-          :key="item.source + ':' + item.command"
-          class="w-full flex items-center gap-2 px-2.5 py-2 rounded-[6px] text-left font-mono"
-          :class="navigating && i === selectedIdx ? 'bg-[var(--signal-weak)] shadow-[inset_0_0_0_1px_var(--signal-border)]' : 'hover:bg-[var(--hover)]'"
-          @mouseenter="enterNavigation(i)"
-          @click="acceptSuggestion(i)"
-        >
-          <span class="flex-1 truncate">{{ item.command }}</span>
-          <span class="shrink-0 text-[12px] text-mist font-sans">
-            {{ sourceLabel[item.source] || item.source }}
-            <template v-if="item.count && item.count > 1"> · {{ item.count }}</template>
-          </span>
-        </button>
-        <div class="flex gap-3 px-2.5 pt-1.5 mt-1 text-[11px] text-mist inset-line-t">
-          <span v-if="navigating"><span class="kbd">↑↓</span> 选择 · <span class="kbd">Tab</span> 采纳 · <span class="kbd">Esc</span> 关闭</span>
-          <span v-else><span class="kbd">{{ formatHotkeyLabel(settings.completionNavHotkey || DEFAULT_COMPLETION_NAV_HOTKEY) }}</span> 进入 · <span class="kbd">Esc</span> 关闭</span>
-        </div>
-      </div>
-    </Teleport>
-
-    <!-- 右键菜单：@mousedown.prevent 阻止菜单抢走 xterm 隐藏输入框的焦点（否则粘贴/复制后无法继续输入） -->
-    <Teleport to="body">
-      <div
-        v-if="menu"
-        class="menu-pop neo fixed z-50"
-        :style="{left: menu.x + 'px', top: menu.y + 'px'}"
-        @contextmenu.prevent
-        @mousedown.prevent
-        @click.stop
-      >
-        <button @click="doCopy">复制 <span class="text-mist">Ctrl+Shift+C</span></button>
-        <button @click="doPaste">粘贴 <span class="text-mist">Ctrl+V</span></button>
-        <div class="divider-h my-1"></div>
-        <button @click="doSelectAll">全选</button>
-        <button @click="doClear">清除屏幕</button>
-        <div class="divider-h my-1"></div>
-        <button @click="adjustFontSize(1)">放大 <span class="text-mist">Ctrl+=</span></button>
-        <button @click="adjustFontSize(-1)">缩小 <span class="text-mist">Ctrl+-</span></button>
-        <button @click="toggleFullscreen">全屏 <span class="text-mist">F11</span></button>
-        <div class="divider-h my-1"></div>
-        <button @click="toggleLogTrace">
-          {{ logTracking ? '停止跟踪此会话日志' : '开始跟踪此会话日志' }}
-        </button>
-      </div>
-    </Teleport>
+    <TerminalContextMenu v-if="menu" :position="menu" :log-tracking="logTracking" @copy="doCopy" @paste="doPaste" @select-all="doSelectAll" @clear="doClear" @font="adjustFontSize" @fullscreen="toggleFullscreen" @log-trace="toggleLogTrace" @close="closeMenu(true)" />
   </div>
 </template>
 
@@ -1755,14 +1138,14 @@ onBeforeUnmount(() => {
 
 /* 断开横幅：平面警示风 —— 实底表面 + 琥珀描边 + 左侧警示条，突出"已断开"重点 */
 .disconnect-banner {
-  background: var(--ink-850);
-  border: 1px solid var(--warn-500);
+  background: var(--surface-2);
+  border: 1px solid var(--warning);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-pop);
   animation: fadeRise 200ms var(--ease);
 }
 .disconnect-banner:focus-visible {
-  outline: 2px solid var(--warn-500);
+  outline: 2px solid var(--warning);
   outline-offset: 2px;
 }
 .banner-accent {
@@ -1770,7 +1153,7 @@ onBeforeUnmount(() => {
   width: 3px;
   align-self: stretch;
   border-radius: 2px;
-  background: var(--warn-500);
+  background: var(--warning);
 }
 
 .completion-panel {

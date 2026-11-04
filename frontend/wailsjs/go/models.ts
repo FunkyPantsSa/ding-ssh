@@ -338,6 +338,7 @@ export namespace models {
 	    }
 	}
 	export class Settings {
+	    uiSchema: number;
 	    logEnabled: boolean;
 	    logToFile: boolean;
 	    logLevel: string;
@@ -372,6 +373,7 @@ export namespace models {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uiSchema = source["uiSchema"];
 	        this.logEnabled = source["logEnabled"];
 	        this.logToFile = source["logToFile"];
 	        this.logLevel = source["logLevel"];

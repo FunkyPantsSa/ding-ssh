@@ -7,6 +7,7 @@ import {useSettingsStore} from '../stores/settings'
 import {useTransfersStore} from '../stores/transfers'
 import {OnFileDrop, OnFileDropOff} from '../../wailsjs/runtime/runtime'
 import type {SFTPEntry, SessionTab, TransferRecord} from '../types'
+import {Button, Input} from './ui'
 
 const props = defineProps<{tab: SessionTab}>()
 const sessions = useSessionsStore()
@@ -28,9 +29,10 @@ const newFolderName = ref('')
 const editingPath = ref(false)
 const pathInput = ref('')
 
-const renameInputEl = ref<HTMLInputElement>()
-const newFolderInputEl = ref<HTMLInputElement>()
-const pathInputEl = ref<HTMLInputElement>()
+type FocusableInput = {focus: () => void; select: () => void}
+const renameInputEl = ref<FocusableInput | null>(null)
+const newFolderInputEl = ref<FocusableInput | null>(null)
+const pathInputEl = ref<FocusableInput | null>(null)
 
 interface TransferItem {
   key: string
@@ -569,39 +571,42 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="tool">
+  <div class="tool" data-ui="context-panel">
     <div class="tool-head">
       <div class="seg">
         <button class="active">SFTP</button>
         <button @click="sessions.showRightPanel('sysinfo')">看板</button>
       </div>
-      <button
-        class="btn-icon btn-sm ml-auto"
+      <Button
+        variant="ghost"
+        size="icon"
+        class="ml-auto"
         :title="transfersStore.records.length ? `传输记录（${transfersStore.records.length} 条）` : '传输记录'"
         aria-label="传输记录"
         @click="sessions.showRightPanel('transfers')"
       >
         <Icon name="clock" :size="14" />
-      </button>
-      <button class="btn-icon btn-sm" title="收起" @click="sessions.sftpVisible = false">
+      </Button>
+      <Button variant="ghost" size="icon" title="收起" aria-label="收起侧栏" @click="sessions.sftpVisible = false">
         <Icon name="close" :size="14" />
-      </button>
+      </Button>
     </div>
 
     <!-- 工具条：面板宽度可拖动（最窄 260px），窄的时候让按钮换行而不是溢出到终端上 -->
     <div class="flex flex-wrap items-center gap-1.5 p-3 inset-line-b">
-      <button class="btn-icon btn-sm" title="上级" @click="up">
+      <Button variant="ghost" size="icon" title="上级" aria-label="返回上级目录" @click="up">
         <Icon name="up" :size="14" />
-      </button>
-      <button class="btn-icon btn-sm" title="刷新" @click="refresh">
+      </Button>
+      <Button variant="ghost" size="icon" title="刷新" aria-label="刷新目录" @click="refresh">
         <Icon name="refresh" :size="14" />
-      </button>
-      <input
+      </Button>
+      <Input
         v-if="editingPath"
         ref="pathInputEl"
         v-model="pathInput"
-        class="input input-sm flex-1 font-mono text-[12px]"
+        class="flex-1 font-mono text-[12px]"
         spellcheck="false"
+        aria-label="远程路径"
         @keyup.enter="doPathEdit"
         @keyup.esc="editingPath = false"
         @blur="doPathEdit"
@@ -617,18 +622,19 @@ onBeforeUnmount(() => {
           <span v-if="i < crumbs.length - 1" class="shrink-0 opacity-40">/</span>
         </template>
       </div>
-      <button class="btn btn-ghost btn-sm" @click="startNewFolder">新建</button>
-      <button class="btn btn-ghost btn-sm" @click="upload">上传</button>
-      <button class="btn btn-ghost btn-sm" title="选择本地文件夹，整体递归上传到当前目录（保留文件夹名）" @click="uploadFolder">上传文件夹</button>
+      <Button variant="ghost" size="sm" data-testid="sftp-create-folder" @click="startNewFolder">新建</Button>
+      <Button variant="ghost" size="sm" data-testid="sftp-upload" @click="upload">上传</Button>
+      <Button variant="ghost" size="sm" title="选择本地文件夹，整体递归上传到当前目录（保留文件夹名）" data-testid="sftp-upload-folder" @click="uploadFolder">上传文件夹</Button>
     </div>
 
     <div v-if="newFolderActive" class="flex items-center gap-2 px-3 py-2 inset-line-b">
       <span class="text-[12px] text-mist shrink-0">名称</span>
-      <input
+      <Input
         ref="newFolderInputEl"
         v-model="newFolderName"
-        class="input input-sm flex-1"
+        class="flex-1"
         placeholder="新文件夹名称"
+        aria-label="新文件夹名称"
         @keyup.enter="doNewFolder"
         @keyup.esc="newFolderActive = false"
         @blur="doNewFolder"
@@ -638,32 +644,36 @@ onBeforeUnmount(() => {
     <div
       class="flex-1 overflow-y-auto px-2 py-1.5 relative transition-colors"
       style="--wails-drop-target: drop"
-      :class="dragOver ? 'bg-[var(--signal-weak)]' : ''"
+      :class="dragOver ? 'bg-[var(--primary-weak)]' : ''"
       @dragenter.prevent="dragOver = true"
       @dragover.prevent="dragOver = true"
       @dragleave.prevent="dragOver = false"
       @drop.prevent="dragOver = false"
     >
-      <div v-if="dragOver" class="absolute inset-2 rounded-[10px] border-2 border-dashed border-[var(--signal-400)] bg-[var(--signal-glow-soft)] grid place-items-center pointer-events-none z-10">
-        <p class="text-xs text-[var(--signal-300)]">松开以上传到当前目录</p>
+      <div v-if="dragOver" class="absolute inset-2 rounded-[10px] border-2 border-dashed border-[var(--primary-hover)] bg-[var(--primary-glow-soft)] grid place-items-center pointer-events-none z-10">
+        <p class="text-xs text-[var(--primary-hover)]">松开以上传到当前目录</p>
       </div>
       <div v-if="!entries.length && !loading && !error" class="py-6 text-center text-xs text-mist">空目录</div>
       <div
         v-for="e in entries"
         :key="e.path"
+        data-testid="sftp-entry"
+        :data-path="e.path"
+        :data-dir="e.isDir ? 'true' : 'false'"
         class="grid grid-cols-[20px_1fr_auto] items-center gap-2 h-9 px-2 rounded-[6px] text-xs cursor-pointer"
-        :class="selected === e.path ? 'bg-[var(--signal-weak)]' : 'hover:bg-[var(--hover)]'"
+        :class="selected === e.path ? 'bg-[var(--primary-weak)]' : 'hover:bg-[var(--hover)]'"
         @click="selected = e.path"
         @dblclick="onDblClick(e)"
         @contextmenu.prevent="openMenu($event, e)"
       >
         <Icon :name="e.isDir ? 'folder' : 'file'" :size="14" :extra-class="e.isDir ? 'text-copper' : 'text-mist'" />
         <template v-if="renaming?.path === e.path">
-          <input
+          <Input
             ref="renameInputEl"
             v-model="renameInput"
-            class="input input-sm col-span-2"
+            class="col-span-2"
             spellcheck="false"
+            aria-label="重命名条目"
             @click.stop
             @keyup.enter="doRename"
             @keyup.esc="renaming = null"
@@ -673,12 +683,12 @@ onBeforeUnmount(() => {
         <template v-else-if="confirmDeletePath === e.path">
           <span class="text-[12px] text-danger truncate">删除「{{ e.name }}」？</span>
           <div class="flex gap-1">
-            <button class="btn btn-danger btn-sm" @click.stop="doDelete">确认</button>
-            <button class="btn btn-ghost btn-sm" @click.stop="confirmDeletePath = ''">取消</button>
+            <Button variant="danger" size="sm" @click.stop="doDelete">确认</Button>
+            <Button variant="ghost" size="sm" @click.stop="confirmDeletePath = ''">取消</Button>
           </div>
         </template>
         <template v-else>
-          <span class="truncate text-[var(--mist-200)]">{{ e.name }}</span>
+          <span class="truncate text-[var(--foreground)]">{{ e.name }}</span>
           <span class="font-mono text-[11px] text-mist">{{ e.isDir ? '—' : fmtSize(e.size) }}</span>
         </template>
       </div>
@@ -693,9 +703,9 @@ onBeforeUnmount(() => {
 
     <div v-if="transfers.length" class="shrink-0 p-3 flex flex-col gap-2 inset-line-t">
       <div v-for="t in transfers" :key="t.key" class="grid grid-cols-[1fr_auto] gap-1 text-[12px]">
-        <span class="truncate text-[var(--mist-200)]">{{ t.direction === 'upload' ? '↑' : '↓' }} {{ t.name }}</span>
+        <span class="truncate text-[var(--foreground)]">{{ t.direction === 'upload' ? '↑' : '↓' }} {{ t.name }}</span>
         <span class="flex items-center gap-2">
-          <button v-if="!t.done && !t.error" class="btn btn-ghost btn-sm" @click="cancelTransfer(t)">取消</button>
+          <Button v-if="!t.done && !t.error" variant="ghost" size="sm" @click="cancelTransfer(t)">取消</Button>
           <span class="font-mono" :class="t.error ? 'text-danger' : 'text-signal'">
             {{ t.error ? (t.error.includes('已取消') ? '已取消' : '失败') : percent(t) + '%' }}
           </span>
@@ -722,6 +732,7 @@ onBeforeUnmount(() => {
       <div
         v-if="menu"
         class="menu-pop neo fixed z-50"
+        data-ui="context-menu"
         :style="{left: menu.x + 'px', top: menu.y + 'px'}"
         @contextmenu.prevent
         @click.stop

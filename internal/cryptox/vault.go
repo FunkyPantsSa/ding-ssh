@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"ding-ssh/internal/appdir"
 	"github.com/zalando/go-keyring"
 )
 
@@ -22,7 +23,7 @@ const (
 // Meta 持久化的安全元数据（不含主密钥本身）。
 type Meta struct {
 	MasterPasswordEnabled bool   `json:"masterPasswordEnabled"`
-	SaltB64               string `json:"saltB64,omitempty"` // Argon2 盐（主密码模式）
+	SaltB64               string `json:"saltB64,omitempty"`     // Argon2 盐（主密码模式）
 	VerifierB64           string `json:"verifierB64,omitempty"` // 用主密钥加密的固定校验串
 	MigratedAt            int64  `json:"migratedAt,omitempty"`
 }
@@ -47,12 +48,7 @@ type Vault struct {
 // OpenVault 加载安全元数据并尝试自动解锁（Keyring 模式）。
 func OpenVault(configDir string) (*Vault, error) {
 	if configDir == "" {
-		dir, err := os.UserConfigDir()
-		if err != nil {
-			configDir = "."
-		} else {
-			configDir = filepath.Join(dir, "ding-ssh")
-		}
+		configDir = appdir.ConfigDir()
 	}
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return nil, err
@@ -66,7 +62,15 @@ func OpenVault(configDir string) (*Vault, error) {
 		return v, nil
 	}
 	// 默认模式：从 Keyring 取主密钥，失败则生成并写入。
-	key, err := v.loadOrCreateKeyringKey()
+	var key []byte
+	var err error
+	if appdir.IsDevOverride() {
+		// Isolated test instances must not read or create the user's real
+		// keychain entry; keep their generated key inside the override dir.
+		key, err = v.loadOrCreateFileKey()
+	} else {
+		key, err = v.loadOrCreateKeyringKey()
+	}
 	if err != nil {
 		// Keyring 不可用时回退到本地受保护文件（仍优于明文）。
 		key, err = v.loadOrCreateFileKey()

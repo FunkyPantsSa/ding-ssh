@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"ding-ssh/internal/appdir"
 	"ding-ssh/internal/models"
 )
 
@@ -37,11 +38,7 @@ func NewJSONCredentialStore(path string) (*JSONCredentialStore, error) {
 
 // DefaultCredentialPath 返回默认凭证文件路径。
 func DefaultCredentialPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "credentials.json"
-	}
-	return filepath.Join(dir, "ding-ssh", "credentials.json")
+	return filepath.Join(appdir.ConfigDir(), "credentials.json")
 }
 
 func (s *JSONCredentialStore) load() ([]models.Credential, error) {
