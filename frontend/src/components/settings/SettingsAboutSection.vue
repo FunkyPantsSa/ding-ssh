@@ -5,6 +5,7 @@ import {Button} from '../ui'
 import {sshService} from '../../services/ssh'
 import {APP_COMMIT, APP_VERSION, buildDateLabel, buildTimeLabel, detectPlatform, platformLabel} from '../../version'
 import {ClipboardSetText} from '../../../wailsjs/runtime/runtime'
+import appLogo from '../../assets/images/ding-logo.png'
 
 const platform = ref('')
 const copied = ref(false)
@@ -53,7 +54,7 @@ onBeforeUnmount(() => window.clearTimeout(copiedTimer))
     <div class="neo">
       <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-800/60">
         <div class="brand-mark">
-          <Icon name="zap" :size="20" extra-class="text-signal" />
+          <img :src="appLogo" alt="" class="brand-logo" />
         </div>
         <div class="min-w-0">
           <div class="brand-name">ding<span>-ssh</span></div>

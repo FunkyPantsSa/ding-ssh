@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import Icon from '@/components/Icon.vue'
 import {Button, Field, Input} from '@/components/ui'
+import appLogo from '@/assets/images/ding-logo.png'
 
 defineProps<{unlocking: boolean; error: string}>()
 const password = defineModel<string>({required: true})
@@ -13,7 +13,7 @@ const emit = defineEmits<{submit: []}>()
       <section class="hidden md:flex flex-col gap-5">
         <div class="flex items-center gap-3">
           <div class="brand-mark">
-            <Icon name="zap" :size="18" extra-class="text-signal" />
+            <img :src="appLogo" alt="" class="brand-logo" />
           </div>
           <div>
             <div class="brand-name">ding<span>-ssh</span></div>
@@ -43,7 +43,7 @@ const emit = defineEmits<{submit: []}>()
       <form class="panel p-6 flex flex-col gap-4" @submit.prevent="emit('submit')">
         <div class="md:hidden flex items-center gap-3">
           <div class="brand-mark">
-            <Icon name="zap" :size="18" extra-class="text-signal" />
+            <img :src="appLogo" alt="" class="brand-logo" />
           </div>
           <div class="brand-name">ding<span>-ssh</span></div>
         </div>

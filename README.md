@@ -1,4 +1,8 @@
-# ding-ssh
+<div align="center">
+  <img src="frontend/icon/ding.png" width="280" alt="ding-ssh：猫咪终端应用图标">
+  <h1>ding-ssh</h1>
+  <p><strong>把 SSH 终端、SFTP、端口转发与本机 shell 装进同一个桌面工作台。</strong></p>
+</div>
 
 [![CI](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml)
 
