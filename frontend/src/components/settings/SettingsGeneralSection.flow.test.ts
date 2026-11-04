@@ -1,24 +1,24 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {createPinia, setActivePinia} from 'pinia'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
-import SettingsGeneralSection from './components/settings/SettingsGeneralSection.vue'
-import {useSettingsStore} from './stores/settings'
+import SettingsGeneralSection from './SettingsGeneralSection.vue'
+import {useSettingsStore} from '../../stores/settings'
 
-vi.mock('./services/settings', () => ({
+vi.mock('../../services/settings', () => ({
   settingsService: {
     getSettings: vi.fn(),
     saveSettings: vi.fn(),
   },
 }))
-vi.mock('./services/ssh', () => ({
+vi.mock('../../services/ssh', () => ({
   sshService: {
     getPlatform: vi.fn(),
     getLocalShellOptions: vi.fn(),
   },
 }))
 
-const {settingsService} = await import('./services/settings')
-const {sshService} = await import('./services/ssh')
+const {settingsService} = await import('../../services/settings')
+const {sshService} = await import('../../services/ssh')
 
 beforeEach(() => {
   vi.clearAllMocks()

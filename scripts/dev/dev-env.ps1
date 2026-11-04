@@ -1,7 +1,7 @@
 # ding-ssh development environment activator
 #
 # Usage (dot-source so PATH changes apply to the CURRENT session):
-#     . .\dev-env.ps1
+#     . .\scripts\dev\dev-env.ps1
 #     wails dev
 #
 # Why this exists:
@@ -23,7 +23,9 @@ function Add-PathEntry {
     return $true
 }
 
-$projectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$projectRoot = [System.IO.Path]::GetFullPath((Join-Path $scriptDir '..\..'))
+Set-Location -LiteralPath $projectRoot
 
 # 1) Go: global install first, then a project-local portable copy.
 foreach ($candidate in @(

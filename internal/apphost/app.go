@@ -1,4 +1,4 @@
-package main
+package apphost
 
 import (
 	"context"
@@ -63,13 +63,13 @@ type App struct {
 	dataDir string
 }
 
-// NewApp 创建 App 实例。boot 为启动期读到的调试模式配置（见 readDebugBoot）。
+// NewApp 创建 App 实例。boot 为启动期读到的调试模式配置（见 ReadDebugBoot）。
 func NewApp(boot DebugBoot) *App {
 	return &App{debugBoot: boot}
 }
 
 // startup 在应用启动时初始化依赖。
-func (a *App) startup(ctx context.Context) {
+func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 	a.startedAt = time.Now().UnixMilli()
 	a.dataDir = appdir.ConfigDir()
@@ -221,7 +221,7 @@ func (a *App) initJSONStores() {
 }
 
 // shutdown 在应用退出时清理资源。
-func (a *App) shutdown(ctx context.Context) {
+func (a *App) Shutdown(ctx context.Context) {
 	a.stopDebug()
 	if a.local != nil {
 		a.local.CloseAll()

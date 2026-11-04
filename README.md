@@ -164,8 +164,8 @@ cd frontend && npm ci && node node_modules/vue-tsc/bin/vue-tsc.js --noEmit
 
 Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前就已打开的终端 PATH 未更新」：
 
-- `dev-env.ps1`：把 Go（`C:\Program Files\Go\bin`、`%LOCALAPPDATA%\Programs\Go\bin`、项目内 `.tools\go\bin`）、`GOPATH\bin`、Node（`C:\Program Files\nodejs`、`%APPDATA%\npm`）补进当前会话 PATH，必要时设置 `GOPROXY` / `GOSUMDB` 镜像，最后打印 go / node / npm / wails 版本。需 dot-source：`. .\dev-env.ps1`。
-- `dev.cmd`：本机策略禁止直接跑 `.ps1`，因此用 `-ExecutionPolicy Bypass` 包一层。不带参数打开已激活环境的交互式终端，带参数执行单条命令：`.\dev.cmd wails dev`、`.\dev.cmd go test ./internal/...`。
+- `scripts/dev/dev-env.ps1`：把 Go（`C:\Program Files\Go\bin`、`%LOCALAPPDATA%\Programs\Go\bin`、项目内 `.tools\go\bin`）、`GOPATH\bin`、Node（`C:\Program Files\nodejs`、`%APPDATA%\npm`）补进当前会话 PATH，必要时设置 `GOPROXY` / `GOSUMDB` 镜像，切回项目根目录并打印 go / node / npm / wails 版本。需 dot-source：`. .\scripts\dev\dev-env.ps1`。
+- `scripts/dev/dev.cmd`：本机策略禁止直接跑 `.ps1`，因此用 `-ExecutionPolicy Bypass` 包一层。不带参数打开已激活环境的项目终端，带参数执行单条命令：`.\scripts\dev\dev.cmd wails dev`、`.\scripts\dev\dev.cmd go test ./internal/...`。
 
 **发布用打包脚本**（`scripts/`，由 Release 工作流调用）
 
@@ -193,9 +193,8 @@ Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前
 ```
 .
 ├── main.go                 Wails 入口：窗口参数、frontend/dist 内嵌、启动/关闭钩子
-├── app.go                  App 门面：服务器 / 设置 / 凭据 / SFTP / 隧道 / 会话 / 安全 / 导入导出
-├── debug.go                调试模式宿主侧：启动、事件旁路、宿主 op 分发、诊断包导出
 ├── internal/
+│   ├── apphost/            Wails 宿主实现与同包测试：业务门面、调试控制面、本地路径平台适配
 │   ├── appdir/             配置目录单一入口 + `DING_SSH_DEV_CONFIG_DIR` 隔离
 │   ├── models/             前后端共享结构（ServerNode、Settings、DebugSettings、事件负载）
 │   ├── sshx/               SSH 会话、SFTP 缓存与传输、隧道、OSC 7 解析、SysInfo 采集
@@ -206,6 +205,7 @@ Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前
 │   ├── logx/               日志落盘、轮转、脱敏、尾部读取
 │   └── logfilter/          过滤 Wails 运行时的日志噪音
 ├── cmd/ding-ssh-mcp/       独立 stdio MCP 代理（给只支持 stdio 的客户端）
+├── scripts/dev/            Windows 开发环境激活与命令入口
 ├── frontend/src/
 │   ├── App.vue             应用组装、顶级状态与导航切换
 │   ├── layouts/            AppLayout / AppSidebar / AppTopBar / AppUnlock

@@ -1,10 +1,10 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {createPinia, setActivePinia} from 'pinia'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
-import TunnelPage from './components/TunnelPage.vue'
-import type {ServerNode} from './types'
+import TunnelPage from './TunnelPage.vue'
+import type {ServerNode} from '../types'
 
-vi.mock('./services/ssh', () => ({
+vi.mock('../services/ssh', () => ({
   onTunnelStatus: vi.fn(() => () => {}),
   sshService: {
     getServers: vi.fn(),
@@ -16,13 +16,13 @@ vi.mock('./services/ssh', () => ({
     removeTunnel: vi.fn(),
   },
 }))
-vi.mock('../wailsjs/runtime/runtime', () => ({
+vi.mock('../../wailsjs/runtime/runtime', () => ({
   ClipboardSetText: vi.fn(),
   EventsOn: vi.fn(() => () => {}),
   EventsOff: vi.fn(),
 }))
 
-const {sshService, onTunnelStatus} = await import('./services/ssh')
+const {sshService, onTunnelStatus} = await import('../services/ssh')
 
 const node: ServerNode = {
   id: 's1',
