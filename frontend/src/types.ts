@@ -104,6 +104,8 @@ export interface UIAppearance {
   primary: string // custom：主色（hex）
   secondary: string // custom：辅色（hex）
   uiText: string // custom：界面主文字色（hex）
+  glassOpacity: number // 应用玻璃表面不透明度（40–100）
+  glassBlur: number // 应用玻璃表面模糊强度（0–60px）
 }
 
 // 字体设置（对应 Go 端 models.Fonts）。

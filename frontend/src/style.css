@@ -124,7 +124,9 @@ body.col-resizing * { cursor: col-resize !important; }
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--surface-1);
+  background: color-mix(in srgb, var(--theme-bg-sidebar, var(--surface-1)) var(--theme-glass-opacity, 100%), transparent);
+  backdrop-filter: blur(var(--theme-glass-blur, 0));
+  -webkit-backdrop-filter: blur(var(--theme-glass-blur, 0));
   box-shadow: inset -1px 0 0 var(--line);
   overflow: hidden;
   /* 高于快速连接面板（.qconn z 50）：面板开合滑动时从导航右边界下方划出/划入，

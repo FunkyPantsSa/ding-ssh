@@ -33,6 +33,9 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Sparkles,
+  Sun,
+  Moon,
   Server,
   Settings,
   Terminal,
@@ -82,6 +85,9 @@ const map: Record<string, Component> = {
   'clipboard-copy': ClipboardCopy,
   columns: Columns2,
   eye: Eye,
+  sparkles: Sparkles,
+  sun: Sun,
+  moon: Moon,
   'eye-off': EyeOff,
 }
 

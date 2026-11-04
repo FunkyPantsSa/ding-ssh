@@ -25,7 +25,7 @@ import {useTheme} from './composables/useTheme'
 import {useHotkeys} from './composables/useHotkeys'
 import {HOTKEYS} from './hotkeys'
 import {useToast} from './composables/useToast'
-import {Button, Dialog, EmptyState, ToastProvider} from './components/ui'
+import {Button, Dialog, ToastProvider} from './components/ui'
 import CommandPalette from './components/command/CommandPalette.vue'
 import ServerList from './components/ServerList.vue'
 import SettingsPage from './components/SettingsPage.vue'
@@ -35,6 +35,7 @@ import AppSidebar from './layouts/AppSidebar.vue'
 import AppUnlock from './layouts/AppUnlock.vue'
 import AppLayout from './layouts/AppLayout.vue'
 import TerminalWorkspace from './views/TerminalWorkspace.vue'
+import WorkspaceHome from './views/WorkspaceHome.vue'
 
 const sessions = useSessionsStore()
 const ui = useUIStore()
@@ -592,28 +593,12 @@ onBeforeUnmount(() => {
                   <!-- 分屏覆盖层：格头 + 分隔条 + 拖放热区 -->
                   <SplitView v-if="sessions.splitShown" :layout="paneLayout!" />
 
-                  <div v-if="!sessions.tabs.length" class="empty">
-                    <EmptyState title="尚未打开会话" description="从左侧服务器列表选择节点连接，或使用 ⌘K 快速搜索。连接后终端、SFTP 与系统看板将同步就绪。">
-                      <template #icon>
-                        <div
-                          class="w-11 h-11 grid place-items-center"
-                          style="border-radius: var(--radius-lg); background: var(--primary-weak); box-shadow: inset 0 0 0 1px var(--primary-border)"
-                        >
-                          <Icon name="terminal" :size="19" extra-class="text-signal" />
-                        </div>
-                      </template>
-                      <template #actions>
-                        <Button variant="primary" @click="ui.openTerminalSidebar()">
-                          <Icon name="panel-left" :size="14" />
-                          打开服务器列表
-                        </Button>
-                        <Button variant="ghost" @click="ui.showServers()">
-                          <Icon name="server" :size="14" />
-                          服务器管理
-                        </Button>
-                      </template>
-                    </EmptyState>
-                  </div>
+                  <WorkspaceHome
+                    v-if="!sessions.tabs.length"
+                    @quick-connect="ui.openTerminalSidebar()"
+                    @manage-servers="ui.showServers()"
+                    @open-settings="ui.showSettings()"
+                  />
                 </div>
 
                 <SftpPanel

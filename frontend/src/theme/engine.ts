@@ -1,5 +1,5 @@
 // 主题引擎：从 UI 外观配置派生整组 CSS 变量，供根节点绑定。
-import type {Fonts, UIAppearance} from '../types'
+import type {Fonts, Theme, UIAppearance} from '../types'
 import {defaultPreset, presetById} from './presets'
 
 // ---- 颜色工具 ----
@@ -75,6 +75,78 @@ export function deriveBrandVars(primary: string, secondary: string): Record<stri
   }
 }
 
+/**
+ * Seed color -> application surfaces. Large backgrounds keep only a restrained
+ * amount of chroma; navigation is intentionally lighter than the workspace in
+ * dark mode and darker than it in light mode, matching the Arc-like hierarchy.
+ */
+export function deriveSurfaceVars(seed: string, tone: Tone, glassOpacity = 85, glassBlur = 24): Record<string, string> {
+  const opacity = `${Math.min(100, Math.max(40, glassOpacity || 85))}%`
+  const blur = `${Math.min(60, Math.max(0, glassBlur))}px`
+  if (tone === 'light') {
+    const main = mix(seed, '#ffffff', 0.91)
+    const sidebar = mix(seed, '#ffffff', 0.82)
+    const toolbar = mix(seed, '#ffffff', 0.88)
+    return {
+      '--background': main,
+      '--surface-1': sidebar,
+      '--surface-2': mix(seed, '#ffffff', 0.95),
+      '--surface-3': mix(seed, '#ffffff', 0.87),
+      '--surface-4': mix(seed, '#ffffff', 0.78),
+      '--border': mix(seed, '#d4d4d8', 0.72),
+      '--border-strong': mix(seed, '#a1a1aa', 0.78),
+      '--border-subtle': rgba(darken(seed, 0.4), 0.12),
+      '--theme-bg-main': main,
+      '--theme-bg-sidebar': sidebar,
+      '--theme-bg-toolbar': toolbar,
+      '--theme-bg-surface': mix(seed, '#ffffff', 0.95),
+      '--theme-glass-opacity': opacity,
+      '--theme-glass-blur': blur,
+      '--theme-glass-tint': rgba(seed, 0.14),
+    }
+  }
+
+  const main = mix(seed, '#0d1117', 0.9)
+  const sidebar = mix(seed, '#18202b', 0.79)
+  const toolbar = mix(seed, '#121821', 0.86)
+  return {
+    '--background': main,
+    '--surface-1': sidebar,
+    '--surface-2': mix(seed, '#1b232e', 0.86),
+    '--surface-3': mix(seed, '#25303d', 0.82),
+    '--surface-4': mix(seed, '#344152', 0.8),
+    '--border': mix(seed, '#334155', 0.84),
+    '--border-strong': mix(seed, '#475569', 0.8),
+    '--border-subtle': rgba(lighten(seed, 0.55), 0.12),
+    '--theme-bg-main': main,
+    '--theme-bg-sidebar': sidebar,
+    '--theme-bg-toolbar': toolbar,
+    '--theme-bg-surface': mix(seed, '#1b232e', 0.86),
+    '--theme-glass-opacity': opacity,
+    '--theme-glass-blur': blur,
+    '--theme-glass-tint': rgba(seed, 0.12),
+  }
+}
+
+/** Keep terminal contrast independent while tinting its key colors from the UI seed. */
+export function deriveTerminalTheme(base: Theme, seed: string, tone: Tone): Theme {
+  const light = tone === 'light'
+  const cursor = light ? darken(seed, 0.12) : lighten(seed, 0.12)
+  return {
+    ...base,
+    background: light ? lighten(seed, 0.93) : darken(seed, 0.88),
+    foreground: light ? '#20242a' : '#e8edf2',
+    cursor,
+    selection: rgba(cursor, light ? 0.22 : 0.3),
+    black: light ? '#20242a' : darken(seed, 0.94),
+    brightBlack: light ? '#6b7280' : lighten(darken(seed, 0.72), 0.28),
+    blue: light ? darken(seed, 0.28) : seed,
+    brightBlue: light ? darken(seed, 0.12) : lighten(seed, 0.22),
+    white: light ? '#e5e7eb' : '#d9e0e7',
+    brightWhite: '#ffffff',
+  }
+}
+
 /** 当前预设的 UI 主/辅色（custom 模式用用户自定义值）。 */
 export function effectiveBrand(appearance: UIAppearance): {primary: string; secondary: string} {
   if (appearance.mode === 'preset') {
@@ -120,14 +192,12 @@ export function monoFontStack(name: string | undefined): string {
 /** 计算根节点应绑定的全部 CSS 变量。 */
 export function computeUiCssVars(appearance: UIAppearance, fonts: Fonts, tone: Tone): Record<string, string> {
   const {primary, secondary} = effectiveBrand(appearance)
-  const uiText = appearance.mode === 'custom' && appearance.uiText ? appearance.uiText : ''
   return {
+    ...deriveSurfaceVars(primary, tone, appearance.glassOpacity, appearance.glassBlur),
     ...deriveBrandVars(primary, secondary),
     '--font-sans': uiFontStack(fonts.uiFont),
     '--font-mono': monoFontStack(fonts.terminalFont),
     '--terminal-bg': appearance.mode === 'preset' ? (tone === 'dark' ? presetById(appearance.presetId)?.dark.background ?? defaultPreset().dark.background : presetById(appearance.presetId)?.light.background ?? defaultPreset().light.background) : '',
-    // custom 模式：自定义界面主文字色（text-white / slate 等均走 --foreground）
-    ...(uiText ? {'--foreground': uiText} : {}),
   }
 }
 
@@ -137,6 +207,10 @@ export function isSystemToneQuery(tone: Tone): string {
 
 /** 由主题引擎写入 <html> 的动态 CSS 变量（卸载时需清除）。 */
 const MANAGED_ROOT_VARS = [
+  '--background', '--surface-1', '--surface-2', '--surface-3', '--surface-4',
+  '--border', '--border-strong', '--border-subtle',
+  '--theme-bg-main', '--theme-bg-sidebar', '--theme-bg-toolbar', '--theme-bg-surface',
+  '--theme-glass-opacity', '--theme-glass-blur', '--theme-glass-tint',
   '--primary', '--primary-hover',
   '--primary-glow', '--primary-glow-soft', '--primary-weak', '--primary-border', '--primary-strong-border', '--primary-hover-bg',
   '--primary-foreground', '--terminal-bg',

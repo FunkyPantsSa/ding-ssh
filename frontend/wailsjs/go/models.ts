@@ -264,6 +264,8 @@ export namespace models {
 	    primary: string;
 	    secondary: string;
 	    uiText: string;
+	    glassOpacity: number;
+	    glassBlur: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new UIAppearance(source);
@@ -277,6 +279,8 @@ export namespace models {
 	        this.primary = source["primary"];
 	        this.secondary = source["secondary"];
 	        this.uiText = source["uiText"];
+	        this.glassOpacity = source["glassOpacity"];
+	        this.glassBlur = source["glassBlur"];
 	    }
 	}
 	export class Theme {

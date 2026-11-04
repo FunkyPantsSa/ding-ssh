@@ -1,5 +1,5 @@
 import {computed, onBeforeUnmount, ref, watch} from 'vue'
-import {applyRootTheme, clearRootTheme, computeUiCssVars, resolveTone, type Tone} from '@/theme/engine'
+import {applyRootTheme, clearRootTheme, computeUiCssVars, deriveTerminalTheme, resolveTone, type Tone} from '@/theme/engine'
 import {defaultPreset, paletteToTheme, presetById} from '@/theme/presets'
 import type {Fonts, Theme, UIAppearance} from '@/types'
 
@@ -33,13 +33,15 @@ export function useTheme(settings: {
     return next
   }
   function syncTerminalPalette() {
-    if (!settings.loaded || settings.appearance.mode !== 'preset') return
-    const next = presetPaletteTheme(settings.theme, tone.value)
+    if (!settings.loaded) return
+    const next = settings.appearance.mode === 'preset'
+      ? presetPaletteTheme(settings.theme, tone.value)
+      : deriveTerminalTheme(settings.theme, settings.appearance.primary, tone.value)
     if (paletteSignature(next) !== paletteSignature(settings.theme)) void settings.setTheme(next)
   }
   function onSchemeChange() { systemTone.value = resolveTone('auto') }
 
-  watch([tone, () => settings.loaded], syncTerminalPalette, {immediate: true})
+  watch([tone, () => settings.loaded, () => settings.appearance.mode, () => settings.appearance.primary], syncTerminalPalette, {immediate: true})
   watch([tone, cssVars], ([nextTone, vars]) => applyRootTheme(nextTone, vars), {immediate: true})
   onBeforeUnmount(clearRootTheme)
 

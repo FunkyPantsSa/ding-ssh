@@ -2,7 +2,7 @@ import {computed, reactive, watch, type Ref} from 'vue'
 import {sshService} from '../services/ssh'
 import {defaultAppearance, defaultFonts, defaultTheme, useSettingsStore} from '../stores/settings'
 import {defaultPreset, paletteToTheme, presetById, PRESETS} from '../theme/presets'
-import {resolveTone} from '../theme/engine'
+import {deriveTerminalTheme, resolveTone} from '../theme/engine'
 import type {Fonts, Theme, UIAppearance} from '../types'
 
 export const UI_FONT_OPTIONS = ['Geist Sans', 'system'] as const
@@ -47,7 +47,17 @@ export function useSettingsAppearance(settings: ReturnType<typeof useSettingsSto
   async function setTone(tone: UIAppearance['baseTone']) {
     syncing = true; appearanceForm.baseTone = tone
     if (appearanceForm.mode === 'preset') Object.assign(themeForm, paletteToTheme(tone === 'light' ? activePreset.value.light : activePreset.value.dark))
+    else Object.assign(themeForm, deriveTerminalTheme(themeForm, appearanceForm.primary, resolveTone(tone)))
     syncing = false; await persistLook()
+  }
+  async function setSeedColor(color: string) {
+    syncing = true
+    appearanceForm.mode = 'custom'
+    appearanceForm.primary = color
+    appearanceForm.secondary = color
+    Object.assign(themeForm, deriveTerminalTheme(themeForm, color, currentTone.value))
+    syncing = false
+    await persistLook()
   }
   async function setMode(mode: UIAppearance['mode']) {
     syncing = true; appearanceForm.mode = mode
@@ -61,5 +71,5 @@ export function useSettingsAppearance(settings: ReturnType<typeof useSettingsSto
     syncing = false; await persistLook()
   }
   async function pickBgImage() { const path = await sshService.selectImageFile(); if (path) themeForm.bgImage = path }
-  return {themeForm, appearanceForm, fontsForm, currentTone, activePreset, syncForms, selectPreset, setTone, setMode, resetTheme, resetAppearance, pickBgImage, PRESETS}
+  return {themeForm, appearanceForm, fontsForm, currentTone, activePreset, syncForms, selectPreset, setTone, setSeedColor, setMode, resetTheme, resetAppearance, pickBgImage, PRESETS}
 }

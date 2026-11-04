@@ -1,314 +1,117 @@
 <script lang="ts" setup>
-import {onMounted, ref, watch} from 'vue'
-import ToggleSwitch from '../ToggleSwitch.vue'
+import {computed, onMounted, ref, watch} from 'vue'
+import Icon from '../Icon.vue'
 import {Button, Input} from '../ui'
-import {
-  ANSI_FIELDS,
-  MODE_OPTIONS,
-  TERMINAL_FONT_OPTIONS,
-  TONE_OPTIONS,
-  UI_FONT_OPTIONS,
-  useSettingsAppearance,
-} from '../../composables/useSettingsAppearance'
+import {TONE_OPTIONS, useSettingsAppearance} from '../../composables/useSettingsAppearance'
 import {useSettingsStore} from '../../stores/settings'
-import {readableOn} from '../../theme/engine'
+import {hexToRgb} from '../../theme/engine'
 
 const settings = useSettingsStore()
 const saving = ref(false)
-const {
-  themeForm,
-  appearanceForm,
-  fontsForm,
-  currentTone,
-  syncForms,
-  selectPreset,
-  setTone,
-  setMode,
-  resetAppearance,
-  pickBgImage,
-  PRESETS,
-} = useSettingsAppearance(settings, saving)
+const picker = ref<HTMLElement | null>(null)
+const dragging = ref(false)
+const {themeForm, appearanceForm, syncForms, setTone, setSeedColor, resetAppearance} = useSettingsAppearance(settings, saving)
+const PRESET_COLORS = [
+  {name: 'Neutral', color: '#E8E4DF'}, {name: 'Rose', color: '#F19BC0'},
+  {name: 'Lavender', color: '#9E709F'}, {name: 'Coral', color: '#F15E6A'},
+  {name: 'Orange', color: '#FF805C'}, {name: 'Yellow', color: '#F4D258'},
+  {name: 'Mint', color: '#35DBA4'}, {name: 'Sky', color: '#71B5D2'},
+  {name: 'Slate', color: '#64698C'},
+]
+const hsv = computed(() => rgbToHsv(hexToRgb(appearanceForm.primary)))
+const markerStyle = computed(() => ({left: `${hsv.value.s * 100}%`, top: `${(1 - hsv.value.v) * 100}%`}))
+const pickerStyle = computed(() => ({backgroundColor: `hsl(${hsv.value.h} 100% 50%)`}))
+const modeIcon = computed(() => appearanceForm.baseTone === 'light' ? 'sun' : appearanceForm.baseTone === 'dark' ? 'moon' : 'sparkles')
 
-/** 计算在色块上可读的文字颜色。 */
-const contrastFor = readableOn
+onMounted(syncForms)
+watch(() => settings.loaded, (loaded) => { if (loaded) syncForms() })
 
-onMounted(() => {
-  syncForms()
-})
-
-watch(() => settings.loaded, (loaded) => {
-  if (loaded) syncForms()
-})
+function rgbToHsv({r, g, b}: {r: number; g: number; b: number}) {
+  const rr = r / 255, gg = g / 255, bb = b / 255
+  const max = Math.max(rr, gg, bb), min = Math.min(rr, gg, bb), d = max - min
+  let h = 0
+  if (d) {
+    if (max === rr) h = 60 * (((gg - bb) / d) % 6)
+    else if (max === gg) h = 60 * ((bb - rr) / d + 2)
+    else h = 60 * ((rr - gg) / d + 4)
+  }
+  return {h: h < 0 ? h + 360 : h, s: max ? d / max : 0, v: max}
+}
+function hsvToHex(h: number, s: number, v: number) {
+  const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c
+  let rgb = [0, 0, 0]
+  if (h < 60) rgb = [c, x, 0]
+  else if (h < 120) rgb = [x, c, 0]
+  else if (h < 180) rgb = [0, c, x]
+  else if (h < 240) rgb = [0, x, c]
+  else if (h < 300) rgb = [x, 0, c]
+  else rgb = [c, 0, x]
+  return `#${rgb.map((n) => Math.round((n + m) * 255).toString(16).padStart(2, '0')).join('')}`.toUpperCase()
+}
+function updateFromPointer(event: PointerEvent) {
+  const rect = picker.value?.getBoundingClientRect()
+  if (!rect) return
+  const s = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
+  const v = 1 - Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height))
+  void setSeedColor(hsvToHex(hsv.value.h, s, v))
+}
+function startPicker(event: PointerEvent) {
+  dragging.value = true
+  picker.value?.setPointerCapture(event.pointerId)
+  updateFromPointer(event)
+}
+function chooseColor(color: string) {
+  void setSeedColor(color)
+}
 </script>
 
 <template>
-  <section class="max-w-3xl fade-rise" data-section-content="theme" aria-labelledby="settings-theme-title">
-    <div class="mb-6">
-      <h3 id="settings-theme-title" class="text-[18px] font-semibold text-white tracking-tight">外观</h3>
-      <p class="text-[13px] text-mist mt-1.5">
-        选择预设主题一键套用整站配色；也可自定义界面、终端与字体。终端 ANSI 16 色会同步到 ls、vim、提示符等程序输出。
-      </p>
-    </div>
-
-    <!-- 明暗模式 -->
-    <div class="neo px-5 py-4 mb-4">
-      <div class="flex items-center justify-between gap-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">界面明暗</p>
-          <p class="text-xs text-slate-500 mt-0.5">「跟随系统」时，界面与预设终端色板随系统明暗自动切换。</p>
-        </div>
-        <div class="seg shrink-0">
-          <button
-            v-for="opt in TONE_OPTIONS"
-            :key="opt.key"
-            type="button"
-            :class="appearanceForm.baseTone === opt.key ? 'active' : ''"
-            :aria-pressed="appearanceForm.baseTone === opt.key"
-            @click="setTone(opt.key)"
-          >
-            {{ opt.label }}
+  <section class="theme-page fade-rise" data-section-content="theme" aria-labelledby="settings-theme-title">
+    <header class="theme-header">
+      <div><span class="theme-kicker">APPEARANCE</span><h3 id="settings-theme-title">主题</h3><p>选择一个颜色，ding-ssh 会自动生成协调、清晰的完整界面。</p></div>
+      <span class="save-state"><span :class="{saving}"></span>{{ saving ? '正在保存' : '已自动保存' }}</span>
+    </header>
+    <div class="theme-layout">
+      <section class="theme-editor">
+        <div class="tone-switch" aria-label="界面明暗模式">
+          <button v-for="opt in TONE_OPTIONS" :key="opt.key" type="button" :class="{active: appearanceForm.baseTone === opt.key}" :aria-label="opt.label" :aria-pressed="appearanceForm.baseTone === opt.key" @click="setTone(opt.key)">
+            <Icon :name="opt.key === 'auto' ? 'sparkles' : opt.key === 'light' ? 'sun' : 'moon'" :size="18" />
           </button>
         </div>
-      </div>
+        <div ref="picker" class="color-field" :style="pickerStyle" role="slider" tabindex="0" aria-label="主题颜色二维选择器" @pointerdown="startPicker" @pointermove="dragging && updateFromPointer($event)" @pointerup="dragging = false" @pointercancel="dragging = false">
+          <span class="field-white"></span><span class="field-black"></span>
+          <span class="color-marker" :style="markerStyle"><span :style="{background: appearanceForm.primary}"></span></span>
+        </div>
+        <div class="color-meta">
+          <div class="preset-row" aria-label="预设主题色">
+            <button v-for="preset in PRESET_COLORS" :key="preset.name" type="button" class="preset-dot" :class="{active: appearanceForm.primary.toUpperCase() === preset.color}" :style="{background: preset.color}" :title="preset.name" :aria-label="preset.name" @click="chooseColor(preset.color)"></button>
+          </div>
+          <label class="hex-field"><span>HEX</span><Input v-model="appearanceForm.primary" aria-label="主题颜色 HEX" @change="chooseColor(appearanceForm.primary)" /></label>
+        </div>
+        <div class="slider-list">
+          <label><span><strong>背景透明度</strong><output>{{ appearanceForm.glassOpacity }}%</output></span><input v-model.number="appearanceForm.glassOpacity" type="range" min="40" max="100" aria-label="背景透明度" /></label>
+          <label><span><strong>背景模糊</strong><output>{{ appearanceForm.glassBlur }}px</output></span><input v-model.number="appearanceForm.glassBlur" type="range" min="0" max="60" aria-label="背景模糊" /></label>
+        </div>
+      </section>
+      <aside class="theme-preview">
+        <div class="preview-head"><div><span class="theme-kicker">LIVE PREVIEW</span><h4>界面预览</h4></div><span><Icon :name="modeIcon" :size="13" /> {{ appearanceForm.baseTone === 'auto' ? '自动' : appearanceForm.baseTone === 'light' ? '浅色' : '深色' }}</span></div>
+        <div class="preview-window">
+          <div class="preview-sidebar"><i></i><b></b><b></b><b></b></div>
+          <div class="preview-main"><div class="preview-toolbar"></div><div class="preview-card"><span></span><span></span><span></span></div><div class="preview-terminal" :style="{background: themeForm.background}"><i :style="{background: themeForm.blue}"></i><i :style="{background: themeForm.green}"></i><i :style="{background: themeForm.yellow}"></i></div></div>
+        </div>
+        <div class="preview-note"><Icon name="terminal" :size="15" /><span><strong>终端保持清晰</strong>终端背景和 ANSI 色彩会独立处理，不受透明度影响。</span></div>
+      </aside>
     </div>
-
-    <!-- 预设 / 自定义 -->
-    <div class="neo p-5 mb-4">
-      <div class="flex items-center justify-between mb-4">
-        <p class="text-sm font-medium text-slate-200">配色方案</p>
-        <div class="seg shrink-0">
-          <button
-            v-for="m in MODE_OPTIONS"
-            :key="m.key"
-            type="button"
-            :class="appearanceForm.mode === m.key ? 'active' : ''"
-            :aria-pressed="appearanceForm.mode === m.key"
-            @click="setMode(m.key)"
-          >
-            {{ m.label }}
-          </button>
-        </div>
-      </div>
-
-      <!-- 预设主题卡片 -->
-      <div v-if="appearanceForm.mode === 'preset'" class="grid grid-cols-4 gap-3">
-        <button
-          v-for="p in PRESETS"
-          :key="p.id"
-          type="button"
-          class="preset-card"
-          :class="appearanceForm.presetId === p.id ? 'active' : ''"
-          :aria-pressed="appearanceForm.presetId === p.id"
-          @click="selectPreset(p.id)"
-        >
-          <span
-            class="preset-swatch"
-            :style="{background: `linear-gradient(135deg, ${p.primary} 0%, ${p.secondary} 100%)`}"
-          >
-            <span class="preset-swatch-dark" :style="{background: p.dark.background}"></span>
-            <span class="preset-swatch-cursor" :style="{background: p.dark.cursor}"></span>
-          </span>
-          <span class="preset-name">{{ p.name }}</span>
-          <span class="preset-desc">{{ p.desc }}</span>
-        </button>
-      </div>
-
-      <!-- 自定义：UI 品牌色 -->
-      <div v-else class="grid grid-cols-3 gap-4">
-        <label class="block">
-          <span class="field-label">主色（界面强调）</span>
-          <div class="mt-1 flex gap-2 items-center">
-            <input v-model="appearanceForm.primary" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" aria-label="主色" />
-            <Input v-model="appearanceForm.primary" class="flex-1 font-mono" aria-label="主色 Hex" />
-          </div>
-        </label>
-        <label class="block">
-          <span class="field-label">辅色（点缀）</span>
-          <div class="mt-1 flex gap-2 items-center">
-            <input v-model="appearanceForm.secondary" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" aria-label="辅色" />
-            <Input v-model="appearanceForm.secondary" class="flex-1 font-mono" aria-label="辅色 Hex" />
-          </div>
-        </label>
-        <label class="block">
-          <span class="field-label">界面主文字色</span>
-          <div class="mt-1 flex gap-2 items-center">
-            <input v-model="appearanceForm.uiText" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" aria-label="界面主文字色" />
-            <Input v-model="appearanceForm.uiText" class="flex-1 font-mono" aria-label="界面主文字色 Hex" />
-          </div>
-        </label>
-      </div>
-    </div>
-
-    <!-- 终端颜色 -->
-    <div class="neo p-5 mb-4">
-      <div class="flex items-center justify-between mb-1">
-        <p class="text-sm font-medium text-slate-200">终端颜色</p>
-        <span v-if="appearanceForm.mode === 'preset'" class="badge live">
-          预设 · {{ currentTone === 'light' ? '浅色' : '深色' }}色板
-        </span>
-        <span v-else class="badge stop">自定义</span>
-      </div>
-      <p v-if="appearanceForm.mode === 'preset'" class="text-xs text-slate-500 mt-1 mb-4">
-        预设模式下终端色板（含 ANSI 16 色）随明暗自动配置。切到「自定义」可完全手动调整。
-      </p>
-
-      <!-- 预设模式：终端色板只读预览 -->
-      <div v-if="appearanceForm.mode === 'preset'">
-        <div class="grid grid-cols-2 gap-3 text-[12px] text-slate-400">
-          <div class="flex items-center gap-2">
-            <span class="color-dot" :style="{background: themeForm.background}"></span>
-            背景 {{ themeForm.background }}
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="color-dot" :style="{background: themeForm.foreground}"></span>
-            前景 {{ themeForm.foreground }}
-          </div>
-        </div>
-        <div class="flex flex-wrap gap-1.5 mt-3">
-          <span
-            v-for="f in ANSI_FIELDS"
-            :key="f.key"
-            class="ansi-chip"
-            :style="{background: themeForm[f.key], color: contrastFor(themeForm[f.key])}"
-          >
-            {{ f.label }}
-          </span>
-        </div>
-      </div>
-
-      <!-- 自定义模式：完整编辑 -->
-      <template v-else>
-        <div class="grid grid-cols-2 gap-4 text-[13px]">
-          <label class="block">
-            <span class="field-label">背景色</span>
-            <div class="mt-1 flex gap-2 items-center">
-              <input v-model="themeForm.background" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" aria-label="背景色" />
-              <Input v-model="themeForm.background" class="flex-1 font-mono" aria-label="背景色 Hex" />
-            </div>
-          </label>
-          <label class="block">
-            <span class="field-label">文字颜色</span>
-            <div class="mt-1 flex gap-2 items-center">
-              <input v-model="themeForm.foreground" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" aria-label="文字颜色" />
-              <Input v-model="themeForm.foreground" class="flex-1 font-mono" aria-label="文字颜色 Hex" />
-            </div>
-          </label>
-          <label class="block">
-            <span class="field-label">光标颜色</span>
-            <div class="mt-1 flex gap-2 items-center">
-              <input v-model="themeForm.cursor" type="color" class="w-9 h-9 rounded-md bg-slate-800 border border-slate-700/60 p-1 cursor-pointer" aria-label="光标颜色" />
-              <Input v-model="themeForm.cursor" class="flex-1 font-mono" aria-label="光标颜色 Hex" />
-            </div>
-          </label>
-          <label class="block">
-            <span class="field-label">选中背景色</span>
-            <Input v-model="themeForm.selection" class="mt-1 font-mono" placeholder="例如：半透明品牌色" aria-label="选中背景色" />
-          </label>
-        </div>
-
-        <div class="mt-5">
-          <p class="text-slate-400 text-xs mb-2">ANSI 16 色 · 程序输出（ls / vim / 提示符）</p>
-          <div class="grid grid-cols-8 gap-2">
-            <label v-for="f in ANSI_FIELDS" :key="f.key" class="block">
-              <span class="text-[10px] text-slate-400">{{ f.label }}</span>
-              <input
-                v-model="themeForm[f.key]"
-                type="color"
-                class="mt-0.5 w-full h-7 rounded-[5px] bg-slate-800 border border-slate-700/60 p-0.5 cursor-pointer"
-                :aria-label="`ANSI ${f.label}`"
-              />
-            </label>
-          </div>
-        </div>
-
-        <div class="mt-5">
-          <span class="field-label">背景图</span>
-          <div class="mt-1 flex gap-2">
-            <Input v-model="themeForm.bgImage" readonly class="flex-1" placeholder="无（可选）" aria-label="终端背景图路径" />
-            <Button variant="secondary" size="sm" @click="pickBgImage">选择…</Button>
-            <Button v-if="themeForm.bgImage" variant="ghost" size="sm" @click="themeForm.bgImage = ''">清除</Button>
-          </div>
-        </div>
-
-        <label class="block mt-4">
-          <span class="field-label">背景模糊：{{ themeForm.blurAmount }}px</span>
-          <input v-model.number="themeForm.blurAmount" type="range" min="0" max="30" class="mt-2 w-full accent-[var(--primary-hover)]" />
-        </label>
-
-        <div class="flex items-center justify-between gap-4 mt-4">
-          <div>
-            <p class="text-sm text-slate-300">文字阴影</p>
-            <p class="text-xs text-slate-500 mt-0.5">为终端文字添加阴影，提升可读性。</p>
-          </div>
-          <ToggleSwitch v-model="themeForm.textShadow" />
-        </div>
-
-        <label class="block mt-4" :class="themeForm.textShadow ? '' : 'opacity-40 pointer-events-none'">
-          <span class="field-label">阴影强度：{{ themeForm.shadowBlur }}px</span>
-          <input v-model.number="themeForm.shadowBlur" type="range" min="0" max="10" class="mt-2 w-full accent-[var(--primary-hover)]" />
-        </label>
-      </template>
-    </div>
-
-    <!-- 字体 -->
-    <div class="neo p-5 mb-4">
-      <p class="text-sm font-medium text-slate-200 mb-4">字体</p>
-      <div class="grid grid-cols-2 gap-4">
-        <label class="block">
-          <span class="field-label">界面字体</span>
-          <Input
-            v-model="fontsForm.uiFont"
-            list="uiFontList"
-            class="mt-1 font-mono"
-            placeholder="Geist Sans / system"
-            aria-label="界面字体"
-          />
-          <datalist id="uiFontList">
-            <option v-for="f in UI_FONT_OPTIONS" :key="f" :value="f" />
-          </datalist>
-        </label>
-        <label class="block">
-          <span class="field-label">终端等宽字体</span>
-          <Input
-            v-model="fontsForm.terminalFont"
-            list="termFontList"
-            class="mt-1 font-mono"
-            placeholder="Geist Mono / system"
-            aria-label="终端等宽字体"
-          />
-          <datalist id="termFontList">
-            <option v-for="f in TERMINAL_FONT_OPTIONS" :key="f" :value="f" />
-          </datalist>
-        </label>
-      </div>
-      <label class="block mt-4">
-        <span class="field-label">终端字号：{{ fontsForm.terminalFontSize }}px</span>
-        <input
-          v-model.number="fontsForm.terminalFontSize"
-          type="range"
-          min="8"
-          max="24"
-          class="mt-2 w-full accent-[var(--primary-hover)]"
-        />
-      </label>
-      <p class="text-xs text-slate-500 mt-2">已捆绑的开源字体开箱即用；输入系统已安装字体名亦可生效（字体名需与系统一致）。</p>
-    </div>
-
-    <div class="flex justify-end gap-2">
-      <Button variant="ghost" size="sm" @click="resetAppearance">恢复默认</Button>
-    </div>
+    <footer class="theme-footer"><p>更改会实时应用到整个应用。</p><Button variant="ghost" size="sm" @click="resetAppearance">恢复默认</Button></footer>
   </section>
 </template>
 
 <style scoped>
-.preset-card{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:12px;border-radius:var(--radius-md);background:var(--hover);box-shadow:inset 0 0 0 1px var(--border);transition:box-shadow var(--duration-base) var(--ease-out),background var(--duration-base) var(--ease-out)}
-.preset-card:hover{background:var(--hover-strong)}
-.preset-card.active{background:var(--primary-weak);box-shadow:inset 0 0 0 1px var(--primary-strong-border)}
-.preset-swatch{position:relative;width:100%;height:44px;border-radius:var(--radius-sm);overflow:hidden;box-shadow:inset 0 0 0 1px var(--preview-border)}
-.preset-swatch-dark{position:absolute;left:6px;top:6px;width:22px;height:22px;border-radius:4px;box-shadow:inset 0 0 0 1px var(--preview-border-strong)}
-.preset-swatch-cursor{position:absolute;right:6px;bottom:6px;width:10px;height:10px;border-radius:2px}
-.preset-name{font-size:12.5px;font-weight:600;color:var(--foreground)}
-.preset-desc{font-size:11px;color:var(--muted-foreground);line-height:1.4}
-.ansi-chip{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:10.5px;font-weight:600;box-shadow:inset 0 0 0 1px var(--preview-border)}
-.color-dot{width:14px;height:14px;border-radius:3px;flex-shrink:0;box-shadow:inset 0 0 0 1px var(--preview-border-strong)}
+.theme-page{max-width:1040px;padding-bottom:28px}.theme-header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:24px}.theme-kicker{font:600 10px/1 var(--font-mono);letter-spacing:.16em;color:var(--muted-foreground)}.theme-header h3{margin:8px 0 5px;font-size:24px;line-height:1.1;letter-spacing:-.035em}.theme-header p{margin:0;color:var(--foreground-secondary);font-size:13px}.save-state{display:flex;align-items:center;gap:7px;color:var(--muted-foreground);font-size:11px}.save-state>span{width:6px;height:6px;border-radius:50%;background:var(--success)}.save-state>span.saving{background:var(--warning);animation:pulse 1s infinite}
+.theme-layout{display:grid;grid-template-columns:minmax(420px,1.15fr) minmax(300px,.85fr);gap:16px}.theme-editor,.theme-preview{border:1px solid var(--border-subtle);border-radius:22px;background:color-mix(in srgb,var(--surface-2) var(--theme-glass-opacity,85%),transparent);box-shadow:0 18px 48px rgb(0 0 0 / 8%),inset 0 1px rgb(255 255 255 / 5%);backdrop-filter:blur(var(--theme-glass-blur,24px))}.theme-editor{padding:22px}.tone-switch{display:flex;justify-content:center;gap:5px;margin-bottom:18px}.tone-switch button{width:38px;height:34px;display:grid;place-items:center;border-radius:10px;color:var(--muted-foreground);transition:background var(--dur),color var(--dur),transform var(--dur)}.tone-switch button:hover{color:var(--foreground);background:var(--hover)}.tone-switch button.active{color:var(--primary-hover);background:var(--primary-weak);box-shadow:inset 0 0 0 1px var(--primary-border)}
+.color-field{position:relative;height:300px;border-radius:18px;overflow:hidden;cursor:crosshair;touch-action:none;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 7%)}.field-white,.field-black{position:absolute;inset:0;pointer-events:none}.field-white{background:linear-gradient(90deg,#fff,transparent)}.field-black{background:linear-gradient(0deg,#16131a,transparent)}.color-marker{position:absolute;width:32px;height:32px;border:4px solid white;border-radius:50%;box-shadow:0 2px 10px rgb(0 0 0 / 35%);transform:translate(-50%,-50%);pointer-events:none}.color-marker span{display:block;width:100%;height:100%;border-radius:50%}
+.color-meta{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:18px 0 22px}.preset-row{display:flex;gap:9px;flex-wrap:wrap}.preset-dot{width:27px;height:27px;border-radius:50%;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 8%);transition:transform var(--dur),box-shadow var(--dur)}.preset-dot:hover{transform:scale(1.08)}.preset-dot.active{box-shadow:0 0 0 2px var(--surface-2),0 0 0 4px var(--foreground)}.hex-field{display:flex;align-items:center;gap:7px;flex-shrink:0}.hex-field>span{font:600 9px var(--font-mono);color:var(--muted-foreground)}.hex-field :deep(input){width:88px;height:30px;font:11px var(--font-mono);text-transform:uppercase}
+.slider-list{display:grid;gap:22px}.slider-list label>span{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}.slider-list strong{font-size:12.5px;font-weight:500}.slider-list output{font:12px var(--font-mono);color:var(--muted-foreground)}.slider-list input{width:100%;height:5px;appearance:none;border-radius:999px;background:var(--hover-strong);accent-color:var(--primary)}.slider-list input::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border:3px solid var(--surface-2);border-radius:50%;background:var(--primary);box-shadow:0 0 0 1px var(--primary-border),0 2px 6px rgb(0 0 0 / 20%)}
+.theme-preview{align-self:start;padding:22px}.preview-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}.preview-head h4{margin:7px 0 0;font-size:14px}.preview-head>span{display:flex;align-items:center;gap:5px;padding:5px 8px;border-radius:999px;background:var(--hover);color:var(--muted-foreground);font-size:10px}.preview-window{height:270px;display:grid;grid-template-columns:34% 1fr;overflow:hidden;border:1px solid var(--border-subtle);border-radius:16px;background:var(--theme-bg-main);box-shadow:0 14px 30px rgb(0 0 0 / 12%)}.preview-sidebar{padding:14px 10px;background:var(--theme-bg-sidebar)}.preview-sidebar i{display:block;width:55%;height:7px;margin-bottom:17px;border-radius:8px;background:var(--primary);opacity:.65}.preview-sidebar b{display:block;height:27px;margin-bottom:7px;border-radius:8px;background:var(--hover-strong)}.preview-main{padding:12px;background:var(--theme-bg-main)}.preview-toolbar{height:28px;margin-bottom:10px;border-radius:9px;background:var(--theme-bg-toolbar)}.preview-card{height:70px;padding:12px;margin-bottom:10px;border-radius:11px;background:var(--theme-bg-surface)}.preview-card span{display:block;width:75%;height:6px;margin-bottom:8px;border-radius:5px;background:var(--border-strong);opacity:.55}.preview-card span:nth-child(2){width:52%}.preview-card span:nth-child(3){width:63%}.preview-terminal{height:125px;padding:16px;border-radius:11px;background:var(--terminal-bg,#11151b)}.preview-terminal i{display:block;width:60%;height:5px;margin-bottom:9px;border-radius:4px;background:#8fb0f2;opacity:.7}.preview-terminal i:nth-child(2){width:78%;background:#7ad8a3}.preview-terminal i:nth-child(3){width:42%;background:#d4a04a}.preview-note{display:flex;gap:10px;margin-top:16px;padding:13px;border-radius:12px;background:var(--hover);color:var(--primary-hover)}.preview-note span{color:var(--muted-foreground);font-size:10.5px;line-height:1.45}.preview-note strong{display:block;margin-bottom:2px;color:var(--foreground-secondary);font-size:11px}.theme-footer{display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:0 4px}.theme-footer p{margin:0;color:var(--muted-foreground);font-size:11px}
+@keyframes pulse{50%{opacity:.35}}@media(max-width:900px){.theme-layout{grid-template-columns:1fr}.theme-preview{width:100%}}@media(max-width:600px){.theme-header{align-items:flex-start;flex-direction:column}.theme-layout{display:block}.theme-preview{margin-top:14px}.color-field{height:240px}.color-meta{align-items:flex-start;flex-direction:column}}
 </style>

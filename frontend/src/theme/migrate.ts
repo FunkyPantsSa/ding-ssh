@@ -1,15 +1,15 @@
 import type {Fonts, Settings, UIAppearance} from '../types'
 import {legacyDefaultPreset, paletteToTheme, presetById} from './presets'
 
-export const UI_SCHEMA = 2
+export const UI_SCHEMA = 3
 export const UI2_MIGRATION_BACKUP_KEY = 'ding-ssh:ui2-migration-backup'
 
 const LEGACY_APPEARANCE: UIAppearance = {
-  mode: 'preset', presetId: 'signal', baseTone: 'auto', primary: '#3ec4b4', secondary: '#c97a4a', uiText: '#eef1f5',
+  mode: 'preset', presetId: 'signal', baseTone: 'auto', primary: '#3ec4b4', secondary: '#c97a4a', uiText: '#eef1f5', glassOpacity: 0, glassBlur: 0,
 }
 const LEGACY_FONTS: Fonts = {uiFont: 'Inter', terminalFont: 'IBM Plex Mono', terminalFontSize: 13}
 const GEIST_APPEARANCE: UIAppearance = {
-  mode: 'preset', presetId: 'geist', baseTone: 'auto', primary: '#3b82f6', secondary: '#a1a1aa', uiText: '#fafafa',
+  mode: 'preset', presetId: 'geist', baseTone: 'auto', primary: '#3b82f6', secondary: '#a1a1aa', uiText: '#fafafa', glassOpacity: 85, glassBlur: 24,
 }
 const GEIST_FONTS: Fonts = {uiFont: 'Geist Sans', terminalFont: 'Geist Mono', terminalFontSize: 13}
 
@@ -24,6 +24,12 @@ function equal<T extends object>(a: T | undefined, b: T): boolean {
 export function migrateUiSettings(input: Settings, tone: 'dark' | 'light') {
   if ((input.uiSchema ?? 0) >= UI_SCHEMA) return {settings: input, migrated: false}
   const next: Settings = {...input, uiSchema: UI_SCHEMA}
+  const sourceAppearance = input.appearance ?? GEIST_APPEARANCE
+  next.appearance = {
+    ...sourceAppearance,
+    glassOpacity: sourceAppearance.glassOpacity || 85,
+    glassBlur: sourceAppearance.glassBlur || 24,
+  }
   const untouched = equal(input.appearance, LEGACY_APPEARANCE) && equal(input.fonts, LEGACY_FONTS)
   const backup = JSON.stringify({
     appearance: input.appearance, theme: input.theme, fonts: input.fonts, terminalColorMode: input.terminalColorMode,

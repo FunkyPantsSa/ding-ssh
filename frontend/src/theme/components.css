@@ -9,7 +9,7 @@
   --panel-bg: var(--surface-1);
   --panel-border: var(--border);
   --nav-bg: var(--surface-1);
-  --topbar-bg: var(--surface-1);
+  --topbar-bg: var(--theme-bg-toolbar, var(--surface-1));
   --statusbar-bg: var(--surface-1);
   --context-panel-bg: var(--surface-1);
 

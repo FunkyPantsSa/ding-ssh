@@ -420,12 +420,14 @@ type Theme struct {
 
 // UIAppearance UI 外观：品牌色与明暗模式。
 type UIAppearance struct {
-	Mode      string `json:"mode"`      // preset | custom
-	PresetID  string `json:"presetId"`  // 预设主题 ID（preset 模式）
-	BaseTone  string `json:"baseTone"`  // auto | light | dark
-	Primary   string `json:"primary"`   // custom：主色（hex）
-	Secondary string `json:"secondary"` // custom：辅色（hex）
-	UiText    string `json:"uiText"`    // custom：界面主文字色（hex）
+	Mode         string `json:"mode"`         // preset | custom
+	PresetID     string `json:"presetId"`     // 预设主题 ID（preset 模式）
+	BaseTone     string `json:"baseTone"`     // auto | light | dark
+	Primary      string `json:"primary"`      // custom：主色（hex）
+	Secondary    string `json:"secondary"`    // custom：辅色（hex）
+	UiText       string `json:"uiText"`       // custom：界面主文字色（hex）
+	GlassOpacity int    `json:"glassOpacity"` // 应用玻璃表面不透明度（40–100）
+	GlassBlur    int    `json:"glassBlur"`    // 应用玻璃表面模糊强度（0–60px）
 }
 
 // Fonts 字体设置。
@@ -438,12 +440,14 @@ type Fonts struct {
 // DefaultAppearance 返回默认外观（Geist + 跟随系统明暗）。
 func DefaultAppearance() UIAppearance {
 	return UIAppearance{
-		Mode:      "preset",
-		PresetID:  "geist",
-		BaseTone:  "auto",
-		Primary:   "#3b82f6",
-		Secondary: "#a1a1aa",
-		UiText:    "#fafafa",
+		Mode:         "preset",
+		PresetID:     "geist",
+		BaseTone:     "auto",
+		Primary:      "#3b82f6",
+		Secondary:    "#a1a1aa",
+		UiText:       "#fafafa",
+		GlassOpacity: 85,
+		GlassBlur:    24,
 	}
 }
 

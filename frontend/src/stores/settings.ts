@@ -19,6 +19,8 @@ export function defaultAppearance(): UIAppearance {
     primary: '#3b82f6',
     secondary: '#a1a1aa',
     uiText: '#fafafa',
+    glassOpacity: 85,
+    glassBlur: 24,
   }
 }
 
