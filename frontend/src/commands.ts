@@ -5,8 +5,9 @@
 // 现在两侧都从这里取：App.vue 用 buildCommands 渲染面板，bridge.ts 用它实现 app.commands / app.command。
 //
 // 约束（M9 之前的行为必须保持）：
-//   - id 与顺序不变：workspace / servers / tunnel / settings / new / local /
+//   - id 与顺序：M9 既有命令 workspace / servers / tunnel / settings / new / local /
 //     hide-tool（侧栏已展开时）或 show-sftp + show-sys（侧栏收起时）/ 每台服务器 connect-<serverId>；
+//     不新增概览 / 传输记录等顶级视图命令（保持原信息架构）。
 //   - 标题（title）与影响范围说明（note）不变；
 //   - 执行动作与返回值不变（面板忽略返回值，app.command 把它回给调用方）。
 //
@@ -33,6 +34,7 @@ export interface AppCommand extends CommandEffect {
   id: string
   title: string
   section: string
+  subtitle?: string
   hotkey?: string
   /** 执行命令并返回结果（面板忽略返回值；app.command 会把它回给调用方） */
   run: () => unknown
@@ -159,6 +161,7 @@ export function buildCommands(ctx: CommandContext): AppCommand[] {
     items.push({
       id: 'connect-' + s.id,
       title: '连接 ' + (s.name || `${s.user}@${s.host}`),
+      subtitle: `${s.user}@${s.host}${s.port && s.port !== 22 ? `:${s.port}` : ''}`,
       section: '工作区',
       ...commandEffect('connect-' + s.id),
       run: () => {

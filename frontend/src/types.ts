@@ -104,17 +104,20 @@ export interface UIAppearance {
   primary: string // custom：主色（hex）
   secondary: string // custom：辅色（hex）
   uiText: string // custom：界面主文字色（hex）
+  glassOpacity: number // 应用玻璃表面不透明度（40–100）
+  glassBlur: number // 应用玻璃表面模糊强度（0–60px）
 }
 
 // 字体设置（对应 Go 端 models.Fonts）。
 export interface Fonts {
-  uiFont: string // UI 字体名（如 Inter / system）
+  uiFont: string // UI 字体名（如 Geist Sans / system）
   terminalFont: string // 终端等宽字体名
   terminalFontSize: number // 终端字号（默认 13）
 }
 
 // 应用设置（对应 Go 端 models.Settings）。
 export interface Settings {
+  uiSchema?: number // UI presentation schema; 2 = Geist design system
   logEnabled: boolean
   copyOnSelect: boolean // 终端选中内容自动复制到剪贴板
   webGLEnabled: boolean // 优先 WebGL 渲染
@@ -129,6 +132,8 @@ export interface Settings {
   fonts: Fonts
   autoReconnect: boolean // 断开后自动重连，默认开启
   keepAliveEnabled: boolean // 心跳包防终端超时，默认开启
+  // 登录 SSH 服务器后是否自动采集系统指标（默认开启）。关闭后连接服务器不会向远端执行任何采集命令。
+  sysInfoCollectEnabled: boolean
   localShell: string // 本机终端：darwin zsh|bash；windows powershell|cmd；linux default
   // 启动（解锁）后自动重新连接「上次关闭时仍在打开的服务器」（默认关闭）
   autoLoginLastServer: boolean

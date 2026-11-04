@@ -6,6 +6,7 @@ import {useServersStore} from '../stores/servers'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import type {ServerNode} from '../types'
+import {Button, Input} from './ui'
 
 const servers = useServersStore()
 const sessions = useSessionsStore()
@@ -107,25 +108,25 @@ function isActiveNode(node: ServerNode): boolean {
     </Transition>
 
     <Transition name="qconn">
-      <aside v-show="open" class="qconn" aria-label="快速连接">
+      <aside v-show="open" class="qconn" aria-label="快速连接" data-ui="quick-connect">
         <div class="px-4 h-12 flex items-center justify-between shrink-0 inset-line-b">
           <div class="flex items-center gap-2">
             <Icon name="server" :size="16" extra-class="text-signal" />
-            <span class="text-[13px] font-semibold text-[var(--mist-100)]">服务器</span>
+            <span class="text-[13px] font-semibold text-[var(--foreground)]">服务器</span>
             <span class="text-[12px] text-mist">{{ servers.servers.length }}</span>
           </div>
-          <button class="btn-icon btn-sm" title="收起" aria-label="收起" @click="ui.closeTerminalSidebar()">
+          <Button variant="ghost" size="icon" title="收起" aria-label="收起" @click="ui.closeTerminalSidebar()">
             <Icon name="close" :size="14" />
-          </button>
+          </Button>
         </div>
 
         <div class="px-2.5 pb-2 shrink-0">
           <div class="search">
             <Icon name="search" :size="14" extra-class="search-ico" />
-            <input
+            <Input
               v-model="keyword"
               type="text"
-              class="input input-sm"
+              class="qconn-search-input"
               placeholder="搜索名称 / 主机 / 分组…"
               aria-label="搜索服务器"
             />
@@ -141,7 +142,7 @@ function isActiveNode(node: ServerNode): boolean {
           </div>
           <div v-else-if="!servers.servers.length" class="px-3 py-8 text-center text-xs text-mist flex flex-col items-center gap-3">
             <span>暂无服务器</span>
-            <button class="btn btn-primary btn-sm" @click="ui.showServers()">去添加服务器</button>
+            <Button variant="primary" size="sm" @click="ui.showServers()">去添加服务器</Button>
           </div>
           <div v-else-if="!filtered.length" class="px-3 py-8 text-center text-xs text-mist">
             无匹配服务器
@@ -169,7 +170,7 @@ function isActiveNode(node: ServerNode): boolean {
               >
                 <span class="status" :class="nodeStatus(node)"></span>
                 <span class="min-w-0 flex-1 text-left">
-                  <span class="block text-[13px] font-medium text-[var(--mist-100)] truncate">{{ node.name }}</span>
+                  <span class="block text-[13px] font-medium text-[var(--foreground)] truncate">{{ node.name }}</span>
                   <span class="block font-mono text-[12px] text-mist truncate">{{ node.user }}@{{ node.host }}:{{ node.port }}</span>
                 </span>
                 <Icon name="arrow-right" :size="14" extra-class="text-mist opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -179,12 +180,13 @@ function isActiveNode(node: ServerNode): boolean {
         </div>
 
         <div class="p-2.5 shrink-0 inset-line-t">
-          <button class="btn btn-ghost btn-sm w-full" @click="ui.showServers()">
+          <Button variant="ghost" size="sm" class="w-full" @click="ui.showServers()">
             <Icon name="server" :size="14" />
             管理服务器
-          </button>
+          </Button>
         </div>
       </aside>
     </Transition>
   </Teleport>
 </template>
+<style scoped>.qconn-search-input{height:30px;padding-left:32px}</style>

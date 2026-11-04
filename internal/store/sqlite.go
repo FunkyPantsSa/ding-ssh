@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 
+	"ding-ssh/internal/appdir"
 	"ding-ssh/internal/cryptox"
 	"ding-ssh/internal/models"
 
@@ -16,11 +18,7 @@ import (
 
 // DefaultSQLitePath 返回默认 SQLite 数据库文件路径。
 func DefaultSQLitePath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "ding-ssh.db"
-	}
-	return filepath.Join(dir, "ding-ssh", "ding-ssh.db")
+	return filepath.Join(appdir.ConfigDir(), "ding-ssh.db")
 }
 
 // schema 建表语句：servers / settings / credentials / groups。
@@ -252,6 +250,7 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		return models.Settings{}, err
 	}
 	st := models.Settings{
+		UISchema:             2,
 		Theme:                models.DefaultTheme(),
 		Appearance:           models.DefaultAppearance(),
 		Fonts:                models.DefaultFonts(),
@@ -264,17 +263,24 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		UIScale:              100,
 		AutoReconnect:        true,
 		KeepAliveEnabled:     true,
-		TabBarPlacement:      "side", // 默认会话标签页放在左侧导航
-		RightClickAction:     models.RightClickMenu,
-		NavSectionOrder:      models.DefaultNavSectionOrder,
-		// 语义着色默认开启：旧库没有该键 → 语义着色
-		TerminalColorMode:    models.ColorModeAuto,
-		LogLevel:             models.NormalizeLogLevel(""), // 日志级别默认 info
+		// 登录后自动采集系统指标：默认开启（旧库缺键时同样补默认值）
+		SysInfoCollectEnabled: true,
+		TabBarPlacement:       "side", // 默认会话标签页放在左侧导航
+		RightClickAction:      models.RightClickMenu,
+		NavSectionOrder:       models.DefaultNavSectionOrder,
+		// 保持原有行为：新数据库默认语义着色；已有库缺键同样回落 auto。
+		TerminalColorMode: models.ColorModeAuto,
+		LogLevel:          models.NormalizeLogLevel(""), // 日志级别默认 info
 		// 调试模式默认值：能力位里只有「终端输入」默认开启（读类永远允许）
 		Debug: models.DefaultDebugSettings(),
 	}
 	if v, ok := values["logEnabled"]; ok {
 		st.LogEnabled = v == "true"
+	}
+	if v, ok := values["uiSchema"]; ok {
+		if n, err := strconv.Atoi(v); err == nil {
+			st.UISchema = n
+		}
 	}
 	if v, ok := values["copyOnSelect"]; ok {
 		st.CopyOnSelect = v == "true"
@@ -311,6 +317,10 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	}
 	if v, ok := values["keepAliveEnabled"]; ok {
 		st.KeepAliveEnabled = v == "true"
+	}
+	// 登录后自动采集系统指标：旧库没有该键 → 保持默认（开启）
+	if v, ok := values["sysInfoCollectEnabled"]; ok {
+		st.SysInfoCollectEnabled = v == "true"
 	}
 	// 自动恢复上次会话：旧库没有该键 → 保持默认（关闭）
 	if v, ok := values["autoLoginLastServer"]; ok {
@@ -358,6 +368,9 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	// 语义着色档位：旧库没有该键 → 保持默认「语义着色」；非法值同样回落默认
 	if v, ok := values["terminalColorMode"]; ok {
 		st.TerminalColorMode = models.NormalizeTerminalColorMode(v)
+	} else if len(values) > 0 {
+		// An existing database predating this key keeps the historic auto behavior.
+		st.TerminalColorMode = models.ColorModeAuto
 	}
 	if v, ok := values["theme"]; ok && v != "" {
 		_ = json.Unmarshal([]byte(v), &st.Theme)
@@ -403,6 +416,9 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 
 // Save 保存设置（upsert 各键）。
 func (s *SQLiteSettingsStore) Save(st models.Settings) error {
+	if st.UISchema < 2 {
+		st.UISchema = 2
+	}
 	theme, err := json.Marshal(st.Theme)
 	if err != nil {
 		return fmt.Errorf("序列化主题失败: %w", err)
@@ -453,6 +469,7 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		return fmt.Errorf("序列化上次打开的服务器列表失败: %w", err)
 	}
 	entries := []struct{ k, v string }{
+		{"uiSchema", fmt.Sprintf("%d", st.UISchema)},
 		{"logEnabled", boolStr(st.LogEnabled)},
 		{"logToFile", boolStr(st.LogToFile)},
 		{"logLevel", st.LogLevel},
@@ -471,6 +488,7 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"fonts", string(fonts)},
 		{"autoReconnect", boolStr(st.AutoReconnect)},
 		{"keepAliveEnabled", boolStr(st.KeepAliveEnabled)},
+		{"sysInfoCollectEnabled", boolStr(st.SysInfoCollectEnabled)},
 		{"autoLoginLastServer", boolStr(st.AutoLoginLastServer)},
 		{"lastOpenServers", string(openServersJSON)},
 		{"localShell", st.LocalShell},
@@ -635,11 +653,7 @@ func (s *SQLiteGroupStore) Remove(name string) error {
 // MigrateLegacyJSON 将旧版 JSON 数据一次性导入 SQLite（仅在对应表为空时执行）。
 // 迁移成功后保留 JSON 文件作为备份，不自动删除。
 func MigrateLegacyJSON(db *sql.DB) error {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return nil
-	}
-	base := filepath.Join(dir, "ding-ssh")
+	base := appdir.ConfigDir()
 
 	if empty, err := tableEmpty(db, "servers"); err != nil {
 		return err

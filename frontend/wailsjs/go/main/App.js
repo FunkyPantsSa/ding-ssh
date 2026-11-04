@@ -266,12 +266,20 @@ export function SftpUploadFolder(arg1, arg2, arg3) {
   return window['go']['main']['App']['SftpUploadFolder'](arg1, arg2, arg3);
 }
 
+export function Shutdown(arg1) {
+  return window['go']['main']['App']['Shutdown'](arg1);
+}
+
 export function StartSysInfoCollector(arg1) {
   return window['go']['main']['App']['StartSysInfoCollector'](arg1);
 }
 
 export function StartTunnel(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['StartTunnel'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
+export function Startup(arg1) {
+  return window['go']['main']['App']['Startup'](arg1);
 }
 
 export function StopSysInfoCollector(arg1) {
@@ -288,6 +296,10 @@ export function SyncSftpToTerminal(arg1, arg2) {
 
 export function TestServer(arg1) {
   return window['go']['main']['App']['TestServer'](arg1);
+}
+
+export function TestServerLogin(arg1) {
+  return window['go']['main']['App']['TestServerLogin'](arg1);
 }
 
 export function TestServers(arg1) {

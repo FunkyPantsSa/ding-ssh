@@ -264,6 +264,8 @@ export namespace models {
 	    primary: string;
 	    secondary: string;
 	    uiText: string;
+	    glassOpacity: number;
+	    glassBlur: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new UIAppearance(source);
@@ -277,6 +279,8 @@ export namespace models {
 	        this.primary = source["primary"];
 	        this.secondary = source["secondary"];
 	        this.uiText = source["uiText"];
+	        this.glassOpacity = source["glassOpacity"];
+	        this.glassBlur = source["glassBlur"];
 	    }
 	}
 	export class Theme {
@@ -338,6 +342,7 @@ export namespace models {
 	    }
 	}
 	export class Settings {
+	    uiSchema: number;
 	    logEnabled: boolean;
 	    logToFile: boolean;
 	    logLevel: string;
@@ -357,6 +362,7 @@ export namespace models {
 	    fonts: Fonts;
 	    autoReconnect: boolean;
 	    keepAliveEnabled: boolean;
+	    sysInfoCollectEnabled: boolean;
 	    localShell: string;
 	    autoLoginLastServer: boolean;
 	    lastOpenServers: string[];
@@ -371,6 +377,7 @@ export namespace models {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uiSchema = source["uiSchema"];
 	        this.logEnabled = source["logEnabled"];
 	        this.logToFile = source["logToFile"];
 	        this.logLevel = source["logLevel"];
@@ -390,6 +397,7 @@ export namespace models {
 	        this.fonts = this.convertValues(source["fonts"], Fonts);
 	        this.autoReconnect = source["autoReconnect"];
 	        this.keepAliveEnabled = source["keepAliveEnabled"];
+	        this.sysInfoCollectEnabled = source["sysInfoCollectEnabled"];
 	        this.localShell = source["localShell"];
 	        this.autoLoginLastServer = source["autoLoginLastServer"];
 	        this.lastOpenServers = source["lastOpenServers"];

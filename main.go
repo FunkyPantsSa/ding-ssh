@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 
+	"ding-ssh/internal/apphost"
 	"ding-ssh/internal/logfilter"
 
 	"github.com/wailsapp/wails/v2"
@@ -13,10 +14,16 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// App 是绑定给 Wails 的根包门面。实现位于 internal/apphost，
+// 这里仅保留嵌入以维持前端稳定的 wailsjs/go/main/App 命名空间。
+type App struct {
+	*apphost.App
+}
+
 func main() {
 	// 调试模式配置要在 wails.Run 之前读取：WebView2 的远程调试端口必须在启动时确定。
-	boot := readDebugBoot()
-	app := NewApp(boot)
+	boot := apphost.ReadDebugBoot()
+	app := &App{App: apphost.NewApp(boot)}
 
 	opt := &options.App{
 		Title:     "ding-ssh",
@@ -31,14 +38,14 @@ func main() {
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop: true,
 		},
-		Logger:    logfilter.New(),
-		OnStartup: app.startup,
-		OnShutdown: app.shutdown,
+		Logger:     logfilter.New(),
+		OnStartup:  app.Startup,
+		OnShutdown: app.Shutdown,
 		Bind: []interface{}{
 			app,
 		},
 	}
-	applyDebugBrowserArgs(opt, boot)
+	apphost.ApplyDebugBrowserArgs(opt, boot)
 
 	err := wails.Run(opt)
 

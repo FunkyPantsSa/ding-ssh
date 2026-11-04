@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+
+	"ding-ssh/internal/appdir"
 )
 
 // GroupStore 分组存储接口。
@@ -38,11 +40,7 @@ func NewJSONGroupStore(path string) (*JSONGroupStore, error) {
 
 // DefaultGroupPath 返回默认分组文件路径。
 func DefaultGroupPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "groups.json"
-	}
-	return filepath.Join(dir, "ding-ssh", "groups.json")
+	return filepath.Join(appdir.ConfigDir(), "groups.json")
 }
 
 func (s *JSONGroupStore) load() ([]string, error) {

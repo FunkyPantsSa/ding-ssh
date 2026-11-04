@@ -1,0 +1,3 @@
+<script setup lang="ts">
+defineProps<{label?: string; description?: string; error?: string; htmlFor?: string; required?: boolean}>()
+</script><template><div class="ui-field"><label v-if="label" :for="htmlFor" class="ui-field-label">{{label}}<span v-if="required"> *</span></label><slot/><p v-if="error" class="ui-field-error">{{error}}</p><p v-else-if="description" class="ui-field-description">{{description}}</p></div></template><style scoped>.ui-field{display:grid;gap:var(--space-2)}.ui-field-label{font-size:var(--text-xs);font-weight:500;color:var(--foreground-secondary)}.ui-field-label span,.ui-field-error{color:var(--destructive)}.ui-field-description,.ui-field-error{margin:0;font-size:var(--text-xs)}.ui-field-description{color:var(--muted-foreground)}</style>

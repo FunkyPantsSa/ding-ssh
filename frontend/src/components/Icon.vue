@@ -33,6 +33,9 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Sparkles,
+  Sun,
+  Moon,
   Server,
   Settings,
   Terminal,
@@ -82,6 +85,9 @@ const map: Record<string, Component> = {
   'clipboard-copy': ClipboardCopy,
   columns: Columns2,
   eye: Eye,
+  sparkles: Sparkles,
+  sun: Sun,
+  moon: Moon,
   'eye-off': EyeOff,
 }
 
@@ -93,7 +99,7 @@ const comp = computed(() => map[props.name] ?? CircleAlert)
   <component
     :is="comp"
     :size="size ?? 16"
-    :stroke-width="1.6"
+    :stroke-width="1.5"
     class="block shrink-0"
     :class="extraClass"
     aria-hidden="true"

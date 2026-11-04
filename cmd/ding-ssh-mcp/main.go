@@ -38,6 +38,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"ding-ssh/internal/appdir"
 )
 
 const (
@@ -361,14 +363,9 @@ func resolveConfig(opts options, getenv func(string) string, bootstrap bool) (co
 	return cfg, nil
 }
 
-// defaultDebugInfoPath 返回 %AppData%\ding-ssh\debug.json
-// （与 debug.go 的 DebugInfoPath 保持一致的布局）。
+// defaultDebugInfoPath 与应用共用配置目录（含开发测试覆盖目录）。
 func defaultDebugInfoPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return filepath.Join(".", "ding-ssh", "debug.json")
-	}
-	return filepath.Join(dir, "ding-ssh", "debug.json")
+	return filepath.Join(appdir.ConfigDir(), "debug.json")
 }
 
 // readDebugInfo 解析调试信息文件。

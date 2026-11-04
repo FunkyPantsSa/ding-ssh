@@ -8,9 +8,83 @@
 
 ---
 
+## [未发布] 2026-11-04 · UI 2.0 评审回归修复
+
+### 变更
+
+- **恢复原信息架构**：移除「概览」「传输」两个新增顶级导航与独立页面；传输历史仍从工作区右侧面板进入。命令面板不再提供 `overview` / `transfers` 路由，`ui.navigate` 仅把这两个旧值作为兼容别名映射到工作区（传输额外打开右侧面板）。`SettingsView` / `ServersPage` / `TunnelsPage` 三个四行转发壳删除，页面组件由 `App.vue` 直接挂载。
+- **Token 单一来源**：`tokens.css` 成为颜色基色、间距、圆角、字体、动效与布局变量的唯一定义处；`style.css` 删除整套重复颜色 / 尺度定义，只保留组件与布局规则；`semantic.css` 负责深浅语义色，`components.css` 只保留派生别名。`--radius-lg` 统一为 8px、`--radius-xl` 统一为 12px。
+- **字体兜底改为 Geist**：静态 `--font-sans` / `--font-mono` 与 `engine.ts` 的默认栈均以 Geist Sans / Geist Mono 开头；`system` 选项仍显式回落到系统中文字体，不再出现 Inter / Sora / JetBrains Mono 兜底。
+- **基础组件落地**：`App.vue` 解锁页、服务器列表 / 工具栏 / 编辑弹窗、凭证弹窗、隧道页 / 卡片、设置各分区、SFTP 与传输面板、终端连接浮层均改用 `Button` / `Input` / `Field` / `Select` / `Textarea` / `Dialog` / `ErrorState` / `EmptyState`。生产模板中不再使用 `.btn` / `.input` / `.select` / `.textarea` 旧类。
+- **继续拆分大组件**：`App.vue` 903 → 683 行（导航抽到 `AppSidebar.vue`、解锁页抽到 `AppUnlock.vue`）；`SettingsPage.vue` 2191 → 61 行，拆成通用 / 快捷键 / 连接说明 / 外观 / 凭证 / 安全 / 调试 / 日志 / AI 记录 / 导入导出 / 关于 11 个分区组件；`TerminalView.vue` 1582 → 1173 行，补全状态与输入跟踪抽到 `useTerminalCompletion.ts`，命令解析抽到 `terminal/command-line.ts`。
+- **无障碍补齐**：服务器行改为真实 `<button>`（Enter / Space 可连接，Shift+F10 打开菜单）；导入导出密码框使用显式 `label[for]`；终端 / 服务器右键菜单使用 `role="menu"` + `menuitem`、方向键 / Home / End / Esc 与打开后聚焦；`Dialog` 增加初始焦点、Tab 焦点陷阱、Esc 关闭与关闭后焦点恢复。
+
+### 修复
+
+- **本机 zsh 提示符与光标错行** —— 现象：oh-my-zsh / powerlevel10k 的 `➜  ~ ` 在上一行，光标和输入落在下一行；原因不是 WebGL，而是语义着色器为了按行着色，把「不以换行结尾」且不匹配 `$` / `#` 的 ANSI zsh 提示符留在 `pending`，直到下次回车才写入 xterm。修法：半行中出现 ANSI/OSC/CSI/C0 控制序列时立即原样透传，不参与语义着色；新增无换行 ANSI zsh prompt 和连续回车的回归用例。通过运行中调试接口实测：首行 `cursorX=5,cursorY=0`，回车后 `cursorX=5,cursorY=1`，均紧跟提示符。
+- **语义着色默认值恢复**：新安装的 `terminalColorMode` 从 `off` 恢复为 `auto`（前端 store、JSON 设置存储、SQLite 设置存储三处一致）；显式 `off` / `vivid` 仍原样保留。
+- `types.ts` 删除重复的 `tabBarPlacement` 字段声明，`Fonts.uiFont` 注释改为 Geist。
+
+### 验证
+
+- 前端 16 个测试文件 / 24 个用例通过：新增服务器连接与删除确认、隧道创建、SFTP 目录进入与终端目录同步、设置保存、终端节点常驻、IA 契约、Token 单一来源、Dialog / 菜单 / 服务器行 / 导入导出无障碍等用例。
+- Go 全量测试通过，并新增 `terminalColorMode` 默认 `auto`（JSON 新装 / 旧配置缺字段 / SQLite 新库）与显式 `off` 保留的存储测试。
+- `scripts/verify-ui2.sh` 通过：CSS 79,392 B（gzip 15,868 B）、入口 JS 409,107 B（gzip 128,134 B）、字体 12 个、dist 1,384,448 B；vendor 拆分为 `vendor-vue` / `vendor-xterm` 两个可缓存 chunk。迁移守卫在没有 `rg` 的环境下自动回退到 `grep`，避免漏扫。
+- 本机 Node 22.11 低于 Vite 7 / Vitest 5 要求的 22.12，验证使用 `.nvmrc` 中的 22.23.4；`verify-ui2.sh` 已加入版本前置检查。
+
+## [未发布] 2026-11-03 · UI 2.0 P4 交互、自动化与性能门禁
+
+### 新增
+
+- 命令面板新增最近记录、服务器 / 操作 / 导航分组、标题 / 地址 / id 搜索、1000 台服务器场景的 80ms 防抖与 60 项渲染上限；执行成功后才记录最近命令。
+- 新增唯一快捷键注册表与设置页「快捷键」速查，统一处理输入法组合、表单焦点、标签切换、侧栏开关和工作区作用域。
+- 新增统一 Toast、Skeleton、ErrorState 基础组件；错误 Toast 6 秒、普通 Toast 3 秒，同一操作按 key 去重。
+
+### 变更
+
+- 关键布局、导航、标签、菜单、设置分区与命令项改用稳定 `data-ui` / `data-section` / `data-tab-id` / `data-testid`，`ui.layout` 优先查询语义选择器。
+- 动效收敛到 100–180ms；`prefers-reduced-motion` 下同时关闭时长与位移。
+- Geist 字体从全字符集入口改为 Latin 400/500/600 子集：构建产物字体由 30 个降至 12 个，CSS 由 138 KB 降至 77 KB，dist 为 1.34 MB。
+
+### 验证
+
+- `scripts/verify-ui2.sh` 通过：Vue 类型检查 / Vite 构建、`go test ./...`、CSS 77,371 B（gzip 15,950 B）、JS 889,246 B（gzip 260,449 B）、12 个字体文件、dist 1,335,296 B。
+- 三平台 WebView、IME、高 DPI 与真实窗口快照仍由发布流水线和人工冒烟清单确认，不以本机静态门禁替代。
+
+## [未发布] 2026-10-29 · 设置页「连接说明」分区 + 「登录后自动采集」开关
+
+### 新增
+
+- 设置页新增 **连接说明** 分区（左侧菜单「通用」下方）：按代码梳理 SSH 登录一台服务器后会自动执行什么、采集什么信息——`internal/sshx/sysinfo.go` 的采集脚本（`sh -c` 在独立无 PTY 会话上周期运行 `cat /proc/stat` / `cat /proc/meminfo` / `df -k -P` / `cat /proc/net/dev` / `ip -o -4 addr show` / `cat /proc/uptime`）、SSH 保活请求 `keepalive@openssh.com`、SFTP `Getwd`，以及被动目录同步，并逐项标注用途。
+- 该分区内置 **「登录后自动采集系统信息」开关**（`Settings.sysInfoCollectEnabled`，默认开启）。关闭后登录服务器不再向远端执行任何采集命令，并明确告知受影响（底部状态栏 / 系统看板无数据）与不受影响（终端、SFTP、传输、隧道、重连、目录同步）的功能。
+
+### 变更
+
+- `Settings` 新增字段 `sysInfoCollectEnabled`：JSON 与 SQLite 两套设置存储在「无字段时补默认（开启）」的迁移路径上保持一致，`settings.schema` / `settings.reset` 的默认值抽到 `ctlDefaultSettings`。
+- `Manager.StartSysInfoCollector` 依据该设置放行：关闭时直接返回并停掉可能残留的采集器；`App.SaveSettings` 在关闭时调用新增的 `Manager.StopAllSysInfoCollectors()`，已连接会话立即停止采集。
+- 前端 `TerminalView` / `ServerStatusBar` 在开关关闭时不发起采集；底部状态栏改为显示「已关闭」占位提示。
+
+## [未发布] 2026-10-22 · 修复 WebGL 在界面缩放下的顶部缺行（画布位图 / 网格一致性）
+
+### 修复
+
+- **界面缩放 ≠ 100% 时终端顶部前几行看不到，且缓冲区已在顶部无法上滚** —— 现象：把界面缩放调到 110% / 125% 后，终端最上面几行不显示，往回滚也没用（缓冲区 `baseY` 已在顶部）；关掉「WebGL 硬件加速」即恢复正常。
+  原因：`@xterm/addon-webgl` 用 `ResizeObserver` 的 `devicePixelContentBoxSize` 给 canvas 定尺寸，**Chromium 的这个值含 CSS zoom**（zoom=1.25 实测位图 990×553，渲染器内部网格只有 792×442）；而 `_setCanvasDevicePixelDimensions()` 只改位图，**不重设 GL viewport / resolution uniform / 顶点归一化**（那三件事只在 `handleResize()` 里做）。于是整幅网格被画进超大位图的左下角（WebGL 原点在左下），内容整体下移、比例也不对——缓冲区与 DOM 几何都正确，只是像素错位，`refresh()` / `clearTextureAtlas()` 都纠不回来。
+  修法：新增 `frontend/src/utils/xterm-webgl-zoom.ts`——zoom ≠ 1 时丢弃观察器上报的（含 zoom 的）尺寸，位图保持 `handleResize()` 按未缩放网格算出的尺寸；并在每次 `fit()` / 缩放切换后自检「位图 == 网格」，不一致就重跑 `handleResize()`，把 viewport / uniform / 顶点一起补齐（其它引擎或 addon 私有实现变化时也能自愈）。因此**不再因为缩放 ≠ 100% 就关掉 WebGL**：任意档位都走硬件加速，只有补丁打不上（addon 私有 API 变化）且缩放 ≠ 100% 时才回退 Canvas。
+
+### 变更
+
+- `TerminalView.vue` 的 WebGL 开关策略：由「仅 `uiScale = 100` 启用」改为「补丁可用即启用」，缩放变化时重新对齐位图并重新评估；上下文丢失 / 环境不支持仍降级 Canvas 并提示。
+- 新增渲染诊断日志：`[webgl] enabled …` / `[webgl] uiScale→…% …`，含 `uiScale / dpr / grid / bitmap / css / rect / cols×rows / viewport / scrollTop / baseY`，便于线上取证（日志级别 `debug`）。
+
+### 验证
+
+- 无头 Chromium（Blink）：`uiScale` 80/90/100/110/125/150 六档，逐档对比 DOM 与 WebGL 的「首行 y / 末行 y」，修前 125% 顶部空 74px、150% 空 156px，修后与 DOM 基线一致（±2px）。
+- WKWebView（macOS 真实渲染引擎）：100% / 125% 两档无回归（WKWebView 不支持 `device-pixel-content-box`，观察器本就自动断开，位图由 xterm 自己按 device 尺寸设定）。
+
 ## [未发布] 2026-10-01 · M10 收尾 · `terminal.sudo` 挂起/超时后的清理保证（独立 SFTP 通道 + `cleanupOnly`）
 
-工具面数量不变（仍是 89 个）：本次只给既有工具 `terminal.sudo` 加了一个可选参数 `cleanupOnly`，并新增一条**宿主 op**（`sudo.cleanup`，不进 MCP 工具清单，只在 `debug.go` 的 `Handle` 里分发）。
+工具面数量不变（仍是 89 个）：本次只给既有工具 `terminal.sudo` 加了一个可选参数 `cleanupOnly`，并新增一条**宿主 op**（`sudo.cleanup`，不进 MCP 工具清单，只在 `internal/apphost/debug.go` 的 `Handle` 里分发）。
 
 ### 修复
 
@@ -22,7 +96,7 @@
 - `terminal.sudo` 的返回新增 `cleanupAttempted` / `cleanupVerified` 两个布尔字段（独立通道是否被调用 / 是否复核确认删除）；成功路径也会调用独立通道，用于如实报告。
 - `terminal.sudo` 的可选参数 **`cleanupOnly`**（string，远端路径）：用于超时 / 异常后清理可能残留的临时文件；传了它 ⇒ 跳过取密码与 stage，只对指定路径执行独立清理，返回 `{ok, sudo:false, cleanupOnly:true, sessionId, path, removed, existed, cleanupAttempted, cleanupVerified, cleanedUp, hint?}`，幂等（文件不存在也算成功）。不接受任意路径，只接受本工具生成的 `/tmp/.ding-sudo-<12hex>` 形态；仍受 `sudo.credential` 能力位与两段式确认（action 仍是 `terminal.sudo`）约束；它不碰终端，因此也不占「同会话串行化」名额。相应地 `command` 不再是 schema 的必填项（cleanupOnly 模式下不需要），主流程缺 `command` 时仍报中文 `ErrBadInput`。
 - 新增宿主 op **`sudo.cleanup`**：入参 `{sessionId, path}`，返回 `{removed, existed, verified, reason}`；校验顺序为「路径形态 → 白名单 → 会话 SFTP 客户端」。
-- 用例：`internal/debugsrv/sudo_test.go` 新增「超时批次走独立清理」「独立清理先于终端兜底」「独立清理失败给残留路径」「独立清理通道报错」「cleanupOnly 正常 / 幂等 / 非法路径拒绝 / 白名单 / 能力位与两段式 / 不占终端名额」等；`sudo_cleanup_test.go`（包 main）覆盖宿主侧的入参校验、白名单、「拿不到 SFTP 客户端」的降级行为，并用 **pkg/sftp 的内存 SFTP 服务端**（`InMemHandler` + 管道）跑一遍真实的 `Remove` / `Lstat` 协议路径，验证 `verified` 的判据与幂等语义；全部用替身，**不连任何主机**。
+- 用例：`internal/debugsrv/sudo_test.go` 新增「超时批次走独立清理」「独立清理先于终端兜底」「独立清理失败给残留路径」「独立清理通道报错」「cleanupOnly 正常 / 幂等 / 非法路径拒绝 / 白名单 / 能力位与两段式 / 不占终端名额」等；`internal/apphost/sudo_cleanup_test.go`（包 apphost）覆盖宿主侧的入参校验、白名单、「拿不到 SFTP 客户端」的降级行为，并用 **pkg/sftp 的内存 SFTP 服务端**（`InMemHandler` + 管道）跑一遍真实的 `Remove` / `Lstat` 协议路径，验证 `verified` 的判据与幂等语义；全部用替身，**不连任何主机**。
 
 ### 文档
 
@@ -71,7 +145,7 @@
 - **`terminal.run` 未给 `expect` 时不再把回显当「真实输出」** —— 现象是「先回显、后静默、最后才吐输出」的命令（如 `docker ps`）在 ~400ms 就被判定跑完，只拿到回显；原因是首个输出块（其实是回显）把静默窗口从 1500ms 宽限重置成 400ms；修法是只有出现**回显之外的真实输出**才把窗口收窄到 `idleMs`，并要求真实输出前保持更宽的宽限；同时新增 `idleMs` 参数（默认 400，范围 50–60000）并在返回里回显。
 - **`ui.diff` 的 `styles` 指纹细化到 CSS 属性级** —— 现象是 `changed[].fields[]` 里 `styles` 整份 `from`/`to` 丢回来，AI 还得自己做一遍 diff；修法是只报**真正变化**的属性（`{name:"styles", styles:{属性:{from,to}}}`，没有属性变化就不出现该条目），其余字段（`rect` / `classes` / `zIndex` / `visible` / `text`）形状不变。
 - **`sftp.read` 对 `/etc/hostname` 报错的排查结论：不是缺陷** —— 完整错误是 `打开远端文件 "/etc/hostname" 失败：远端路径不存在（file does not exist）`（`isError=true`）；同会话 `sftp.list /etc` 的 147 条里确实没有 `hostname`（该 Arch 主机没生成这个文件），`/etc/os-release`（符号链接）、`/etc/passwd`、无换行结尾的文件、0 字节文件读取均正常，目录路径会返回「是目录，请用 sftp.list」。调用方需要注意：错误是 `isError=true` + 文本，不要当 JSON 解析。
-- **`sftp.write` 写不出 0 字节文件** —— 现象是 `sftp.write{path:"/tmp/x", content:""}` 返回 `缺少写入内容（content / base64）`，而 `sftpWriteContent` 的中文提示里明确写了「写空文件请显式传 content: ""」；原因是宿主按 base64 的**值**是否为空判断有没有内容，而 debugsrv 侧总是把内容编码成 base64 传下来（空内容编码后正好是空串），于是「空内容」与「没给内容」被混为一谈；修法是改成按**键是否存在**判定（base64 优先、其次 content，空字符串是合法内容），并补了参数解释规则的回归用例（`sftp_write_test.go`）。
+- **`sftp.write` 写不出 0 字节文件** —— 现象是 `sftp.write{path:"/tmp/x", content:""}` 返回 `缺少写入内容（content / base64）`，而 `sftpWriteContent` 的中文提示里明确写了「写空文件请显式传 content: ""」；原因是宿主按 base64 的**值**是否为空判断有没有内容，而 debugsrv 侧总是把内容编码成 base64 传下来（空内容编码后正好是空串），于是「空内容」与「没给内容」被混为一谈；修法是改成按**键是否存在**判定（base64 优先、其次 content，空字符串是合法内容），并补了参数解释规则的回归用例（`internal/apphost/sftp_write_test.go`）。
 
 ### 变更
 

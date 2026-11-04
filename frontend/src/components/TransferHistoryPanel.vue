@@ -6,6 +6,7 @@ import {useTransfersStore} from '../stores/transfers'
 import {useSessionsStore} from '../stores/sessions'
 import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import type {TransferRecord} from '../types'
+import {Button} from './ui'
 
 const sessions = useSessionsStore()
 const transfers = useTransfersStore()
@@ -57,9 +58,9 @@ function fmtTime(ts: number): string {
 }
 
 function statusMeta(r: TransferRecord): {text: string; cls: string} {
-  if (r.status === 'error') return {text: '失败', cls: 'text-[var(--danger-500)]'}
-  if (r.status === 'cancelled') return {text: '已取消', cls: 'text-[var(--warn-500)]'}
-  return {text: '完成', cls: 'text-[var(--ok-500)]'}
+  if (r.status === 'error') return {text: '失败', cls: 'text-[var(--destructive)]'}
+  if (r.status === 'cancelled') return {text: '已取消', cls: 'text-[var(--warning)]'}
+  return {text: '完成', cls: 'text-[var(--success)]'}
 }
 
 /** 下载完成后在系统文件管理器中打开本地文件所在文件夹（Windows 会同时选中该文件）。 */
@@ -95,48 +96,42 @@ onBeforeUnmount(() => window.clearTimeout(copiedTimer))
 </script>
 
 <template>
-  <div class="tool">
+  <div class="tool" data-ui="context-panel">
     <div class="tool-head">
       <div class="seg">
         <button @click="sessions.showRightPanel('sftp')">SFTP</button>
         <button @click="sessions.showRightPanel('sysinfo')">看板</button>
       </div>
-      <button class="btn-icon btn-sm ml-auto" title="收起" @click="sessions.sftpVisible = false">
+      <Button variant="ghost" size="icon" class="ml-auto" title="收起" aria-label="收起侧栏" @click="sessions.sftpVisible = false">
         <Icon name="close" :size="14" />
-      </button>
+      </Button>
     </div>
 
     <!-- 面板宽度可拖动（最窄 260px）：窄的时候让按钮换行而不是溢出到终端上 -->
     <div class="flex flex-wrap items-center gap-1.5 p-3 inset-line-b">
-      <span class="text-[12.5px] font-medium text-[var(--mist-100)]">传输记录</span>
+      <span class="text-[12.5px] font-medium text-[var(--foreground)]">传输记录</span>
       <span class="text-[11.5px] text-mist">
         {{ transfers.records.length ? `共 ${transfers.records.length} 条` : '暂无' }}
       </span>
-      <button
+      <Button
         v-if="transfers.records.length"
-        class="btn btn-ghost btn-sm ml-auto"
+        variant="ghost"
+        size="sm"
+        class="ml-auto"
         title="清空全部传输记录"
         @click="transfers.clear()"
       >
         <Icon name="trash" :size="13" />
         清空
-      </button>
-      <button class="btn btn-ghost btn-sm" :class="transfers.records.length ? '' : 'ml-auto'" @click="sessions.showRightPanel('sftp')">
-        返回
-      </button>
+      </Button>
+      <Button variant="ghost" size="sm" :class="transfers.records.length ? '' : 'ml-auto'" @click="sessions.showRightPanel('sftp')">返回</Button>
     </div>
 
     <!-- 方向筛选 -->
     <div class="flex items-center gap-1 px-3 py-2 inset-line-b">
-      <button class="btn btn-ghost btn-sm" :class="filter === 'all' ? 'text-signal' : ''" @click="filter = 'all'">
-        全部 {{ transfers.records.length }}
-      </button>
-      <button class="btn btn-ghost btn-sm" :class="filter === 'upload' ? 'text-signal' : ''" @click="filter = 'upload'">
-        ↑ 上传 {{ uploadCount }}
-      </button>
-      <button class="btn btn-ghost btn-sm" :class="filter === 'download' ? 'text-signal' : ''" @click="filter = 'download'">
-        ↓ 下载 {{ downloadCount }}
-      </button>
+      <Button variant="ghost" size="sm" :class="filter === 'all' ? 'text-signal' : ''" :aria-pressed="filter === 'all'" @click="filter = 'all'">全部 {{ transfers.records.length }}</Button>
+      <Button variant="ghost" size="sm" :class="filter === 'upload' ? 'text-signal' : ''" :aria-pressed="filter === 'upload'" @click="filter = 'upload'">↑ 上传 {{ uploadCount }}</Button>
+      <Button variant="ghost" size="sm" :class="filter === 'download' ? 'text-signal' : ''" :aria-pressed="filter === 'download'" @click="filter = 'download'">↓ 下载 {{ downloadCount }}</Button>
     </div>
 
     <div class="flex-1 overflow-y-auto px-2 py-1.5">
@@ -153,7 +148,7 @@ onBeforeUnmount(() => window.clearTimeout(copiedTimer))
           <span class="shrink-0 text-[12px]" :class="r.direction === 'upload' ? 'text-copper' : 'text-signal'">
             {{ r.direction === 'upload' ? '↑' : '↓' }}
           </span>
-          <span class="flex-1 min-w-0 truncate text-[12.5px] text-[var(--mist-200)]" :title="r.name">{{ r.name }}</span>
+          <span class="flex-1 min-w-0 truncate text-[12.5px] text-[var(--foreground)]" :title="r.name">{{ r.name }}</span>
           <span class="shrink-0 text-[11px] font-mono" :class="statusMeta(r).cls">{{ statusMeta(r).text }}</span>
         </div>
 
@@ -164,7 +159,7 @@ onBeforeUnmount(() => window.clearTimeout(copiedTimer))
           <span>{{ fmtTime(r.finishedAt) }}</span>
         </div>
 
-        <div v-if="r.error" class="text-[11px] text-[var(--danger-500)] break-all">{{ r.error }}</div>
+        <div v-if="r.error" class="text-[11px] text-[var(--destructive)] break-all">{{ r.error }}</div>
 
         <div class="flex items-center gap-1.5 text-[11px] text-mist">
           <span v-if="r.serverName" class="shrink-0" :title="r.host">{{ r.serverName }}</span>
@@ -174,26 +169,28 @@ onBeforeUnmount(() => window.clearTimeout(copiedTimer))
         </div>
 
         <div class="flex items-center gap-1.5">
-          <button
+          <Button
             v-if="r.direction === 'download' && r.localPath"
-            class="btn btn-ghost btn-sm"
+            variant="ghost"
+            size="sm"
             title="在系统文件管理器中打开（Windows 会选中该文件）"
             @click="openFolder(r)"
           >
             <Icon name="folder" :size="13" />
             打开所在文件夹
-          </button>
-          <button
-            class="btn btn-ghost btn-sm"
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             :title="`复制路径：${r.direction === 'download' ? r.localPath : r.remotePath}`"
             @click="copyPath(r.direction === 'download' ? r.localPath : r.remotePath, r.id)"
           >
             <Icon :name="copiedId === r.id ? 'check' : 'copy'" :size="13" />
             复制路径
-          </button>
-          <button class="btn btn-ghost btn-sm ml-auto" title="从记录中移除" @click="transfers.remove(r.id)">
+          </Button>
+          <Button variant="ghost" size="icon" class="ml-auto" title="从记录中移除" aria-label="从记录中移除" @click="transfers.remove(r.id)">
             <Icon name="close" :size="13" />
-          </button>
+          </Button>
         </div>
       </div>
 

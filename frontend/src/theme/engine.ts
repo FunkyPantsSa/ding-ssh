@@ -1,5 +1,5 @@
 // 主题引擎：从 UI 外观配置派生整组 CSS 变量，供根节点绑定。
-import type {Fonts, UIAppearance} from '../types'
+import type {Fonts, Theme, UIAppearance} from '../types'
 import {defaultPreset, presetById} from './presets'
 
 // ---- 颜色工具 ----
@@ -46,28 +46,104 @@ export function rgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
+export function readableOn(hex: string): string {
+  const {r, g, b} = hexToRgb(hex)
+  return (r * 299 + g * 587 + b * 114) / 1000 > 160 ? '#09090b' : '#ffffff'
+}
+
 // ---- CSS 变量派生 ----
 
-/** 从主/辅色派生品牌色整组变量（signal = 主色，copper = 辅色）。 */
+/** 从主/辅色派生语义化品牌色变量。 */
 export function deriveBrandVars(primary: string, secondary: string): Record<string, string> {
   return {
-    '--signal-500': primary,
-    '--signal-400': lighten(primary, 0.18),
-    '--signal-300': lighten(primary, 0.32),
-    '--signal-glow': rgba(primary, 0.32),
-    '--signal-glow-soft': rgba(primary, 0.15),
-    '--signal-weak': rgba(primary, 0.12),
-    '--signal-border': rgba(primary, 0.25),
-    '--signal-strong-border': rgba(primary, 0.45),
-    '--signal-hover': rgba(primary, 0.4),
-    '--copper-500': secondary,
-    '--copper-400': lighten(secondary, 0.16),
-    '--copper-300': lighten(secondary, 0.28),
-    '--copper-glow': rgba(secondary, 0.28),
-    '--copper-glow-soft': rgba(secondary, 0.09),
-    '--copper-weak': rgba(secondary, 0.12),
-    '--copper-border': rgba(secondary, 0.25),
-    '--copper-hover': rgba(secondary, 0.4),
+    '--primary': primary,
+    '--primary-hover': lighten(primary, 0.18),
+    '--primary-glow': rgba(primary, 0.32),
+    '--primary-glow-soft': rgba(primary, 0.15),
+    '--primary-weak': rgba(primary, 0.12),
+    '--primary-border': rgba(primary, 0.25),
+    '--primary-strong-border': rgba(primary, 0.45),
+    '--primary-hover-bg': rgba(primary, 0.4),
+    '--primary-foreground': readableOn(primary),
+    '--secondary': secondary,
+    '--secondary-hover': lighten(secondary, 0.16),
+    '--secondary-glow': rgba(secondary, 0.28),
+    '--secondary-glow-soft': rgba(secondary, 0.09),
+    '--secondary-weak': rgba(secondary, 0.12),
+    '--secondary-border': rgba(secondary, 0.25),
+    '--secondary-hover-bg': rgba(secondary, 0.4),
+  }
+}
+
+/**
+ * Seed color -> application surfaces. Large backgrounds keep only a restrained
+ * amount of chroma; navigation is intentionally lighter than the workspace in
+ * dark mode and darker than it in light mode, matching the Arc-like hierarchy.
+ */
+export function deriveSurfaceVars(seed: string, tone: Tone, glassOpacity = 85, glassBlur = 24): Record<string, string> {
+  const opacity = `${Math.min(100, Math.max(40, glassOpacity || 85))}%`
+  const blur = `${Math.min(60, Math.max(0, glassBlur))}px`
+  if (tone === 'light') {
+    const main = mix(seed, '#ffffff', 0.91)
+    const sidebar = mix(seed, '#ffffff', 0.82)
+    const toolbar = mix(seed, '#ffffff', 0.88)
+    return {
+      '--background': main,
+      '--surface-1': sidebar,
+      '--surface-2': mix(seed, '#ffffff', 0.95),
+      '--surface-3': mix(seed, '#ffffff', 0.87),
+      '--surface-4': mix(seed, '#ffffff', 0.78),
+      '--border': mix(seed, '#d4d4d8', 0.72),
+      '--border-strong': mix(seed, '#a1a1aa', 0.78),
+      '--border-subtle': rgba(darken(seed, 0.4), 0.12),
+      '--theme-bg-main': main,
+      '--theme-bg-sidebar': sidebar,
+      '--theme-bg-toolbar': toolbar,
+      '--theme-bg-surface': mix(seed, '#ffffff', 0.95),
+      '--theme-glass-opacity': opacity,
+      '--theme-glass-blur': blur,
+      '--theme-glass-tint': rgba(seed, 0.14),
+    }
+  }
+
+  const main = mix(seed, '#0d1117', 0.9)
+  const sidebar = mix(seed, '#18202b', 0.79)
+  const toolbar = mix(seed, '#121821', 0.86)
+  return {
+    '--background': main,
+    '--surface-1': sidebar,
+    '--surface-2': mix(seed, '#1b232e', 0.86),
+    '--surface-3': mix(seed, '#25303d', 0.82),
+    '--surface-4': mix(seed, '#344152', 0.8),
+    '--border': mix(seed, '#334155', 0.84),
+    '--border-strong': mix(seed, '#475569', 0.8),
+    '--border-subtle': rgba(lighten(seed, 0.55), 0.12),
+    '--theme-bg-main': main,
+    '--theme-bg-sidebar': sidebar,
+    '--theme-bg-toolbar': toolbar,
+    '--theme-bg-surface': mix(seed, '#1b232e', 0.86),
+    '--theme-glass-opacity': opacity,
+    '--theme-glass-blur': blur,
+    '--theme-glass-tint': rgba(seed, 0.12),
+  }
+}
+
+/** Keep terminal contrast independent while tinting its key colors from the UI seed. */
+export function deriveTerminalTheme(base: Theme, seed: string, tone: Tone): Theme {
+  const light = tone === 'light'
+  const cursor = light ? darken(seed, 0.12) : lighten(seed, 0.12)
+  return {
+    ...base,
+    background: light ? lighten(seed, 0.93) : darken(seed, 0.88),
+    foreground: light ? '#20242a' : '#e8edf2',
+    cursor,
+    selection: rgba(cursor, light ? 0.22 : 0.3),
+    black: light ? '#20242a' : darken(seed, 0.94),
+    brightBlack: light ? '#6b7280' : lighten(darken(seed, 0.72), 0.28),
+    blue: light ? darken(seed, 0.28) : seed,
+    brightBlue: light ? darken(seed, 0.12) : lighten(seed, 0.22),
+    white: light ? '#e5e7eb' : '#d9e0e7',
+    brightWhite: '#ffffff',
   }
 }
 
@@ -94,29 +170,34 @@ export function resolveTone(baseTone: UIAppearance['baseTone']): Tone {
 
 // ---- 字体栈 ----
 
-export const UI_FONT_FALLBACK = '"PingFang SC", "Helvetica Neue", "Microsoft YaHei", system-ui, sans-serif'
-export const MONO_FONT_FALLBACK = 'ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Cascadia Mono", monospace'
+const SYSTEM_UI_FONT_STACK = '"PingFang SC", "Helvetica Neue", "Microsoft YaHei", system-ui, sans-serif'
+const SYSTEM_MONO_FONT_STACK = 'ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Cascadia Mono", monospace'
+
+// 默认与静态兜底都指向已捆绑的 Geist；只有用户显式选择 system 才回落到系统字体。
+export const UI_FONT_FALLBACK = `"Geist Sans", ${SYSTEM_UI_FONT_STACK}`
+export const MONO_FONT_FALLBACK = `"Geist Mono", ${SYSTEM_MONO_FONT_STACK}`
 
 export function uiFontStack(name: string | undefined): string {
-  if (!name || name === 'system') return UI_FONT_FALLBACK
-  return `"${name}", ${UI_FONT_FALLBACK}`
+  if (!name) return UI_FONT_FALLBACK
+  if (name === 'system') return SYSTEM_UI_FONT_STACK
+  return `"${name}", ${SYSTEM_UI_FONT_STACK}`
 }
 
 export function monoFontStack(name: string | undefined): string {
-  if (!name || name === 'system') return MONO_FONT_FALLBACK
-  return `"${name}", ${MONO_FONT_FALLBACK}`
+  if (!name) return MONO_FONT_FALLBACK
+  if (name === 'system') return SYSTEM_MONO_FONT_STACK
+  return `"${name}", ${SYSTEM_MONO_FONT_STACK}`
 }
 
 /** 计算根节点应绑定的全部 CSS 变量。 */
 export function computeUiCssVars(appearance: UIAppearance, fonts: Fonts, tone: Tone): Record<string, string> {
   const {primary, secondary} = effectiveBrand(appearance)
-  const uiText = appearance.mode === 'custom' && appearance.uiText ? appearance.uiText : ''
   return {
+    ...deriveSurfaceVars(primary, tone, appearance.glassOpacity, appearance.glassBlur),
     ...deriveBrandVars(primary, secondary),
     '--font-sans': uiFontStack(fonts.uiFont),
     '--font-mono': monoFontStack(fonts.terminalFont),
-    // custom 模式：自定义界面主文字色（text-white / slate 等均走 --mist-100）
-    ...(uiText ? {'--mist-100': uiText} : {}),
+    '--terminal-bg': appearance.mode === 'preset' ? (tone === 'dark' ? presetById(appearance.presetId)?.dark.background ?? defaultPreset().dark.background : presetById(appearance.presetId)?.light.background ?? defaultPreset().light.background) : '',
   }
 }
 
@@ -126,11 +207,16 @@ export function isSystemToneQuery(tone: Tone): string {
 
 /** 由主题引擎写入 <html> 的动态 CSS 变量（卸载时需清除）。 */
 const MANAGED_ROOT_VARS = [
-  '--signal-500', '--signal-400', '--signal-300',
-  '--signal-glow', '--signal-glow-soft', '--signal-weak', '--signal-border', '--signal-strong-border', '--signal-hover',
-  '--copper-500', '--copper-400', '--copper-300',
-  '--copper-glow', '--copper-glow-soft', '--copper-weak', '--copper-border', '--copper-hover',
-  '--font-sans', '--font-mono', '--mist-100',
+  '--background', '--surface-1', '--surface-2', '--surface-3', '--surface-4',
+  '--border', '--border-strong', '--border-subtle',
+  '--theme-bg-main', '--theme-bg-sidebar', '--theme-bg-toolbar', '--theme-bg-surface',
+  '--theme-glass-opacity', '--theme-glass-blur', '--theme-glass-tint',
+  '--primary', '--primary-hover',
+  '--primary-glow', '--primary-glow-soft', '--primary-weak', '--primary-border', '--primary-strong-border', '--primary-hover-bg',
+  '--primary-foreground', '--terminal-bg',
+  '--secondary', '--secondary-hover',
+  '--secondary-glow', '--secondary-glow-soft', '--secondary-weak', '--secondary-border', '--secondary-hover-bg',
+  '--font-sans', '--font-mono', '--foreground',
 ] as const
 
 /** 将明暗模式与品牌色变量同步到 <html>，供 Teleport 到 body 的浮层继承。 */

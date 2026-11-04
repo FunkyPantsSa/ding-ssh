@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"ding-ssh/internal/appdir"
 	"ding-ssh/internal/models"
 )
 
@@ -37,11 +38,7 @@ func NewJSONSettingsStore(path string) (*JSONSettingsStore, error) {
 
 // DefaultSettingsPath 返回默认设置文件路径。
 func DefaultSettingsPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "settings.json"
-	}
-	return filepath.Join(dir, "ding-ssh", "settings.json")
+	return filepath.Join(appdir.ConfigDir(), "settings.json")
 }
 
 // Get 读取设置，文件不存在时返回默认值（日志默认关闭）。
@@ -51,6 +48,7 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	data, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return models.Settings{
+			UISchema:             2,
 			WebGLEnabled:         true,
 			CompletionEnabled:    true,
 			CompletionNavHotkey:  "Alt+ArrowDown",
@@ -60,11 +58,13 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 			UIScale:              100,
 			AutoReconnect:        true,
 			KeepAliveEnabled:     true,
-			TabBarPlacement:      "side", // 会话标签页默认放在左侧导航
-			RightClickAction:     models.RightClickMenu,
-			NavSectionOrder:      models.DefaultNavSectionOrder,
-			// 语义着色：默认「语义着色」，用户显式选「关」时才落 off
-			TerminalColorMode:    models.ColorModeAuto,
+			// 登录后自动采集系统指标：默认开启
+			SysInfoCollectEnabled: true,
+			TabBarPlacement:       "side", // 会话标签页默认放在左侧导航
+			RightClickAction:      models.RightClickMenu,
+			NavSectionOrder:       models.DefaultNavSectionOrder,
+			// 保持原有行为：新安装也默认语义着色；旧配置缺字段同样回落 auto。
+			TerminalColorMode: models.ColorModeAuto,
 			// 自动恢复上次会话：默认关闭，无历史记录
 			AutoLoginLastServer: false,
 			// 日志：控制台 / 文件 / 调用日志默认全关，级别默认 info，无跟踪会话
@@ -116,6 +116,10 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	if !bytesContains(data, []byte(`"keepAliveEnabled"`)) {
 		settings.KeepAliveEnabled = true
 	}
+	// 登录后自动采集系统指标：旧配置没有该字段 → 默认开启
+	if !bytesContains(data, []byte(`"sysInfoCollectEnabled"`)) {
+		settings.SysInfoCollectEnabled = true
+	}
 	// 标签页位置：旧配置没有该字段 → 新默认「左侧导航」；非法值同样回落默认
 	if settings.TabBarPlacement != "top" && settings.TabBarPlacement != "side" {
 		settings.TabBarPlacement = "side"
@@ -164,6 +168,9 @@ func (s *JSONSettingsStore) Save(settings models.Settings) error {
 	settings.Debug = models.NormalizeDebugSettings(settings.Debug)
 	// 语义着色档位：落盘永远写合法值（空 / 非法值回落 auto）
 	settings.TerminalColorMode = models.NormalizeTerminalColorMode(settings.TerminalColorMode)
+	if settings.UISchema < 2 {
+		settings.UISchema = 2
+	}
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err

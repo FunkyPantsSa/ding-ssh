@@ -583,7 +583,17 @@ export class Colorizer {
     let rest = s.slice(start)
     // 挂起的半行：像提示符就立刻原样输出（否则用户会觉得「提示符/输入回显卡住」）；
     // 攒得太长也直接输出，避免无换行的流式输出一直不出屏。
-    if (rest.length > MAX_PENDING || this.looksLikePrompt(rest) || ESC_INCOMPLETE.test(rest)) {
+    // oh-my-zsh / powerlevel10k 等提示符会用 OSC/CSI 设置标题、目录和颜色，
+    // 而可见文本本身可能只是 `➜  ~ `。这类带 ESC 的半行若被缓存，会到下次
+    // 回车才写入 xterm，造成提示符在上一行、光标/输入在下一行。控制序列
+    // 本就不应参与语义着色，因此半行中一旦出现就立即原样透传。
+    if (
+      rest.length > MAX_PENDING ||
+      this.looksLikePrompt(rest) ||
+      rest.includes('\x1b') ||
+      CTRL_RE.test(rest) ||
+      ESC_INCOMPLETE.test(rest)
+    ) {
       out += rest
       rest = ''
     }

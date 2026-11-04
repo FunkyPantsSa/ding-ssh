@@ -1,4 +1,8 @@
-# ding-ssh
+<div align="center">
+  <img src="frontend/icon/ding.png" width="280" alt="ding-ssh：猫咪终端应用图标">
+  <h1>ding-ssh</h1>
+  <p><strong>把 SSH 终端、SFTP、端口转发与本机 shell 装进同一个桌面工作台。</strong></p>
+</div>
 
 [![CI](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml)
 
@@ -10,7 +14,7 @@
 | 技术栈 | Go 1.25 + Wails v2.13 · Vue 3.5 + Pinia + Tailwind v4 + Vite 7 · xterm.js 6 |
 | 数据落地 | 本机 SQLite（WAL）+ 系统钥匙串，无云同步、无遥测 |
 | 当前分支 | `dev`（持续开发，`main` 为合并线） |
-| 变更记录 | [`CHANGELOG.md`](CHANGELOG.md) · [`docs/变更记录.md`](docs/变更记录.md) |
+| 变更记录 | [`CHANGELOG.md`](CHANGELOG.md) · [`docs/2.0设计规范.md`](docs/2.0设计规范.md) · [`docs/refactor-2.0/`](docs/refactor-2.0/) |
 
 ---
 
@@ -28,7 +32,8 @@
 - [十、日志与诊断](#十日志与诊断)
 - [十一、已知限制](#十一已知限制)
 - [十二、CI 与发布](#十二ci-与发布)
-- [十三、更多文档与许可](#十三更多文档与许可)
+- [十三、UI 2.0 设计系统](#十三ui-20-设计系统)
+- [十四、更多文档与许可](#十四更多文档与许可)
 
 ---
 
@@ -46,17 +51,17 @@
 
 | 模块 | 你能做什么 | 实现要点 |
 | --- | --- | --- |
-| **终端** | 多标签会话；左右 / 上下分屏，分隔条可拖；把标签拖到终端区域按落点方向分屏 | xterm.js + WebGL 渲染（界面缩放 ≠ 100% 时自动回退 Canvas）；5000 行回滚；字号 `Ctrl+=` / `Ctrl+-` / `Ctrl+0` |
+| **终端** | 多标签会话；左右 / 上下分屏，分隔条可拖；把标签拖到终端区域按落点方向分屏 | xterm.js + WebGL 渲染（已修正 CSS `zoom` 下的画布位图，任意缩放档位都可用；环境不支持 / 上下文丢失时自动降级 Canvas）；5000 行回滚；字号 `Ctrl+=` / `Ctrl+-` / `Ctrl+0` |
 | **连接** | 密码或私钥认证（粘贴内容或选文件）；分组、搜索、在线状态测试 | 五步进度（DNS/直连 → TCP → 鉴权 → 分配 PTY → 就绪）带逐步日志；15s 心跳保活；断线按 2/5/10/20/30s 退避自动重连，**重连不清屏** |
 | **SFTP** | 浏览、上传（拖拽 / 多选）、下载、重命名、删除、新建目录、路径直编；底部进度条可取消 | 目录读取走 SWR 缓存（`sync.Map` + 异步 revalidate + 增量推送）；传输并发 = CPU 核心 × 2，令牌桶限速（默认不限速）；rz/sz（Zmodem）可接管 |
 | **目录联动** | shell 里 `cd` 同步到 SFTP 面板；SFTP 跳转同步回终端 | 优先解析 OSC 7，拿不到时用 prompt 兜底；两个方向可分别开关 |
 | **隧道** | 本地转发 / 远程转发 / 动态转发（SOCKS5）；启动、停止、重启、编辑、删除 | 状态变更通过事件回传界面 |
 | **本机终端** | 不开 SSH 也能开本机 shell | Windows：PowerShell / cmd；macOS：zsh / bash；Linux：默认 shell（`go-pty`） |
 | **命令补全** | 输入时弹出候选，`Tab` / `↑` / `↓` 采纳；本地命令历史参与排序 | Trie + FZF 风格打分；导航热键可自定义（需带修饰键或功能键） |
-| **命令面板** | `Ctrl+K` 跳页面、连服务器、开本机终端、进设置 | 统一入口，命令随当前状态生成 |
+| **命令面板** | `Ctrl+K` 跳页面、连服务器、开本机终端、进设置 | 最近命令、服务器、操作、导航分组；命令随当前状态生成 |
 | **状态看板** | 底部状态栏或右侧面板看远端 CPU / 内存 / 磁盘 / 网络 | 按会话启动采集器，空闲时暂停 |
 | **外观** | 7 套预设色板 + 自定义 ANSI 16 色、背景图与模糊、字体、明暗跟随系统 | 预设模式下终端色板随界面明暗切换；缩放 80%–150%；标签栏位置（顶栏 / 左侧）与导航区段顺序可换；左侧导航与右侧面板宽度可拖 |
-| **输出着色** | 终端输出按语义自动着色：关 / 语义 / 强调三档 | 纯前端 `Colorizer`，不改动原始字节 |
+| **输出着色** | 终端输出按语义自动着色：关 / 语义 / 强调三档 | 纯前端 `Colorizer`，只注入 SGR；ANSI/OSC/CSI 交互序列和无换行提示符立即原样透传 |
 | **数据** | `.dingpack` 配置包导出导入（口令加密）；主密码；跨设备搬家 | 服务器上限 500 条，导入可覆盖同 ID |
 | **自动化** | 调试模式 HTTP API、SSE 实时事件流、MCP（含 stdio 代理） | 能力位 + 两段式确认 + 审计记录，见[第九节](#九调试模式给-ai-的本机控制面) |
 
@@ -117,6 +122,8 @@
 | `Ctrl+K` / `Cmd+K` | 打开 / 关闭命令面板（未解锁时不响应） | 全局 |
 | `Ctrl+W` / `Cmd+W` | 关闭当前标签（仅工作区） | 全局 |
 | `Ctrl+1` … `Ctrl+9` | 切到第 N 个标签（标签数足够时） | 全局 |
+| `Ctrl+B` / `Cmd+B` | 展开 / 收起左侧导航 | 全局 |
+| `Ctrl+Shift+B` / `Cmd+Shift+B` | 展开 / 收起右侧工具栏 | 工作区 |
 | `Esc` | 关闭命令面板 / 补全面板 / 终端侧栏 | 全局 |
 | `↑` `↓` `Enter` | 命令面板内选择与执行 | 命令面板 |
 | `Ctrl+V` / `Ctrl+Shift+V` / `Cmd+V` / `Shift+Insert` | 粘贴 | 终端 |
@@ -135,7 +142,7 @@
 | 需要 | 版本 / 说明 |
 | --- | --- |
 | Go | 1.25+（`go.mod` 声明 `go 1.25.0`） |
-| Node.js | 22（CI 使用，以 `frontend/package-lock.json` 为准） |
+| Node.js | 22.12+（仓库 `.nvmrc` 固定 22.23.4；Vite 7 / Vitest 5 的最低要求） |
 | Wails CLI | `v2.13.0` |
 | Linux 额外 | `libgtk-3-dev`、`libwebkit2gtk-4.1-dev`（构建加 `-tags webkit2_41`） |
 | Windows 额外 | WebView2 运行时；打包安装器需 NSIS |
@@ -161,8 +168,8 @@ cd frontend && npm ci && node node_modules/vue-tsc/bin/vue-tsc.js --noEmit
 
 Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前就已打开的终端 PATH 未更新」：
 
-- `dev-env.ps1`：把 Go（`C:\Program Files\Go\bin`、`%LOCALAPPDATA%\Programs\Go\bin`、项目内 `.tools\go\bin`）、`GOPATH\bin`、Node（`C:\Program Files\nodejs`、`%APPDATA%\npm`）补进当前会话 PATH，必要时设置 `GOPROXY` / `GOSUMDB` 镜像，最后打印 go / node / npm / wails 版本。需 dot-source：`. .\dev-env.ps1`。
-- `dev.cmd`：本机策略禁止直接跑 `.ps1`，因此用 `-ExecutionPolicy Bypass` 包一层。不带参数打开已激活环境的交互式终端，带参数执行单条命令：`.\dev.cmd wails dev`、`.\dev.cmd go test ./internal/...`。
+- `scripts/dev/dev-env.ps1`：把 Go（`C:\Program Files\Go\bin`、`%LOCALAPPDATA%\Programs\Go\bin`、项目内 `.tools\go\bin`）、`GOPATH\bin`、Node（`C:\Program Files\nodejs`、`%APPDATA%\npm`）补进当前会话 PATH，必要时设置 `GOPROXY` / `GOSUMDB` 镜像，切回项目根目录并打印 go / node / npm / wails 版本。需 dot-source：`. .\scripts\dev\dev-env.ps1`。
+- `scripts/dev/dev.cmd`：本机策略禁止直接跑 `.ps1`，因此用 `-ExecutionPolicy Bypass` 包一层。不带参数打开已激活环境的项目终端，带参数执行单条命令：`.\scripts\dev\dev.cmd wails dev`、`.\scripts\dev\dev.cmd go test ./internal/...`。
 
 **发布用打包脚本**（`scripts/`，由 Release 工作流调用）
 
@@ -176,13 +183,23 @@ Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前
 
 ## 七、代码地图
 
+### 1.1.0 架构调整
+
+本次不是换色或局部页面改版，而是一次保持业务能力与原信息架构的前端分层重构：
+
+- **设计系统成为单一来源**：样式从一个巨型 `style.css` 拆成 `tokens.css → semantic.css → components.css`，Tailwind v4 只映射语义令牌；主题引擎只写语义值，终端色板独立在 `terminal.css`。新安装默认使用 Geist + 蓝色强调，`uiSchema=2` 负责旧设置的幂等迁移。
+- **应用外壳与业务解耦**：`App.vue` 只负责组装与全局状态；侧栏、顶栏、解锁页进入 `layouts/`，终端工作区进入 `views/`，命令面板、服务器、设置、终端与隧道各自拆成领域组件。原有「工作区 / 服务器 / 隧道 / 设置」导航保持不变，传输历史仍属于工作区右侧面板。
+- **公共交互收口**：表单、对话框、状态与空态收口到 `components/ui/`；主题、快捷键、Toast、设置和终端补全状态下沉到 `composables/`。Dialog 和菜单补齐焦点陷阱、方向键 / Home / End / Esc、焦点恢复及 ARIA 语义。
+- **命令与自动化共用契约**：命令面板、`app.commands` 与快捷键来自统一注册表；关键区域使用 `data-ui`，动态项使用业务 id 的 `data-tab-id` / `data-testid`，避免调试工具依赖 Tailwind 类名与 DOM 下标。
+- **终端输出管线继续保持字节安全**：补全算法从 `TerminalView` 拆出；语义着色器遇到 ANSI/OSC/CSI 控制序列时原样透传，不再缓存 oh-my-zsh / powerlevel10k 这类无换行提示符，避免光标与输入错行。
+- **可验证与可隔离**：新增页面流程、设置迁移、组件可访问性、终端常驻与着色器回归用例；`scripts/verify-ui2.sh` 同时检查类型、构建、Go 测试、迁移守卫和产物体积。`DING_SSH_DEV_CONFIG_DIR` 可把数据库、日志、快照、调试 token 与本地测试密钥全部隔离，不触碰真实系统钥匙串。
+
 ```
 .
 ├── main.go                 Wails 入口：窗口参数、frontend/dist 内嵌、启动/关闭钩子
-├── app.go                  App 门面（71 个绑定方法）：服务器 / 设置 / 凭据 / SFTP / 隧道 / 会话 / 安全 / 导入导出
-├── debug.go                调试模式宿主侧：启动、事件旁路、宿主 op 分发、诊断包导出
-├── debug_windows.go        Windows：WebView2 远程调试参数（非 Windows 为空实现）
 ├── internal/
+│   ├── apphost/            Wails 宿主实现与同包测试：业务门面、调试控制面、本地路径平台适配
+│   ├── appdir/             配置目录单一入口 + `DING_SSH_DEV_CONFIG_DIR` 隔离
 │   ├── models/             前后端共享结构（ServerNode、Settings、DebugSettings、事件负载）
 │   ├── sshx/               SSH 会话、SFTP 缓存与传输、隧道、OSC 7 解析、SysInfo 采集
 │   ├── localterm/          本机 shell（PowerShell / cmd / zsh / bash，走 go-pty）
@@ -192,18 +209,22 @@ Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前
 │   ├── logx/               日志落盘、轮转、脱敏、尾部读取
 │   └── logfilter/          过滤 Wails 运行时的日志噪音
 ├── cmd/ding-ssh-mcp/       独立 stdio MCP 代理（给只支持 stdio 的客户端）
+├── scripts/dev/            Windows 开发环境激活与命令入口
 ├── frontend/src/
-│   ├── App.vue             布局骨架、命令面板、导航区段、全局快捷键
-│   ├── components/         TerminalView / SplitView / SftpPanel / TunnelPage / SettingsPage / TabBar …
+│   ├── App.vue             应用组装、顶级状态与导航切换
+│   ├── layouts/            AppLayout / AppSidebar / AppTopBar / AppUnlock
+│   ├── views/              终端工作区（保持终端实例常驻）
+│   ├── components/         领域组件 + `ui/` 基础组件
+│   ├── composables/        主题 / 快捷键 / Toast / 设置 / 终端补全逻辑
 │   ├── stores/             Pinia：servers / sessions / settings / ui / credentials / groups / transfers
 │   ├── services/           对 wailsjs 绑定与事件的薄封装
 │   ├── completion/         Trie + FZF 打分 + 热键解析
-│   ├── theme/              预设色板与 CSS 变量引擎
+│   ├── theme/              primitive / semantic / component token、迁移、预设与主题引擎
 │   ├── panes/layout.ts     分屏布局计算
 │   └── debug/              前端侧 UI 观测桥（布局 / 样式 / store / 合成事件）
-├── scripts/                三平台打包 + 版本写入 + 调试辅助
+├── scripts/                三平台打包 + 版本写入 + 调试辅助 + UI 2.0 门禁
 ├── build/                  Wails 平台资源（图标、Info.plist、nfpm、NSIS 模板）
-└── docs/                   设计文档、PRD、UI 参考稿
+└── docs/                   2.0 设计规范、重构计划、ADR 与验收记录
 ```
 
 **前后端契约**：前端通过 Wails Bind 直接调用 `App` 方法（服务器 CRUD、设置读写、SFTP 传输、隧道控制、会话读写、安全与导入导出等），后端通过 `EventsEmit` 把终端输出、会话状态、连接进度、隧道状态推给前端。调试模式下同一份事件还会被旁路投递给 SSE 订阅者与日志追踪——**界面看到的和 AI 看到的是同一股数据流**。
@@ -211,6 +232,10 @@ Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前
 ## 八、数据与安全
 
 **文件放在哪**（`os.UserConfigDir()/ding-ssh/`，Windows 即 `%AppData%\ding-ssh\`）
+
+开发/自动化可设置绝对路径环境变量 `DING_SSH_DEV_CONFIG_DIR`，让数据库、旧 JSON、日志、
+UI 快照、`debug.json` 和本地测试密钥全部落入隔离目录。该模式不读取或创建真实系统钥匙串条目；
+相对路径会被忽略。生产运行不要设置此变量。
 
 | 文件 | 内容 |
 | --- | --- |
@@ -400,11 +425,12 @@ go build -o ding-ssh-mcp ./cmd/ding-ssh-mcp
 - **AI 记录**（设置页签）：每次调用留结构化记录（时间、来源 `mcp|http|ui`、工具名、能力位、耗时、结果、脱敏参数、可否撤销），无论成功、被拒还是失败；环形缓冲保留最近 500 条。设置类改动（`update_settings` / `set_log_options`）提供「撤销」按钮（保留最近 20 条改动前快照）。AI 侧可用 `app.recent_calls` 自查。
 - **UI 观测**：`ui.layout`（布局骨架 + 非预期重叠）、`ui.query` / `ui.styles` / `ui.tokens` / `ui.hit` / `ui.tree`、`ui.console`、`ui.revision`（判断 DOM 认知是否失效）、`ui.screenshot` / `ui.elementShot`、`ui.snapshot` / `ui.diff` / `ui.assert`。
 - **UI 实验**（需 `ui.write`）：`ui.setToken`、`ui.injectCSS`、`ui.storePatch`、`ui.navigate`、`ui.window`、`ui.reload`、`ui.click` / `ui.type` / `ui.key` / `ui.hover` / `ui.scroll`。写入只作用于当前运行实例（内存态），不写设置、不落库，刷新即还原。
+- **稳定选择器**：自动化优先使用 `[data-ui="topbar"]`、`sidebar`、`terminal`、`context-panel`、`statusbar`、`command-palette`、`settings` 等语义标识；动态标签用 `data-tab-id`，服务器与命令项用业务 id 的 `data-testid`。不要依赖 Tailwind 类名或数组下标。
 - **`ui.diff` 双口径**：像素侧 16×16 分块比较（`threshold` 控通道差），合并相邻变化块为 `regions[]`（最多 20 个），返回 `changedRatio` / `changedPixels` 与叠加红色的 diff 图；指纹侧 `changed[].fields[]` 只报真正变化的字段，其中 `styles` 细化到 CSS 属性级。快照落在 `logs/ui-snapshots/`（文件名有白名单校验）。
 
 ## 十、日志与诊断
 
-日志目录 `ding-ssh/logs`（Windows `%AppData%\ding-ssh\logs`，Linux / macOS `~/.config/ding-ssh/logs`）：
+日志目录为 `<os.UserConfigDir()>/ding-ssh/logs`（Windows `%AppData%\ding-ssh\logs`，macOS `~/Library/Application Support/ding-ssh/logs`，Linux 通常为 `~/.config/ding-ssh/logs`）：
 
 - 当前文件 `app-YYYYMMDD.log`；单文件超过 **8 MB** 或跨天时轮转为 `app-YYYYMMDD-HHMMSS.log`；
 - 目录内最多保留 **20** 个文件，超出删最旧，正在写入的文件永不删除；
@@ -422,7 +448,9 @@ go build -o ding-ssh-mcp ./cmd/ding-ssh-mcp
 
 ## 十一、已知限制
 
-**WebGL 与界面缩放**：缩放通过 `.app-shell { zoom }` 实现，而 `@xterm/addon-webgl` 在存在 CSS `zoom` 的祖先时会把画布内容整体上移数行——缓冲与 DOM 几何都对，只是像素错位，`refresh()` 也纠不回来。因此仅在 `uiScale = 100` 时启用 WebGL，其余情况自动回退 Canvas；上下文丢失或环境不支持时同样降级并提示。
+**WebGL 与界面缩放（已修复）**：缩放通过 `.app-shell { zoom }` 实现，而 `@xterm/addon-webgl` 用 ResizeObserver 的 `devicePixelContentBoxSize` 给 canvas 定尺寸——Chromium 下该值**含 CSS zoom**（zoom=1.25 时位图 990×553、渲染器网格只有 792×442），而 `_setCanvasDevicePixelDimensions()` 只改位图、不重设 GL viewport / resolution uniform / 顶点归一化，于是整幅网格被画进超大位图的左下角：缓冲区与 DOM 几何都对，只有像素错位，表现为「顶部前几行看不到、缓冲区已在顶部无法上滚」，`refresh()` / `clearTextureAtlas()` 都纠不回来。
+
+修法见 `frontend/src/utils/xterm-webgl-zoom.ts`：zoom ≠ 1 时丢弃观察器上报的（含 zoom 的）尺寸，位图保持 `handleResize()` 按未缩放网格算出的尺寸；每次 `fit()` / 缩放切换后再自检「位图 == 网格」，不一致就重跑 `handleResize()` 把 viewport / uniform / 顶点一起补齐。因此现在**任意缩放档位都启用 WebGL**；只有补丁打不上（addon 私有 API 变化）且缩放 ≠ 100% 时才回退 Canvas，上下文丢失 / 环境不支持时同样降级并提示。排查时看 `[webgl] enabled …` 日志行，含 `uiScale / dpr / grid / bitmap / css / rect / cols×rows / viewport / baseY` 快照。
 
 **`wails dev` 的 `runtime:ready` 噪音**：用浏览器打开 dev 地址时，后端会打印两条 `Unknown message from front end: runtime:ready`。这是 Wails v2.13.0 的框架问题（devserver 未拦截 runtime 的内部消息），不影响功能，生产构建与桌面窗口都不会出现；本项目用 `internal/logfilter` 精确过滤这两条。
 
@@ -452,11 +480,43 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-## 十三、更多文档与许可
+## 十三、UI 2.0 设计系统
+
+> UI 2.0 已按 `docs/refactor-2.0/` 的 P0–P4 拆分实施。设计令牌、组件基座、应用外壳、业务页、命令与快捷键、稳定 DOM 标识及性能门禁均已进入代码；跨平台人工冒烟与发布签名按发布清单执行。
+
+**为什么不是 Material Design 3**：MD3 移动优先、tonal 抬升、低密度，与本应用的高密度桌面工作台
+（服务器列表 / SFTP 文件表 / 状态栏）冲突；且 MD3 不改渲染管线，既不提升显示效果，也不提升性能。
+
+**规范选型（已评估，按适配度）**
+
+| 规范 | 作用 | 结论 |
+| --- | --- | --- |
+| W3C Design Tokens (DTCG) | 设计令牌标准化格式，单一来源 | 作为统一骨架采用 |
+| IBM Carbon | 企业级、高密度、density 档位、暗色成熟 | 最佳借鉴对象（借架构，不搬组件） |
+| WCAG 2.2 AA + WAI-ARIA APG | 无障碍与键盘交互 | 必选基线 |
+| Microsoft Fluent 2 | 桌面密度模型 | 次级参考 |
+| Material Design 3 | 移动优先 | 不采用 |
+| Apple HIG | 仅 macOS 壳层 | 不作全平台统一规范 |
+
+**统一蓝图**
+
+- **身份层**：Grid Desk，保留现有审美，写成明文原则，不再凭感觉；
+- **令牌层**：现有 117 个 CSS 变量重组织为 `primitive → semantic → component` 三层，7 套预设从 semantic 派生；
+- **密度层**：借鉴 Carbon 思路，`compact`（SFTP / 列表 / 状态栏）与 `comfortable`（设置 / 命令面板）两档；
+- **基线**：WCAG 2.2 AA + WAI-ARIA APG（键盘优先）+ `prefers-reduced-motion`；
+- **动效**：补全 duration / easing 状态动效表。
+
+**当前实现**
+
+1. **token 分层**：`theme/tokens.css` → `semantic.css` → `components.css`，主题引擎只写语义值。
+2. **无障碍基线**：命令面板具备 dialog/listbox 语义、循环键盘导航、焦点保护与输入法保护。
+3. **自动化契约**：关键区域使用 `data-ui`，动态项使用业务 id，`ui.layout` 只依赖稳定语义选择器。
+4. **资源治理**：字体仅打包 Latin 400/500/600；`scripts/verify-ui2.sh` 检查 CSS、JS、字体和 dist 预算。
+
+## 十四、更多文档与许可
 
 - [`CHANGELOG.md`](CHANGELOG.md)：按开发顺序倒序记录已完成变更（现象 → 原因 → 修法）。
-- [`docs/design.md`](docs/design.md)、[`docs/prd.md`](docs/prd.md)：技术选型、模块设计与需求背景。
-- [`docs/变更记录.md`](docs/变更记录.md)：Agent 维护的逐轮改动摘要。
-- [`docs/ui/`](docs/ui)：设计规范与界面参考稿。
+- [`docs/2.0设计规范.md`](docs/2.0设计规范.md)：UI 2.0 的视觉原则、交互规则与组件规范。
+- [`docs/refactor-2.0/`](docs/refactor-2.0/)：架构评审、分阶段改造计划、ADR、选择器契约与验收记录。
 
 仓库未声明项目级许可证（Linux 打包元数据里填的是 MIT，正式授权请以仓库后续补充的 `LICENSE` 为准）。第三方依赖与内嵌字体遵循各自原始许可，字体目录内附 `OFL.txt`。

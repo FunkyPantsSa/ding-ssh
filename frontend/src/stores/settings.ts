@@ -2,6 +2,7 @@ import {defineStore} from 'pinia'
 import {DEFAULT_COMPLETION_NAV_HOTKEY} from '../completion/hotkey'
 import {settingsService} from '../services/settings'
 import {paletteToTheme, defaultPreset} from '../theme/presets'
+import {migrateUiSettings, UI_SCHEMA, UI2_MIGRATION_BACKUP_KEY} from '../theme/migrate'
 import type {DebugSettings, Fonts, LogLevel, NavSectionOrder, RightClickAction, TabBarPlacement, TerminalColorMode, Theme, UIAppearance} from '../types'
 
 // 默认终端主题（与 Go 端 models.DefaultTheme 保持一致，含 ANSI 16 色）。
@@ -9,23 +10,25 @@ export function defaultTheme(): Theme {
   return paletteToTheme(defaultPreset().dark)
 }
 
-// 默认 UI 外观（信号青绿预设 + 跟随系统明暗）。
+// 默认 UI 外观（Geist 预设 + 跟随系统明暗）。
 export function defaultAppearance(): UIAppearance {
   return {
     mode: 'preset',
-    presetId: 'signal',
+    presetId: 'geist',
     baseTone: 'auto',
-    primary: '#3ec4b4',
-    secondary: '#c97a4a',
-    uiText: '#eef1f5',
+    primary: '#3b82f6',
+    secondary: '#a1a1aa',
+    uiText: '#fafafa',
+    glassOpacity: 85,
+    glassBlur: 24,
   }
 }
 
 // 默认字体设置（与 Go 端 models.DefaultFonts 保持一致）。
 export function defaultFonts(): Fonts {
   return {
-    uiFont: 'Inter',
-    terminalFont: 'IBM Plex Mono',
+    uiFont: 'Geist Sans',
+    terminalFont: 'Geist Mono',
     terminalFontSize: 13,
   }
 }
@@ -55,6 +58,7 @@ export function defaultDebug(): DebugSettings {
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
     logEnabled: false,
+    uiSchema: UI_SCHEMA,
     copyOnSelect: false,
     webGLEnabled: true,
     completionEnabled: true,
@@ -68,6 +72,8 @@ export const useSettingsStore = defineStore('settings', {
     fonts: defaultFonts() as Fonts,
     autoReconnect: true,
     keepAliveEnabled: true,
+    // 登录 SSH 服务器后自动采集系统指标（默认开启）。关闭后连接服务器不执行任何采集命令。
+    sysInfoCollectEnabled: true,
     localShell: '',
     // 启动时自动重新连接「上次关闭时仍在打开的服务器」：默认关闭
     autoLoginLastServer: false,
@@ -88,7 +94,13 @@ export const useSettingsStore = defineStore('settings', {
   }),
   actions: {
     async load() {
-      const settings = await settingsService.getSettings()
+      let settings = await settingsService.getSettings()
+      const migrated = migrateUiSettings(settings, window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+      if (migrated.migrated) {
+        try { localStorage.setItem(UI2_MIGRATION_BACKUP_KEY, migrated.backup ?? '') } catch { /* storage is optional */ }
+      }
+      settings = migrated.settings
+      this.uiSchema = settings.uiSchema ?? UI_SCHEMA
       this.logEnabled = settings.logEnabled
       this.copyOnSelect = settings.copyOnSelect ?? false
       this.webGLEnabled = settings.webGLEnabled ?? true
@@ -103,6 +115,8 @@ export const useSettingsStore = defineStore('settings', {
       this.fonts = {...defaultFonts(), ...(settings.fonts ?? {})}
       this.autoReconnect = settings.autoReconnect ?? true
       this.keepAliveEnabled = settings.keepAliveEnabled ?? true
+      // 登录后自动采集：缺省 / 非法值一律回落「开启」（与 Go 端默认一致）
+      this.sysInfoCollectEnabled = settings.sysInfoCollectEnabled ?? true
       this.localShell = settings.localShell ?? ''
       this.autoLoginLastServer = settings.autoLoginLastServer ?? false
       this.lastOpenServers = normalizeLastOpenServers(settings.lastOpenServers)
@@ -122,6 +136,7 @@ export const useSettingsStore = defineStore('settings', {
       this.logApiCalls = settings.logApiCalls ?? false
       this.logTraceTabs = normalizeLogTraceTabs(settings.logTraceTabs)
       this.loaded = true
+      if (migrated.migrated) await this.save()
     },
     async setLogEnabled(v: boolean) {
       this.logEnabled = v
@@ -186,6 +201,10 @@ export const useSettingsStore = defineStore('settings', {
       this.keepAliveEnabled = v
       await this.save()
     },
+    async setSysInfoCollectEnabled(v: boolean) {
+      this.sysInfoCollectEnabled = v
+      await this.save()
+    },
     async setLocalShell(v: string) {
       this.localShell = v
       await this.save()
@@ -233,6 +252,7 @@ export const useSettingsStore = defineStore('settings', {
     },
     async save() {
       await settingsService.saveSettings({
+        uiSchema: UI_SCHEMA,
         logEnabled: this.logEnabled,
         copyOnSelect: this.copyOnSelect,
         webGLEnabled: this.webGLEnabled,
@@ -247,6 +267,7 @@ export const useSettingsStore = defineStore('settings', {
         fonts: this.fonts,
         autoReconnect: this.autoReconnect,
         keepAliveEnabled: this.keepAliveEnabled,
+        sysInfoCollectEnabled: this.sysInfoCollectEnabled,
         localShell: this.localShell,
         autoLoginLastServer: this.autoLoginLastServer,
         lastOpenServers: normalizeLastOpenServers(this.lastOpenServers),

@@ -247,7 +247,10 @@ func (s *Server) Start() (string, error) {
 	// MCP（Streamable HTTP）：把上述操作暴露为 MCP 工具/资源，供任意 AI 客户端接入
 	mux.HandleFunc("/mcp", s.mcp)
 
-	s.srv = &http.Server{
+	// 用局部变量贯穿监听 goroutine 的整个生命周期。Stop 会在锁内把 s.srv
+	// 清空；如果 goroutine 闭包再次从字段取值，就可能在 Start 刚返回后与
+	// Stop 竞态并对 nil 调用 Serve（短生命周期测试最容易触发）。
+	httpSrv := &http.Server{
 		// apiLog 放在最外层：鉴权失败的请求（401）同样要留下调用记录。
 		// auditLog 紧贴它之内：MCP 的工具调用由 mcp.go 自己记账（那里信息更全，
 		// 含能力位与是否可撤销），这里只负责非 /mcp 的 HTTP 路由。
@@ -259,13 +262,14 @@ func (s *Server) Start() (string, error) {
 		return "", err
 	}
 	s.mu.Lock()
+	s.srv = httpSrv
 	s.ln = ln
 	s.mu.Unlock()
-	go func() {
-		if err := s.srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	go func(srv *http.Server, listener net.Listener) {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.opts.Logf("调试服务退出: %v", err)
 		}
-	}()
+	}(httpSrv, ln)
 	s.opts.Logf("调试服务已启动: http://%s", ln.Addr().String())
 	return ln.Addr().String(), nil
 }
