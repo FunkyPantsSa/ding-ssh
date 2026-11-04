@@ -82,6 +82,18 @@ img, svg { display: block; max-width: 100%; }
   background: var(--background);
   overflow: hidden;
 }
+.app-shell.platform-macos { padding-top: 28px; }
+.app-shell.platform-macos::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 28px;
+  background: var(--theme-bg-sidebar, var(--surface-1));
+  box-shadow: inset 0 -1px 0 var(--line);
+  -webkit-app-region: drag;
+  --wails-draggable: drag;
+  z-index: 70;
+}
 /* 顶栏一条极细的品牌色高光线，替代原先的噪点 + 网格纹理 */
 .app-shell::before {
   content: "";
@@ -615,7 +627,8 @@ body.col-resizing * { cursor: col-resize !important; }
 .seg button:hover { color: var(--foreground); }
 .seg button.active {
   color: var(--foreground);
-  background: var(--hover-strong);
+  background: var(--primary-weak);
+  box-shadow: inset 0 0 0 1px var(--primary-border);
 }
 .toggle {
   width: 36px; height: 20px;

@@ -39,10 +39,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex min-h-0" data-ui="settings">
+  <div class="settings-shell h-full flex min-h-0" data-ui="settings">
     <SettingsNavigation :items="menuItems" :model-value="section" @update:model-value="section = $event as SettingsSection" />
 
-    <div class="flex-1 min-w-0 overflow-y-auto px-8 py-6" :data-ui="`settings-section-${section}`" :data-section="section">
+    <div class="settings-content flex-1 min-w-0 overflow-y-auto px-8 py-6" :data-ui="`settings-section-${section}`" :data-section="section">
       <SettingsGeneralSection v-if="section === 'general'" />
       <HotkeysSection v-else-if="section === 'hotkeys'" />
       <div v-else-if="section === 'connectionInfo'" class="max-w-3xl fade-rise">
@@ -59,3 +59,11 @@ onMounted(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.settings-shell{gap:14px;padding:14px;background:var(--background)}
+.settings-content{border:1px solid var(--border-subtle);border-radius:18px;background:color-mix(in srgb,var(--surface-2) var(--theme-glass-opacity,88%),transparent);box-shadow:0 18px 50px rgb(0 0 0 / 8%),inset 0 1px rgb(255 255 255 / 5%);backdrop-filter:blur(var(--theme-glass-blur,24px));-webkit-backdrop-filter:blur(var(--theme-glass-blur,24px))}
+:deep(.set-nav){border:1px solid var(--border-subtle);border-radius:18px;box-shadow:0 18px 50px rgb(0 0 0 / 7%),inset 0 1px rgb(255 255 255 / 5%);background:color-mix(in srgb,var(--theme-bg-sidebar,var(--surface-1)) var(--theme-glass-opacity,88%),transparent)}
+:deep(.neo){border:1px solid var(--border-subtle);border-radius:14px;box-shadow:none;background:color-mix(in srgb,var(--surface-3) 52%,transparent)}
+@media(max-width:760px){.settings-shell{gap:8px;padding:8px}.settings-content{padding:18px}.settings-shell :deep(.set-nav){width:156px}}
+</style>
