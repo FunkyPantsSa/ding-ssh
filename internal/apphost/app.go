@@ -261,6 +261,9 @@ func (a *App) SaveServer(node models.ServerNode) (models.ServerNode, error) {
 	if node.Port == 0 {
 		node.Port = 22
 	}
+	if _, err := a.resolveSSHNode(node); err != nil {
+		return models.ServerNode{}, err
+	}
 	if err := a.store.Save(node); err != nil {
 		return models.ServerNode{}, fmt.Errorf("保存服务器失败: %w", err)
 	}
@@ -292,6 +295,18 @@ func (a *App) SelectImageFile() (string, error) {
 
 // DeleteServer 删除服务器节点。
 func (a *App) DeleteServer(id string) error {
+	nodes, err := a.store.List()
+	if err != nil {
+		return err
+	}
+	for _, n := range nodes {
+		for _, jump := range n.JumpServerIDs {
+			if jump == id {
+				return fmt.Errorf("服务器被 %s 引用为跳板机，请先修改其连接路径", n.Name)
+			}
+		}
+	}
+
 	if err := a.store.Delete(id); err != nil {
 		return fmt.Errorf("删除服务器失败: %w", err)
 	}
@@ -300,6 +315,9 @@ func (a *App) DeleteServer(id string) error {
 
 // TestServer 测试单台服务器在线状态（TCP 延迟 + SSH 端口连通性）。
 func (a *App) TestServer(node models.ServerNode) models.ServerTestResult {
+	if len(node.JumpServerIDs) > 0 {
+		return a.TestServerLogin(node)
+	}
 	res := sshx.TestConnectivity(node.Host, node.Port)
 	res.NodeID = node.ID
 	return res
@@ -308,7 +326,11 @@ func (a *App) TestServer(node models.ServerNode) models.ServerTestResult {
 // TestServerLogin 使用节点配置实际完成一次 SSH 登录，验证用户名 / 密码 / 私钥能否通过鉴权
 // （供新建 / 编辑服务器对话框的「测试连接」使用）。
 func (a *App) TestServerLogin(node models.ServerNode) models.ServerTestResult {
-	return sshx.TestServerLogin(node)
+	resolved, err := a.resolveSSHNode(node)
+	if err != nil {
+		return models.ServerTestResult{NodeID: node.ID, LatencyMS: -1, Error: err.Error()}
+	}
+	return sshx.TestServerLogin(resolved)
 }
 
 // TestServers 并发测试多台服务器在线状态，结果按传入顺序返回。
@@ -319,7 +341,7 @@ func (a *App) TestServers(nodes []models.ServerNode) []models.ServerTestResult {
 		wg.Add(1)
 		go func(i int, n models.ServerNode) {
 			defer wg.Done()
-			res := sshx.TestConnectivity(n.Host, n.Port)
+			res := a.TestServer(n)
 			res.NodeID = n.ID
 			results[i] = res
 		}(i, node)
@@ -605,6 +627,10 @@ func (a *App) StartTunnel(node models.ServerNode, name, mode string, localPort i
 	if err := a.ensureUnlocked(); err != nil {
 		return models.TunnelInfo{}, err
 	}
+	node, err := a.resolveSSHNode(node)
+	if err != nil {
+		return models.TunnelInfo{}, err
+	}
 	info, err := a.manager.StartTunnel(node, name, mode, localPort, remoteHost, remotePort)
 	if err != nil {
 		logx.Errorf("启动 SSH 隧道失败: mode=%s name=%s local=%d remote=%s:%d err=%v", mode, name, localPort, remoteHost, remotePort, err)
@@ -616,6 +642,10 @@ func (a *App) StartTunnel(node models.ServerNode, name, mode string, localPort i
 // UpdateTunnel 修改已有隧道的配置，运行中的隧道会按新配置重启。
 func (a *App) UpdateTunnel(id string, node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
 	if err := a.ensureUnlocked(); err != nil {
+		return models.TunnelInfo{}, err
+	}
+	node, err := a.resolveSSHNode(node)
+	if err != nil {
 		return models.TunnelInfo{}, err
 	}
 	info, err := a.manager.UpdateTunnel(id, node, name, mode, localPort, remoteHost, remotePort)
@@ -761,6 +791,10 @@ func (a *App) Connect(sessionID string, node models.ServerNode, cols, rows int) 
 	}
 	if node.Port == 0 {
 		node.Port = 22
+	}
+	node, err := a.resolveSSHNode(node)
+	if err != nil {
+		return models.ConnectResult{}, err
 	}
 	if err := a.manager.Connect(sessionID, node, cols, rows); err != nil {
 		return models.ConnectResult{}, err

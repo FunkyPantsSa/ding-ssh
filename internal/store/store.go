@@ -118,3 +118,27 @@ func (s *JSONStore) Delete(id string) error {
 	}
 	return s.save(out)
 }
+
+// SaveBatch atomically merges a validated import snapshot into the JSON store.
+func (s *JSONStore) SaveBatch(incoming []models.ServerNode) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	nodes, err := s.load()
+	if err != nil {
+		return err
+	}
+	for _, node := range incoming {
+		found := false
+		for i := range nodes {
+			if nodes[i].ID == node.ID {
+				nodes[i] = node
+				found = true
+				break
+			}
+		}
+		if !found {
+			nodes = append(nodes, node)
+		}
+	}
+	return s.save(nodes)
+}

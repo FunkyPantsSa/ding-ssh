@@ -44,6 +44,7 @@ type SettingsGetter func() models.Settings
 type Manager struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
+	pending  map[string]context.CancelFunc
 	tunnels  map[string]*Tunnel
 	sysinfo  map[string]*SysInfoCollector
 	notify   Notifier
@@ -51,14 +52,15 @@ type Manager struct {
 	transfersMu sync.Mutex
 	transfers   map[string][]*activeTransfer // key: sessionID
 
-	cache          *SFTPCacheManager // SWR 目录缓存
-	getSettings    SettingsGetter    // 读取应用设置（可为 nil，使用默认值）
+	cache       *SFTPCacheManager // SWR 目录缓存
+	getSettings SettingsGetter    // 读取应用设置（可为 nil，使用默认值）
 }
 
 // NewManager 创建会话管理器。
 func NewManager(notify Notifier) *Manager {
 	return &Manager{
 		sessions:  make(map[string]*Session),
+		pending:   make(map[string]context.CancelFunc),
 		tunnels:   make(map[string]*Tunnel),
 		sysinfo:   make(map[string]*SysInfoCollector),
 		transfers: make(map[string][]*activeTransfer),
@@ -84,6 +86,19 @@ func (m *Manager) currentSettings() models.Settings {
 func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows int) error {
 	logx.Debugf("发起 SSH 连接: session=%s server=%s host=%s:%d user=%s",
 		sessionID, node.Name, node.Host, node.Port, node.User)
+	m.mu.Lock()
+	if _, ok := m.pending[sessionID]; ok {
+		m.mu.Unlock()
+		return fmt.Errorf("会话正在连接")
+	}
+	if _, ok := m.sessions[sessionID]; ok {
+		m.mu.Unlock()
+		return fmt.Errorf("会话已存在")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.pending[sessionID] = cancel
+	m.mu.Unlock()
+	defer func() { cancel(); m.mu.Lock(); delete(m.pending, sessionID); m.mu.Unlock() }()
 	cfg := m.currentSettings()
 	s, err := newSession(sessionID, node, cols, rows,
 		func(id string, data []byte) {
@@ -125,15 +140,22 @@ func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows i
 			})
 		},
 		cfg.KeepAliveEnabled,
+		ctx,
 	)
 	if err != nil {
 		logx.Errorf("SSH 连接失败: session=%s server=%s err=%v", sessionID, node.Name, err)
 		return err
 	}
-	logx.Debugf("SSH 连接成功: session=%s server=%s", sessionID, node.Name)
 	m.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		m.mu.Unlock()
+		s.close(models.StatusClosed, "连接已取消")
+		return err
+	}
+	delete(m.pending, sessionID)
 	m.sessions[sessionID] = s
 	m.mu.Unlock()
+	logx.Debugf("SSH 连接成功: session=%s server=%s", sessionID, node.Name)
 	return nil
 }
 
@@ -161,6 +183,14 @@ func (m *Manager) Resize(sessionID string, cols, rows int) error {
 
 // Disconnect 主动断开会话。
 func (m *Manager) Disconnect(sessionID string) error {
+	m.mu.Lock()
+	cancel := m.pending[sessionID]
+	m.mu.Unlock()
+	if cancel != nil {
+		cancel()
+		return nil
+	}
+
 	s, err := m.get(sessionID)
 	if err != nil {
 		logx.Errorf("断开会话失败: session=%s err=%v", sessionID, err)
@@ -1030,6 +1060,9 @@ func (m *Manager) SftpCancelTransfer(sessionID, direction, name string) error {
 // CloseAll 关闭全部会话与隧道（应用退出时调用）。
 func (m *Manager) CloseAll() {
 	m.mu.RLock()
+	for _, cancel := range m.pending {
+		cancel()
+	}
 	sessions := make([]*Session, 0, len(m.sessions))
 	tunnels := make([]*Tunnel, 0, len(m.tunnels))
 	collectors := make([]*SysInfoCollector, 0, len(m.sysinfo))

@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import {Button, Field, Input} from '../ui'
+import HostTrustSection from './HostTrustSection.vue'
 import {useSettingsSecurity} from '../../composables/useSettingsSecurity'
 
 const {security, form: secForm, error: secError, message: secMsg, busy: secBusy, enableMaster, disableMaster, changeMaster} = useSettingsSecurity()
@@ -85,5 +86,6 @@ const {security, form: secForm, error: secError, message: secMsg, busy: secBusy,
         </div>
       </div>
     </template>
+    <HostTrustSection />
   </section>
 </template>

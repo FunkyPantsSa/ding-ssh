@@ -3,7 +3,7 @@ import {computed, onMounted, ref, watch} from 'vue'
 import Icon from '../Icon.vue'
 import ToggleSwitch from '../ToggleSwitch.vue'
 import {Button, Input} from '../ui'
-import {TONE_OPTIONS, useSettingsAppearance} from '../../composables/useSettingsAppearance'
+import {TERMINAL_FONT_OPTIONS, TONE_OPTIONS, useSettingsAppearance} from '../../composables/useSettingsAppearance'
 import {useSettingsStore} from '../../stores/settings'
 import {hexToRgb} from '../../theme/engine'
 
@@ -11,7 +11,7 @@ const settings = useSettingsStore()
 const saving = ref(false)
 const picker = ref<HTMLElement | null>(null)
 const dragging = ref(false)
-const {themeForm, appearanceForm, syncForms, setTone, setSeedColor, resetAppearance} = useSettingsAppearance(settings, saving)
+const {themeForm, appearanceForm, fontsForm, syncForms, setTone, setSeedColor, resetAppearance} = useSettingsAppearance(settings, saving)
 const PRESET_COLORS = [
   {name: 'Neutral', color: '#E8E4DF'}, {name: 'Rose', color: '#F19BC0'},
   {name: 'Lavender', color: '#9E709F'}, {name: 'Coral', color: '#F15E6A'},
@@ -106,12 +106,18 @@ function chooseColor(color: string) {
         <div class="preview-note"><Icon name="terminal" :size="15" /><span><strong>终端保持清晰</strong>全窗口共享毛玻璃背景，文字保持清晰；独立终端背景与图片优先保留。</span></div>
       </aside>
     </div>
+        <section class="terminal-font-controls" aria-label="终端字体设置">
+          <h4>终端字体</h4>
+          <label>终端字体<select v-model="fontsForm.terminalFont" aria-label="终端字体"><option v-for="font in TERMINAL_FONT_OPTIONS" :key="font" :value="font">{{ font === 'system' ? '系统等宽字体' : font }}{{ font !== 'system' ? ' + 思源黑体中文' : '' }}</option></select></label>
+          <label>字号<input v-model.number="fontsForm.terminalFontSize" type="number" min="10" max="32" aria-label="终端字号" /></label>
+          <p :style="{fontFamily: `'${fontsForm.terminalFont}', 'Noto Sans SC', monospace`, fontSize: `${fontsForm.terminalFontSize}px`}">终端预览 中文 你好 / English 0123456789 ~ % →</p>
+        </section>
     <footer class="theme-footer"><p>更改会实时应用到整个应用。</p><Button variant="ghost" size="sm" @click="resetAppearance">恢复默认</Button></footer>
   </section>
 </template>
 
 <style scoped>
-.theme-page{max-width:1040px;padding-bottom:28px}.theme-header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:24px}.theme-kicker{font:600 10px/1 var(--font-mono);letter-spacing:.16em;color:var(--muted-foreground)}.theme-header h3{margin:8px 0 5px;font-size:24px;line-height:1.1;letter-spacing:-.035em}.theme-header p{margin:0;color:var(--foreground-secondary);font-size:13px}.save-state{display:flex;align-items:center;gap:7px;color:var(--muted-foreground);font-size:11px}.save-state>span{width:6px;height:6px;border-radius:50%;background:var(--success)}.save-state>span.saving{background:var(--warning);animation:pulse 1s infinite}
+.terminal-font-controls{margin:20px 0;padding:22px;background:var(--theme-bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-card)}.terminal-font-controls h4{margin:0 0 18px;font-size:14px}.terminal-font-controls label{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;font-size:12px}.terminal-font-controls select,.terminal-font-controls input{background:var(--field-bg);color:var(--foreground);border:1px solid var(--border);padding:6px;border-radius:6px}.terminal-font-controls input{width:70px}.terminal-font-controls p{margin:8px 0;overflow-wrap:anywhere}.theme-page{max-width:1040px;padding-bottom:28px}.theme-header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:24px}.theme-kicker{font:600 10px/1 var(--font-mono);letter-spacing:.16em;color:var(--muted-foreground)}.theme-header h3{margin:8px 0 5px;font-size:24px;line-height:1.1;letter-spacing:-.035em}.theme-header p{margin:0;color:var(--foreground-secondary);font-size:13px}.save-state{display:flex;align-items:center;gap:7px;color:var(--muted-foreground);font-size:11px}.save-state>span{width:6px;height:6px;border-radius:50%;background:var(--success)}.save-state>span.saving{background:var(--warning);animation:pulse 1s infinite}
 .theme-layout{display:grid;grid-template-columns:minmax(420px,1.15fr) minmax(300px,.85fr);gap:16px}.theme-editor,.theme-preview{border:1px solid var(--border-subtle);border-radius:var(--radius-card);background:color-mix(in srgb,var(--surface-3) 40%,transparent);box-shadow:none}.theme-editor{padding:22px}.tone-switch{display:flex;justify-content:center;gap:5px;margin-bottom:18px}.tone-switch button{width:38px;height:34px;display:grid;place-items:center;border-radius:var(--radius-control);color:var(--muted-foreground);transition:background var(--dur),color var(--dur),transform var(--dur)}.tone-switch button:hover{color:var(--foreground);background:var(--hover)}.tone-switch button.active{color:var(--primary-hover);background:var(--primary-weak);box-shadow:inset 0 0 0 1px var(--primary-border)}
 .color-field{position:relative;height:300px;border-radius:var(--radius-card);overflow:hidden;cursor:crosshair;touch-action:none;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 7%)}.field-white,.field-black{position:absolute;inset:0;pointer-events:none}.field-white{background:linear-gradient(90deg,#fff,transparent)}.field-black{background:linear-gradient(0deg,#16131a,transparent)}.color-marker{position:absolute;width:32px;height:32px;border:4px solid white;border-radius:50%;box-shadow:0 2px 10px rgb(0 0 0 / 35%);transform:translate(-50%,-50%);pointer-events:none}.color-marker span{display:block;width:100%;height:100%;border-radius:50%}
 .hue-control,.native-color{display:flex;align-items:center;gap:16px;margin-top:16px;font-size:12px;color:var(--foreground-secondary)}.hue-control input{flex:1;appearance:none;height:12px;border-radius:999px;background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}.native-color input{width:54px;height:32px;padding:2px;border:1px solid var(--border);border-radius:6px;background:transparent}.color-meta{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:18px 0 22px}.preset-row{display:flex;gap:9px;flex-wrap:wrap}.preset-dot{width:27px;height:27px;border-radius:50%;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 8%);transition:transform var(--dur),box-shadow var(--dur)}.preset-dot:hover{transform:scale(1.08)}.preset-dot.active{box-shadow:0 0 0 2px var(--surface-2),0 0 0 4px var(--foreground)}.hex-field{display:flex;align-items:center;gap:7px;flex-shrink:0}.hex-field>span{font:600 9px var(--font-mono);color:var(--muted-foreground)}.hex-field :deep(input){width:88px;height:30px;font:11px var(--font-mono);text-transform:uppercase}

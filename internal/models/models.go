@@ -4,7 +4,22 @@ package models
 import "strings"
 
 // ServerNode 服务器节点定义（与设计文档第 4 节保持一致）。
+type SSHOptions struct {
+	IdentityFiles     []string `json:"identityFiles,omitempty"`
+	IdentityAgent     string   `json:"identityAgent,omitempty"`
+	IdentitiesOnly    bool     `json:"identitiesOnly,omitempty"`
+	JumpServerIDs     []string `json:"jumpServerIds,omitempty"`
+	HostKeyAlias      string   `json:"hostKeyAlias,omitempty"`
+	KnownHostsSources []string `json:"knownHostsSources,omitempty"`
+	ImportAlias       string   `json:"importAlias,omitempty"`
+	ImportSource      string   `json:"importSource,omitempty"`
+}
+
 type ServerNode struct {
+	SSHOptions
+	ResolvedJumps      []ServerNode      `json:"-"`
+	RuntimePassphrases map[string]string `json:"-"`
+
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
 	Group      string            `json:"group"` // 分组名，空为未分组

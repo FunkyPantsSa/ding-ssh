@@ -511,7 +511,7 @@ git push origin v1.0.0
 1. **token 分层**：`theme/tokens.css` → `semantic.css` → `components.css`，主题引擎只写语义值。
 2. **无障碍基线**：命令面板具备 dialog/listbox 语义、循环键盘导航、焦点保护与输入法保护。
 3. **自动化契约**：关键区域使用 `data-ui`，动态项使用业务 id，`ui.layout` 只依赖稳定语义选择器。
-4. **资源治理**：字体仅打包 Latin 400/500/600；`scripts/verify-ui2.sh` 检查 CSS、JS、字体和 dist 预算。
+4. **资源治理**：字体支持可配置字体及对应许可；`scripts/verify-ui2.sh` 检查 CSS、JS、字体和 dist 预算。
 
 ## 十四、更多文档与许可
 
@@ -520,3 +520,26 @@ git push origin v1.0.0
 - [`docs/refactor-2.0/`](docs/refactor-2.0/)：架构评审、分阶段改造计划、ADR、选择器契约与验收记录。
 
 仓库未声明项目级许可证（Linux 打包元数据里填的是 MIT，正式授权请以仓库后续补充的 `LICENSE` 为准）。第三方依赖与内嵌字体遵循各自原始许可，字体目录内附 `OFL.txt`。
+
+## 1.1.1 更新
+
+- 侧边栏支持固定展开和悬停预览：点击收起后保留图标栏，在 Logo 上停留 500 毫秒临时展开，移出整体侧栏 250 毫秒后关闭；点击展开控制可恢复固定展开。预览覆盖内容，不改变终端尺寸，菜单、拖拽和键盘操作期间暂缓关闭。
+- 主页使用与侧栏一致的毛玻璃底层，服务器列表与分组使用更轻的模糊；设置、隧道卡片及弹窗同步覆盖。关闭毛玻璃恢复纯色背景。
+- 修复横向表单按钮受挤压后中文竖排的问题，窄窗口下输入框合理收缩、工具栏与操作行可分行。
+- 新增 SSH 主机信任校验、最多五级跳板机、SSH Config 快照导入与本机 Agent 认证，详见下节。
+
+验证：前端类型检查、构建与 40 个测试通过；Go 内部测试、关键模块竞态检查、静态检查及 macOS 打包通过；Windows/Linux SSH 包交叉编译通过。完整桌面跨平台及真实远端联测尚未执行。当前完整 UI2 校验仍存在字体资源预算超限，不能视为全项通过。
+
+### SSH 主机信任、跳板机与 OpenSSH 导入
+
+- 首次手动连接会显示主机类型和 SHA256 指纹，核对后选择“信任并连接”。主机密钥变化或撤销会拒绝连接。取消不会保存信任。
+- “设置 → 安全 → SSH 主机信任管理”可查看、复制指纹和删除应用记录。合法密钥轮换需要先核对新指纹，再删除应用记录并重新连接。用户 `~/.ssh/known_hosts` 及服务器指定的额外信任源只读。
+- 编辑服务器可添加最多 5 级已保存跳板机并调整顺序。各跳独立认证和校验身份；被引用服务器不能直接删除。终端、SFTP、状态采集和三类隧道使用统一连接链，不回退直连。
+- 认证新增 SSH Agent 和自动选择。Linux/macOS 使用 `SSH_AUTH_SOCK`，Windows 使用原生 OpenSSH Agent 命名管道，也可设置 `IdentityAgent`。支持查看公钥指纹；不启用 Agent Forwarding。
+- 服务器工具栏的“导入 SSH Config”提供预览、跳过、创建副本、覆盖及字段差异。导入生成快照，不回写源文件；请同时选择跳板依赖。SQLite 导入使用事务，JSON 回退使用原子替换。
+- 自动模式优先复用 Agent 公钥签名，支持多个 IdentityFile；`IdentitiesOnly` 限定身份。加密身份文件需要密码短语时显示密码输入框，临时参数不写入存储或配置包。
+- 数据库自动新增 `ssh_options` 列，旧 ID、分组、密码及私钥字段保留；JSON 和 `.dingpack` 保留新增 SSH 配置。应用信任文件独立存储，不进入配置包。
+
+导入支持 Host 多别名、默认/通配符/否定规则、首值优先、HostName、User、Port、IdentityFile、IdentityAgent、IdentitiesOnly、ProxyJump、HostKeyAlias、UserKnownHostsFile，以及有深度/循环限制的 Include。ProxyJump 当前要求引用同一配置中的明确 Host 别名，暂不支持内联 `user@host:port`。不执行 ProxyCommand、LocalCommand 或任何 shell 指令；不支持的关键字标记为人工检查，Match 整体拒绝。CanonicalizeHostname 等高级配置不宣称兼容。Include 相对路径按当前用户 `~/.ssh` 展开。
+
+未知主机的手动确认采用“中止首次握手 → 显式确认 → 重新连接”，确认前不会发送登录密码。无界面调用及自动重连不批准新信任。Windows/Linux SSH 包已提供平台适配；完整桌面端交互和远端环境仍需在对应系统实测。

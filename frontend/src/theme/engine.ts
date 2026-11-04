@@ -130,7 +130,7 @@ export function deriveSurfaceVars(seed: string, tone: Tone, glassOpacity = 85, g
 
 /** Recognize generated backgrounds from earlier theme versions without replacing independent colors. */
 export function isManagedTerminalBackground(background: string, seed: string, tone: Tone): boolean {
-  return [deriveSurfaceVars(seed, tone)['--theme-bg-main'], '#f5f6f7', '#eff5ff', '#223550',
+  return [deriveSurfaceVars(seed, tone)['--theme-bg-main'], deriveSurfaceVars(seed, tone === 'light' ? 'dark' : 'light')['--theme-bg-main'], '#fafbfc', '#f5f6f7', '#eff5ff', '#223550',
     mix(seed, '#303b4b', 0.65), mix(seed, '#263449', 0.85), darken(seed, 0.72),
     mix(seed, '#f5f6f7', 0.97), mix(seed, '#ffffff', 0.94), mix(seed, '#ffffff', 0.91)].includes(background.toLowerCase())
 }
@@ -145,6 +145,7 @@ export function deriveTerminalTheme(base: Theme, seed: string, tone: Tone): Them
     foreground: light ? '#20242a' : '#e8edf2',
     cursor,
     selection: rgba(cursor, light ? 0.22 : 0.3),
+    ...(light ? {red: '#b93843', green: '#227447', yellow: '#8a610e', magenta: '#8248a5', cyan: '#087582', brightRed: '#c23f4a', brightGreen: '#287b4b', brightYellow: '#916913', brightMagenta: '#8b4bb0', brightCyan: '#087d8b'} : {}),
     black: light ? '#20242a' : darken(seed, 0.94),
     brightBlack: light ? '#6b7280' : lighten(darken(seed, 0.72), 0.28),
     blue: light ? darken(seed, 0.28) : seed,
@@ -178,7 +179,7 @@ export function resolveTone(baseTone: UIAppearance['baseTone']): Tone {
 // ---- 字体栈 ----
 
 const SYSTEM_UI_FONT_STACK = '"PingFang SC", "Helvetica Neue", "Microsoft YaHei", system-ui, sans-serif'
-const SYSTEM_MONO_FONT_STACK = 'ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Cascadia Mono", monospace'
+const SYSTEM_MONO_FONT_STACK = '"Noto Sans SC", ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Cascadia Mono", monospace'
 
 // 默认与静态兜底都指向已捆绑的 Geist；只有用户显式选择 system 才回落到系统字体。
 export const UI_FONT_FALLBACK = `"Geist Sans", ${SYSTEM_UI_FONT_STACK}`
@@ -192,7 +193,7 @@ export function uiFontStack(name: string | undefined): string {
 
 export function monoFontStack(name: string | undefined): string {
   if (!name) return MONO_FONT_FALLBACK
-  if (name === 'system') return SYSTEM_MONO_FONT_STACK
+  if (name === 'system') return 'ui-monospace, "SF Mono", Menlo, Consolas, "Noto Sans SC", monospace'
   return `"${name}", ${SYSTEM_MONO_FONT_STACK}`
 }
 
@@ -208,7 +209,8 @@ export function computeUiCssVars(appearance: UIAppearance, fonts: Fonts, tone: T
   const glass = appearance.glassEnabled
   // One native material beneath the whole window. Each region adds one tint.
   const amount = Math.min(1, Math.max(0, (100 - (appearance.glassOpacity ?? 85)) / 85))
-  const alpha = tone === 'light' ? 0.84 - amount * 0.42 : 0.82 - amount * 0.40
+  const mac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform)
+  const alpha = tone === 'light' ? 0.84 - amount * (mac ? 0.54 : 0.42) : 0.82 - amount * (mac ? 0.52 : 0.40)
   if (glass) {
     surfaces['--theme-bg-sidebar'] = rgba(surfaces['--theme-bg-sidebar'], alpha)
     surfaces['--theme-bg-toolbar'] = rgba(surfaces['--theme-bg-toolbar'], Math.min(0.96, alpha + 0.04))
@@ -216,7 +218,7 @@ export function computeUiCssVars(appearance: UIAppearance, fonts: Fonts, tone: T
     surfaces['--theme-bg-surface'] = rgba(surfaces['--surface-2'], Math.min(0.98, alpha + 0.14))
   }
   surfaces['--theme-glass-blur'] = glass ? '24px' : '0px'
-  surfaces['--theme-glass-opacity'] = '100%'
+  surfaces['--theme-glass-opacity'] = glass ? `${Math.round(Math.min(0.98, alpha + 0.14) * 100)}%` : '100%'
 
   return {
     ...surfaces,

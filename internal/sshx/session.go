@@ -1,6 +1,7 @@
 package sshx
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -29,15 +30,15 @@ type Session struct {
 	server    models.ServerNode
 	createdAt int64
 
-	mu        sync.Mutex
-	closed    bool
-	closeOnce sync.Once
-	onClosed  func(id string)
-	onOutput  func(id string, data []byte)
-	onStatus  func(id string, status models.SessionStatus, message string)
-	onDirSync func(id string, path string)
+	mu         sync.Mutex
+	closed     bool
+	closeOnce  sync.Once
+	onClosed   func(id string)
+	onOutput   func(id string, data []byte)
+	onStatus   func(id string, status models.SessionStatus, message string)
+	onDirSync  func(id string, path string)
 	onProgress func(id, step, status, log, message string) // 连接过程分步日志
-	lastDir   string // 最近一次同步的路径，用于去重避免重复事件
+	lastDir    string                                      // 最近一次同步的路径，用于去重避免重复事件
 
 	sftpOnce sync.Once
 	sftpErr  error
@@ -66,6 +67,7 @@ func newSession(
 	onDirSync func(string, string), // 终端 cwd 变化（绝对路径）
 	onProgress func(string, string, string, string, string), // 连接进度分步日志
 	keepAliveEnabled bool,
+	contexts ...context.Context,
 ) (*Session, error) {
 	report := func(step, status, log, message string) {
 		if onProgress != nil {
@@ -73,16 +75,16 @@ func newSession(
 		}
 	}
 	report(models.ConnectStepDNS, "running", "正在初始化连接…", "")
-	config, err := buildClientConfig(node, report)
-	if err != nil {
-		report(models.ConnectStepAuth, "error", fmt.Sprintf("构造鉴权配置失败：%v", err), err.Error())
-		return nil, err
+	ctx := context.Background()
+	if len(contexts) > 0 {
+		ctx = contexts[0]
 	}
-
-	client, err := dialSSH(node.Host, node.Port, config, report)
+	client, err := dialNodeContext(ctx, node, report)
 	if err != nil {
 		return nil, err
 	}
+	stopSetupCancel := context.AfterFunc(ctx, func() { client.Close() })
+	defer stopSetupCancel()
 	logx.Debugf("SSH TCP 连接已建立: session=%s host=%s:%d", id, node.Host, node.Port)
 
 	// 分配 PTY，使用 256 色终端。
@@ -364,16 +366,21 @@ func buildClientConfig(node models.ServerNode, report progressFn) (*ssh.ClientCo
 	}
 	if node.AuthType == "privateKey" {
 		report(models.ConnectStepAuth, "running", "鉴权配置：私钥认证", "")
+	} else if node.AuthType == "agent" || node.AuthType == "auto" {
+		report(models.ConnectStepAuth, "running", "鉴权配置："+node.AuthType, "")
 	} else {
 		report(models.ConnectStepAuth, "running", "鉴权配置：密码认证（含键盘交互）", "")
 	}
 	return &ssh.ClientConfig{
 		User: node.User,
 		Auth: auths,
-		HostKeyCallback: func(_ string, remote net.Addr, key ssh.PublicKey) error {
+		HostKeyCallback: func(host string, remote net.Addr, key ssh.PublicKey) error {
 			report(models.ConnectStepAuth, "running",
 				fmt.Sprintf("服务端主机密钥：%s 指纹 sha256:%s", key.Type(), ssh.FingerprintSHA256(key)), "")
-			return nil // TODO(Phase 4): 接入 known_hosts 校验
+			if node.HostKeyAlias != "" {
+				host = net.JoinHostPort(node.HostKeyAlias, strconv.Itoa(node.Port))
+			}
+			return verifyConnectionHostSources(host, remote, key, node.KnownHostsSources)
 		},
 		BannerCallback: func(message string) error {
 			report(models.ConnectStepAuth, "running", fmt.Sprintf("服务端横幅：%s", message), "")
@@ -396,17 +403,25 @@ func buildClientConfig(node models.ServerNode, report progressFn) (*ssh.ClientCo
 
 func buildAuthMethods(node models.ServerNode) ([]ssh.AuthMethod, error) {
 	switch node.AuthType {
+	case "agent":
+		return []ssh.AuthMethod{ssh.PublicKeysCallback(func() ([]ssh.Signer, error) { return AgentSigners(node) })}, nil
+	case "auto":
+		return []ssh.AuthMethod{ssh.PublicKeysCallback(func() ([]ssh.Signer, error) { return autoSigners(node) })}, nil
 	case "privateKey":
 		data, err := privateKeyData(node)
 		if err != nil {
 			return nil, err
 		}
-		key, err := parsePrivateKey(data, node.Password)
+		phrase := node.RuntimePassphrases[node.KeyPath]
+		if phrase == "" {
+			phrase = node.Password
+		}
+		key, err := parsePrivateKey(data, phrase)
 		if err != nil {
 			return nil, err
 		}
 		return []ssh.AuthMethod{ssh.PublicKeys(key)}, nil
-	default: // password
+	case "password", "": // legacy password
 		return []ssh.AuthMethod{
 			ssh.Password(node.Password),
 			ssh.KeyboardInteractive(func(user, instruction string, questions []string, echos []bool) ([]string, error) {
@@ -417,6 +432,8 @@ func buildAuthMethods(node models.ServerNode) ([]ssh.AuthMethod, error) {
 				return answers, nil
 			}),
 		}, nil
+	default:
+		return nil, fmt.Errorf("不支持的认证方式：%s", node.AuthType)
 	}
 }
 
@@ -426,12 +443,15 @@ const connectTimeout = 10 * time.Second
 // dialSSH 建立 SSH 连接，按 DNS / TCP / 鉴权三步上报详细日志，
 // TCP 拨号与握手合计 10 秒超时，超时返回明确提示。
 func dialSSH(host string, port int, config *ssh.ClientConfig, report progressFn) (*ssh.Client, error) {
+	return dialSSHContext(context.Background(), host, port, config, report)
+}
+func dialSSHContext(ctx context.Context, host string, port int, config *ssh.ClientConfig, report progressFn) (*ssh.Client, error) {
 	// 步骤 1：DNS / 直连。
 	report(models.ConnectStepDNS, "running", fmt.Sprintf("目标主机：%s", host), "")
 	if ip := net.ParseIP(host); ip != nil {
 		report(models.ConnectStepDNS, "running", fmt.Sprintf("主机为 IP 地址，采用直连（%s）", ip), "")
 	} else {
-		ips, err := net.LookupIP(host)
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 		if err != nil || len(ips) == 0 {
 			msg := "DNS 解析失败"
 			report(models.ConnectStepDNS, "error", fmt.Sprintf("解析 %s 失败：%v", host, err), msg)
@@ -449,7 +469,7 @@ func dialSSH(host string, port int, config *ssh.ClientConfig, report progressFn)
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	report(models.ConnectStepTCP, "running", fmt.Sprintf("正在建立 TCP 连接 %s …", addr), "")
 	dialStart := time.Now()
-	conn, err := net.DialTimeout("tcp", addr, connectTimeout)
+	conn, err := (&net.Dialer{Timeout: connectTimeout}).DialContext(ctx, "tcp", addr)
 	if err != nil {
 		cerr := connectError(err)
 		report(models.ConnectStepTCP, "error", fmt.Sprintf("TCP 连接失败：%v", err), cerr.Error())
@@ -458,6 +478,8 @@ func dialSSH(host string, port int, config *ssh.ClientConfig, report progressFn)
 	report(models.ConnectStepTCP, "done", fmt.Sprintf("TCP 连接成功，耗时 %dms，对端 %s",
 		time.Since(dialStart).Milliseconds(), conn.RemoteAddr().String()), "")
 
+	stopCancel := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stopCancel()
 	// 步骤 3：SSH 鉴权（版本协商 + 密钥交换 + 用户鉴权）。
 	// 握手阶段受 10 秒 deadline 约束，避免服务端无响应时无限等待。
 	if err := conn.SetDeadline(time.Now().Add(connectTimeout)); err != nil {
@@ -593,13 +615,7 @@ func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 		_ = oldClient.Close()
 	}
 
-	config, err := buildClientConfig(server, report)
-	if err != nil {
-		report(models.ConnectStepAuth, "error", fmt.Sprintf("构造鉴权配置失败：%v", err), err.Error())
-		return err
-	}
-
-	client, err := dialSSH(server.Host, server.Port, config, report)
+	client, err := dialNode(server, report)
 	if err != nil {
 		return err
 	}

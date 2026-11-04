@@ -97,6 +97,7 @@ func OpenSQLite(path string) (*sql.DB, error) {
 	}
 	// 凭证表新列迁移（旧数据库可能不含 auth_type / key_path / key_content）。
 	for _, stmt := range []string{
+		`ALTER TABLE servers ADD COLUMN ssh_options TEXT NOT NULL DEFAULT '{}'`,
 		`ALTER TABLE credentials ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'password'`,
 		`ALTER TABLE credentials ADD COLUMN key_path TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE credentials ADD COLUMN key_content TEXT NOT NULL DEFAULT ''`,
@@ -125,13 +126,17 @@ func (s *SQLiteStore) SetCipher(c cryptox.FieldCipher) {
 func scanServer(row interface{ Scan(...any) error }) (models.ServerNode, error) {
 	var n models.ServerNode
 	var env string
+	var options string
 	var group string
 	if err := row.Scan(
 		&n.ID, &n.Name, &group, &n.Host, &n.Port, &n.User,
 		&n.AuthType, &n.Password, &n.KeyPath, &n.KeyContent,
-		&n.BgImage, &n.BlurAmount, &env,
+		&n.BgImage, &n.BlurAmount, &env, &options,
 	); err != nil {
 		return n, err
+	}
+	if err := json.Unmarshal([]byte(options), &n.SSHOptions); err != nil {
+		return n, fmt.Errorf("解析 SSH 配置失败: %w", err)
 	}
 	n.Group = group
 	n.EnvVars = map[string]string{}
@@ -145,7 +150,7 @@ func scanServer(row interface{ Scan(...any) error }) (models.ServerNode, error) 
 func (s *SQLiteStore) List() ([]models.ServerNode, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, grp, host, port, user, auth_type, password, key_path,
-		       key_content, bg_image, blur_amount, env_vars
+		       key_content, bg_image, blur_amount, env_vars, ssh_options
 		FROM servers ORDER BY name`)
 	if err != nil {
 		return nil, err
@@ -166,7 +171,27 @@ func (s *SQLiteStore) List() ([]models.ServerNode, error) {
 }
 
 // Save 新增或更新服务器节点（按 ID 匹配）。
-func (s *SQLiteStore) Save(node models.ServerNode) error {
+func (s *SQLiteStore) Save(node models.ServerNode) error { return s.saveWith(s.db, node) }
+func (s *SQLiteStore) SaveBatch(nodes []models.ServerNode) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, node := range nodes {
+		if err := s.saveWith(tx, node); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+func (s *SQLiteStore) saveWith(executor interface {
+	Exec(string, ...any) (sql.Result, error)
+}, node models.ServerNode) error {
+	options, err := json.Marshal(node.SSHOptions)
+	if err != nil {
+		return err
+	}
 	env, err := json.Marshal(node.EnvVars)
 	if err != nil {
 		return fmt.Errorf("序列化环境变量失败: %w", err)
@@ -179,19 +204,19 @@ func (s *SQLiteStore) Save(node models.ServerNode) error {
 	if err != nil {
 		return fmt.Errorf("加密私钥失败: %w", err)
 	}
-	_, err = s.db.Exec(`
+	_, err = executor.Exec(`
 		INSERT INTO servers (id, name, grp, host, port, user, auth_type, password,
-		                    key_path, key_content, bg_image, blur_amount, env_vars)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                    key_path, key_content, bg_image, blur_amount, env_vars, ssh_options)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name, grp = excluded.grp, host = excluded.host,
 			port = excluded.port, user = excluded.user, auth_type = excluded.auth_type,
 			password = excluded.password, key_path = excluded.key_path,
 			key_content = excluded.key_content, bg_image = excluded.bg_image,
-			blur_amount = excluded.blur_amount, env_vars = excluded.env_vars`,
+			blur_amount = excluded.blur_amount, env_vars = excluded.env_vars, ssh_options = excluded.ssh_options`,
 		node.ID, node.Name, node.Group, node.Host, node.Port, node.User,
 		node.AuthType, password, node.KeyPath, keyContent,
-		node.BgImage, node.BlurAmount, string(env),
+		node.BgImage, node.BlurAmount, string(env), string(options),
 	)
 	if err != nil {
 		return fmt.Errorf("保存服务器失败: %w", err)
@@ -254,7 +279,7 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		Theme:                models.DefaultTheme(),
 		Appearance:           models.DefaultAppearance(),
 		Fonts:                models.DefaultFonts(),
-		WebGLEnabled:         true, // 默认开启 WebGL
+		WebGLEnabled:         true,  // 默认开启 WebGL
 		CompletionEnabled:    false, // 默认开启智能补全
 		CompletionNavHotkey:  "Alt+ArrowDown",
 		CompletionPanelLimit: 8,

@@ -1,5 +1,5 @@
 import {computed, onBeforeUnmount, ref, watch} from 'vue'
-import {applyRootTheme, clearRootTheme, computeUiCssVars, deriveTerminalTheme, deriveSurfaceVars, resolveTone, type Tone} from '@/theme/engine'
+import {applyRootTheme, clearRootTheme, computeUiCssVars, deriveTerminalTheme, isManagedTerminalBackground, resolveTone, type Tone} from '@/theme/engine'
 import {defaultPreset, paletteToTheme, presetById} from '@/theme/presets'
 import type {Fonts, Theme, UIAppearance} from '@/types'
 
@@ -34,7 +34,8 @@ export function useTheme(settings: {
     return next
   }
   function syncTerminalPalette() {
-    if (!settings.loaded || settings.appearance.mode === 'custom') return
+    if (!settings.loaded) return
+    if (settings.appearance.mode === 'custom' && (settings.theme.bgImage || !isManagedTerminalBackground(settings.theme.background, settings.appearance.primary, tone.value))) return
     const next = settings.appearance.mode === 'preset'
       ? presetPaletteTheme(settings.theme, tone.value)
       : deriveTerminalTheme(settings.theme, settings.appearance.primary, tone.value)

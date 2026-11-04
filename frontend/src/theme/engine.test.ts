@@ -6,6 +6,7 @@ describe('theme engine', () => {
   it('recognizes old generated terminal backgrounds and preserves independent choices', () => {
     expect(isManagedTerminalBackground('#435e70', '#71b5d2', 'dark')).toBe(false)
     expect(isManagedTerminalBackground('#223550', '#71b5d2', 'dark')).toBe(true)
+    expect(isManagedTerminalBackground('#fafbfc', '#ff805c', 'dark')).toBe(true)
     expect(isManagedTerminalBackground('#123456', '#71b5d2', 'dark')).toBe(false)
   })
   it('keeps dark background regions close in brightness and low in chroma', () => {
@@ -59,6 +60,20 @@ describe('theme engine', () => {
     for (const key of ['--foreground', '--hover-strong']) expect(blue[key]).not.toBe(rose[key])
   })
 
+  it('keeps glass cards translucent and restores solid surfaces when disabled', () => {
+    const appearance = {mode: 'custom' as const, baseTone: 'light' as const, presetId: 'geist', primary: '#498df0', secondary: '#498df0', uiText: '#fff', glassOpacity: 40, glassBlur: 0, glassEnabled: true}
+    const fonts = {uiFont: 'system', terminalFont: 'system', terminalFontSize: 13}
+    for (const tone of ['light', 'dark'] as const) {
+      const glass = computeUiCssVars(appearance, fonts, tone)
+      expect(parseFloat(glass['--theme-glass-opacity']!)).toBeLessThan(100)
+      expect(glass['--theme-bg-surface']).toContain('rgba(')
+      const solid = computeUiCssVars({...appearance, glassEnabled: false}, fonts, tone)
+      expect(solid['--theme-glass-opacity']).toBe('100%')
+      expect(solid['--theme-glass-blur']).toBe('0px')
+      expect(solid['--theme-bg-surface']).not.toContain('rgba(')
+    }
+  })
+
   it('resolves explicit tone without consulting system preferences', () => {
     expect(resolveTone('light')).toBe('light')
     expect(resolveTone('dark')).toBe('dark')
@@ -79,5 +94,8 @@ describe('theme engine', () => {
     expect(next.cursor).not.toBe(base.cursor)
     expect(next.blue).toBe('#FF805C')
     expect(next.red).toBe(base.red)
+    const light = deriveTerminalTheme(base, '#ff805c', 'light')
+    expect(light.cyan).toBe('#087582')
+    expect(light.green).toBe('#227447')
   })
 })

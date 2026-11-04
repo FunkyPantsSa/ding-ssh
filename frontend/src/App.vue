@@ -78,8 +78,11 @@ const unlockPassword = ref('')
 const unlockError = ref('')
 const unlocking = ref(false)
 
+watch(() => sessions.activeId, id => { if (id) ui.showWorkspace() })
+
 const pageMeta: Record<string, [string, string]> = {
-  workspace: ['工作区', '终端 · 会话 · 文件'],
+  home: ['首页', '连接 · 会话 · 概览'],
+  workspace: ['终端', '终端 · 会话 · 文件'],
   servers: ['服务器管理', '节点 · 分组 · 在线状态'],
   tunnel: ['SSH 隧道', '本地 / 远程 / 动态转发'],
   settings: ['设置', '通用 · 连接说明 · 外观 · 安全 · 迁移'],
@@ -205,6 +208,7 @@ function onWindowResize() {
 // 宽度 → CSS 变量。写在 <html> 上：--nav-w 供 .shell 网格使用，同时被 Teleport 到 body 的
 // 浮层（快速连接侧栏 / 遮罩）复用；--tool-w 供三个右侧面板共用的 .tool 使用。
 watchEffect(() => {
+  document.documentElement.style.setProperty('--nav-expanded-w', `${effectiveNavW.value}px`)
   document.documentElement.style.setProperty(
     '--nav-w',
     navCollapsed.value ? 'var(--nav-w-collapsed)' : `${effectiveNavW.value}px`,
@@ -566,6 +570,12 @@ onBeforeUnmount(() => {
             <SettingsPage v-show="ui.view === 'settings'" />
             <TunnelPage v-show="ui.view === 'tunnel'" />
 
+                  <WorkspaceHome
+                    v-show="ui.view === 'home' || (ui.view === 'workspace' && !sessions.tabs.length)"
+                    @quick-connect="ui.showWorkspace(); ui.openTerminalSidebar()"
+                    @manage-servers="ui.showServers()"
+                    @open-settings="ui.showSettings()"
+                  />
             <TerminalWorkspace :active="ui.view === 'workspace'">
               <TabBar v-if="sessions.tabs.length && !sideTabs" />
 
@@ -597,12 +607,7 @@ onBeforeUnmount(() => {
                   <!-- 分屏覆盖层：格头 + 分隔条 + 拖放热区 -->
                   <SplitView v-if="sessions.splitShown" :layout="paneLayout!" />
 
-                  <WorkspaceHome
-                    v-if="!sessions.tabs.length"
-                    @quick-connect="ui.openTerminalSidebar()"
-                    @manage-servers="ui.showServers()"
-                    @open-settings="ui.showSettings()"
-                  />
+
                 </div>
 
                 <SftpPanel

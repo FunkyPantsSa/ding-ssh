@@ -117,7 +117,7 @@ const bgImageStyle = computed(() => {
 const terminalBackground = computed(() => {
   const tone = resolveTone(settings.appearance.baseTone)
   const seed = effectiveBrand(settings.appearance).primary
-  if (tone === 'light' && !settings.theme.bgImage && isManagedTerminalBackground(settings.theme.background, seed, tone)) {
+  if (!settings.theme.bgImage && isManagedTerminalBackground(settings.theme.background, seed, tone)) {
     return deriveSurfaceVars(seed, tone)['--theme-bg-main']
   }
   return settings.theme.background
@@ -183,6 +183,12 @@ function applyFontSettings() {
   term.options.fontFamily = monoFontStack(settings.fonts.terminalFont)
   term.options.fontSize = effectiveFontSize()
   fit()
+  void Promise.all([document.fonts.load(`${effectiveFontSize()}px "${settings.fonts.terminalFont}"`), document.fonts.load(`${effectiveFontSize()}px "Noto Sans SC"`, '终端中文')]).then(() => {
+    if (!term) return
+    term.clearTextureAtlas()
+    fit()
+    term.refresh(0, term.rows - 1)
+  })
 }
 
 /**
@@ -711,7 +717,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
     const isLocal = props.tab.kind === 'local'
     const result = isLocal
       ? await sshService.connectLocal(sid, term?.cols ?? 80, term?.rows ?? 24)
-      : await sshService.connect(sid, props.tab.node, term?.cols ?? 80, term?.rows ?? 24)
+      : await sshService.connect(sid, props.tab.node, term?.cols ?? 80, term?.rows ?? 24, props.tab.securityPrompts !== false)
     if (disposed) {
       sshService.disconnect(result.sessionId).catch(() => {})
       return false
@@ -889,6 +895,8 @@ onMounted(() => {
   term = new Terminal({
     allowProposedApi: true,
     allowTransparency: true,
+    fontWeight: 400,
+    fontWeightBold: 600,
     cursorBlink: true,
     fontSize: effectiveFontSize(),
     fontFamily: monoFontStack(settings.fonts.terminalFont),
