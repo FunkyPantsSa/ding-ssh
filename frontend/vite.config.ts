@@ -1,4 +1,5 @@
 import {execFileSync} from 'node:child_process'
+import {fileURLToPath, URL} from 'node:url'
 import {defineConfig} from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
@@ -20,6 +21,7 @@ const buildTime = new Date().toISOString()
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
+  resolve: {alias: {'@': fileURLToPath(new URL('./src', import.meta.url))}},
   define: {
     __APP_VERSION__: JSON.stringify(version),
     __APP_COMMIT__: JSON.stringify(commit),
@@ -32,5 +34,19 @@ export default defineConfig({
     commonjsOptions: {
       include: [/zmodem\.js/, /node_modules/],
     },
+    rollupOptions: {
+      output: {
+        // Split the terminal renderer and framework runtime: the app shell stays small,
+        // while xterm/vue chunks are cached independently between releases.
+        manualChunks: {
+          'vendor-xterm': ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-webgl'],
+          'vendor-vue': ['vue', 'pinia'],
+        },
+      },
+    },
+  },
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.ts'],
   },
 })

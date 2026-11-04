@@ -6,6 +6,11 @@ import {useServersStore} from '../stores/servers'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import ServerDialog from './ServerDialog.vue'
+import ServerGroupSidebar from './servers/ServerGroupSidebar.vue'
+import ServerToolbar from './servers/ServerToolbar.vue'
+import ServerContextMenu from './servers/ServerContextMenu.vue'
+import ServerRow from './servers/ServerRow.vue'
+import {Button, Dialog, EmptyState, ErrorState, Input} from './ui'
 import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import type {ServerNode} from '../types'
 
@@ -256,14 +261,14 @@ function nodeStatus(node: ServerNode): 'on' | 'err' | 'connecting' | '' {
 // ---- 在线状态测试 ----
 function testBadge(node: ServerNode): {dot: string; text: string; textClass: string; tip?: string} | null {
   if (servers.isTesting(node)) {
-    return {dot: 'bg-[var(--warn-500)] animate-pulse', text: '测试中', textClass: 'text-mist'}
+    return {dot: 'bg-[var(--warning)] animate-pulse', text: '测试中', textClass: 'text-mist'}
   }
   const r = servers.testResults[node.id]
   if (!r) return null
   if (r.reachable) {
-    return {dot: 'bg-[var(--ok-500)]', text: `${r.latencyMs}ms`, textClass: 'text-[var(--ok-500)]', tip: 'SSH 端口畅通'}
+    return {dot: 'bg-[var(--success)]', text: `${r.latencyMs}ms`, textClass: 'text-[var(--success)]', tip: 'SSH 端口畅通'}
   }
-  return {dot: 'bg-[var(--danger-500)]', text: '不通', textClass: 'text-[var(--danger-500)]', tip: r.error || 'SSH 端口不通'}
+  return {dot: 'bg-[var(--destructive)]', text: '不通', textClass: 'text-[var(--destructive)]', tip: r.error || 'SSH 端口不通'}
 }
 
 function isActiveNode(node: ServerNode): boolean {
@@ -356,184 +361,43 @@ onBeforeUnmount(() => {
 
       <div class="flex-1 min-h-0 flex gap-4">
         <!-- 左：分组栏 -->
-        <aside class="server-sidebar shrink-0 flex flex-col">
-          <div class="flex items-center justify-between px-3 py-2.5 shrink-0 inset-line-b">
-            <span class="text-[12px] font-semibold tracking-[0.08em] uppercase text-mist">分组</span>
-            <button class="btn-icon btn-sm" title="分组管理" aria-label="分组管理" @click="openGroupManager">
-              <Icon name="folder-cog" :size="14" />
-            </button>
-          </div>
-
-          <div class="flex-1 min-h-0 overflow-y-auto p-1.5 flex flex-col gap-0.5">
-            <button
-              class="side-group-item"
-              :class="[activeGroup === 'all' ? 'active' : '', groupDragOver === 'all' ? 'drop-target' : '']"
-              @click="activeGroup = 'all'"
-              @dragover="onGroupDragOver($event, 'all')"
-              @dragleave="onGroupDragLeave('all')"
-              @drop="onGroupDrop($event, '')"
-            >
-              <Icon name="server" :size="14" extra-class="text-mist" />
-              <span class="flex-1 text-left truncate">全部服务器</span>
-              <span class="count">{{ groupCount('all') }}</span>
-            </button>
-            <button
-              v-if="groupCount('')"
-              class="side-group-item"
-              :class="[activeGroup === '' ? 'active' : '', groupDragOver === '' ? 'drop-target' : '']"
-              @click="activeGroup = ''"
-              @dragover="onGroupDragOver($event, '')"
-              @dragleave="onGroupDragLeave('')"
-              @drop="onGroupDrop($event, '')"
-            >
-              <Icon name="folder" :size="14" extra-class="text-mist" />
-              <span class="flex-1 text-left truncate">未分组</span>
-              <span class="count">{{ groupCount('') }}</span>
-            </button>
-            <button
-              v-for="g in sortedGroups"
-              :key="g"
-              class="side-group-item"
-              :class="[activeGroup === g ? 'active' : '', groupDragOver === g ? 'drop-target' : '']"
-              @click="activeGroup = g"
-              @dragover="onGroupDragOver($event, g)"
-              @dragleave="onGroupDragLeave(g)"
-              @drop="onGroupDrop($event, g)"
-            >
-              <Icon name="folder" :size="14" extra-class="text-mist" />
-              <span class="flex-1 text-left truncate">{{ g }}</span>
-              <span class="count">{{ groupCount(g) }}</span>
-            </button>
-          </div>
-
-          <div class="p-2 shrink-0 inset-line-t">
-            <p class="mb-1.5 px-1 text-[11px] leading-snug text-mist/70">
-              把右侧服务器拖到分组上即可修改分组
-            </p>
-            <button class="btn btn-ghost btn-sm w-full" @click="openGroupManager">
-              <Icon name="plus" :size="14" />
-              新建分组
-            </button>
-          </div>
-        </aside>
+        <ServerGroupSidebar :groups="sortedGroups" :active-group="activeGroup" :drag-over="groupDragOver" :all-count="groupCount('all')" :ungrouped-count="groupCount('')" :count-for="groupCount" @select="activeGroup = $event" @manage="openGroupManager" @dragover="onGroupDragOver" @dragleave="onGroupDragLeave" @drop="onGroupDrop" />
 
         <!-- 右：列表区域 -->
         <div class="flex-1 min-w-0 flex flex-col gap-3">
           <!-- 工具栏 -->
-          <div class="flex items-center gap-2 shrink-0">
-            <div class="search" style="max-width: 340px">
-              <Icon name="search" :size="14" extra-class="search-ico" />
-              <input
-                v-model="keyword"
-                type="text"
-                class="input input-sm"
-                placeholder="搜索名称 / 主机 / 分组…"
-                aria-label="搜索服务器"
-              />
-            </div>
-            <div class="ml-auto flex items-center gap-2">
-              <button
-                class="btn btn-ghost btn-sm"
-                :title="servers.testingAll ? '正在测试全部服务器…' : '测试全部服务器在线状态'"
-                :disabled="servers.testingAll || !servers.servers.length"
-                @click="servers.testAll()"
-              >
-                <Icon name="activity" :size="14" :extra-class="servers.testingAll ? 'animate-spin' : ''" />
-                测试全部
-              </button>
-              <button class="btn btn-ghost btn-sm" title="刷新" aria-label="刷新" @click="servers.load()">
-                <Icon name="refresh" :size="14" />
-                刷新
-              </button>
-              <button class="btn btn-primary btn-sm" @click="openNew">
-                <Icon name="plus" :size="14" />
-                新建服务器
-              </button>
-            </div>
-          </div>
+        <ServerToolbar v-model="keyword" :total="servers.servers.length" :online="onlineServers" :testing="servers.testingAll" @test-all="servers.testAll()" @refresh="servers.load()" @create="openNew" />
 
           <!-- 列表 -->
           <div class="flex-1 min-h-0 overflow-y-auto server-list-panel">
-            <div v-if="servers.loading" class="flex flex-col">
+            <div v-if="servers.loading" class="flex flex-col" aria-busy="true" aria-label="正在加载服务器">
               <div v-for="i in 6" :key="i" class="flex items-center gap-3 px-4 py-3">
                 <div class="skel w-2 h-2 rounded-full shrink-0"></div>
                 <div class="skel h-3 w-1/3"></div>
                 <div class="skel h-3 w-24 ml-auto"></div>
               </div>
             </div>
-            <div v-else-if="filtered.length === 0" class="py-14 text-center flex flex-col items-center gap-3">
-              <Icon name="server" :size="32" extra-class="text-mist/40" />
-              <div class="text-[14px] font-semibold text-[var(--mist-100)]">
-                {{ servers.servers.length ? '没有匹配的服务器' : '暂无服务器' }}
-              </div>
-              <p class="text-[13px] text-mist">
-                {{ servers.servers.length ? '换个关键词，或切换左侧分组试试。' : '点击「新建服务器」添加节点，之后即可在终端页快速连接。' }}
-              </p>
-              <button v-if="!servers.servers.length" class="btn btn-primary btn-sm" @click="openNew">
-                <Icon name="plus" :size="14" />
-                新建服务器
-              </button>
-            </div>
-
-            <div
-              v-for="node in filtered"
-              :key="node.id"
-              class="server-row group"
-              :class="[isActiveNode(node) ? 'active' : '', draggingServerId === node.id ? 'dragging' : '']"
-              :title="`连接 ${node.name}（右键更多操作，可拖到左侧分组改分组）`"
-              draggable="true"
-              @dragstart="onRowDragStart($event, node)"
-              @dragend="onRowDragEnd"
-              @contextmenu="openRowMenu($event, node)"
-              @click="connect(node)"
+            <ErrorState
+              v-else-if="servers.error"
+              title="服务器列表加载失败"
+              :description="servers.error"
+              @retry="servers.load()"
+            />
+            <EmptyState
+              v-else-if="filtered.length === 0"
+              :title="servers.servers.length ? '没有匹配的服务器' : '暂无服务器'"
+              :description="servers.servers.length ? '换个关键词，或切换左侧分组试试。' : '点击「新建服务器」添加节点，之后即可在终端页快速连接。'"
             >
-              <span class="status shrink-0" :class="nodeStatus(node)"></span>
+              <template #icon><Icon name="server" :size="32" extra-class="text-mist/40" /></template>
+              <template v-if="!servers.servers.length" #actions>
+                <Button variant="primary" size="sm" data-testid="server-create-empty" @click="openNew">
+                  <Icon name="plus" :size="14" />
+                  新建服务器
+                </Button>
+              </template>
+            </EmptyState>
 
-              <div class="min-w-0 flex-1">
-                <div class="text-[13px] font-medium text-[var(--mist-100)] truncate">{{ node.name }}</div>
-                <div class="font-mono text-[12px] text-mist truncate">{{ node.user }}@{{ node.host }}:{{ node.port }}</div>
-              </div>
-
-              <span
-                v-if="testBadge(node)"
-                class="latency shrink-0 cursor-pointer"
-                :title="(testBadge(node)!.tip || '') + '（点击重新测试）'"
-                @click.stop="servers.testOne(node)"
-              >
-                <span class="w-1.5 h-1.5 rounded-full" :class="testBadge(node)!.dot"></span>
-                <span class="text-[12px] leading-none" :class="testBadge(node)!.textClass">{{ testBadge(node)!.text }}</span>
-              </span>
-              <span v-else class="latency shrink-0 text-mist">未测试</span>
-
-              <div class="row-actions shrink-0">
-                <button class="row-act" title="连接" aria-label="连接" @click.stop="connect(node)">
-                  <Icon name="terminal" :size="14" />
-                  <span>连接</span>
-                </button>
-                <button
-                  class="row-act"
-                  :class="copiedHostId === node.id ? 'text-[var(--ok-500)]' : ''"
-                  :title="copiedHostId === node.id ? '已复制主机地址' : `复制主机地址 ${node.host}`"
-                  aria-label="复制主机地址"
-                  @click.stop="copyHost(node)"
-                >
-                  <Icon :name="copiedHostId === node.id ? 'check' : 'copy'" :size="14" />
-                  <span>{{ copiedHostId === node.id ? '已复制' : '复制' }}</span>
-                </button>
-                <button class="row-act" title="测试在线状态" aria-label="测试在线状态" @click.stop="servers.testOne(node)">
-                  <Icon name="activity" :size="14" />
-                  <span>测试</span>
-                </button>
-                <button class="row-act" title="编辑" aria-label="编辑" @click.stop="openEdit(node)">
-                  <Icon name="pencil" :size="14" />
-                  <span>编辑</span>
-                </button>
-                <button class="row-act row-act-danger" title="删除" aria-label="删除" @click.stop="confirmNode = node">
-                  <Icon name="trash" :size="14" />
-                  <span>删除</span>
-                </button>
-              </div>
-            </div>
+            <ServerRow v-for="node in filtered" :key="node.id" :node="node" :status="nodeStatus(node)" :active="isActiveNode(node)" :dragging="draggingServerId === node.id" :badge="testBadge(node)" :copied="copiedHostId === node.id" @connect="connect(node)" @copy="copyHost(node)" @test="servers.testOne(node)" @edit="openEdit(node)" @remove="confirmNode = node" @menu="openRowMenu($event, node)" @dragstart="onRowDragStart($event, node)" @dragend="onRowDragEnd" />
           </div>
         </div>
       </div>
@@ -541,99 +405,52 @@ onBeforeUnmount(() => {
 
     <ServerDialog v-model="showDialog" :editing="editing" :default-group="activeGroup" />
 
-    <!-- 服务器右键菜单：编辑 / 复制IP / 复制配置 / 测试 / 删除 -->
-    <Teleport to="body">
-      <div
-        v-if="serverMenu"
-        class="menu-pop neo fixed"
-        :style="{left: serverMenu.x + 'px', top: serverMenu.y + 'px'}"
-        @contextmenu.prevent
-        @click.stop
-      >
-        <div class="px-2.5 pt-1.5 pb-1 text-[11px] text-mist truncate">{{ serverMenu.node.name }}</div>
-        <button class="!flex items-center gap-1.5" @click="menuEdit">
-          <Icon name="pencil" :size="13" />
-          编辑
-        </button>
-        <button class="!flex items-center gap-1.5" @click="menuCopyHost">
-          <Icon :name="copiedHostId === serverMenu.node.id ? 'check' : 'clipboard-copy'" :size="13" />
-          {{ copiedHostId === serverMenu.node.id ? '已复制IP' : '复制IP' }}
-        </button>
-        <button class="!flex items-center gap-1.5" :disabled="cloning" @click="menuDuplicate">
-          <Icon name="copy" :size="13" />
-          复制配置（生成 .new）
-        </button>
-        <button class="!flex items-center gap-1.5" @click="menuTest">
-          <Icon name="activity" :size="13" />
-          测试在线状态
-        </button>
-        <div class="divider-h my-1"></div>
-        <button class="danger !flex items-center gap-1.5" @click="confirmNode = serverMenu.node; closeRowMenu()">
-          <Icon name="trash" :size="13" />
-          删除
-        </button>
-      </div>
-    </Teleport>
+    <ServerContextMenu v-if="serverMenu" :node="serverMenu.node" :position="serverMenu" :copied="copiedHostId === serverMenu.node.id" :cloning="cloning" @edit="menuEdit" @copy="menuCopyHost" @duplicate="menuDuplicate" @test="menuTest" @remove="confirmNode = serverMenu!.node; closeRowMenu()" @close="closeRowMenu" />
 
-    <Teleport to="body">
-      <div v-if="confirmNode" class="modal-root" @click.self="confirmNode = null">
-        <div class="modal neo">
-          <h3>删除服务器</h3>
-          <p class="mdesc">确认删除服务器「{{ confirmNode.name }}」？此操作不可恢复。</p>
-          <div class="flex justify-end gap-2">
-            <button class="btn btn-ghost" @click="confirmNode = null">取消</button>
-            <button class="btn btn-danger" @click="remove">删除</button>
-          </div>
+    <Dialog :model-value="!!confirmNode" title="删除服务器" :width="420" @update:model-value="(v) => { if (!v) confirmNode = null }">
+      <p class="text-[13px] text-mist leading-relaxed">确认删除服务器「{{ confirmNode?.name }}」？此操作不可恢复。</p>
+      <template #footer>
+        <Button variant="ghost" @click="confirmNode = null">取消</Button>
+        <Button variant="danger" data-testid="server-delete-confirm" @click="remove">删除</Button>
+      </template>
+    </Dialog>
+
+    <Dialog v-model="showGroupManager" title="分组管理" :width="420">
+      <div class="space-y-3">
+        <div class="flex gap-2">
+          <Input v-model="newGroupName" aria-label="新分组名称" placeholder="新分组名称" class="flex-1" @keyup.enter="addGroup" />
+          <Button variant="primary" size="sm" @click="addGroup">添加</Button>
         </div>
-      </div>
-    </Teleport>
-
-    <Teleport to="body">
-      <div v-if="showGroupManager" class="modal-root" @click.self="showGroupManager = false">
-        <div class="modal neo" style="width:min(400px,100%);padding:0;display:flex;flex-direction:column;max-height:80vh">
-          <div class="flex items-center justify-between px-5 py-4 inset-line-b">
-            <h3 class="!mb-0">分组管理</h3>
-            <button class="btn-icon btn-sm" @click="showGroupManager = false">
-              <Icon name="close" :size="14" />
-            </button>
-          </div>
-          <div class="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-            <div class="flex gap-2">
-              <input v-model="newGroupName" class="input input-sm flex-1" placeholder="新分组名称" @keyup.enter="addGroup" />
-              <button class="btn btn-primary btn-sm" @click="addGroup">添加</button>
-            </div>
-            <p v-if="groupError" class="text-xs text-danger">{{ groupError }}</p>
-            <div v-if="!groups.list.length" class="text-xs text-mist py-2 text-center">
-              暂无手动分组，服务器节点使用的分组会自动出现。
-            </div>
-            <div
-              v-for="g in groups.list"
-              :key="g"
-              class="neo-flat flex items-center justify-between gap-2 px-3 py-2"
-            >
-              <template v-if="renameTarget === g">
-                <input v-model="renameInput" class="input input-sm flex-1" @keyup.enter="doRename" />
-                <button class="btn btn-primary btn-sm" @click="doRename">确定</button>
-                <button class="btn btn-ghost btn-sm" @click="renameTarget = ''">取消</button>
+        <p v-if="groupError" class="text-xs text-danger" role="alert">{{ groupError }}</p>
+        <div v-if="!groups.list.length" class="text-xs text-mist py-2 text-center">
+          暂无手动分组，服务器节点使用的分组会自动出现。
+        </div>
+        <div
+          v-for="g in groups.list"
+          :key="g"
+          class="neo-flat flex items-center justify-between gap-2 px-3 py-2"
+        >
+          <template v-if="renameTarget === g">
+            <Input v-model="renameInput" :aria-label="`重命名分组 ${g}`" class="flex-1" @keyup.enter="doRename" />
+            <Button variant="primary" size="sm" @click="doRename">确定</Button>
+            <Button variant="ghost" size="sm" @click="renameTarget = ''">取消</Button>
+          </template>
+          <template v-else>
+            <span class="min-w-0 truncate text-[13px] text-[var(--foreground)]">{{ g }}</span>
+            <div class="flex items-center gap-1 shrink-0">
+              <template v-if="confirmGroupDelete !== g">
+                <Button variant="ghost" size="sm" @click="startRename(g)">重命名</Button>
+                <Button variant="ghost" size="sm" @click="confirmGroupDelete = g">删除</Button>
               </template>
               <template v-else>
-                <span class="min-w-0 truncate text-[13px] text-[var(--mist-100)]">{{ g }}</span>
-                <div class="flex items-center gap-1 shrink-0">
-                  <template v-if="confirmGroupDelete !== g">
-                    <button class="btn btn-ghost btn-sm" @click="startRename(g)">重命名</button>
-                    <button class="btn btn-ghost btn-sm" @click="confirmGroupDelete = g">删除</button>
-                  </template>
-                  <template v-else>
-                    <span class="text-[12px] text-mist">删除后其中服务器将变为未分组</span>
-                    <button class="btn btn-danger btn-sm" @click="removeGroup(g)">确认</button>
-                    <button class="btn btn-ghost btn-sm" @click="confirmGroupDelete = ''">取消</button>
-                  </template>
-                </div>
+                <span class="text-[12px] text-mist">删除后其中服务器将变为未分组</span>
+                <Button variant="danger" size="sm" @click="removeGroup(g)">确认</Button>
+                <Button variant="ghost" size="sm" @click="confirmGroupDelete = ''">取消</Button>
               </template>
             </div>
-          </div>
+          </template>
         </div>
       </div>
-    </Teleport>
+    </Dialog>
   </div>
 </template>

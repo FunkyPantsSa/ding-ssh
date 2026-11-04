@@ -220,7 +220,7 @@ function fmtMbps(v: number): string {
 </script>
 
 <template>
-  <footer class="status-bar">
+  <footer class="status-bar" data-ui="statusbar">
     <template v-if="tab?.status === 'connected' && tab.sessionId && settings.sysInfoCollectEnabled">
       <div class="metric">
         <span>CPU</span>
@@ -266,7 +266,7 @@ function fmtMbps(v: number): string {
   </footer>
 
   <Teleport to="body">
-    <div v-if="openMenu" data-statusbar-menu class="menu-pop neo fixed z-[80]" :style="menuStyle">
+    <div v-if="openMenu" data-statusbar-menu data-ui="context-menu" class="menu-pop neo fixed z-[80]" :style="menuStyle">
       <button
         v-for="item in menuItems"
         :key="item.value"
@@ -290,7 +290,7 @@ function fmtMbps(v: number): string {
   border-radius: 4px;
   background: var(--hover);
   box-shadow: inset 0 0 0 1px var(--line-strong);
-  color: var(--mist-200);
+  color: var(--foreground);
   font-family: var(--font-mono);
   font-size: 11px;
   cursor: pointer;

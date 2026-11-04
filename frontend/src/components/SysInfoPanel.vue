@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
+import {Button} from './ui'
 import {onSysInfoSnapshot, sysInfoService} from '../services/sysinfo'
 import {useSessionsStore} from '../stores/sessions'
 import type {SessionTab, SysInfoSnapshot} from '../types'
@@ -111,15 +112,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <aside class="tool">
+  <aside class="tool" data-ui="context-panel">
     <div class="tool-head">
       <div class="seg">
-        <button @click="sessions.showRightPanel('sftp')">SFTP</button>
+        <button @click="sessions.showRightPanel('sftp')">SFTP</Button>
         <button class="active">看板</button>
       </div>
-      <button class="btn-icon btn-sm ml-auto" title="收起" @click="sessions.sftpVisible = false">
+      <Button variant="ghost" size="icon" class="ml-auto" title="收起" aria-label="收起侧栏" @click="sessions.sftpVisible = false">
         <Icon name="close" :size="14" />
-      </button>
+      </Button>
     </div>
 
     <div class="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3">
@@ -131,24 +132,24 @@ onBeforeUnmount(() => {
       <template v-else>
         <div class="sys-card neo-flat p-4">
           <h4 class="text-[12px] font-semibold tracking-widest uppercase text-mist mb-3">CPU</h4>
-          <div class="text-[22px] font-semibold tracking-tight text-[var(--mist-100)] tabular-nums">
+          <div class="text-[22px] font-semibold tracking-tight text-[var(--foreground)] tabular-nums">
             {{ (snap?.cpuUsage ?? 0).toFixed(1) }}<small class="text-xs font-medium text-mist ml-1">%</small>
           </div>
           <svg viewBox="0 0 200 36" class="w-full h-9 mt-3" preserveAspectRatio="none">
             <defs>
               <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop stop-color="var(--signal-400)"/>
-                <stop offset="1" stop-color="var(--signal-400)" stop-opacity="0"/>
+                <stop stop-color="var(--primary-hover)"/>
+                <stop offset="1" stop-color="var(--primary-hover)" stop-opacity="0"/>
               </linearGradient>
             </defs>
             <path v-if="cpuFill" :d="cpuFill" fill="url(#sparkGrad)" opacity="0.35"/>
-            <path v-if="cpuPoints" :d="cpuPoints" fill="none" stroke="var(--signal-400)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path v-if="cpuPoints" :d="cpuPoints" fill="none" stroke="var(--primary-hover)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </div>
 
         <div class="sys-card neo-flat p-4">
           <h4 class="text-[12px] font-semibold tracking-widest uppercase text-mist mb-3">Memory</h4>
-          <div class="text-[22px] font-semibold tracking-tight text-[var(--mist-100)] tabular-nums">
+          <div class="text-[22px] font-semibold tracking-tight text-[var(--foreground)] tabular-nums">
             {{ snap?.memUsedMb ?? 0 }}<small class="text-xs font-medium text-mist ml-1">/ {{ snap?.memTotalMb ?? 0 }} MB</small>
             <small
               v-if="snap?.memTotalMb"
@@ -157,8 +158,8 @@ onBeforeUnmount(() => {
             >({{ memPct.toFixed(0) }}%)</small>
           </div>
           <svg viewBox="0 0 200 36" class="w-full h-9 mt-3" preserveAspectRatio="none">
-            <path v-if="memFill" :d="memFill" fill="var(--copper-glow)"/>
-            <path v-if="memPoints" :d="memPoints" fill="none" stroke="var(--copper-400)" stroke-width="1.5" stroke-linecap="round"/>
+            <path v-if="memFill" :d="memFill" fill="var(--secondary-glow)"/>
+            <path v-if="memPoints" :d="memPoints" fill="none" stroke="var(--secondary-hover)" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
         </div>
 
@@ -170,11 +171,11 @@ onBeforeUnmount(() => {
               <span class="truncate font-mono">{{ d.mountPoint }}</span>
               <span class="text-mist shrink-0 ml-2">{{ d.usedGb }}/{{ d.totalGb }} GB</span>
             </div>
-            <div class="text-[22px] font-semibold tracking-tight tabular-nums mb-2" :class="d.usagePct > 75 ? 'text-warn' : 'text-[var(--mist-100)]'">
+            <div class="text-[22px] font-semibold tracking-tight tabular-nums mb-2" :class="d.usagePct > 75 ? 'text-warn' : 'text-[var(--foreground)]'">
               {{ d.usagePct.toFixed(0) }}<small class="text-xs font-medium text-mist ml-1">%</small>
             </div>
             <div class="prog" style="height:6px">
-              <i :style="{width: Math.min(100, d.usagePct) + '%', background: d.usagePct > 75 ? 'var(--warn-500)' : undefined}"></i>
+              <i :style="{width: Math.min(100, d.usagePct) + '%', background: d.usagePct > 75 ? 'var(--warning)' : undefined}"></i>
             </div>
           </div>
         </div>

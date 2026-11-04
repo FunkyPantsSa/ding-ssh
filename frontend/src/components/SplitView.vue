@@ -25,12 +25,12 @@ function rectStyle(rect: PaneRect | undefined) {
 
 function statusDot(status: string): string {
   const map: Record<string, string> = {
-    connecting: 'bg-[var(--warn-500)]',
-    connected: 'bg-[var(--signal-400)]',
-    closed: 'bg-[var(--mist-400)]',
-    error: 'bg-[var(--danger-500)]',
+    connecting: 'bg-[var(--warning)]',
+    connected: 'bg-[var(--primary-hover)]',
+    closed: 'bg-[var(--muted-foreground)]',
+    error: 'bg-[var(--destructive)]',
   }
-  return map[status] ?? 'bg-[var(--mist-400)]'
+  return map[status] ?? 'bg-[var(--muted-foreground)]'
 }
 
 /** 叶子当前绑定的标签（模板中按 paneId 取）。 */
@@ -107,21 +107,21 @@ function onHeaderDragStart(e: DragEvent) {
   pointer-events: none;
 }
 .split-leaf.focused {
-  box-shadow: inset 0 0 0 1px var(--signal-border, rgba(62, 196, 180, 0.4));
+  box-shadow: inset 0 0 0 1px var(--primary-border);
 }
 .split-pane-header {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 0 10px;
-  background: var(--ink-900);
+  background: var(--surface-1);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
   height: 28px;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   pointer-events: auto;
   font-size: 11.5px;
-  color: var(--mist-200);
+  color: var(--foreground);
   cursor: grab;
   user-select: none;
 }

@@ -328,15 +328,15 @@ interface LayoutKey {
 // 关键选择器：与 App.vue / 各面板当前结构对应。
 // UI 大改后选择器会失效——那时 ui.layout 会如实返回 found:false，这正是它的用途之一。
 const LAYOUT_KEYS: LayoutKey[] = [
-  {name: 'topbar', selector: '.topbar'},
-  {name: 'nav', selector: 'aside.nav'},
-  {name: 'sftp', selector: '.tool'},
-  {name: 'terminal', selector: '.terminal-bg'},
-  {name: 'statusbar', selector: 'footer.status-bar'},
-  {name: 'commandPalette', selector: '.modal[aria-label="命令面板"]', overlay: true},
-  {name: 'quickConnect', selector: '.qconn', overlay: true},
-  {name: 'settingsPage', selector: '.set-nav', containerOf: true},
-  {name: 'contextMenu', selector: '.menu-pop', overlay: true},
+  {name: 'topbar', selector: '[data-ui="topbar"]'},
+  {name: 'nav', selector: '[data-ui="sidebar"]'},
+  {name: 'sftp', selector: '[data-ui="context-panel"]'},
+  {name: 'terminal', selector: '[data-ui="terminal"]'},
+  {name: 'statusbar', selector: '[data-ui="statusbar"]'},
+  {name: 'commandPalette', selector: '[data-ui="command-palette"]', overlay: true},
+  {name: 'quickConnect', selector: '[data-ui="quick-connect"]', overlay: true},
+  {name: 'settingsPage', selector: '[data-ui="settings"]'},
+  {name: 'contextMenu', selector: '[data-ui="context-menu"]', overlay: true},
 ]
 
 function viewSummary(): Record<string, unknown> {
@@ -1050,6 +1050,7 @@ async function storePatchOp(args: Args): Promise<unknown> {
 
 const SETTINGS_SECTIONS: Record<string, string> = {
   general: '通用',
+  hotkeys: '快捷键',
   connectionInfo: '连接说明',
   theme: '外观',
   credentials: '保存的凭证',
@@ -1064,7 +1065,12 @@ const SETTINGS_SECTIONS: Record<string, string> = {
 async function navigateOp(args: Args): Promise<unknown> {
   const view = str(args.view)
   const ui = useUIStore()
+  const sessions = useSessionsStore()
   switch (view) {
+    // 兼容旧自动化：概览 / 传输记录不再是顶级视图，分别落到工作区与右侧传输面板。
+    case 'overview':
+      ui.showWorkspace()
+      break
     case 'workspace':
       ui.showWorkspace()
       break
@@ -1074,11 +1080,15 @@ async function navigateOp(args: Args): Promise<unknown> {
     case 'tunnel':
       ui.showTunnel()
       break
+    case 'transfers':
+      ui.showWorkspace()
+      sessions.showRightPanel('transfers')
+      break
     case 'settings':
       ui.showSettings()
       break
     default:
-      throw new Error(`view 必须是 workspace | servers | tunnel | settings（收到 ${view || '(空)'}）`)
+      throw new Error(`view 必须是 workspace | servers | tunnel | settings（兼容 overview / transfers，收到 ${view || '(空)'}）`)
   }
   ui.closeCommandPalette()
   await nextTick()
@@ -1090,14 +1100,14 @@ async function navigateOp(args: Args): Promise<unknown> {
     if (!(wanted in SETTINGS_SECTIONS)) {
       throw new Error(`设置页没有分区 ${wanted}（可用：${Object.keys(SETTINGS_SECTIONS).join(' / ')}）`)
     }
-    const buttons = Array.from(document.querySelectorAll('.set-nav button'))
+    const buttons = Array.from(document.querySelectorAll('[data-ui="settings-nav"] [data-section]'))
     const label = SETTINGS_SECTIONS[wanted]
     let btn = buttons.find((b) => (b.textContent ?? '').trim() === label) ?? null
     if (!btn) {
       const idx = Object.keys(SETTINGS_SECTIONS).indexOf(wanted)
       btn = buttons[idx] ?? null
     }
-    if (!btn) throw new Error(`设置页未渲染出分区按钮（选择器 .set-nav button 未命中）：当前 view=${ui.view}`)
+    if (!btn) throw new Error(`设置页未渲染出分区按钮（data-section 未命中）：当前 view=${ui.view}`)
     const r = btn.getBoundingClientRect()
     clickElement(btn, {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), button: 0, clickCount: 1}, true)
     section = wanted

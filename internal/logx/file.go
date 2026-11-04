@@ -1,6 +1,6 @@
 // 文件日志：把日志同时落盘到用户配置目录，供「日志」设置页查看与清理。
 //
-// 目录与文件名约定（与 internal/store 的 os.UserConfigDir()/ding-ssh 布局一致，
+// 目录与文件名约定（与 internal/appdir.ConfigDir() 布局一致，
 // 让用户在同一处找到应用数据）：
 //
 //	%AppData%\ding-ssh\logs\app-YYYYMMDD.log          当前写入文件（本地日期）
@@ -21,6 +21,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"ding-ssh/internal/appdir"
 )
 
 const (
@@ -77,17 +79,13 @@ var (
 	fileOpenFailedAt time.Time
 )
 
-// LogDir 返回日志目录：%AppData%\ding-ssh\logs\（Windows 下即 os.UserConfigDir()）。
+// LogDir 返回日志目录；开发测试覆盖目录同样适用。
 // 获取用户配置目录失败时退化为相对路径 logs，保证调用方不必处理错误。
 func LogDir() string {
 	if p := logDirOverride.Load(); p != nil && *p != "" {
 		return *p
 	}
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "logs"
-	}
-	return filepath.Join(dir, "ding-ssh", "logs")
+	return filepath.Join(appdir.ConfigDir(), "logs")
 }
 
 // SetLogDirForTest 覆盖日志目录，仅供测试使用（传空串恢复默认）。

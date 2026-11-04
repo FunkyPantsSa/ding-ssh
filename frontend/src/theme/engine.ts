@@ -46,28 +46,32 @@ export function rgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
+export function readableOn(hex: string): string {
+  const {r, g, b} = hexToRgb(hex)
+  return (r * 299 + g * 587 + b * 114) / 1000 > 160 ? '#09090b' : '#ffffff'
+}
+
 // ---- CSS 变量派生 ----
 
-/** 从主/辅色派生品牌色整组变量（signal = 主色，copper = 辅色）。 */
+/** 从主/辅色派生语义化品牌色变量。 */
 export function deriveBrandVars(primary: string, secondary: string): Record<string, string> {
   return {
-    '--signal-500': primary,
-    '--signal-400': lighten(primary, 0.18),
-    '--signal-300': lighten(primary, 0.32),
-    '--signal-glow': rgba(primary, 0.32),
-    '--signal-glow-soft': rgba(primary, 0.15),
-    '--signal-weak': rgba(primary, 0.12),
-    '--signal-border': rgba(primary, 0.25),
-    '--signal-strong-border': rgba(primary, 0.45),
-    '--signal-hover': rgba(primary, 0.4),
-    '--copper-500': secondary,
-    '--copper-400': lighten(secondary, 0.16),
-    '--copper-300': lighten(secondary, 0.28),
-    '--copper-glow': rgba(secondary, 0.28),
-    '--copper-glow-soft': rgba(secondary, 0.09),
-    '--copper-weak': rgba(secondary, 0.12),
-    '--copper-border': rgba(secondary, 0.25),
-    '--copper-hover': rgba(secondary, 0.4),
+    '--primary': primary,
+    '--primary-hover': lighten(primary, 0.18),
+    '--primary-glow': rgba(primary, 0.32),
+    '--primary-glow-soft': rgba(primary, 0.15),
+    '--primary-weak': rgba(primary, 0.12),
+    '--primary-border': rgba(primary, 0.25),
+    '--primary-strong-border': rgba(primary, 0.45),
+    '--primary-hover-bg': rgba(primary, 0.4),
+    '--primary-foreground': readableOn(primary),
+    '--secondary': secondary,
+    '--secondary-hover': lighten(secondary, 0.16),
+    '--secondary-glow': rgba(secondary, 0.28),
+    '--secondary-glow-soft': rgba(secondary, 0.09),
+    '--secondary-weak': rgba(secondary, 0.12),
+    '--secondary-border': rgba(secondary, 0.25),
+    '--secondary-hover-bg': rgba(secondary, 0.4),
   }
 }
 
@@ -94,17 +98,23 @@ export function resolveTone(baseTone: UIAppearance['baseTone']): Tone {
 
 // ---- 字体栈 ----
 
-export const UI_FONT_FALLBACK = '"PingFang SC", "Helvetica Neue", "Microsoft YaHei", system-ui, sans-serif'
-export const MONO_FONT_FALLBACK = 'ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Cascadia Mono", monospace'
+const SYSTEM_UI_FONT_STACK = '"PingFang SC", "Helvetica Neue", "Microsoft YaHei", system-ui, sans-serif'
+const SYSTEM_MONO_FONT_STACK = 'ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Cascadia Mono", monospace'
+
+// 默认与静态兜底都指向已捆绑的 Geist；只有用户显式选择 system 才回落到系统字体。
+export const UI_FONT_FALLBACK = `"Geist Sans", ${SYSTEM_UI_FONT_STACK}`
+export const MONO_FONT_FALLBACK = `"Geist Mono", ${SYSTEM_MONO_FONT_STACK}`
 
 export function uiFontStack(name: string | undefined): string {
-  if (!name || name === 'system') return UI_FONT_FALLBACK
-  return `"${name}", ${UI_FONT_FALLBACK}`
+  if (!name) return UI_FONT_FALLBACK
+  if (name === 'system') return SYSTEM_UI_FONT_STACK
+  return `"${name}", ${SYSTEM_UI_FONT_STACK}`
 }
 
 export function monoFontStack(name: string | undefined): string {
-  if (!name || name === 'system') return MONO_FONT_FALLBACK
-  return `"${name}", ${MONO_FONT_FALLBACK}`
+  if (!name) return MONO_FONT_FALLBACK
+  if (name === 'system') return SYSTEM_MONO_FONT_STACK
+  return `"${name}", ${SYSTEM_MONO_FONT_STACK}`
 }
 
 /** 计算根节点应绑定的全部 CSS 变量。 */
@@ -115,8 +125,9 @@ export function computeUiCssVars(appearance: UIAppearance, fonts: Fonts, tone: T
     ...deriveBrandVars(primary, secondary),
     '--font-sans': uiFontStack(fonts.uiFont),
     '--font-mono': monoFontStack(fonts.terminalFont),
-    // custom 模式：自定义界面主文字色（text-white / slate 等均走 --mist-100）
-    ...(uiText ? {'--mist-100': uiText} : {}),
+    '--terminal-bg': appearance.mode === 'preset' ? (tone === 'dark' ? presetById(appearance.presetId)?.dark.background ?? defaultPreset().dark.background : presetById(appearance.presetId)?.light.background ?? defaultPreset().light.background) : '',
+    // custom 模式：自定义界面主文字色（text-white / slate 等均走 --foreground）
+    ...(uiText ? {'--foreground': uiText} : {}),
   }
 }
 
@@ -126,11 +137,12 @@ export function isSystemToneQuery(tone: Tone): string {
 
 /** 由主题引擎写入 <html> 的动态 CSS 变量（卸载时需清除）。 */
 const MANAGED_ROOT_VARS = [
-  '--signal-500', '--signal-400', '--signal-300',
-  '--signal-glow', '--signal-glow-soft', '--signal-weak', '--signal-border', '--signal-strong-border', '--signal-hover',
-  '--copper-500', '--copper-400', '--copper-300',
-  '--copper-glow', '--copper-glow-soft', '--copper-weak', '--copper-border', '--copper-hover',
-  '--font-sans', '--font-mono', '--mist-100',
+  '--primary', '--primary-hover',
+  '--primary-glow', '--primary-glow-soft', '--primary-weak', '--primary-border', '--primary-strong-border', '--primary-hover-bg',
+  '--primary-foreground', '--terminal-bg',
+  '--secondary', '--secondary-hover',
+  '--secondary-glow', '--secondary-glow-soft', '--secondary-weak', '--secondary-border', '--secondary-hover-bg',
+  '--font-sans', '--font-mono', '--foreground',
 ] as const
 
 /** 将明暗模式与品牌色变量同步到 <html>，供 Teleport 到 body 的浮层继承。 */

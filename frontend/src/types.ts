@@ -108,13 +108,14 @@ export interface UIAppearance {
 
 // 字体设置（对应 Go 端 models.Fonts）。
 export interface Fonts {
-  uiFont: string // UI 字体名（如 Inter / system）
+  uiFont: string // UI 字体名（如 Geist Sans / system）
   terminalFont: string // 终端等宽字体名
   terminalFontSize: number // 终端字号（默认 13）
 }
 
 // 应用设置（对应 Go 端 models.Settings）。
 export interface Settings {
+  uiSchema?: number // UI presentation schema; 2 = Geist design system
   logEnabled: boolean
   copyOnSelect: boolean // 终端选中内容自动复制到剪贴板
   webGLEnabled: boolean // 优先 WebGL 渲染

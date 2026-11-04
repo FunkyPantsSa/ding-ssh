@@ -4,6 +4,7 @@ import Icon from './Icon.vue'
 import {sshService} from '../services/ssh'
 import {useCredentialsStore} from '../stores/credentials'
 import type {Credential} from '../types'
+import {Button, Dialog, Field, Input, Textarea} from './ui'
 
 const props = defineProps<{editing: Credential | null}>()
 const show = defineModel<boolean>({required: true})
@@ -92,117 +93,72 @@ function close() {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="show" class="modal-root" @click.self="close">
-      <div class="modal neo wide" style="width:min(520px,92vw);max-height:85vh;display:flex;flex-direction:column">
-        <div class="flex items-center justify-between px-6 pt-6 pb-4">
-          <div>
-            <h3>{{ editing ? '编辑凭证' : '新建凭证' }}</h3>
-            <p class="mdesc !mb-0">保存常用用户名密码或私钥，新建服务器时可直接选择自动填充。</p>
-          </div>
-          <button class="btn-icon" title="关闭" :disabled="saving" @click="close">
-            <Icon name="close" :size="14" />
-          </button>
-        </div>
+  <Dialog v-model="show" :title="editing ? '编辑凭证' : '新建凭证'" :width="520" :close-disabled="saving">
+    <div class="flex flex-col gap-4">
+      <p class="text-[12px] text-mist">保存常用用户名密码或私钥，新建服务器时可直接选择自动填充。</p>
 
-        <div class="flex-1 overflow-y-auto px-6 pb-2 flex flex-col gap-4">
-          <div class="grid grid-cols-2 gap-3">
-            <label class="block">
-              <span class="field-label">名称 *</span>
-              <input v-model="form.name" class="input" placeholder="例如：生产 root" />
-            </label>
-            <label class="block">
-              <span class="field-label">用户名 *</span>
-              <input v-model="form.user" class="input" placeholder="root" />
-            </label>
-          </div>
+      <div class="grid grid-cols-2 gap-3">
+        <Field label="名称 *" html-for="credential-name">
+          <Input id="credential-name" v-model="form.name" placeholder="例如：生产 root" autocomplete="off" />
+        </Field>
+        <Field label="用户名 *" html-for="credential-user">
+          <Input id="credential-user" v-model="form.user" placeholder="root" autocomplete="off" />
+        </Field>
+      </div>
 
-          <div>
-            <span class="field-label">认证方式</span>
-            <div class="seg">
-              <button :class="form.authType === 'password' ? 'active' : ''" @click="form.authType = 'password'">密码</button>
-              <button :class="form.authType === 'privateKey' ? 'active' : ''" @click="form.authType = 'privateKey'">私钥</button>
-            </div>
-          </div>
-
-          <template v-if="form.authType === 'password'">
-            <label class="block">
-              <span class="field-label">密码 *</span>
-              <input v-model="form.password" type="password" class="input" placeholder="登录密码" />
-            </label>
-          </template>
-
-          <template v-else>
-            <div>
-              <span class="field-label">私钥来源</span>
-              <div class="mt-1 flex gap-2">
-                <button
-                  class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 transition-colors"
-                  :class="keySource === 'file' ? 'field-surface-active' : 'field-surface'"
-                  @click="keySource = 'file'"
-                >
-                  密钥文件
-                </button>
-                <button
-                  class="flex-1 px-3 py-1.5 rounded-md border text-slate-300 transition-colors"
-                  :class="keySource === 'content' ? 'field-surface-active' : 'field-surface'"
-                  @click="keySource = 'content'"
-                >
-                  粘贴内容
-                </button>
-              </div>
-            </div>
-
-            <div v-if="keySource === 'file'">
-              <span class="field-label">私钥文件 *</span>
-              <div class="mt-1 flex gap-2">
-                <input
-                  v-model="form.keyPath"
-                  readonly
-                  class="input input-sm flex-1 min-w-0"
-                  placeholder="~/.ssh/id_rsa"
-                />
-                <button
-                  class="px-3 py-1.5 rounded-md bg-slate-700/70 hover:bg-slate-600 text-slate-200 shrink-0"
-                  @click="pickKeyFile"
-                >
-                  选择…
-                </button>
-              </div>
-            </div>
-
-            <div v-else>
-              <span class="field-label">私钥内容 *</span>
-              <textarea
-                v-model="form.keyContent"
-                rows="7"
-                spellcheck="false"
-                class="mt-1 w-full textarea text-xs leading-relaxed resize-y"
-                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
-              ></textarea>
-            </div>
-
-            <label class="block">
-              <span class="field-label">私钥口令（可选）</span>
-              <input
-                v-model="form.password"
-                type="password"
-                class="input"
-                placeholder="加密私钥的 passphrase"
-              />
-            </label>
-          </template>
-
-          <p v-if="errorMsg" class="text-xs text-rose-400 break-all">{{ errorMsg }}</p>
-        </div>
-
-        <div class="flex justify-end gap-2 px-6 py-5">
-          <button class="btn btn-ghost" :disabled="saving" @click="close">取消</button>
-          <button class="btn btn-primary" :disabled="saving" @click="save">
-            {{ saving ? '保存中…' : editing ? '保存修改' : '创建凭证' }}
-          </button>
+      <div>
+        <span class="field-label">认证方式</span>
+        <div class="seg mt-1">
+          <button type="button" :class="form.authType === 'password' ? 'active' : ''" :aria-pressed="form.authType === 'password'" @click="form.authType = 'password'">密码</button>
+          <button type="button" :class="form.authType === 'privateKey' ? 'active' : ''" :aria-pressed="form.authType === 'privateKey'" @click="form.authType = 'privateKey'">私钥</button>
         </div>
       </div>
+
+      <Field v-if="form.authType === 'password'" label="密码 *" html-for="credential-password">
+        <Input id="credential-password" v-model="form.password" type="password" placeholder="登录密码" autocomplete="current-password" />
+      </Field>
+
+      <template v-else>
+        <div>
+          <span class="field-label">私钥来源</span>
+          <div class="mt-1 flex gap-2">
+            <Button class="flex-1" :variant="keySource === 'file' ? 'secondary' : 'ghost'" :aria-pressed="keySource === 'file'" @click="keySource = 'file'">密钥文件</Button>
+            <Button class="flex-1" :variant="keySource === 'content' ? 'secondary' : 'ghost'" :aria-pressed="keySource === 'content'" @click="keySource = 'content'">粘贴内容</Button>
+          </div>
+        </div>
+
+        <Field v-if="keySource === 'file'" label="私钥文件 *" html-for="credential-key-path">
+          <div class="flex gap-2">
+            <Input id="credential-key-path" v-model="form.keyPath" readonly class="flex-1" placeholder="~/.ssh/id_rsa" />
+            <Button variant="secondary" size="sm" @click="pickKeyFile">选择…</Button>
+          </div>
+        </Field>
+
+        <div v-else>
+          <span class="field-label">私钥内容 *</span>
+          <Textarea
+            v-model="form.keyContent"
+            rows="7"
+            spellcheck="false"
+            class="mt-1 font-mono"
+            aria-label="私钥内容"
+            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+          />
+        </div>
+
+        <Field label="私钥口令（可选）" html-for="credential-key-passphrase">
+          <Input id="credential-key-passphrase" v-model="form.password" type="password" placeholder="加密私钥的 passphrase" autocomplete="current-password" />
+        </Field>
+      </template>
+
+      <p v-if="errorMsg" class="text-xs text-rose-400 break-all" role="alert">{{ errorMsg }}</p>
     </div>
-  </Teleport>
+
+    <template #footer>
+      <Button variant="ghost" :disabled="saving" @click="close">取消</Button>
+      <Button variant="primary" :loading="saving" :disabled="saving" @click="save">
+        {{ saving ? '保存中…' : editing ? '保存修改' : '创建凭证' }}
+      </Button>
+    </template>
+  </Dialog>
 </template>

@@ -1,0 +1,78 @@
+/* Theme-independent primitives. Components consume semantic tokens only.
+   This file is the single source of truth for scales, fonts, motion and layout. */
+:root {
+  /* Neutral / accent primitives (palette source for semantic.css). */
+  --gray-950: #09090b;
+  --gray-900: #111113;
+  --gray-850: #18181b;
+  --gray-800: #202024;
+  --gray-700: #27272a;
+  --gray-600: #3f3f46;
+  --gray-500: #52525b;
+  --gray-400: #71717a;
+  --gray-300: #a1a1aa;
+  --gray-200: #d4d4d8;
+  --gray-100: #f4f4f5;
+  --gray-50: #fafafa;
+  --blue-600: #2563eb;
+  --blue-500: #3b82f6;
+  --blue-400: #60a5fa;
+  --green-500: #22c55e;
+  --amber-500: #f59e0b;
+  --red-600: #dc2626;
+  --red-500: #ef4444;
+
+  /* Spacing: 4px base. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Radius scale: only these four values are allowed. */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* Type scale. */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 20px;
+  --leading-tight: 1.35;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  /* Motion. */
+  --duration-fast: 100ms;
+  --duration-base: 120ms;
+  --duration-slow: 180ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Compatibility aliases used by existing component CSS; values stay derived. */
+  --dur: var(--duration-base);
+  --dur-slow: var(--duration-slow);
+  --ease: var(--ease-out);
+
+  /* Fonts: bundled Geist first, then explicit CJK/system fallbacks. The bundled Geist families come first. */
+  --font-sans: "Geist Sans", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Cascadia Mono", monospace;
+
+  /* Layout (runtime overrides --nav-w / --tool-w / --ui-zoom on <html>). */
+  --nav-w-expanded: 216px;
+  --nav-w-collapsed: 56px;
+  --nav-w: var(--nav-w-expanded);
+  --topbar-h: 48px;
+  --tab-h: 38px;
+  --status-h: 30px;
+  --qconn-w: 288px;
+  --tool-w: 340px;
+  --ui-zoom: 1;
+  /* Legacy dimension aliases. */
+  --rail-w: 56px;
+  --title-h: 48px;
+}

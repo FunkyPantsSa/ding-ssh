@@ -6,6 +6,8 @@ export const useServersStore = defineStore('servers', {
   state: () => ({
     servers: [] as ServerNode[],
     loading: false,
+    // 最近一次加载失败的原因；页面用统一 ErrorState 展示并可重试。
+    error: '',
     // 是否已经加载过（面板/列表复用时据此避免重复拉取导致的重渲染）
     loadedOnce: false,
     // 在线状态测试结果缓存：nodeId -> 最近一次测试结果（常驻显示在节点行内）
@@ -17,9 +19,13 @@ export const useServersStore = defineStore('servers', {
   actions: {
     async load() {
       this.loading = true
+      this.error = ''
       try {
         this.servers = await sshService.getServers()
         this.loadedOnce = true
+      } catch (e) {
+        this.error = e instanceof Error ? e.message : String(e)
+        throw e
       } finally {
         this.loading = false
       }

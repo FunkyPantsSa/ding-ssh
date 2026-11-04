@@ -88,7 +88,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--ink-900);
+  background: var(--surface-1);
 }
 .split-divider-inner.v { cursor: col-resize; }
 .split-divider-inner.h { cursor: row-resize; }
@@ -99,6 +99,6 @@ onBeforeUnmount(() => {
 .h .split-divider-hit { height: 1px; width: 100%; }
 .split-divider-inner:hover .split-divider-hit,
 .split-divider-inner[data-dragging='true'] .split-divider-hit {
-  background: var(--signal-400, #3ec4b4);
+  background: var(--primary-hover);
 }
 </style>

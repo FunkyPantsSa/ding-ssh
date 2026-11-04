@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"ding-ssh/internal/appdir"
 	"ding-ssh/internal/models"
 )
 
@@ -29,11 +30,7 @@ type JSONStore struct {
 // NewJSONStore 创建 JSON 存储，并确保配置文件目录存在。
 func NewJSONStore(path string) (*JSONStore, error) {
 	if path == "" {
-		dir, err := os.UserConfigDir()
-		if err != nil {
-			return nil, fmt.Errorf("获取用户配置目录失败: %w", err)
-		}
-		path = filepath.Join(dir, "ding-ssh", "servers.json")
+		path = DefaultPath()
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("创建配置目录失败: %w", err)
@@ -43,11 +40,7 @@ func NewJSONStore(path string) (*JSONStore, error) {
 
 // DefaultPath 返回默认配置文件路径。
 func DefaultPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "servers.json"
-	}
-	return filepath.Join(dir, "ding-ssh", "servers.json")
+	return filepath.Join(appdir.ConfigDir(), "servers.json")
 }
 
 func (s *JSONStore) load() ([]models.ServerNode, error) {

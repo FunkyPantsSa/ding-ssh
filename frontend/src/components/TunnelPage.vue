@@ -5,6 +5,9 @@ import {useServersStore} from '../stores/servers'
 import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import type {TunnelInfo, TunnelStatusEvent} from '../types'
 import Icon from './Icon.vue'
+import TunnelCard from './tunnels/TunnelCard.vue'
+import TunnelModePicker from './tunnels/TunnelModePicker.vue'
+import {Button, Dialog, EmptyState, ErrorState, Field, Input, Select} from './ui'
 
 type TunnelMode = 'local' | 'remote' | 'dynamic'
 
@@ -269,165 +272,121 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="h-full flex flex-col min-h-0">
-    <div class="page-pad">
+    <div class="page-pad" data-ui="tunnels">
       <div class="page-hero flex items-center justify-between gap-6 mb-6">
         <p class="text-[12.5px] text-mist leading-relaxed max-w-[620px]">
           通过 SSH 安全转发端口，在本机、远端服务器和目标服务之间建立访问通道。
         </p>
         <div class="flex gap-2 shrink-0">
-          <button class="btn btn-ghost" type="button" @click="refresh">
+          <Button variant="ghost" data-testid="tunnel-refresh" @click="refresh">
             <Icon name="refresh" :size="14" />
             刷新
-          </button>
-          <button class="btn btn-primary" type="button" :disabled="!servers.servers.length" @click="openCreate">
+          </Button>
+          <Button variant="primary" :disabled="!servers.servers.length" data-testid="tunnel-create" @click="openCreate">
             <Icon name="plus" :size="15" />
             新建隧道
-          </button>
+          </Button>
         </div>
       </div>
 
-      <div class="grid grid-cols-3 gap-3 mb-6">
-        <button
-            v-for="m in (['local', 'remote', 'dynamic'] as const)"
-            :key="m"
-            class="relative neo-flat p-4 text-left transition-all"
-            :class="form.mode === m
-              ? 'ring-1 ring-[var(--signal-400)] bg-[var(--signal-weak)]'
-              : 'hover:bg-white/3'"
-            @click="form.mode = m"
-          >
-          <span
-            v-if="form.mode === m"
-            class="absolute top-2.5 right-2.5 w-4 h-4 rounded-full bg-[var(--signal-400)] grid place-items-center"
-          >
-            <Icon name="check" :size="10" extra-class="text-[#071210] font-bold" />
-          </span>
-          <div class="text-[13px] font-semibold" :class="form.mode === m ? 'text-[var(--signal-200)]' : 'text-[var(--mist-100)]'">
-            {{ modeDetails[m].title }}
-          </div>
-          <div class="text-[12px] text-mist mt-1">{{ modeDetails[m].summary }}</div>
-        </button>
-      </div>
+      <TunnelModePicker v-model="form.mode" :details="modeDetails" />
 
       <div class="neo-flat px-4 py-3 mb-5">
-        <p class="text-[13px] text-[var(--mist-200)]">{{ currentModeDetail.description }}</p>
+        <p class="text-[13px] text-[var(--foreground)]">{{ currentModeDetail.description }}</p>
         <p class="text-[12px] text-mist mt-1.5 leading-relaxed">{{ currentModeDetail.example }}</p>
       </div>
 
+      <ErrorState
+        v-if="error && !showDialog"
+        class="mb-5"
+        title="隧道操作失败"
+        :description="error"
+        @retry="refresh"
+      />
+
       <div v-if="filteredTunnels.length" class="grid gap-4 mb-6" style="grid-template-columns: repeat(auto-fill, minmax(300px, 1fr))">
-        <div v-for="t in filteredTunnels" :key="t.id" class="neo neo-hover p-5 flex flex-col gap-3">
-          <div class="flex items-start justify-between gap-3">
-            <h3 class="text-sm font-semibold text-[var(--mist-100)] min-w-0 truncate">{{ t.name }}</h3>
-            <span class="badge" :class="t.status === 'running' ? 'live' : t.status === 'error' ? 'err' : 'stop'">
-              {{ t.status === 'running' ? 'LIVE' : t.status === 'error' ? 'ERROR' : 'STOPPED' }}
-            </span>
-          </div>
-
-          <button
-            class="neo-flat w-full flex items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-white/5"
-            :title="`复制 ${tunnelAddress(t)}`"
-            @click="copyAddress(t)"
-          >
-            <span class="min-w-0 flex-1">
-              <span class="block text-[11px] text-mist">{{ addressLabel(t) }}</span>
-              <span class="block font-mono text-[13px] text-[var(--mist-100)] truncate">{{ tunnelAddress(t) }}</span>
-            </span>
-            <Icon :name="copiedId === t.id ? 'check' : 'copy'" :size="15" />
-            <span class="text-[11px] shrink-0" :class="copiedId === t.id ? 'text-[var(--signal-300)]' : 'text-mist'">
-              {{ copiedId === t.id ? '已复制' : '复制' }}
-            </span>
-          </button>
-
-          <div class="text-[12px] text-mist leading-relaxed">{{ tunnelPath(t) }}</div>
-          <p v-if="t.status === 'error' && t.message" class="text-[12px] text-danger break-all">{{ t.message }}</p>
-
-          <div class="flex flex-wrap gap-1.5">
-            <button v-if="t.status === 'running'" class="btn btn-ghost btn-sm" @click="stop(t.id)">停止</button>
-            <button v-else class="btn btn-primary btn-sm" @click="restart(t.id)">启动</button>
-            <button v-if="t.status === 'running'" class="btn btn-ghost btn-sm" @click="restart(t.id)">重启</button>
-            <button class="btn btn-ghost btn-sm" @click="openEdit(t)">编辑</button>
-            <button class="btn btn-ghost btn-sm" @click="remove(t.id)">删除</button>
-          </div>
-        </div>
+        <TunnelCard v-for="t in filteredTunnels" :key="t.id" :tunnel="t" :address="tunnelAddress(t)" :address-label="addressLabel(t)" :path="tunnelPath(t)" :copied="copiedId === t.id" @copy="copyAddress(t)" @start="restart(t.id)" @stop="stop(t.id)" @restart="restart(t.id)" @edit="openEdit(t)" @remove="remove(t.id)" />
       </div>
-      <div v-else-if="!loading" class="empty py-10">
-        <div class="empty-inner">
-          <h3>暂无此类隧道</h3>
-          <p>{{ servers.servers.length ? '点击右上角「新建隧道」创建一条转发规则，或切换类型查看。' : '请先新建 SSH 服务器，再创建隧道。' }}</p>
-        </div>
-      </div>
+      <EmptyState
+        v-else-if="!loading"
+        class="py-10"
+        title="暂无此类隧道"
+        :description="servers.servers.length ? '点击右上角「新建隧道」创建一条转发规则，或切换类型查看。' : '请先新建 SSH 服务器，再创建隧道。'"
+      />
     </div>
 
-    <Teleport to="body">
-      <div v-if="showDialog" class="modal-root" @click.self="closeDialog">
-        <div class="modal neo wide" style="width:min(600px,92vw);max-height:85vh;display:flex;flex-direction:column">
-          <div class="flex items-start justify-between gap-4 px-6 pt-6 pb-4">
-            <div>
-              <h3>{{ editing ? '编辑隧道' : '新建隧道' }}</h3>
-              <p class="mdesc !mb-0">
-                {{ editing ? '保存后按新配置生效；运行中的隧道会自动重启。' : '选择转发方式，并配置监听端口与目标地址。' }}
-              </p>
-            </div>
-            <button class="btn-icon" title="关闭" :disabled="busy" @click="closeDialog">
-              <Icon name="close" :size="14" />
-            </button>
+    <Dialog v-model="showDialog" :title="editing ? '编辑隧道' : '新建隧道'" :width="600" :close-disabled="busy" @close="closeDialog">
+      <div class="flex flex-col gap-4">
+        <p class="text-[12px] text-mist">
+          {{ editing ? '保存后按新配置生效；运行中的隧道会自动重启。' : '选择转发方式，并配置监听端口与目标地址。' }}
+        </p>
+
+        <div>
+          <span class="field-label">隧道类型</span>
+          <div class="seg mt-1">
+            <button type="button" :class="form.mode === 'local' ? 'active' : ''" :aria-pressed="form.mode === 'local'" @click="form.mode = 'local'">本地 -L</button>
+            <button type="button" :class="form.mode === 'remote' ? 'active' : ''" :aria-pressed="form.mode === 'remote'" @click="form.mode = 'remote'">远程 -R</button>
+            <button type="button" :class="form.mode === 'dynamic' ? 'active' : ''" :aria-pressed="form.mode === 'dynamic'" @click="form.mode = 'dynamic'">SOCKS5 -D</button>
           </div>
-
-          <div class="flex-1 overflow-y-auto px-6 pb-2 flex flex-col gap-4">
-            <div>
-              <span class="field-label">隧道类型</span>
-              <div class="seg">
-                <button :class="form.mode === 'local' ? 'active' : ''" @click="form.mode = 'local'">本地 -L</button>
-                <button :class="form.mode === 'remote' ? 'active' : ''" @click="form.mode = 'remote'">远程 -R</button>
-                <button :class="form.mode === 'dynamic' ? 'active' : ''" @click="form.mode = 'dynamic'">SOCKS5 -D</button>
-              </div>
-              <div class="neo-flat px-3 py-2.5 mt-2">
-                <p class="text-[12px] text-[var(--mist-200)]">{{ currentModeDetail.description }}</p>
-                <p class="text-[12px] text-mist mt-1">{{ currentModeDetail.example }}</p>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <div class="field">
-                <label>名称</label>
-                <input v-model="form.name" class="input" placeholder="例如：MySQL 本地入口" />
-              </div>
-              <div class="field">
-                <label>SSH 服务器</label>
-                <select v-model="form.serverId" class="select">
-                  <option v-for="s in servers.servers" :key="s.id" :value="s.id">{{ s.name }}</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <div class="field">
-                <label>{{ form.mode === 'remote' ? '本机服务端口' : form.mode === 'dynamic' ? '本地代理端口' : '本地监听端口' }}</label>
-                <input v-model.number="form.localPort" type="number" min="1" max="65535" class="input font-mono" />
-              </div>
-              <div v-if="form.mode !== 'dynamic'" class="field">
-                <label>{{ form.mode === 'remote' ? '远端监听地址' : '目标主机' }}</label>
-                <input v-model="form.remoteHost" class="input font-mono" placeholder="127.0.0.1" />
-              </div>
-            </div>
-
-            <div v-if="form.mode !== 'dynamic'" class="field">
-              <label>{{ form.mode === 'remote' ? '远端监听端口' : '目标端口' }}</label>
-              <input v-model.number="form.remotePort" type="number" min="1" max="65535" class="input font-mono" />
-            </div>
-
-            <p v-if="error" class="text-xs text-danger break-all">{{ error }}</p>
-            <p v-else class="text-[12px] text-mist">{{ hint }}</p>
-          </div>
-
-          <div class="flex justify-end gap-2 px-6 py-5">
-            <button class="btn btn-ghost" type="button" :disabled="busy" @click="closeDialog">取消</button>
-            <button class="btn btn-primary" :disabled="busy" @click="submit">
-              {{ busy ? (editing ? '保存中…' : '创建中…') : editing ? '保存修改' : '创建隧道' }}
-            </button>
+          <div class="neo-flat px-3 py-2.5 mt-2">
+            <p class="text-[12px] text-[var(--foreground)]">{{ currentModeDetail.description }}</p>
+            <p class="text-[12px] text-mist mt-1">{{ currentModeDetail.example }}</p>
           </div>
         </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <Field label="名称" html-for="tunnel-name">
+            <Input id="tunnel-name" v-model="form.name" placeholder="例如：MySQL 本地入口" />
+          </Field>
+          <Field label="SSH 服务器" html-for="tunnel-server">
+            <Select id="tunnel-server" v-model="form.serverId">
+              <option v-for="s in servers.servers" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </Select>
+          </Field>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <Field
+            :label="form.mode === 'remote' ? '本机服务端口' : form.mode === 'dynamic' ? '本地代理端口' : '本地监听端口'"
+            html-for="tunnel-local-port"
+          >
+            <Input
+              id="tunnel-local-port"
+              :model-value="form.localPort"
+              type="number"
+              min="1"
+              max="65535"
+              class="font-mono"
+              @update:model-value="form.localPort = Number($event)"
+            />
+          </Field>
+          <Field v-if="form.mode !== 'dynamic'" :label="form.mode === 'remote' ? '远端监听地址' : '目标主机'" html-for="tunnel-remote-host">
+            <Input id="tunnel-remote-host" v-model="form.remoteHost" class="font-mono" placeholder="127.0.0.1" />
+          </Field>
+        </div>
+
+        <Field v-if="form.mode !== 'dynamic'" :label="form.mode === 'remote' ? '远端监听端口' : '目标端口'" html-for="tunnel-remote-port">
+          <Input
+            id="tunnel-remote-port"
+            :model-value="form.remotePort"
+            type="number"
+            min="1"
+            max="65535"
+            class="font-mono"
+            @update:model-value="form.remotePort = Number($event)"
+          />
+        </Field>
+
+        <p v-if="error" class="text-xs text-danger break-all" role="alert">{{ error }}</p>
+        <p v-else class="text-[12px] text-mist">{{ hint }}</p>
       </div>
-    </Teleport>
+
+      <template #footer>
+        <Button variant="ghost" :disabled="busy" @click="closeDialog">取消</Button>
+        <Button variant="primary" :loading="busy" :disabled="busy" data-testid="tunnel-save" @click="submit">
+          {{ busy ? (editing ? '保存中…' : '创建中…') : editing ? '保存修改' : '创建隧道' }}
+        </Button>
+      </template>
+    </Dialog>
   </div>
 </template>

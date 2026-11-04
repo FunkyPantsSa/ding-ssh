@@ -1,0 +1,3 @@
+<script setup lang="ts">
+defineProps<{title: string; description?: string}>()
+</script><template><section class="ui-empty"><div v-if="$slots.icon" class="ui-empty-icon"><slot name="icon"/></div><h3>{{title}}</h3><p v-if="description">{{description}}</p><div v-if="$slots.actions" class="ui-empty-actions"><slot name="actions"/></div></section></template><style scoped>.ui-empty{display:grid;justify-items:center;gap:var(--space-2);padding:var(--space-8);text-align:center;color:var(--muted-foreground)}.ui-empty h3{margin:0;color:var(--foreground);font-size:var(--text-md)}.ui-empty p{margin:0}.ui-empty-actions{display:flex;gap:var(--space-2);margin-top:var(--space-2)}</style>

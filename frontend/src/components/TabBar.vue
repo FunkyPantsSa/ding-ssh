@@ -21,17 +21,17 @@ interface TabDropState {
 }
 
 const statusDot: Record<string, string> = {
-  connecting: 'bg-[var(--warn-500)]',
-  connected: 'bg-[var(--signal-400)]',
-  closed: 'bg-[var(--mist-400)]',
-  error: 'bg-[var(--danger-500)]',
+  connecting: 'bg-[var(--warning)]',
+  connected: 'bg-[var(--primary-hover)]',
+  closed: 'bg-[var(--muted-foreground)]',
+  error: 'bg-[var(--destructive)]',
 }
 // 侧栏折叠态：状态点改为首字母着色，颜色语义与状态点一致
 const statusInk: Record<string, string> = {
-  connecting: 'text-[var(--warn-500)]',
-  connected: 'text-[var(--signal-400)]',
-  closed: 'text-[var(--mist-400)]',
-  error: 'text-[var(--danger-500)]',
+  connecting: 'text-[var(--warning)]',
+  connected: 'text-[var(--primary-hover)]',
+  closed: 'text-[var(--muted-foreground)]',
+  error: 'text-[var(--destructive)]',
 }
 
 interface SplitGroupItem {
@@ -294,12 +294,14 @@ onBeforeUnmount(() => {
 
 <template>
   <!-- 顶栏横向标签栏（默认） -->
-  <div v-if="!side" class="tabs no-scrollbar">
+  <div v-if="!side" class="tabs no-scrollbar" data-ui="tabbar">
     <template v-for="item in tabItems" :key="item.key">
       <!-- 独立标签：点击切换、拖拽排序或拖到另一个标签上重合分屏 -->
       <button
         v-if="item.kind === 'tab'"
         class="tab group"
+        :data-tab-id="item.tab.clientId"
+        :data-state="item.tab.status"
         :class="[
           item.tab.clientId === sessions.activeId ? 'active' : '',
           draggingId === item.tab.clientId ? 'dragging' : '',
@@ -315,7 +317,7 @@ onBeforeUnmount(() => {
         @dragover.prevent="onTabDragOver($event, item.tab.clientId)"
         @drop.prevent="onTabDrop($event, item.tab.clientId)"
       >
-        <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot[item.tab.status] ?? 'bg-[var(--mist-400)]'"></span>
+        <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot[item.tab.status] ?? 'bg-[var(--muted-foreground)]'"></span>
         <span class="truncate">{{ item.tab.serverName }}</span>
         <span
           class="tab-close"
@@ -339,7 +341,7 @@ onBeforeUnmount(() => {
         @dragend="clearDragState"
       >
         <Icon name="columns" :size="12" class="shrink-0 text-signal" />
-        <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot[item.status] ?? 'bg-[var(--mist-400)]'"></span>
+        <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot[item.status] ?? 'bg-[var(--muted-foreground)]'"></span>
         <span class="truncate">{{ item.title }}</span>
         <span
           class="tab-close"
@@ -355,7 +357,7 @@ onBeforeUnmount(() => {
   </div>
 
   <!-- 左侧导航纵向标签列表 -->
-  <div v-else class="side-tabs">
+  <div v-else class="side-tabs" data-ui="tabbar">
     <div class="nav-label side-tabs-label">
       标签页
       <span v-if="sessions.tabs.length" class="nav-count">{{ sessions.tabs.length }}</span>
@@ -364,6 +366,8 @@ onBeforeUnmount(() => {
       <button
         v-if="item.kind === 'tab'"
         class="nav-item side-tab group"
+        :data-tab-id="item.tab.clientId"
+        :data-state="item.tab.status"
         :class="[
           item.tab.clientId === sessions.activeId ? 'active' : '',
           draggingId === item.tab.clientId ? 'dragging' : '',
@@ -381,9 +385,9 @@ onBeforeUnmount(() => {
         @drop.prevent="onTabDrop($event, item.tab.clientId)"
       >
         <span class="nav-ico side-dot">
-          <span class="w-2 h-2 rounded-full" :class="statusDot[item.tab.status] ?? 'bg-[var(--mist-400)]'"></span>
+          <span class="w-2 h-2 rounded-full" :class="statusDot[item.tab.status] ?? 'bg-[var(--muted-foreground)]'"></span>
         </span>
-        <span class="side-initial" :class="statusInk[item.tab.status] ?? 'text-[var(--mist-400)]'">
+        <span class="side-initial" :class="statusInk[item.tab.status] ?? 'text-[var(--muted-foreground)]'">
           {{ item.tab.serverName.slice(0, 1) }}
         </span>
         <span class="nav-text">{{ item.tab.serverName }}</span>
@@ -418,6 +422,7 @@ onBeforeUnmount(() => {
     <div
       v-if="tabMenu"
       class="menu-pop neo fixed"
+      data-ui="context-menu"
       :style="{left: tabMenu.x + 'px', top: tabMenu.y + 'px'}"
       @contextmenu.prevent
       @click.stop
@@ -448,6 +453,7 @@ onBeforeUnmount(() => {
         <div
           v-if="splitSubmenu"
           class="menu-pop neo fixed split-submenu"
+          data-ui="context-menu"
           :style="submenuStyle"
           @mouseenter="cancelSplitClose()"
           @mouseleave="scheduleSplitClose"
