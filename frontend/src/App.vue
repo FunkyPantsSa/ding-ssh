@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import {WindowToggleMaximise} from '../wailsjs/runtime/runtime'
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect} from 'vue'
 import Icon from './components/Icon.vue'
 import SftpPanel from './components/SftpPanel.vue'
@@ -523,6 +524,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app-shell" :class="{'platform-macos': isMacOS}" :style="{zoom: (settings.uiScale || 100) / 100}" data-ui="app" :data-view="ui.view">
+    <div v-if="isMacOS" class="window-drag-region" aria-hidden="true" @dblclick="WindowToggleMaximise" />
     <!-- 解锁页 -->
     <AppUnlock v-if="needsUnlock" v-model="unlockPassword" :unlocking="unlocking" :error="unlockError" @submit="doUnlock" />
 

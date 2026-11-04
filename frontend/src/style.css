@@ -48,7 +48,7 @@ html, body, #app {
 }
 body {
   font-family: var(--font-sans);
-  background: var(--background);
+  background: transparent;
   color: var(--foreground);
   font-size: 13px;
   line-height: 1.5;
@@ -80,12 +80,11 @@ img, svg { display: block; max-width: 100%; }
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-window);
-  background: var(--background);
+  background: transparent;
   overflow: hidden;
 }
 .app-shell.platform-macos { padding-top: 28px; }
-.app-shell.platform-macos::after {
-  content: "";
+.window-drag-region {
   position: absolute;
   inset: 0 0 auto 0;
   height: 28px;
@@ -137,9 +136,9 @@ body.col-resizing * { cursor: col-resize !important; }
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: color-mix(in srgb, var(--theme-bg-sidebar, var(--surface-1)) var(--theme-glass-opacity, 100%), transparent);
-  backdrop-filter: blur(var(--theme-glass-blur, 0));
-  -webkit-backdrop-filter: blur(var(--theme-glass-blur, 0));
+  background: var(--theme-bg-sidebar, var(--surface-1));
+  backdrop-filter: blur(var(--theme-glass-blur, 0)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--theme-glass-blur, 0)) saturate(120%);
   border: 0;
   border-right: 1px solid var(--border-subtle);
   border-radius: var(--radius-layout);
@@ -1340,3 +1339,11 @@ body.col-resizing * { cursor: col-resize !important; }
 }
 
 } /* @layer components */
+
+/* One glass layer per shell region, with opaque fallback on unsupported engines. */
+.topbar,.status-bar{background:var(--theme-bg-toolbar,var(--surface-2));backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%);-webkit-backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.nav,.window-drag-region{background:var(--surface-1)}.topbar,.status-bar{background:var(--surface-2)}}
+
+/* Main pages share the same tinted material; terminal glyphs remain opaque. */
+.app-layout-main{background:var(--theme-bg-main)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.app-layout-main{background:var(--background)}}

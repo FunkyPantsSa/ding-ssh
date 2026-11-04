@@ -10,6 +10,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 //go:embed all:frontend/dist
@@ -35,12 +36,15 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 15, G: 23, B: 42, A: 1},
+		BackgroundColour: &options.RGBA{R: 15, G: 23, B: 42, A: 0},
 		Mac: &mac.Options{
 			// Keep the themed content behind the native controls without the extra
 			// toolbar height added by HiddenInset; this matches the 28px web titlebar.
-			TitleBar: mac.TitleBarHidden(),
+			TitleBar:             mac.TitleBarHidden(),
+			WebviewIsTransparent: true,
+			WindowIsTranslucent:  true,
 		},
+		Windows: &windows.Options{WebviewIsTransparent: true, WindowIsTranslucent: true, BackdropType: windows.Acrylic},
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop: true,
 		},

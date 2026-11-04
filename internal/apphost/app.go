@@ -337,6 +337,7 @@ func (a *App) GetSettings() models.Settings {
 		logx.Errorf("读取设置失败: %v", err)
 		return models.Settings{}
 	}
+	syncNativeAppearance(settings.Appearance.BaseTone)
 	return settings
 }
 
@@ -345,6 +346,7 @@ func (a *App) SaveSettings(settings models.Settings) error {
 	if err := a.settings.Save(settings); err != nil {
 		return fmt.Errorf("保存设置失败: %w", err)
 	}
+	syncNativeAppearance(settings.Appearance.BaseTone)
 	// 日志四项开关（控制台 / 文件 / 级别 / 调用日志）立即生效
 	a.applyLogSettings(settings)
 	logx.Infof("设置已更新，日志开关: %v，文件日志: %v，级别: %s，调用日志: %v",

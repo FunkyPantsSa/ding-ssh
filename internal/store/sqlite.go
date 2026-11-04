@@ -255,7 +255,7 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		Appearance:           models.DefaultAppearance(),
 		Fonts:                models.DefaultFonts(),
 		WebGLEnabled:         true, // 默认开启 WebGL
-		CompletionEnabled:    true, // 默认开启智能补全
+		CompletionEnabled:    false, // 默认开启智能补全
 		CompletionNavHotkey:  "Alt+ArrowDown",
 		CompletionPanelLimit: 8,
 		SftpToTerminalSync:   true,

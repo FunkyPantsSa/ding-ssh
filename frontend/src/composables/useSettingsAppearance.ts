@@ -46,7 +46,7 @@ export function useSettingsAppearance(settings: ReturnType<typeof useSettingsSto
   }
   async function setTone(tone: UIAppearance['baseTone']) {
     syncing = true; appearanceForm.baseTone = tone
-    if (appearanceForm.mode === 'preset') Object.assign(themeForm, paletteToTheme(tone === 'light' ? activePreset.value.light : activePreset.value.dark))
+    if (appearanceForm.mode === 'preset') Object.assign(themeForm, paletteToTheme(resolveTone(tone) === 'light' ? activePreset.value.light : activePreset.value.dark))
     else Object.assign(themeForm, deriveTerminalTheme(themeForm, appearanceForm.primary, resolveTone(tone)))
     syncing = false; await persistLook()
   }

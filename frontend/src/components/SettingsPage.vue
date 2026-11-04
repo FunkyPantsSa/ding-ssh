@@ -65,9 +65,9 @@ onMounted(() => {
 <style scoped>
 .settings-shell{background:transparent}
 .settings-workspace{overflow:hidden;border-radius:var(--radius-layout);background:transparent}
-.settings-content{border-radius:var(--radius-layout);background:color-mix(in srgb,var(--surface-2) var(--theme-glass-opacity,88%),transparent)}
-:deep(.set-nav){background:color-mix(in srgb,var(--surface-1) var(--theme-glass-opacity,88%),transparent)}
-:deep([data-section-content] > .neo){border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:none;background:color-mix(in srgb,var(--surface-1) 72%,transparent)}
+.settings-content{border-radius:var(--radius-layout);background:transparent}
+:deep(.set-nav){background:var(--surface-3)}
+:deep([data-section-content] > .neo){border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:none;background:var(--theme-bg-surface)}
 :deep([data-section-content] > :not(:first-child)){margin-top:var(--space-4)}
 @media(max-width:760px){.settings-content{padding:var(--space-4)}.settings-shell :deep(.set-nav){width:156px;padding:var(--space-2)}}
 </style>

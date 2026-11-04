@@ -84,48 +84,55 @@ export function deriveSurfaceVars(seed: string, tone: Tone, glassOpacity = 85, g
   const opacity = `${Math.min(100, Math.max(40, glassOpacity || 85))}%`
   const blur = `${Math.min(60, Math.max(0, glassBlur))}px`
   if (tone === 'light') {
-    const main = mix(seed, '#ffffff', 0.91)
-    const sidebar = mix(seed, '#ffffff', 0.82)
-    const toolbar = mix(seed, '#ffffff', 0.88)
+    const main = '#fafbfc'
+    const sidebar = mix(lighten(seed, 0.8), '#f1f3f5', 0.96)
+    const toolbar = '#f6f8fa'
     return {
       '--background': main,
       '--surface-1': sidebar,
-      '--surface-2': mix(seed, '#ffffff', 0.95),
-      '--surface-3': mix(seed, '#ffffff', 0.87),
-      '--surface-4': mix(seed, '#ffffff', 0.78),
+      '--surface-2': '#ffffff',
+      '--surface-3': '#f0f3f5',
+      '--surface-4': '#e7ecef',
       '--border': mix(seed, '#d4d4d8', 0.72),
       '--border-strong': mix(seed, '#a1a1aa', 0.78),
       '--border-subtle': rgba(darken(seed, 0.4), 0.12),
       '--theme-bg-main': main,
       '--theme-bg-sidebar': sidebar,
       '--theme-bg-toolbar': toolbar,
-      '--theme-bg-surface': mix(seed, '#ffffff', 0.95),
+      '--theme-bg-surface': '#ffffff',
       '--theme-glass-opacity': opacity,
       '--theme-glass-blur': blur,
       '--theme-glass-tint': rgba(seed, 0.14),
     }
   }
 
-  const main = mix(seed, '#0d1117', 0.9)
-  const sidebar = mix(seed, '#18202b', 0.79)
-  const toolbar = mix(seed, '#121821', 0.86)
+  const main = mix(seed, '#25282e', 0.94)
+  const sidebar = mix(seed, '#1f2228', 0.95)
+  const toolbar = mix(seed, '#22252b', 0.95)
   return {
     '--background': main,
     '--surface-1': sidebar,
-    '--surface-2': mix(seed, '#1b232e', 0.86),
-    '--surface-3': mix(seed, '#25303d', 0.82),
-    '--surface-4': mix(seed, '#344152', 0.8),
+    '--surface-2': mix(seed, '#2b2e35', 0.94),
+    '--surface-3': mix(seed, '#30343b', 0.94),
+    '--surface-4': mix(seed, '#393d45', 0.94),
     '--border': mix(seed, '#334155', 0.84),
     '--border-strong': mix(seed, '#475569', 0.8),
     '--border-subtle': rgba(lighten(seed, 0.55), 0.12),
     '--theme-bg-main': main,
     '--theme-bg-sidebar': sidebar,
     '--theme-bg-toolbar': toolbar,
-    '--theme-bg-surface': mix(seed, '#1b232e', 0.86),
+    '--theme-bg-surface': mix(seed, '#2b2e35', 0.94),
     '--theme-glass-opacity': opacity,
     '--theme-glass-blur': blur,
     '--theme-glass-tint': rgba(seed, 0.12),
   }
+}
+
+/** Recognize generated backgrounds from earlier theme versions without replacing independent colors. */
+export function isManagedTerminalBackground(background: string, seed: string, tone: Tone): boolean {
+  return [deriveSurfaceVars(seed, tone)['--theme-bg-main'], '#f5f6f7', '#eff5ff', '#223550',
+    mix(seed, '#303b4b', 0.65), mix(seed, '#263449', 0.85), darken(seed, 0.72),
+    mix(seed, '#f5f6f7', 0.97), mix(seed, '#ffffff', 0.94), mix(seed, '#ffffff', 0.91)].includes(background.toLowerCase())
 }
 
 /** Keep terminal contrast independent while tinting its key colors from the UI seed. */
@@ -134,7 +141,7 @@ export function deriveTerminalTheme(base: Theme, seed: string, tone: Tone): Them
   const cursor = light ? darken(seed, 0.12) : lighten(seed, 0.12)
   return {
     ...base,
-    background: light ? lighten(seed, 0.93) : darken(seed, 0.88),
+    background: deriveSurfaceVars(seed, tone)['--theme-bg-main'],
     foreground: light ? '#20242a' : '#e8edf2',
     cursor,
     selection: rgba(cursor, light ? 0.22 : 0.3),
@@ -190,14 +197,39 @@ export function monoFontStack(name: string | undefined): string {
 }
 
 /** 计算根节点应绑定的全部 CSS 变量。 */
+export function glassAlpha(opacity: number, tone: Tone): number {
+  const amount = Math.min(1, Math.max(0.15, opacity / 100))
+  return tone === 'light' ? 0.35 + amount * 0.65 : amount
+}
+
 export function computeUiCssVars(appearance: UIAppearance, fonts: Fonts, tone: Tone): Record<string, string> {
   const {primary, secondary} = effectiveBrand(appearance)
+  const surfaces = deriveSurfaceVars(primary, tone, 100, 0)
+  const glass = appearance.glassEnabled
+  // One native material beneath the whole window. Each region adds one tint.
+  const amount = Math.min(1, Math.max(0, (100 - (appearance.glassOpacity ?? 85)) / 85))
+  const alpha = tone === 'light' ? 0.84 - amount * 0.42 : 0.82 - amount * 0.40
+  if (glass) {
+    surfaces['--theme-bg-sidebar'] = rgba(surfaces['--theme-bg-sidebar'], alpha)
+    surfaces['--theme-bg-toolbar'] = rgba(surfaces['--theme-bg-toolbar'], Math.min(0.96, alpha + 0.04))
+    surfaces['--theme-bg-main'] = rgba(surfaces['--theme-bg-main'], Math.min(0.96, alpha + 0.02))
+    surfaces['--theme-bg-surface'] = rgba(surfaces['--surface-2'], Math.min(0.98, alpha + 0.14))
+  }
+  surfaces['--theme-glass-blur'] = glass ? '24px' : '0px'
+  surfaces['--theme-glass-opacity'] = '100%'
+
   return {
-    ...deriveSurfaceVars(primary, tone, appearance.glassOpacity, appearance.glassBlur),
-    ...deriveBrandVars(primary, secondary),
+    ...surfaces,
+    ...deriveBrandVars(tone === 'light' ? darken(primary, 0.25) : lighten(primary, 0.2), secondary),
+    '--foreground': tone === 'light' ? darken(primary, 0.88) : lighten(primary, 0.94),
+    '--foreground-secondary': tone === 'light' ? darken(primary, 0.72) : lighten(primary, 0.75),
+    '--muted-foreground': tone === 'light' ? darken(primary, 0.58) : lighten(primary, 0.6),
+    '--hover': rgba(primary, tone === 'light' ? 0.09 : 0.16),
+    '--hover-strong': rgba(primary, tone === 'light' ? 0.17 : 0.28),
+    '--field-bg': tone === 'light' ? '#ffffff' : darken(primary, 0.8),
     '--font-sans': uiFontStack(fonts.uiFont),
     '--font-mono': monoFontStack(fonts.terminalFont),
-    '--terminal-bg': appearance.mode === 'preset' ? (tone === 'dark' ? presetById(appearance.presetId)?.dark.background ?? defaultPreset().dark.background : presetById(appearance.presetId)?.light.background ?? defaultPreset().light.background) : '',
+    '--terminal-bg': surfaces['--theme-bg-main'],
   }
 }
 
@@ -216,7 +248,7 @@ const MANAGED_ROOT_VARS = [
   '--primary-foreground', '--terminal-bg',
   '--secondary', '--secondary-hover',
   '--secondary-glow', '--secondary-glow-soft', '--secondary-weak', '--secondary-border', '--secondary-hover-bg',
-  '--font-sans', '--font-mono', '--foreground',
+  '--font-sans', '--font-mono', '--foreground', '--foreground-secondary', '--muted-foreground', '--hover', '--hover-strong', '--field-bg',
 ] as const
 
 /** 将明暗模式与品牌色变量同步到 <html>，供 Teleport 到 body 的浮层继承。 */

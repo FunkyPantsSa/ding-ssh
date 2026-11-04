@@ -33,7 +33,7 @@ import {useSettingsStore} from '../stores/settings'
 import {useTerminalCompletion} from '../composables/useTerminalCompletion'
 import {ClipboardGetText, ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import {LogClient, SetLogTrace} from '../../wailsjs/go/main/App'
-import {monoFontStack, readableOn} from '../theme/engine'
+import {deriveSurfaceVars, isManagedTerminalBackground, effectiveBrand, resolveTone, monoFontStack, readableOn} from '../theme/engine'
 import {recordRecentServer} from '../services/recent'
 import type {SessionTab} from '../types'
 
@@ -114,6 +114,21 @@ const bgImageStyle = computed(() => {
   }
 })
 
+const terminalBackground = computed(() => {
+  const tone = resolveTone(settings.appearance.baseTone)
+  const seed = effectiveBrand(settings.appearance).primary
+  if (tone === 'light' && !settings.theme.bgImage && isManagedTerminalBackground(settings.theme.background, seed, tone)) {
+    return deriveSurfaceVars(seed, tone)['--theme-bg-main']
+  }
+  return settings.theme.background
+})
+
+const useGlassTerminal = computed(() => {
+  if (!settings.appearance.glassEnabled || settings.theme.bgImage) return false
+  const tone = resolveTone(settings.appearance.baseTone)
+  return isManagedTerminalBackground(settings.theme.background, effectiveBrand(settings.appearance).primary, tone)
+})
+
 const terminalStyle = computed(() => ({
   '--xterm-text-shadow': settings.theme.textShadow
     ? 'var(--terminal-text-shadow)'
@@ -121,7 +136,7 @@ const terminalStyle = computed(() => ({
   '--terminal-shadow-blur': `${settings.theme.shadowBlur}px`,
   // 终端容器底色跟随终端主题：xterm 的内边距区域也呈现终端背景色，
   // 避免浅色界面下终端四周露出一圈界面底色边框（终端主题与界面明暗相互独立）。
-  background: settings.theme.background,
+  background: useGlassTerminal.value ? 'transparent' : terminalBackground.value,
   // 不再反向抵消全局 zoom：app-shell 的 zoom 会整体等比缩放（含终端字号），
   // 若在此处设置 zoom: 1/z 会把 xterm 容器压缩 1/z，导致分屏格右侧/底部出现空白。
 }))
@@ -135,8 +150,8 @@ const sourceLabel: Record<string, string> = {
 function applyTheme() {
   if (!term) return
   const t = settings.theme
-  const background = t.bgImage ? hexToRgba(t.background, 0.85) : t.background
-  term.options.allowTransparency = !!t.bgImage
+  const background = useGlassTerminal.value ? 'rgba(0, 0, 0, 0)' : t.bgImage ? hexToRgba(t.background, 0.85) : terminalBackground.value
+  term.options.allowTransparency = true
   term.options.theme = {
     background,
     foreground: t.foreground,
@@ -873,7 +888,7 @@ function writeRaw(data: string) {
 onMounted(() => {
   term = new Terminal({
     allowProposedApi: true,
-    allowTransparency: !!settings.theme.bgImage,
+    allowTransparency: true,
     cursorBlink: true,
     fontSize: effectiveFontSize(),
     fontFamily: monoFontStack(settings.fonts.terminalFont),
@@ -975,7 +990,7 @@ onMounted(() => {
 })
 
 watch(
-  () => settings.theme,
+  () => [settings.theme, useGlassTerminal.value, settings.appearance.glassEnabled, settings.appearance.glassOpacity],
   () => applyTheme(),
   {deep: true},
 )

@@ -98,6 +98,7 @@ export interface Theme {
 
 // UI 外观（对应 Go 端 models.UIAppearance）：品牌色 + 明暗模式。
 export interface UIAppearance {
+  glassEnabled?: boolean
   mode: 'preset' | 'custom' // preset 预设 / custom 自定义
   presetId: string // 预设主题 ID（preset 模式）
   baseTone: 'auto' | 'light' | 'dark' // 明暗模式

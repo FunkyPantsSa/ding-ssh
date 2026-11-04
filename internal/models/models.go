@@ -420,6 +420,7 @@ type Theme struct {
 
 // UIAppearance UI 外观：品牌色与明暗模式。
 type UIAppearance struct {
+	GlassEnabled bool   `json:"glassEnabled"`
 	Mode         string `json:"mode"`         // preset | custom
 	PresetID     string `json:"presetId"`     // 预设主题 ID（preset 模式）
 	BaseTone     string `json:"baseTone"`     // auto | light | dark
@@ -463,7 +464,7 @@ func DefaultFonts() Fonts {
 // DefaultTheme 返回默认终端主题。
 func DefaultTheme() Theme {
 	return Theme{
-		Background: "#09090b",
+		Background: "#223550",
 		Foreground: "#fafafa",
 		Cursor:     "#3b82f6",
 		Selection:  "rgba(59, 130, 246, 0.28)",

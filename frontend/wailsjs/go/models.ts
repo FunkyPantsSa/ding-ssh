@@ -258,6 +258,7 @@ export namespace models {
 	    }
 	}
 	export class UIAppearance {
+	    glassEnabled: boolean;
 	    mode: string;
 	    presetId: string;
 	    baseTone: string;
@@ -273,6 +274,7 @@ export namespace models {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.glassEnabled = source["glassEnabled"];
 	        this.mode = source["mode"];
 	        this.presetId = source["presetId"];
 	        this.baseTone = source["baseTone"];

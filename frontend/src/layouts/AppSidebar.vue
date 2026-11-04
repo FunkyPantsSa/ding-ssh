@@ -68,8 +68,8 @@ function onBrandClick() {
           <button
             class="nav-item"
             data-ui="nav-item-workspace"
-            :class="ui.view === 'workspace' ? 'active' : ''"
-            :aria-current="ui.view === 'workspace' ? 'page' : undefined"
+            :class="ui.view === 'workspace' && sessions.activeTab?.kind !== 'local' ? 'active' : ''"
+            :aria-current="ui.view === 'workspace' && sessions.activeTab?.kind !== 'local' ? 'page' : undefined"
             title="工作区"
             @click="ui.showWorkspace()"
           >
@@ -80,7 +80,6 @@ function onBrandClick() {
           <button
             class="nav-item"
             data-ui="nav-item-local"
-            :class="sessions.activeTab?.kind === 'local' ? 'active' : ''"
             title="本地终端"
             @click="ui.showWorkspace(); sessions.openLocalTab()"
           >
