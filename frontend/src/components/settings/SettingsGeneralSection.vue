@@ -276,17 +276,19 @@ onBeforeUnmount(() => {
               历史 / 屏幕 / 字典合计最多展示条数（3–30，默认 8）。
             </p>
           </div>
-          <Input
-            type="number"
-            min="3"
-            max="30"
-            step="1"
-            class="w-16 shrink-0 font-mono"
-            aria-label="补全面板条数"
-            :model-value="settings.completionPanelLimit || 8"
-            :disabled="saving"
-            @update:model-value="onPanelLimitChange"
-          />
+          <div class="w-16 shrink-0">
+            <Input
+              type="number"
+              min="3"
+              max="30"
+              step="1"
+              class="font-mono"
+              aria-label="补全面板条数"
+              :model-value="settings.completionPanelLimit || 8"
+              :disabled="saving"
+              @update:model-value="onPanelLimitChange"
+            />
+          </div>
         </div>
       </div>
     </div>

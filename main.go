@@ -37,9 +37,9 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 15, G: 23, B: 42, A: 1},
 		Mac: &mac.Options{
-			// Let the themed web content extend behind the traffic lights instead of
-			// leaving a permanently white native title strip.
-			TitleBar: mac.TitleBarHiddenInset(),
+			// Keep the themed content behind the native controls without the extra
+			// toolbar height added by HiddenInset; this matches the 28px web titlebar.
+			TitleBar: mac.TitleBarHidden(),
 		},
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop: true,

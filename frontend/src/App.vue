@@ -44,6 +44,7 @@ const servers = useServersStore()
 const commandStore = useCommandStore()
 const toast = useToast()
 const isMacOS = navigator.userAgent.includes('Macintosh')
+document.documentElement.style.setProperty('--window-titlebar-h', isMacOS ? '28px' : '0px')
 
 // 左侧导航折叠状态：同时把导航宽度写到 <html>，供 Teleport 到 body 的浮层
 // （快速连接侧栏、遮罩等）正确定位。

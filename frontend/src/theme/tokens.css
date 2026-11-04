@@ -32,11 +32,20 @@
   --space-8: 32px;
   --space-10: 40px;
 
-  /* Radius scale: only these four values are allowed. */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  /* Radius roles: use by visual hierarchy, not by component size. */
+  --radius-window: 12px;
+  --radius-layout: 0px;
+  --radius-card: 16px;
+  --radius-nav-active: 10px;
+  --radius-control: 8px;
+  --radius-small: 4px;
+  --radius-pill: 9999px;
+
+  /* Compatibility aliases for components that still use the old scale. */
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-control);
+  --radius-lg: var(--radius-window);
+  --radius-xl: var(--radius-card);
 
   /* Type scale. */
   --text-2xs: 11px;
