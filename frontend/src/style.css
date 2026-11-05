@@ -1209,9 +1209,10 @@ body.col-resizing * { cursor: col-resize !important; }
   min-height: 0;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--surface-2) var(--theme-glass-opacity, 90%), transparent);
+  background: color-mix(in srgb, var(--surface-2) 96%, transparent);
   box-shadow: var(--shadow-side-panel), inset 0 1px rgb(255 255 255 / 5%);
   backdrop-filter: blur(var(--theme-glass-blur, 24px));
+  -webkit-backdrop-filter: blur(var(--theme-glass-blur, 24px));
   /* 面板内部重绘不外溢：开合位移时模糊阴影与列表内容不会牵连整屏 */
   contain: paint;
 }
@@ -1360,7 +1361,17 @@ body.col-resizing * { cursor: col-resize !important; }
 .panel,.neo,.neo-flat{background:var(--theme-bg-surface,var(--surface-2))}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.app-layout-main:has(.workspace-home){background:var(--background)}.server-sidebar,.server-list-panel,.panel,.neo,.neo-flat{background:var(--surface-2)}}
 
-.window-controls{display:flex;justify-content:flex-end;height:100%;margin-left:auto;--wails-draggable:no-drag}
+.window-controls{position:absolute;right:0;top:0;bottom:0;width:max-content;display:flex;justify-content:flex-end;height:100%;margin-left:auto;--wails-draggable:no-drag}
 .window-controls button{width:42px;height:100%;color:var(--foreground);font-size:16px;--wails-draggable:no-drag}
 .window-controls button:hover{background:var(--hover-strong)}
 .window-controls button:last-child:hover{background:var(--destructive);color:var(--destructive-foreground)}
+
+/* Native Windows owns the window outline; do not cut transparent CSS corners. */
+.app-shell.platform-windows{border-radius:0;-webkit-font-smoothing:auto}
+.platform-windows .terminal-theme{-webkit-font-smoothing:auto;text-rendering:auto}
+
+/* Disabling glass also removes the compositor filter, rather than blur(0). */
+html[data-glass="off"] :is(.nav,.topbar,.status-bar,.app-layout-main,.server-sidebar,.server-list-panel,.home-panel,.ui-dialog){backdrop-filter:none;-webkit-backdrop-filter:none}
+
+html[data-glass="off"] .qconn{background:var(--surface-2);backdrop-filter:none;-webkit-backdrop-filter:none}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.qconn{background:var(--surface-2)}}

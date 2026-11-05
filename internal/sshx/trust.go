@@ -47,7 +47,7 @@ func VerifyHostKey(host string, remote net.Addr, key ssh.PublicKey, extra []stri
 	for _, source := range extra {
 		paths = append(paths, expandSSHPath(source))
 	}
-	verify, err := loadHostKeyVerifier(paths)
+	verify, err := preferredHostKeyVerifier(paths)
 	if err != nil {
 		return err
 	}
@@ -192,4 +192,33 @@ func verifyConnectionHostSources(host string, remote net.Addr, key ssh.PublicKey
 		return nil
 	}
 	return hostTrustChallenge(host, key, sources, err)
+}
+
+// Application pins take precedence over stale read-only keys. Every source is
+// still parsed and its revocation list checked before applying the pin.
+func preferredHostKeyVerifier(paths []string) (ssh.HostKeyCallback, error) {
+	all, err := loadHostKeyVerifier(paths)
+	if err != nil {
+		return nil, err
+	}
+	app, err := loadHostKeyVerifier(paths[:1])
+	if err != nil {
+		return nil, err
+	}
+	return func(host string, remote net.Addr, key ssh.PublicKey) error {
+		combined := all(host, remote, key)
+		var mismatch *knownhosts.KeyError
+		if combined != nil && !errors.As(combined, &mismatch) {
+			return combined
+		}
+		local := app(host, remote, key)
+		if local == nil {
+			return nil
+		}
+		var localMismatch *knownhosts.KeyError
+		if errors.As(local, &localMismatch) && len(localMismatch.Want) == 0 {
+			return combined
+		}
+		return local
+	}, nil
 }

@@ -217,6 +217,14 @@ export function computeUiCssVars(appearance: UIAppearance, fonts: Fonts, tone: T
     surfaces['--theme-bg-main'] = rgba(surfaces['--theme-bg-main'], Math.min(0.96, alpha + 0.02))
     surfaces['--theme-bg-surface'] = rgba(surfaces['--surface-2'], Math.min(0.98, alpha + 0.14))
   }
+  if (!glass && tone === 'light') {
+    surfaces['--background'] = '#ffffff'
+    surfaces['--surface-1'] = '#fafbfc'
+    surfaces['--theme-bg-main'] = '#ffffff'
+    surfaces['--theme-bg-sidebar'] = '#fafbfc'
+    surfaces['--theme-bg-toolbar'] = '#ffffff'
+    surfaces['--theme-glass-tint'] = 'transparent'
+  }
   surfaces['--theme-glass-blur'] = glass ? '24px' : '0px'
   surfaces['--theme-glass-opacity'] = glass ? `${Math.round(Math.min(0.98, alpha + 0.14) * 100)}%` : '100%'
 
@@ -258,6 +266,7 @@ export function applyRootTheme(tone: Tone, vars: Record<string, string>) {
   if (typeof document === 'undefined') return
   const root = document.documentElement
   root.setAttribute('data-tone', tone)
+  root.setAttribute('data-glass', vars['--theme-glass-blur'] === '0px' ? 'off' : 'on')
   for (const key of MANAGED_ROOT_VARS) {
     root.style.removeProperty(key)
   }
@@ -271,7 +280,20 @@ export function clearRootTheme() {
   if (typeof document === 'undefined') return
   const root = document.documentElement
   root.removeAttribute('data-tone')
+  root.removeAttribute('data-glass')
   for (const key of MANAGED_ROOT_VARS) {
     root.style.removeProperty(key)
   }
+}
+
+/** Contrast uses the effective terminal background, including glass tint. */
+export function terminalContrastForeground(foreground: string, background: string): string {
+  const luminance = (hex: string) => {
+    const {r, g, b} = hexToRgb(hex)
+    const channels = [r, g, b].map(v => { const n = v / 255; return n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4 })
+    return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
+  }
+  const a = luminance(foreground), b = luminance(background)
+  if ((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) >= 4.5) return foreground
+  return b > 0.179 ? '#09090b' : '#ffffff'
 }

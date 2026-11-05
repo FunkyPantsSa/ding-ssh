@@ -17,6 +17,7 @@ export function requestHostTrust(challenge: HostTrustChallenge): Promise<boolean
      ...(challenge.oldFingerprints ?? []).map(fp => h('p', {class: 'text-xs break-all select-text'}, `旧指纹：${fp}`)),
      h('p', {class: 'text-xs break-all select-text'}, `新指纹：${challenge.fingerprint}`),
      h(Button, {size: 'sm', onClick: () => ClipboardSetText(challenge.fingerprint).catch(e => error.value = String(e))}, () => '复制指纹'),
+     challenge.changed && challenge.canReplace ? h('p', {class: 'text-xs text-mist'}, '确认后仅更新 ding-ssh 的信任记录，不修改系统或 OpenSSH 源文件。') : null,
      h('p', {class: 'text-sm text-amber-500'}, challenge.changed ? '可能是服务器重装或密钥轮换，也可能存在中间人攻击。请通过可信渠道核对新指纹后再覆盖。' : '该服务器的身份尚未得到验证，请通过可信渠道核对指纹。'),
      challenge.changed && !challenge.canReplace ? h('p', {class: 'text-sm text-rose-400'}, '冲突来自只读或特殊信任记录，请先更新对应源文件。') : null,
      challenge.changed ? h('label', {class: 'flex items-center gap-2 text-sm'}, [h('input', {type: 'checkbox', checked: verified.value, onChange: (e: Event) => verified.value = (e.target as HTMLInputElement).checked}), '我已通过可信渠道核对新指纹']) : null,

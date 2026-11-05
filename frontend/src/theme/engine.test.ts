@@ -1,8 +1,15 @@
 import {describe, expect, it} from 'vitest'
-import {isManagedTerminalBackground, computeUiCssVars, deriveBrandVars, deriveSurfaceVars, deriveTerminalTheme, monoFontStack, resolveTone, uiFontStack} from './engine'
+import {terminalContrastForeground, isManagedTerminalBackground, computeUiCssVars, deriveBrandVars, deriveSurfaceVars, deriveTerminalTheme, monoFontStack, resolveTone, uiFontStack} from './engine'
 import {paletteToTheme, defaultPreset} from './presets'
 
 describe('theme engine', () => {
+  it('repairs stale terminal foreground against the rendered background without changing readable colors', () => {
+    expect(terminalContrastForeground('#e8edf2', '#fafbfc')).toBe('#09090b')
+    expect(terminalContrastForeground('#18181b', '#f5f6f7')).toBe('#18181b')
+    expect(terminalContrastForeground('#18181b', '#09090b')).toBe('#ffffff')
+    expect(terminalContrastForeground('#e8edf2', '#09090b')).toBe('#e8edf2')
+  })
+
   it('recognizes old generated terminal backgrounds and preserves independent choices', () => {
     expect(isManagedTerminalBackground('#435e70', '#71b5d2', 'dark')).toBe(false)
     expect(isManagedTerminalBackground('#223550', '#71b5d2', 'dark')).toBe(true)
@@ -72,6 +79,15 @@ describe('theme engine', () => {
       expect(solid['--theme-glass-blur']).toBe('0px')
       expect(solid['--theme-bg-surface']).not.toContain('rgba(')
     }
+  })
+
+  it('uses luminous opaque surfaces when light glass is disabled', () => {
+    const appearance = {mode: 'custom' as const, baseTone: 'light' as const, presetId: 'geist', primary: '#71b5d2', secondary: '#71b5d2', uiText: '#fff', glassOpacity: 15, glassBlur: 24, glassEnabled: false}
+    const vars = computeUiCssVars(appearance, {uiFont: 'system', terminalFont: 'system', terminalFontSize: 13}, 'light')
+    expect(vars['--theme-bg-main']).toBe('#ffffff')
+    expect(vars['--theme-bg-sidebar']).toBe('#fafbfc')
+    expect(vars['--theme-bg-toolbar']).toBe('#ffffff')
+    expect(vars['--theme-glass-tint']).toBe('transparent')
   })
 
   it('resolves explicit tone without consulting system preferences', () => {

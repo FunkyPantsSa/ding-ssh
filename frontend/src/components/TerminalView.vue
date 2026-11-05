@@ -33,7 +33,7 @@ import {useSettingsStore} from '../stores/settings'
 import {useTerminalCompletion} from '../composables/useTerminalCompletion'
 import {ClipboardGetText, ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import {LogClient, SetLogTrace} from '../../wailsjs/go/main/App'
-import {deriveSurfaceVars, isManagedTerminalBackground, effectiveBrand, resolveTone, monoFontStack, readableOn} from '../theme/engine'
+import {terminalContrastForeground, deriveSurfaceVars, isManagedTerminalBackground, effectiveBrand, resolveTone, monoFontStack, readableOn} from '../theme/engine'
 import {recordRecentServer} from '../services/recent'
 import type {SessionTab} from '../types'
 
@@ -130,7 +130,7 @@ const useGlassTerminal = computed(() => {
 })
 
 const terminalStyle = computed(() => ({
-  '--xterm-text-shadow': settings.theme.textShadow
+  '--xterm-text-shadow': settings.theme.textShadow && resolveTone(settings.appearance.baseTone) !== 'light'
     ? 'var(--terminal-text-shadow)'
     : 'none',
   '--terminal-shadow-blur': `${settings.theme.shadowBlur}px`,
@@ -150,11 +150,11 @@ const sourceLabel: Record<string, string> = {
 function applyTheme() {
   if (!term) return
   const t = settings.theme
-  const background = useGlassTerminal.value ? 'rgba(0, 0, 0, 0)' : t.bgImage ? hexToRgba(t.background, 0.85) : terminalBackground.value
-  term.options.allowTransparency = true
+  const background = useGlassTerminal.value ? hexToRgba(terminalBackground.value, 0) : t.bgImage ? hexToRgba(t.background, 0.85) : terminalBackground.value
+  term.options.allowTransparency = useGlassTerminal.value || !!t.bgImage
   term.options.theme = {
     background,
-    foreground: t.foreground,
+    foreground: terminalContrastForeground(t.foreground, terminalBackground.value),
     cursor: t.cursor,
     cursorAccent: readableOn(t.cursor),
     selectionBackground: t.selection,
@@ -895,14 +895,15 @@ onMounted(() => {
   term = new Terminal({
     allowProposedApi: true,
     allowTransparency: true,
-    fontWeight: 400,
+    minimumContrastRatio: 4.5,
+    fontWeight: navigator.userAgent.includes('Windows') ? 500 : 400,
     fontWeightBold: 600,
     cursorBlink: true,
     fontSize: effectiveFontSize(),
     fontFamily: monoFontStack(settings.fonts.terminalFont),
     theme: {
       background: settings.theme.background,
-      foreground: settings.theme.foreground,
+      foreground: terminalContrastForeground(settings.theme.foreground, terminalBackground.value),
       cursor: settings.theme.cursor,
       cursorAccent: readableOn(settings.theme.cursor),
       selectionBackground: settings.theme.selection,

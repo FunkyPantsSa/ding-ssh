@@ -50,9 +50,7 @@ func hostTrustChallenge(host string, key ssh.PublicKey, sources []string, verifi
 	appFile := trustPaths(nil)[0]
 	for _, want := range keyError.Want {
 		view.OldFingerprints = append(view.OldFingerprints, ssh.FingerprintSHA256(want.Key))
-		if want.Filename != appFile {
-			view.CanReplace = false
-		}
+
 	}
 	data, err := os.ReadFile(appFile)
 	if err != nil && !os.IsNotExist(err) {
@@ -74,8 +72,8 @@ func hostTrustChallenge(host string, key ssh.PublicKey, sources []string, verifi
 }
 
 // ResolveHostTrust consumes a backend-issued one-time challenge. Caller input
-// cannot substitute the host or key. Revocations and read-only conflicts remain
-// non-overridable; changed application records require explicit replacement.
+// cannot substitute the host or key. Explicit replacement writes only application
+// trust; external files stay unchanged and revocations remain non-overridable.
 func ResolveHostTrust(id string, approve, replace bool) error {
 	challengeMu.Lock()
 	pending, ok := challenges[id]
@@ -96,7 +94,7 @@ func ResolveHostTrust(id string, approve, replace bool) error {
 		}
 		paths = append(paths, expandSSHPath(source))
 	}
-	verify, err := loadHostKeyVerifier(paths)
+	verify, err := preferredHostKeyVerifier(paths)
 	if err != nil {
 		return err
 	}
@@ -136,8 +134,8 @@ func ResolveHostTrust(id string, approve, replace bool) error {
 		remove := map[int]bool{}
 		for _, want := range mismatch.Want {
 			if want.Filename != file {
-				return fmt.Errorf("只读信任源的冲突不能覆盖，请先更新源文件")
-			}
+				continue
+			} // Preserve read-only OpenSSH sources.
 			fields := strings.Fields(lines[want.Line-1])
 			if len(fields) < 3 || strings.HasPrefix(fields[0], "@") || strings.Contains(fields[0], ",") {
 				return fmt.Errorf("该记录包含特殊标记或多个主机，请在信任管理中处理")

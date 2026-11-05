@@ -579,7 +579,7 @@ onBeforeUnmount(() => {
                     @manage-servers="ui.showServers()"
                     @open-settings="ui.showSettings()"
                   />
-            <TerminalWorkspace :active="ui.view === 'workspace'">
+            <TerminalWorkspace :active="ui.view === 'workspace' && sessions.tabs.length > 0">
               <TabBar v-if="sessions.tabs.length && !sideTabs" />
 
               <div ref="toolRowEl" class="flex-1 min-h-0 flex relative">

@@ -73,3 +73,38 @@ func TestRevokedKeyCannotCreateApprovalChallenge(t *testing.T) {
 		t.Fatalf("revoked key offered approval: %v", err)
 	}
 }
+
+func TestReadOnlyKeyRotationPinsAppWithoutEditingSource(t *testing.T) {
+	t.Setenv("DING_SSH_DEV_CONFIG_DIR", t.TempDir())
+	host := "readonly.invalid:22"
+	old, newKey := testHostKey(t), testHostKey(t)
+	source := t.TempDir() + "/known_hosts"
+	original := knownhosts.Line([]string{host}, old) + "\n"
+	if err := os.WriteFile(source, []byte(original), 0600); err != nil {
+		t.Fatal(err)
+	}
+	view := challengeFor(t, host, newKey, []string{source})
+	if !view.CanReplace {
+		t.Fatal("rotation was disabled")
+	}
+	if err := ResolveHostTrust(view.ID, true, true); err != nil {
+		t.Fatal(err)
+	}
+	addr := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 22}
+	if err := VerifyHostKey(host, addr, newKey, []string{source}); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyHostKey(host, addr, old, []string{source}); err == nil {
+		t.Fatal("old key accepted after rotation")
+	}
+	data, _ := os.ReadFile(source)
+	if string(data) != original {
+		t.Fatal("read-only source modified")
+	}
+	if err := os.WriteFile(source, []byte(original+"@revoked "+knownhosts.Line([]string{host}, newKey)+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyHostKey(host, addr, newKey, []string{source}); err == nil {
+		t.Fatal("app pin bypassed revocation")
+	}
+}
