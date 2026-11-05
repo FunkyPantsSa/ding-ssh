@@ -17,8 +17,6 @@ export function ClearCommandHistory(arg1:string):Promise<void>;
 
 export function ClearLogs():Promise<Record<string, any>>;
 
-export function ConfirmHostTrust(arg1:string,arg2:string):Promise<boolean>;
-
 export function Connect(arg1:string,arg2:models.ServerNode,arg3:number,arg4:number):Promise<models.ConnectResult>;
 
 export function ConnectAuthenticated(arg1:string,arg2:models.ServerNode,arg3:number,arg4:number,arg5:Record<string, string>):Promise<models.ConnectResult>;
@@ -100,6 +98,8 @@ export function RemoveTunnel(arg1:string):Promise<void>;
 export function RenameGroup(arg1:string,arg2:string):Promise<void>;
 
 export function Resize(arg1:string,arg2:number,arg3:number):Promise<void>;
+
+export function ResolveHostTrust(arg1:string,arg2:boolean,arg3:boolean):Promise<void>;
 
 export function RestartTunnel(arg1:string):Promise<void>;
 

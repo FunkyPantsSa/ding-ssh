@@ -2,8 +2,6 @@ package sshx
 
 import (
 	"bufio"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -193,10 +191,5 @@ func verifyConnectionHostSources(host string, remote net.Addr, key ssh.PublicKey
 	if err == nil {
 		return nil
 	}
-	var unknown *knownhosts.KeyError
-	if errors.As(err, &unknown) && len(unknown.Want) == 0 {
-		payload, _ := json.Marshal(map[string]string{"host": host, "key": strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))), "fingerprint": ssh.FingerprintSHA256(key)})
-		return fmt.Errorf("未知主机，需要核对指纹并明确授权 SSH_HOST_TRUST:%s", base64.RawURLEncoding.EncodeToString(payload))
-	}
-	return err
+	return hostTrustChallenge(host, key, sources, err)
 }

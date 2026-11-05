@@ -88,7 +88,7 @@ img, svg { display: block; max-width: 100%; }
   background: transparent;
   overflow: hidden;
 }
-.app-shell.platform-macos { padding-top: 28px; }
+.app-shell.platform-macos,.app-shell.platform-windows { padding-top: 28px; }
 .window-drag-region {
   position: absolute;
   inset: 0 0 auto 0;
@@ -1359,3 +1359,8 @@ body.col-resizing * { cursor: col-resize !important; }
 .server-sidebar,.server-list-panel{background:var(--theme-bg-surface,var(--surface-2));backdrop-filter:blur(calc(var(--theme-glass-blur,0px) / 2));-webkit-backdrop-filter:blur(calc(var(--theme-glass-blur,0px) / 2))}
 .panel,.neo,.neo-flat{background:var(--theme-bg-surface,var(--surface-2))}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.app-layout-main:has(.workspace-home){background:var(--background)}.server-sidebar,.server-list-panel,.panel,.neo,.neo-flat{background:var(--surface-2)}}
+
+.window-controls{display:flex;justify-content:flex-end;height:100%;margin-left:auto;--wails-draggable:no-drag}
+.window-controls button{width:42px;height:100%;color:var(--foreground);font-size:16px;--wails-draggable:no-drag}
+.window-controls button:hover{background:var(--hover-strong)}
+.window-controls button:last-child:hover{background:var(--destructive);color:var(--destructive-foreground)}

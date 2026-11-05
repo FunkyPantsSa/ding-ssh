@@ -22,10 +22,6 @@ export function ClearLogs() {
   return window['go']['main']['App']['ClearLogs']();
 }
 
-export function ConfirmHostTrust(arg1, arg2) {
-  return window['go']['main']['App']['ConfirmHostTrust'](arg1, arg2);
-}
-
 export function Connect(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['Connect'](arg1, arg2, arg3, arg4);
 }
@@ -188,6 +184,10 @@ export function RenameGroup(arg1, arg2) {
 
 export function Resize(arg1, arg2, arg3) {
   return window['go']['main']['App']['Resize'](arg1, arg2, arg3);
+}
+
+export function ResolveHostTrust(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ResolveHostTrust'](arg1, arg2, arg3);
 }
 
 export function RestartTunnel(arg1) {

@@ -1,3 +1,4 @@
+import {requestHostTrust} from './hostTrust'
 import {requestPassphrase} from './passphrase'
 
 // 封装 Wails 自动生成的绑定与事件，统一供各组件使用。
@@ -281,7 +282,9 @@ async function approveUnknownHost(error: unknown): Promise<boolean> {
   const raw = match[1]!.replace(/-/g, '+').replace(/_/g, '/')
   const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0))
   const challenge = JSON.parse(new TextDecoder().decode(bytes))
-  return (window as any).go.main.App.ConfirmHostTrust(challenge.host, challenge.key)
+  const approved = await requestHostTrust(challenge)
+  await (window as any).go.main.App.ResolveHostTrust(challenge.id, approved, approved && challenge.changed)
+  return approved
 }
 async function withHostTrust<T>(action: () => Promise<T>): Promise<T> {
   // Bounded retries also support a chain with up to five intermediate hosts.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	goruntime "runtime"
 
 	"ding-ssh/internal/apphost"
 	"ding-ssh/internal/logfilter"
@@ -29,6 +30,7 @@ func main() {
 
 	opt := &options.App{
 		Title:     "ding-ssh",
+		Frameless: goruntime.GOOS == "windows",
 		Width:     1280,
 		Height:    800,
 		MinWidth:  900,

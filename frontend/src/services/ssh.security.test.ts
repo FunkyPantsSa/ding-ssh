@@ -4,6 +4,8 @@ vi.mock('../../wailsjs/go/main/App', async importOriginal => ({...await importOr
 vi.mock('./passphrase', () => ({requestPassphrase: vi.fn()}))
 import {Connect} from '../../wailsjs/go/main/App'
 import {requestPassphrase} from './passphrase'
+vi.mock('./hostTrust', () => ({requestHostTrust: vi.fn()}))
+import {requestHostTrust} from './hostTrust'
 import {sshService} from './ssh'
 const node: ServerNode = {id: 'n', name: 'host', group: '', host: 'example.org', port: 22, user: 'user', authType: 'agent', bgImage: '', blurAmount: 0, envVars: {}}
 const connected = {sessionId: 's', server: 'host'}
@@ -13,16 +15,17 @@ beforeEach(() => {
  vi.clearAllMocks()
  connect = vi.fn()
  confirm = vi.fn()
- ;(window as any).go = {main: {App: {ConnectAuthenticated: connect, ConfirmHostTrust: confirm}}}
+ ;(window as any).go = {main: {App: {ConnectAuthenticated: connect, ResolveHostTrust: confirm}}}
 })
 describe('SSH security UI boundaries', () => {
  it('does not retry or save trust when confirmation is cancelled', async () => {
   const challenge = btoa(JSON.stringify({host: 'example.org:22', key: 'public-key'})).replace(/=/g, '')
   connect.mockRejectedValue(new Error('SSH_HOST_TRUST:' + challenge))
-  confirm.mockResolvedValue(false)
+  vi.mocked(requestHostTrust).mockResolvedValue(false)
+  confirm.mockResolvedValue(undefined)
   await expect(sshService.connect('s', node, 80, 24)).rejects.toThrow('SSH_HOST_TRUST')
   expect(connect).toHaveBeenCalledTimes(1)
-  expect(confirm).toHaveBeenCalledWith('example.org:22', 'public-key')
+  expect(requestHostTrust).toHaveBeenCalledTimes(1)
  })
  it('never offers confirmation for a changed key', async () => {
   connect.mockRejectedValue(new Error('主机密钥发生变化，拒绝连接'))

@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {WindowToggleMaximise} from '../wailsjs/runtime/runtime'
+import {WindowToggleMaximise, WindowMinimise, Quit} from '../wailsjs/runtime/runtime'
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect} from 'vue'
 import Icon from './components/Icon.vue'
 import SftpPanel from './components/SftpPanel.vue'
@@ -45,7 +45,8 @@ const servers = useServersStore()
 const commandStore = useCommandStore()
 const toast = useToast()
 const isMacOS = navigator.userAgent.includes('Macintosh')
-document.documentElement.style.setProperty('--window-titlebar-h', isMacOS ? '28px' : '0px')
+const isWindows = navigator.userAgent.includes('Windows')
+document.documentElement.style.setProperty('--window-titlebar-h', isMacOS || isWindows ? '28px' : '0px')
 
 // 左侧导航折叠状态：同时把导航宽度写到 <html>，供 Teleport 到 body 的浮层
 // （快速连接侧栏、遮罩等）正确定位。
@@ -527,8 +528,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-shell" :class="{'platform-macos': isMacOS}" :style="{zoom: (settings.uiScale || 100) / 100}" data-ui="app" :data-view="ui.view">
-    <div v-if="isMacOS" class="window-drag-region" aria-hidden="true" @dblclick="WindowToggleMaximise" />
+  <div class="app-shell" :class="{'platform-macos': isMacOS, 'platform-windows': isWindows}" :style="{zoom: (settings.uiScale || 100) / 100}" data-ui="app" :data-view="ui.view">
+    <div v-if="isMacOS || isWindows" class="window-drag-region" @dblclick="WindowToggleMaximise">
+      <div v-if="isWindows" class="window-controls"><button aria-label="最小化" @dblclick.stop @click="WindowMinimise">−</button><button aria-label="最大化或还原" @dblclick.stop @click="WindowToggleMaximise">□</button><button aria-label="关闭窗口" @dblclick.stop @click="Quit">×</button></div>
+    </div>
     <!-- 解锁页 -->
     <AppUnlock v-if="needsUnlock" v-model="unlockPassword" :unlocking="unlocking" :error="unlockError" @submit="doUnlock" />
 
