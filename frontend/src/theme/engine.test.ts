@@ -48,6 +48,9 @@ describe('theme engine', () => {
   it('uses deterministic font stacks and leaves text contrast to the active tone', () => {
     expect(uiFontStack('system')).toContain('PingFang SC')
     expect(monoFontStack('JetBrains Mono')).toContain('JetBrains Mono')
+    expect(monoFontStack('Maple Mono NF CN')).toMatch(/^"Maple Mono NF CN",/)
+    expect(monoFontStack('JetBrains Mono + Sarasa Mono SC')).toMatch(/^"JetBrains Mono", "Sarasa Mono SC",/)
+    expect(monoFontStack('Geist Mono + Sarasa Mono SC')).toMatch(/^"Geist Mono", "Sarasa Mono SC",/)
     const vars = computeUiCssVars(
       {mode: 'custom', baseTone: 'dark', presetId: 'default', primary: '#000000', secondary: '#ffffff', uiText: '#eeeeee', glassOpacity: 85, glassBlur: 24},
       {uiFont: 'system', terminalFont: 'system', terminalFontSize: 14},

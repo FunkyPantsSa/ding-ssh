@@ -31,6 +31,7 @@ import TerminalTransferOverlay from './terminal/TerminalTransferOverlay.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
 import {useTerminalCompletion} from '../composables/useTerminalCompletion'
+import {loadTerminalFonts} from '../theme/terminal-fonts'
 import {ClipboardGetText, ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import {LogClient, SetLogTrace} from '../../wailsjs/go/main/App'
 import {terminalContrastForeground, deriveSurfaceVars, isManagedTerminalBackground, effectiveBrand, resolveTone, monoFontStack, readableOn} from '../theme/engine'
@@ -150,6 +151,8 @@ const sourceLabel: Record<string, string> = {
 function applyTheme() {
   if (!term) return
   const t = settings.theme
+  // Windows 透明字形比不透明背景上的字形显细，使用真实 Medium 字重补偿。
+  term.options.fontWeight = terminalFontWeight()
   const background = useGlassTerminal.value ? hexToRgba(terminalBackground.value, 0) : t.bgImage ? hexToRgba(t.background, 0.85) : terminalBackground.value
   term.options.allowTransparency = useGlassTerminal.value || !!t.bgImage
   term.options.theme = {
@@ -183,12 +186,21 @@ function applyFontSettings() {
   term.options.fontFamily = monoFontStack(settings.fonts.terminalFont)
   term.options.fontSize = effectiveFontSize()
   fit()
-  void Promise.all([document.fonts.load(`${effectiveFontSize()}px "${settings.fonts.terminalFont}"`), document.fonts.load(`${effectiveFontSize()}px "Noto Sans SC"`, '终端中文')]).then(() => {
+  void Promise.all([
+    loadTerminalFonts(settings.fonts.terminalFont, effectiveFontSize(), terminalFontWeight()),
+    document.fonts.load(`${effectiveFontSize()}px "Noto Sans SC"`, '终端中文'),
+  ]).then(() => {
     if (!term) return
     term.clearTextureAtlas()
     fit()
     term.refresh(0, term.rows - 1)
+  }).catch((error: unknown) => {
+    logClient('warn', `[fonts] 终端字体加载失败，使用回退字体：${String(error)}`)
   })
+}
+
+function terminalFontWeight(): 400 | 500 {
+  return navigator.userAgent.includes('Windows') && (useGlassTerminal.value || !!settings.theme.bgImage) ? 500 : 400
 }
 
 /**
@@ -896,8 +908,8 @@ onMounted(() => {
     allowProposedApi: true,
     allowTransparency: true,
     minimumContrastRatio: 4.5,
-    fontWeight: navigator.userAgent.includes('Windows') ? 500 : 400,
-    fontWeightBold: 600,
+    fontWeight: terminalFontWeight(),
+    fontWeightBold: 700,
     cursorBlink: true,
     fontSize: effectiveFontSize(),
     fontFamily: monoFontStack(settings.fonts.terminalFont),
@@ -983,6 +995,7 @@ onMounted(() => {
   resizeObserver = new ResizeObserver(() => fit())
   resizeObserver.observe(container.value!)
   applyTheme()
+  applyFontSettings()
   container.value?.addEventListener('keydown', onKeydown, true)
   container.value?.addEventListener('compositionstart', () => {
     composing = true
@@ -1000,7 +1013,10 @@ onMounted(() => {
 
 watch(
   () => [settings.theme, useGlassTerminal.value, settings.appearance.glassEnabled, settings.appearance.glassOpacity],
-  () => applyTheme(),
+  () => {
+    applyTheme()
+    applyFontSettings()
+  },
   {deep: true},
 )
 

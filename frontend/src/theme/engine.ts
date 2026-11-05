@@ -1,6 +1,7 @@
 // 主题引擎：从 UI 外观配置派生整组 CSS 变量，供根节点绑定。
 import type {Fonts, Theme, UIAppearance} from '../types'
 import {defaultPreset, presetById} from './presets'
+import {terminalFontFamilies} from './terminal-fonts'
 
 // ---- 颜色工具 ----
 
@@ -194,7 +195,8 @@ export function uiFontStack(name: string | undefined): string {
 export function monoFontStack(name: string | undefined): string {
   if (!name) return MONO_FONT_FALLBACK
   if (name === 'system') return 'ui-monospace, "SF Mono", Menlo, Consolas, "Noto Sans SC", monospace'
-  return `"${name}", ${SYSTEM_MONO_FONT_STACK}`
+  const families = [...new Set([...terminalFontFamilies(name), 'Geist Mono'])]
+  return `${families.map(family => `"${family}"`).join(', ')}, ${SYSTEM_MONO_FONT_STACK}`
 }
 
 /** 计算根节点应绑定的全部 CSS 变量。 */

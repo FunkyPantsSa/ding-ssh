@@ -5,7 +5,9 @@ import ToggleSwitch from '../ToggleSwitch.vue'
 import {Button, Input} from '../ui'
 import {TERMINAL_FONT_OPTIONS, TONE_OPTIONS, useSettingsAppearance} from '../../composables/useSettingsAppearance'
 import {useSettingsStore} from '../../stores/settings'
-import {hexToRgb} from '../../theme/engine'
+import {hexToRgb, monoFontStack} from '../../theme/engine'
+import {TERMINAL_FONT_SCHEMES, loadTerminalFonts} from '../../theme/terminal-fonts'
+import {remoteFontStatus} from '../../theme/remote-fonts'
 
 const settings = useSettingsStore()
 const saving = ref(false)
@@ -23,6 +25,16 @@ const hsv = computed(() => rgbToHsv(hexToRgb(appearanceForm.primary)))
 const markerStyle = computed(() => ({left: `${hsv.value.s * 100}%`, top: `${(1 - hsv.value.v) * 100}%`}))
 const pickerStyle = computed(() => ({backgroundColor: `hsl(${hsv.value.h} 100% 50%)`}))
 const modeIcon = computed(() => appearanceForm.baseTone === 'light' ? 'sun' : appearanceForm.baseTone === 'dark' ? 'moon' : 'sparkles')
+const fontScheme = computed(() => TERMINAL_FONT_SCHEMES.find(scheme => scheme.value === fontsForm.terminalFont))
+const fontDownloadMessage = computed(() => {
+  const states = Object.entries(remoteFontStatus).filter(([key]) => fontScheme.value?.families.some(f => key.startsWith(`${f}:`))).map(([, state]) => state)
+  if (states.includes('error')) return '字体下载失败，暂用回退字体；重新选择此方案可重试。'
+  if (states.includes('loading')) return '正在下载字体，期间使用回退字体…'
+  return states.length ? '字体已就绪，已缓存的资源可离线复用。' : '首次使用在线下载字体，之后复用本地缓存。'
+})
+watch(() => [fontsForm.terminalFont, fontsForm.terminalFontSize] as const, ([name, size]) => {
+  void loadTerminalFonts(name, size, 400).catch(() => { /* CSS fallback keeps the preview readable. */ })
+}, {immediate: true})
 
 onMounted(syncForms)
 watch(() => settings.loaded, (loaded) => { if (loaded) syncForms() })
@@ -108,9 +120,11 @@ function chooseColor(color: string) {
     </div>
         <section class="terminal-font-controls" aria-label="终端字体设置">
           <h4>终端字体</h4>
-          <label>终端字体<select v-model="fontsForm.terminalFont" aria-label="终端字体"><option v-for="font in TERMINAL_FONT_OPTIONS" :key="font" :value="font">{{ font === 'system' ? '系统等宽字体' : font }}{{ font !== 'system' ? ' + 思源黑体中文' : '' }}</option></select></label>
+          <label>终端字体<select v-model="fontsForm.terminalFont" aria-label="终端字体"><option v-for="font in TERMINAL_FONT_OPTIONS" :key="font" :value="font">{{ font === 'system' ? '系统等宽字体' : font }}{{ font !== 'system' && !TERMINAL_FONT_SCHEMES.some(scheme => scheme.value === font) ? ' + 思源黑体中文' : '' }}</option></select></label>
+          <p v-if="fontScheme">{{ fontScheme.description }}</p>
+          <p v-if="fontScheme" role="status">{{ fontDownloadMessage }}</p>
           <label>字号<input v-model.number="fontsForm.terminalFontSize" type="number" min="10" max="32" aria-label="终端字号" /></label>
-          <p :style="{fontFamily: `'${fontsForm.terminalFont}', 'Noto Sans SC', monospace`, fontSize: `${fontsForm.terminalFontSize}px`}">终端预览 中文 你好 / English 0123456789 ~ % →</p>
+          <p :style="{fontFamily: monoFontStack(fontsForm.terminalFont), fontSize: `${fontsForm.terminalFontSize}px`}">终端预览 中文 你好 / English 0123456789 ~ % → <span v-if="fontsForm.terminalFont === 'Maple Mono NF CN'">&#xe0b0; &#xf120;</span></p>
         </section>
     <footer class="theme-footer"><p>更改会实时应用到整个应用。</p><Button variant="ghost" size="sm" @click="resetAppearance">恢复默认</Button></footer>
   </section>

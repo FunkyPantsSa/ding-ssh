@@ -3,10 +3,11 @@ import {sshService} from '../services/ssh'
 import {defaultAppearance, defaultFonts, defaultTheme, useSettingsStore} from '../stores/settings'
 import {defaultPreset, paletteToTheme, presetById, PRESETS} from '../theme/presets'
 import {deriveTerminalTheme, resolveTone} from '../theme/engine'
+import {TERMINAL_FONT_SCHEMES} from '../theme/terminal-fonts'
 import type {Fonts, Theme, UIAppearance} from '../types'
 
 export const UI_FONT_OPTIONS = ['Geist Sans', 'system'] as const
-export const TERMINAL_FONT_OPTIONS = ['Geist Mono', 'JetBrains Mono', 'Fira Code', 'system'] as const
+export const TERMINAL_FONT_OPTIONS = [...TERMINAL_FONT_SCHEMES.map(scheme => scheme.value), 'Geist Mono', 'JetBrains Mono', 'Fira Code', 'system'] as const
 export const TONE_OPTIONS = [{key: 'auto', label: '跟随系统'}, {key: 'light', label: '浅色'}, {key: 'dark', label: '深色'}] as const
 export const MODE_OPTIONS = [{key: 'preset', label: '预设主题'}, {key: 'custom', label: '自定义'}] as const
 type AnsiColorKey = 'black' | 'red' | 'green' | 'yellow' | 'blue' | 'magenta' | 'cyan' | 'white' | 'brightBlack' | 'brightRed' | 'brightGreen' | 'brightYellow' | 'brightBlue' | 'brightMagenta' | 'brightCyan' | 'brightWhite'
