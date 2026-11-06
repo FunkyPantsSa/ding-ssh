@@ -35,7 +35,7 @@ import {loadTerminalFonts} from '../theme/terminal-fonts'
 import {systemTone} from '../composables/useSystemTone'
 import {ClipboardGetText, ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import {LogClient, SetLogTrace} from '../../wailsjs/go/main/App'
-import {terminalAccentColor, terminalContrastForeground, terminalSurfaceColor, effectiveBrand, monoFontStack, readableOn, rgba} from '../theme/engine'
+import {terminalAccentColor, resolveTerminalForeground, resolveTerminalSurface, effectiveBrand, monoFontStack, readableOn, rgba} from '../theme/engine'
 import {recordRecentServer} from '../services/recent'
 import type {SessionTab} from '../types'
 
@@ -123,18 +123,16 @@ const appTone = computed(() => settings.appearance.baseTone === 'auto' ? systemT
 const terminalTone = computed(() => appTone.value)
 const terminalBackground = computed(() => {
   const seed = effectiveBrand(settings.appearance).primary
-  if (followsAppTheme.value) {
-    // Follow the app's light/dark tone and seed tint. The terminal palette's
-    // ANSI colors are left untouched; xterm's minimumContrastRatio and the
-    // foreground guard keep them legible on the new surface.
-    return terminalSurfaceColor(
-      seed,
-      terminalTone.value,
-      settings.appearance.atmosphere ?? settings.appearance.colorIntensity ?? 75,
-      settings.appearance.surfaceSeparation ?? 65,
-    )
-  }
-  return settings.theme.background
+  // Follow mode derives a coordinated ink surface; independent mode returns
+  // the scheme background unchanged. ANSI colors are never touched here.
+  return resolveTerminalSurface(
+    followsAppTheme.value,
+    settings.theme.background,
+    seed,
+    terminalTone.value,
+    settings.appearance.atmosphere ?? settings.appearance.colorIntensity ?? 75,
+    settings.appearance.surfaceSeparation ?? 65,
+  )
 })
 const terminalAccent = computed(() =>
   terminalAccentColor(
@@ -177,7 +175,7 @@ function applyTheme() {
   const selectionBackground = follow ? rgba(terminalAccent.value, 0.28) : t.selection
   term.options.theme = {
     background,
-    foreground: terminalContrastForeground(t.foreground, terminalBackground.value),
+    foreground: resolveTerminalForeground(follow, t.foreground, terminalBackground.value),
     cursor,
     cursorAccent: readableOn(cursor),
     selectionBackground,
@@ -934,11 +932,11 @@ onMounted(() => {
     fontSize: effectiveFontSize(),
     fontFamily: monoFontStack(settings.fonts.terminalFont),
     theme: {
-      background: settings.theme.background,
-      foreground: terminalContrastForeground(settings.theme.foreground, terminalBackground.value),
-      cursor: settings.theme.cursor,
-      cursorAccent: readableOn(settings.theme.cursor),
-      selectionBackground: settings.theme.selection,
+      background: terminalBackground.value,
+      foreground: resolveTerminalForeground(followsAppTheme.value, settings.theme.foreground, terminalBackground.value),
+      cursor: followsAppTheme.value ? terminalAccent.value : settings.theme.cursor,
+      cursorAccent: readableOn(followsAppTheme.value ? terminalAccent.value : settings.theme.cursor),
+      selectionBackground: followsAppTheme.value ? rgba(terminalAccent.value, 0.28) : settings.theme.selection,
     },
     scrollback: 5000,
     // 关闭「用户输入时强制滚到底部」：浏览历史时按普通键/粘贴不再跳转；

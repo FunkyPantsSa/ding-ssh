@@ -125,7 +125,7 @@ export function deriveSurfaceVars(
   return vars
 }
 
-/** Opaque terminal surface derived from the current workspace tint. */
+/** Opaque terminal ink derived from the active theme hue and tint budget. */
 export function terminalSurfaceColor(
   seed: string,
   tone: ThemeTone,
@@ -143,6 +143,38 @@ export function terminalAccentColor(
   separation = 65,
 ): string {
   return deriveColorRoles({seed, tone, atmosphere, separation}).accentBg
+}
+
+/**
+ * Terminal background for the active mode.
+ *
+ * Follow mode uses the theme-derived ink surface. Independent mode returns the
+ * selected terminal scheme's background byte-for-byte, so the UI theme can
+ * never leak into a user's explicit terminal palette.
+ */
+export function resolveTerminalSurface(
+  followsAppTheme: boolean,
+  schemeBackground: string,
+  seed: string,
+  tone: ThemeTone,
+  atmosphere = 75,
+  separation = 65,
+): string {
+  return followsAppTheme
+    ? terminalSurfaceColor(seed, tone, atmosphere, separation)
+    : schemeBackground
+}
+
+/**
+ * Terminal foreground for the active mode. The contrast guard belongs to
+ * follow mode; an independent scheme keeps its own foreground exactly.
+ */
+export function resolveTerminalForeground(
+  followsAppTheme: boolean,
+  schemeForeground: string,
+  background: string,
+): string {
+  return followsAppTheme ? terminalContrastForeground(schemeForeground, background) : schemeForeground
 }
 
 /** Recognize backgrounds written by earlier ding-ssh theme engines. */

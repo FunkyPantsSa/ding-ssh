@@ -1,4 +1,4 @@
-import {Hct, argbFromHex} from '@material/material-color-utilities'
+import {Hct, argbFromHex, hexFromArgb} from '@material/material-color-utilities'
 import {describe, expect, it} from 'vitest'
 import {
   contrastRatio,
@@ -20,6 +20,12 @@ const COLOR_SEEDS = ['#87CEEB', '#72B69B', '#A78BFA', '#FACC15', '#EF4444', '#F1
 const chroma = (hex: string) => Hct.fromInt(argbFromHex(hex)).chroma
 const hue = (hex: string) => Hct.fromInt(argbFromHex(hex)).hue
 const hctTone = (hex: string) => Hct.fromInt(argbFromHex(hex)).tone
+
+/** Shortest angular distance between two OKLCH/OKLCH-style hue angles. */
+function hueDistance(a: number, b: number): number {
+  const delta = Math.abs(a - b) % 360
+  return Math.min(delta, 360 - delta)
+}
 
 function surfaces(roles: ColorRoles): string[] {
   return [
@@ -228,28 +234,35 @@ describe('material color engine', () => {
   it('keeps the dark neutral foundation spacious and the cards one step brighter', () => {
     for (const seed of SEEDS) {
       const roles = deriveColorRoles({seed, tone: 'dark'})
-      expect(hctTone(roles.workspaceBg), `${seed} workspace`).toBeGreaterThan(19)
-      expect(hctTone(roles.workspaceBg), `${seed} workspace`).toBeLessThan(22)
+      expect(hctTone(roles.workspaceBg), `${seed} workspace`).toBeGreaterThan(23)
+      expect(hctTone(roles.workspaceBg), `${seed} workspace`).toBeLessThan(26.5)
       expect(hctTone(roles.sidebarPrimaryBg), `${seed} nav`).toBeGreaterThan(hctTone(roles.workspaceBg))
       expect(hctTone(roles.surfaceBg), `${seed} card`).toBeGreaterThan(hctTone(roles.workspaceBg) + 4)
-      expect(hctTone(roles.terminalBg), `${seed} terminal`).toBeGreaterThan(14)
-      expect(hctTone(roles.terminalBg), `${seed} terminal`).toBeLessThan(hctTone(roles.workspaceBg))
+      expect(hctTone(roles.terminalBg), `${seed} terminal`).toBeGreaterThan(16)
+      expect(hctTone(roles.terminalBg), `${seed} terminal`).toBeLessThan(18.5)
+      expect(hctTone(roles.terminalBg), `${seed} terminal step`).toBeLessThan(hctTone(roles.workspaceBg) - 4)
+      expect(chroma(roles.toolbarBg), `${seed} toolbar tint`).toBeLessThanOrEqual(14)
+      expect(hctTone(roles.toolbarBg), `${seed} toolbar step`).toBeLessThan(hctTone(roles.workspaceBg))
+      expect(hctTone(roles.workspaceBg) - hctTone(roles.toolbarBg), `${seed} toolbar step size`).toBeGreaterThanOrEqual(0.5)
+      const terminalStep = hctTone(roles.toolbarBg) - hctTone(roles.terminalBg)
+      expect(terminalStep, `${seed} toolbar/terminal step`).toBeGreaterThan(5)
+      expect(terminalStep, `${seed} toolbar/terminal step`).toBeLessThan(6.8)
       expect(chroma(roles.sidebarPrimaryBg), `${seed} nav HCT chroma`).toBeLessThanOrEqual(27)
     }
   })
 
-  it('keeps dark surfaces restrained at atmosphere 100 and decouples the terminal', () => {
+  it('keeps dark surfaces restrained at atmosphere 100 and coordinates the terminal', () => {
     for (const seed of COLOR_SEEDS) {
       const relaxed = deriveColorRoles({seed, tone: 'dark', atmosphere: 75})
       const vivid = deriveColorRoles({seed, tone: 'dark', atmosphere: 100})
-      expect(hctTone(vivid.sidebarPrimaryBg), `${seed} nav tone`).toBeGreaterThanOrEqual(26)
-      expect(hctTone(vivid.sidebarPrimaryBg), `${seed} nav tone`).toBeLessThanOrEqual(30)
-      expect(hctTone(vivid.workspaceBg), `${seed} workspace tone`).toBeGreaterThanOrEqual(19)
-      expect(hctTone(vivid.workspaceBg), `${seed} workspace tone`).toBeLessThanOrEqual(22)
-      expect(hctTone(vivid.surfaceBg), `${seed} card tone`).toBeGreaterThanOrEqual(25)
-      expect(hctTone(vivid.surfaceBg), `${seed} card tone`).toBeLessThanOrEqual(27)
+      expect(hctTone(vivid.sidebarPrimaryBg), `${seed} nav tone`).toBeGreaterThanOrEqual(31)
+      expect(hctTone(vivid.sidebarPrimaryBg), `${seed} nav tone`).toBeLessThanOrEqual(36)
+      expect(hctTone(vivid.workspaceBg), `${seed} workspace tone`).toBeGreaterThanOrEqual(23)
+      expect(hctTone(vivid.workspaceBg), `${seed} workspace tone`).toBeLessThanOrEqual(26.5)
+      expect(hctTone(vivid.surfaceBg), `${seed} card tone`).toBeGreaterThanOrEqual(28)
+      expect(hctTone(vivid.surfaceBg), `${seed} card tone`).toBeLessThanOrEqual(32)
       expect(hctTone(vivid.surfaceBg) - hctTone(vivid.workspaceBg), `${seed} card step`).toBeGreaterThanOrEqual(4)
-      expect(hctTone(vivid.sidebarPrimaryBg) - hctTone(vivid.workspaceBg), `${seed} nav step`).toBeLessThanOrEqual(8)
+      expect(hctTone(vivid.sidebarPrimaryBg) - hctTone(vivid.workspaceBg), `${seed} nav step`).toBeLessThanOrEqual(10)
       expect(hexToOklch(vivid.workspaceBg).c, `${seed} workspace OKLCH chroma`).toBeGreaterThanOrEqual(0.012)
       expect(hexToOklch(vivid.workspaceBg).c, `${seed} workspace OKLCH chroma`).toBeLessThanOrEqual(0.04)
       expect(hexToOklch(vivid.surfaceBg).c, `${seed} card OKLCH chroma`).toBeGreaterThanOrEqual(0.012)
@@ -257,11 +270,22 @@ describe('material color engine', () => {
       const glow = hexToOklch(vivid.workspaceGlowColor!).c
       expect(glow, `${seed} glow OKLCH chroma`).toBeGreaterThanOrEqual(0.02)
       expect(glow, `${seed} glow OKLCH chroma`).toBeLessThanOrEqual(0.06)
-      // Terminal is measured in HCT chroma and stays near ink, independent of
-      // the workspace atmosphere and its tone lift.
-      expect(chroma(vivid.terminalBg), `${seed} terminal HCT chroma`).toBeLessThanOrEqual(1.5)
-      expect(hexToOklch(vivid.terminalBg).c, `${seed} terminal OKLCH chroma`).toBeLessThanOrEqual(0.006)
-      expect(Math.abs(hctTone(vivid.terminalBg) - hctTone(relaxed.terminalBg)), `${seed} terminal tone`).toBeLessThanOrEqual(0.5)
+      // Terminal is no longer pinned to one fixed L/C: Atmosphere reaches it,
+      // but its chroma stays below the nav, toolbar and SFTP/surface levels.
+      const ink = hexToOklch(vivid.terminalBg)
+      const toolbar = hexToOklch(vivid.toolbarBg)
+      const sftp = hexToOklch(vivid.surfaceBg)
+      const nav = hexToOklch(vivid.sidebarPrimaryBg)
+      expect(vivid.terminalBg, `${seed} terminal follows atmosphere`).not.toBe(relaxed.terminalBg)
+      expect(ink.c, `${seed} terminal atmosphere tint`).toBeGreaterThan(hexToOklch(relaxed.terminalBg).c)
+      expect(ink.c, `${seed} terminal below toolbar`).toBeLessThan(toolbar.c)
+      expect(ink.c, `${seed} terminal below sftp`).toBeLessThan(sftp.c)
+      expect(ink.c, `${seed} terminal below nav`).toBeLessThan(nav.c)
+      expect(ink.c / sftp.c, `${seed} terminal/sftp chroma ratio`).toBeLessThan(0.85)
+      expect(hueDistance(ink.h, toolbar.h), `${seed} terminal/toolbar hue`).toBeLessThan(12)
+      expect(hctTone(vivid.terminalBg), `${seed} terminal tone`).toBeGreaterThan(16)
+      expect(hctTone(vivid.terminalBg), `${seed} terminal tone`).toBeLessThan(18.5)
+      expect(hctTone(vivid.terminalBg), `${seed} terminal tone step`).toBeLessThan(hctTone(vivid.workspaceBg) - 4)
     }
   })
 
@@ -283,6 +307,123 @@ describe('material color engine', () => {
         ] as const) {
           expect(new Set(channels(roles[key])).size, `${seed} ${atmosphere} ${key}`).toBe(1)
         }
+      }
+    }
+  })
+
+  it('keeps the terminal ink lower-chroma and same-hue than the toolbar and SFTP', () => {
+    for (const seed of COLOR_SEEDS) {
+      for (const atmosphere of [0, 20, 40, 75, 100]) {
+        for (const separation of [0, 65, 100]) {
+          const roles = deriveColorRoles({seed, tone: 'dark', atmosphere, separation})
+          const terminal = hexToOklch(roles.terminalBg)
+          const toolbar = hexToOklch(roles.toolbarBg)
+          const sftp = hexToOklch(roles.surfaceBg)
+          const nav = hexToOklch(roles.sidebarPrimaryBg)
+          const label = `${seed} a${atmosphere} s${separation}`
+
+          // A stable recessed ink step, not a fixed black: the terminal stays
+          // below the toolbar and well below the SFTP panel in tone.
+          expect(hctTone(roles.terminalBg), `${label} tone`).toBeGreaterThan(16)
+          expect(hctTone(roles.terminalBg), `${label} tone`).toBeLessThan(18.5)
+          const toolbarStep = hctTone(roles.toolbarBg) - hctTone(roles.terminalBg)
+          expect(toolbarStep, `${label} toolbar step`).toBeGreaterThan(5)
+          expect(toolbarStep, `${label} toolbar step`).toBeLessThan(6.8)
+          const sftpStep = hctTone(roles.surfaceBg) - hctTone(roles.terminalBg)
+          expect(sftpStep, `${label} sftp step`).toBeGreaterThan(12)
+          expect(sftpStep, `${label} sftp step`).toBeLessThan(14.5)
+
+          if (atmosphere === 0) {
+            expect(terminal.c, `${label} neutral`).toBeLessThan(1e-6)
+            expect(toolbar.c, `${label} toolbar neutral`).toBeLessThan(1e-6)
+            expect(sftp.c, `${label} sftp neutral`).toBeLessThan(1e-6)
+            continue
+          }
+
+          // Chroma is judged by its relationship to the neighbouring regions,
+          // not by a single fixed ceiling.
+          expect(terminal.c, `${label} terminal tint`).toBeGreaterThan(0)
+          expect(terminal.c, `${label} terminal < toolbar`).toBeLessThan(toolbar.c)
+          expect(terminal.c, `${label} terminal < sftp`).toBeLessThan(sftp.c)
+          expect(terminal.c, `${label} terminal < nav`).toBeLessThan(nav.c)
+          expect(terminal.c / toolbar.c, `${label} toolbar ratio`).toBeLessThan(0.85)
+          expect(terminal.c / sftp.c, `${label} sftp ratio`).toBeLessThan(0.85)
+          if (atmosphere >= 40) {
+            // At a very low Atmosphere the absolute tint is already faint; the
+            // ratio may shrink because the dark tone clips chroma harder.
+            expect(terminal.c / toolbar.c, `${label} toolbar ratio`).toBeGreaterThan(0.3)
+            expect(terminal.c / sftp.c, `${label} sftp ratio`).toBeGreaterThan(0.3)
+          }
+          expect(chroma(roles.terminalBg), `${label} HCT < toolbar`).toBeLessThan(chroma(roles.toolbarBg))
+          expect(chroma(roles.terminalBg), `${label} HCT < sftp`).toBeLessThan(chroma(roles.surfaceBg))
+
+          // Hue agreement only matters once the surface tint is perceivable.
+          // Below that, sRGB quantisation makes hue angles noisy.
+          if (terminal.c >= 0.008) {
+            expect(hueDistance(terminal.h, toolbar.h), `${label} toolbar hue`).toBeLessThan(12)
+            expect(hueDistance(terminal.h, sftp.h), `${label} sftp hue`).toBeLessThan(12)
+            expect(hueDistance(terminal.h, nav.h), `${label} nav hue`).toBeLessThan(16)
+          }
+        }
+      }
+    }
+  })
+
+  it('keeps the terminal strictly below nav, toolbar and SFTP for every hue', () => {
+    for (let hue = 0; hue < 360; hue += 20) {
+      const seed = hexFromArgb(Hct.from(hue, 60, 48).toInt())
+      for (const atmosphere of [10, 20, 40, 75, 100]) {
+        for (const separation of [0, 25, 65, 100]) {
+          const roles = deriveColorRoles({seed, tone: 'dark', atmosphere, separation})
+          const terminal = hexToOklch(roles.terminalBg)
+          const toolbar = hexToOklch(roles.toolbarBg)
+          const sftp = hexToOklch(roles.surfaceBg)
+          const nav = hexToOklch(roles.sidebarPrimaryBg)
+          const label = `hue ${hue} a${atmosphere} s${separation}`
+
+          // These are pixel-level comparisons: hex is converted back to OKLCH,
+          // so sRGB quantisation cannot slip a more chromatic ink through.
+          expect(terminal.c, `${label} < toolbar`).toBeLessThan(toolbar.c)
+          expect(terminal.c, `${label} < sftp`).toBeLessThan(sftp.c)
+          expect(terminal.c, `${label} < nav`).toBeLessThan(nav.c)
+
+          if (terminal.c >= 0.008) {
+            expect(hueDistance(terminal.h, toolbar.h), `${label} toolbar hue`).toBeLessThan(12)
+            expect(hueDistance(terminal.h, sftp.h), `${label} sftp hue`).toBeLessThan(12)
+          }
+        }
+      }
+    }
+  })
+
+  it('carries theme warmth into the terminal instead of a fixed cool black', () => {
+    const blue = deriveColorRoles({seed: '#87CEEB', tone: 'dark', atmosphere: 75})
+    const pink = deriveColorRoles({seed: '#E89AB8', tone: 'dark', atmosphere: 75})
+    const blueInk = hexToOklch(blue.terminalBg)
+    const pinkInk = hexToOklch(pink.terminalBg)
+
+    expect(hueDistance(blueInk.h, hexToOklch(blue.toolbarBg).h)).toBeLessThan(12)
+    expect(hueDistance(pinkInk.h, hexToOklch(pink.toolbarBg).h)).toBeLessThan(12)
+    expect(hueDistance(blueInk.h, pinkInk.h)).toBeGreaterThan(90)
+    expect(pinkInk.h > 300 || pinkInk.h < 30).toBe(true)
+    expect(blueInk.h).toBeGreaterThan(190)
+    expect(blueInk.h).toBeLessThan(250)
+    expect(pinkInk.c).toBeGreaterThan(0.008)
+  })
+
+  it('keeps the dark tint continuous into the terminal at low atmosphere', () => {
+    for (const seed of COLOR_SEEDS) {
+      for (const atmosphere of [20, 40]) {
+        const roles = deriveColorRoles({seed, tone: 'dark', atmosphere})
+        const label = `${seed} a${atmosphere}`
+        // The old hard threshold snapped every low-chroma surface back to grey,
+        // leaving a tinted nav next to a neutral terminal. All four neighbours
+        // now keep the same generated hue.
+        expect(hexToOklch(roles.terminalBg).c, `${label} terminal`).toBeGreaterThan(0)
+        expect(hexToOklch(roles.toolbarBg).c, `${label} toolbar`).toBeGreaterThan(0)
+        expect(hexToOklch(roles.surfaceBg).c, `${label} sftp`).toBeGreaterThan(0)
+        expect(hctTone(roles.terminalBg), `${label} tone`).toBeGreaterThan(16)
+        expect(hctTone(roles.terminalBg), `${label} tone`).toBeLessThan(18.5)
       }
     }
   })

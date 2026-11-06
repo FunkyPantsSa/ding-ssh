@@ -9,6 +9,8 @@ import {
   isManagedTerminalBackground,
   monoFontStack,
   resolveTone,
+  resolveTerminalForeground,
+  resolveTerminalSurface,
   terminalAccentColor,
   terminalContrastForeground,
   terminalSurfaceColor,
@@ -199,6 +201,22 @@ describe('theme engine', () => {
     const green = terminalAccentColor('#72B69B', 'light', 100, 100)
     expect(blue).not.toBe(green)
     expect(contrastRatio(blue, lightSurface)).toBeGreaterThanOrEqual(3)
+  })
+
+  it('keeps an independent terminal scheme byte-for-byte when follow mode is off', () => {
+    const scheme = paletteToTheme(defaultPreset().dark)
+    const surface = resolveTerminalSurface(false, scheme.background, '#E89AB8', 'dark', 100, 100)
+    expect(surface).toBe(scheme.background)
+    expect(resolveTerminalForeground(false, scheme.foreground, surface)).toBe(scheme.foreground)
+    // Cursor and selection are chosen directly from the scheme by the view;
+    // no app accent may be substituted in independent mode.
+    expect(scheme.cursor).toBe(defaultPreset().dark.cursor)
+    expect(scheme.selection).toBe(defaultPreset().dark.selection)
+
+    const followed = resolveTerminalSurface(true, scheme.background, '#E89AB8', 'dark', 100, 100)
+    expect(followed).not.toBe(scheme.background)
+    expect(followed).toBe(terminalSurfaceColor('#E89AB8', 'dark', 100, 100))
+    expect(resolveTerminalForeground(true, '#18181b', '#09090b')).toBe('#ffffff')
   })
 
   it('follows the workspace background while preserving terminal colors', () => {

@@ -476,6 +476,8 @@ interface ToneLayout {
   surfaceRaised: number
   surfaceOverlay: number
   toolbar: number
+  /** Terminal is an ink layer below the toolbar, not a copy of the workspace. */
+  terminal: number
   field: number
 }
 
@@ -509,6 +511,7 @@ export function toneLayout(tone: ThemeTone, separation = 65, atmosphere = 75): T
       surfaceRaised: raised,
       surfaceOverlay: Math.min(99.6 - 0.4 * a, raised + 0.4 + 0.2 * s),
       toolbar: workspace - (1.6 + 2.4 * s),
+      terminal: Math.min(99, surface + 0.2),
       field: raised,
     }
   }
@@ -516,25 +519,31 @@ export function toneLayout(tone: ThemeTone, separation = 65, atmosphere = 75): T
   // the light theme. The wide tone range keeps the interface from collapsing
   // into one mid-grey band:
   //
-  //   terminal ink < workspace < toolbar < card < raised < overlay
+  //   terminal ink < toolbar < workspace < secondary < card < raised ≈ nav < overlay
   //
   // The primary sidebar is the only strongly coloured shell surface; it sits
-  // between the card and raised tones so the step from nav to workspace stays
-  // readable but not abrupt. Atmosphere no longer moves these tones: it only
-  // controls the small theme tint applied afterwards.
-  const workspace = 19.8 + 1.2 * s
-  const surface = 24.8 + 1.6 * s
-  const raised = 27.4 + 1.6 * s
+  // at the top of the content ladder, next to the raised card layer, so the
+  // step from nav to workspace stays readable but not abrupt. Atmosphere no
+  // longer moves these tones: it only controls the small theme tint afterwards.
+  const workspace = 23.9 + 1.2 * s
+  const surface = 29.4 + 1.6 * s
+  const raised = 32.0 + 1.6 * s
+  const toolbar = 22.6 + 1.0 * s
   return {
-    app: 12.2 + 0.4 * s,
-    sidebarPrimary: 26.6 + 1.8 * s,
-    sidebarSecondary: 23.2 + 1.5 * s,
+    app: 16.2 + 0.4 * s,
+    sidebarPrimary: 32.6 + 1.8 * s,
+    sidebarSecondary: 27.1 + 1.5 * s,
     workspace,
     surface,
     surfaceRaised: raised,
-    surfaceOverlay: 30.4 + 1.6 * s,
-    toolbar: 21.0 + 1.2 * s,
-    field: 26.2 + 1.6 * s,
+    surfaceOverlay: 35.0 + 1.6 * s,
+    toolbar,
+    // A stable, deliberate ink step: the terminal stays recessed from the
+    // toolbar while the toolbar itself sits just below the workspace. Both the
+    // terminal and its neighbours move with Separation, so the relationship
+    // never turns into an accidental black block at one extreme.
+    terminal: toolbar - 6.0,
+    field: 30.8 + 1.6 * s,
   }
 }
 
@@ -579,16 +588,26 @@ const DARK_TINT = {
   target: {ratio: 0.75, max: 24},
   nav: {influence: 1, hueWeightFloor: 0.85, hueWeightSpan: 0.15},
   secondary: {influence: 0.72, hueWeightFloor: 0.72, hueWeightSpan: 0.28},
-  toolbar: {influence: 0.6, hueWeightFloor: 0.75, hueWeightSpan: 0.25},
+  toolbar: {influence: 0.65, hueWeightFloor: 0.75, hueWeightSpan: 0.25},
   workspace: {influence: 0.62, hueWeightFloor: 0.7, hueWeightSpan: 0.3},
   surface: {influence: 0.6, hueWeightFloor: 0.7, hueWeightSpan: 0.3},
+  // The terminal is an independent ink level, not a fixed neutral. Its tint
+  // budget is deliberately below the toolbar and the SFTP/surface level, while
+  // it inherits the same hue and warm/cool damping as its neighbours.
+  terminal: {influence: 0.4, hueWeightFloor: 0.75, hueWeightSpan: 0.25},
   field: {influence: 0.5, hueWeightFloor: 0.7, hueWeightSpan: 0.3},
   border: {influence: 0.3, hueWeightFloor: 0.7, hueWeightSpan: 0.3},
   glow: {influence: 0.8, hueWeightFloor: 0.65, hueWeightSpan: 0.35},
 } as const
 
-/** Dark terminal is an Ink surface measured directly in HCT chroma, not a tint blend. */
-const DARK_TERMINAL_INK = {ratio: 0.03, maxHctChroma: 0.5}
+/**
+ * Relative chroma guard for the terminal ink. This is intentionally a
+ * relationship, not a fixed HCT ceiling: the terminal may never carry more
+ * than this fraction of whichever neighbour (toolbar / SFTP / nav) is already
+ * the least tinted. The hue is aligned to the toolbar afterwards so a low-tone
+ * gamut shift cannot make the terminal warmer/cooler than its neighbours.
+ */
+const DARK_TERMINAL_MAX_NEIGHBOUR_CHROMA = 0.72
 
 /**
  * Continuous hue weight for dark tinted neutrals. 1.0 around blue/cyan,
@@ -618,7 +637,11 @@ export function applyTint(
   const neutral = hexToOklch(neutralHex)
   const tint = hexToOklch(tintHex)
   const chroma = Math.min(tint.c * influence, maxChroma)
-  if (chroma < 0.02) return neutralHex
+  // Do not snap low-chroma tints back to pure neutral: at low Atmosphere that
+  // produced a visible seam where the nav carried a warm/cool cast but the
+  // toolbar, workspace and terminal abruptly turned grey. Keep the generated
+  // hue all the way down to sRGB's quantisation floor instead.
+  if (chroma < 0.001) return neutralHex
   return oklchToHex({l: neutral.l, c: chroma, h: tint.h})
 }
 
@@ -732,7 +755,7 @@ export function deriveColorRoles(options: ColorRoleOptions): ColorRoles {
     surfaceOverlayBg = toneHex(surfacePalette, layout.surfaceOverlay)
     toolbarBg = toneHex(toolbarPalette, layout.toolbar)
     fieldBg = toneHex(surfacePalette, layout.field)
-    terminalBg = toneHex(surfacePalette, Math.min(99, layout.surface + 0.2))
+    terminalBg = toneHex(surfacePalette, layout.terminal)
   } else {
     // Dark mode starts from a neutral foundation. The theme hue is a generated
     // chroma budget applied afterwards; no seed hue is used for the base.
@@ -774,10 +797,43 @@ export function deriveColorRoles(options: ColorRoleOptions): ColorRoles {
       primaryHue,
       neutralSeed ? 0 : tintTargetChroma * DARK_TINT.border.influence * levelWeight(DARK_TINT.border),
     )
-    const terminalChroma = neutralSeed
-      ? 0
-      : Math.min(DARK_TERMINAL_INK.maxHctChroma, seedChroma * DARK_TERMINAL_INK.ratio) * a
-    terminalBg = toneHex(paletteForHueChroma(primaryHue, terminalChroma), 15.2 + 0.4 * s)
+    // Terminal uses the same generated hue and warm/cool damping as the nav,
+    // toolbar and SFTP surface, but its own lower chroma budget and lower tone.
+    // It is therefore a darker, quieter member of the same material family
+    // rather than a fixed neutral black canvas. The final relationship guard
+    // keeps its chroma below the toolbar, SFTP and nav, and aligns its hue to
+    // the toolbar, compensating for sRGB gamut shifts at the low ink tone.
+    terminalBg = darkSurface(layout.terminal, DARK_TINT.terminal)
+    if (!neutralSeed && tintTargetChroma > 0) {
+      const ink = hexToOklch(terminalBg)
+      const toolbar = hexToOklch(toolbarBg)
+      const sftp = hexToOklch(surfaceBg)
+      const nav = hexToOklch(sidebarPrimaryBg)
+      const neighbourChroma = Math.min(toolbar.c, sftp.c, nav.c)
+      // Below this level the neighbours' tint is imperceptible and sRGB
+      // quantisation can easily make the terminal parse back as *more*
+      // chromatic than them. A neutral ink is the honest result there.
+      let targetChroma =
+        neighbourChroma <= 0.002
+          ? 0
+          : Math.min(ink.c, neighbourChroma * DARK_TERMINAL_MAX_NEIGHBOUR_CHROMA)
+      let inkHex = oklchToHex({l: ink.l, c: targetChroma, h: toolbar.h})
+      // sRGB has a coarse grid at these dark, near-neutral tones: a requested
+      // chroma can quantise *upwards* past the neighbour. Step down until the
+      // rendered colour is actually below the neighbour, or fall back to a
+      // neutral ink. This keeps the relation true for the pixels, not just for
+      // the pre-quantisation request.
+      for (let attempt = 0; attempt < 12 && targetChroma > 0; attempt += 1) {
+        if (hexToOklch(inkHex).c < neighbourChroma) break
+        targetChroma *= 0.8
+        inkHex = oklchToHex({
+          l: ink.l,
+          c: targetChroma < 0.0005 ? 0 : targetChroma,
+          h: toolbar.h,
+        })
+      }
+      terminalBg = inkHex
+    }
   }
 
   // Ambient gradients are generated from the semantic base surfaces, never
