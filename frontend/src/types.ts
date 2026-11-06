@@ -106,16 +106,27 @@ export interface Theme {
   brightWhite: string
 }
 
-// UI 外观（对应 Go 端 models.UIAppearance）：品牌色 + 明暗模式。
+// UI 外观（对应 Go 端 models.UIAppearance）：配色种子 + 明暗模式 + 材质。
+export type MaterialMode = 'solid' | 'soft' | 'clear'
+
 export interface UIAppearance {
+  terminalBackgroundMode?: string
+  /** 主题氛围强度 0–100；旧字段 colorIntensity 作为兼容别名保留。 */
+  atmosphere?: number
+  /** 区域层级差异 0–100。 */
+  surfaceSeparation?: number
+  /** 材质模式：实色 / 柔和毛玻璃 / 通透毛玻璃。 */
+  materialMode?: MaterialMode
+  /** @deprecated 使用 atmosphere；旧配置迁移时自动同步。 */
+  colorIntensity?: number
   glassEnabled?: boolean
   mode: 'preset' | 'custom' // preset 预设 / custom 自定义
   presetId: string // 预设主题 ID（preset 模式）
   baseTone: 'auto' | 'light' | 'dark' // 明暗模式
-  primary: string // custom：主色（hex）
+  primary: string // custom：主色 / 配色种子（hex）
   secondary: string // custom：辅色（hex）
-  uiText: string // custom：界面主文字色（hex）
-  glassOpacity: number // 应用玻璃表面不透明度（40–100）
+  uiText: string // custom：界面主文字色（hex；旧字段，仅兼容）
+  glassOpacity: number // 应用玻璃表面不透明度（60–100）
   glassBlur: number // 应用玻璃表面模糊强度（0–60px）
 }
 

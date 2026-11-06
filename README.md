@@ -187,7 +187,7 @@ Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前
 
 本次不是换色或局部页面改版，而是一次保持业务能力与原信息架构的前端分层重构：
 
-- **设计系统成为单一来源**：样式从一个巨型 `style.css` 拆成 `tokens.css → semantic.css → components.css`，Tailwind v4 只映射语义令牌；主题引擎只写语义值，终端色板独立在 `terminal.css`。新安装默认使用 Geist + 蓝色强调，`uiSchema=2` 负责旧设置的幂等迁移。
+- **设计系统成为单一来源**：样式从一个巨型 `style.css` 拆成 `tokens.css → semantic.css → components.css`，Tailwind v4 只映射语义令牌；主题引擎只写语义值，终端色板独立在 `terminal.css`。配色由 Material Color Utilities 的 HCT / Tonal Spot 从用户种子动态派生（主导航、二级导航、工作区、卡片、交互、文字与状态各自成组），`uiSchema=4` 负责旧设置的幂等迁移；材质支持 Solid / Soft Glass / Clear Glass，详见 [`docs/theme-system.md`](docs/theme-system.md)。
 - **应用外壳与业务解耦**：`App.vue` 只负责组装与全局状态；侧栏、顶栏、解锁页进入 `layouts/`，终端工作区进入 `views/`，命令面板、服务器、设置、终端与隧道各自拆成领域组件。原有「工作区 / 服务器 / 隧道 / 设置」导航保持不变，传输历史仍属于工作区右侧面板。
 - **公共交互收口**：表单、对话框、状态与空态收口到 `components/ui/`；主题、快捷键、Toast、设置和终端补全状态下沉到 `composables/`。Dialog 和菜单补齐焦点陷阱、方向键 / Home / End / Esc、焦点恢复及 ARIA 语义。
 - **命令与自动化共用契约**：命令面板、`app.commands` 与快捷键来自统一注册表；关键区域使用 `data-ui`，动态项使用业务 id 的 `data-tab-id` / `data-testid`，避免调试工具依赖 Tailwind 类名与 DOM 下标。
@@ -508,7 +508,7 @@ git push origin v1.0.0
 
 **当前实现**
 
-1. **token 分层**：`theme/tokens.css` → `semantic.css` → `components.css`，主题引擎只写语义值。
+1. **token 分层**：`theme/tokens.css` → `semantic.css` → `components.css`，主题引擎只写语义值；动态配色架构、迁移与验收矩阵见 [`docs/theme-system.md`](docs/theme-system.md)。
 2. **无障碍基线**：命令面板具备 dialog/listbox 语义、循环键盘导航、焦点保护与输入法保护。
 3. **自动化契约**：关键区域使用 `data-ui`，动态项使用业务 id，`ui.layout` 只依赖稳定语义选择器。
 4. **资源治理**：字体支持可配置字体及对应许可；`scripts/verify-ui2.sh` 检查 CSS、JS、字体和 dist 预算。

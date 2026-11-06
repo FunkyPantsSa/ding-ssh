@@ -45,7 +45,7 @@ onMounted(() => {
         <div
           v-for="c in credentials.list"
           :key="c.id"
-          class="flex items-center gap-3 px-3 py-2 rounded-md bg-slate-800/50 border border-slate-700/40"
+          class="flex items-center gap-3 px-3 py-2 rounded-md bg-surface-raised border border-slate-700/40"
         >
           <div class="min-w-0 flex-1">
             <p class="text-[13px] text-slate-200 truncate">{{ c.name }}</p>

@@ -433,17 +433,23 @@ type Theme struct {
 	BrightWhite   string `json:"brightWhite"`
 }
 
-// UIAppearance UI 外观：品牌色与明暗模式。
+// UIAppearance UI 外观：配色种子、明暗模式与材质模式。
+// 具体色板由前端 HCT 动态配色引擎从 Primary 种子派生。
 type UIAppearance struct {
-	GlassEnabled bool   `json:"glassEnabled"`
-	Mode         string `json:"mode"`         // preset | custom
-	PresetID     string `json:"presetId"`     // 预设主题 ID（preset 模式）
-	BaseTone     string `json:"baseTone"`     // auto | light | dark
-	Primary      string `json:"primary"`      // custom：主色（hex）
-	Secondary    string `json:"secondary"`    // custom：辅色（hex）
-	UiText       string `json:"uiText"`       // custom：界面主文字色（hex）
-	GlassOpacity int    `json:"glassOpacity"` // 应用玻璃表面不透明度（40–100）
-	GlassBlur    int    `json:"glassBlur"`    // 应用玻璃表面模糊强度（0–60px）
+	Atmosphere             *int   `json:"atmosphere,omitempty"`        // 主题氛围强度 0–100
+	SurfaceSeparation      *int   `json:"surfaceSeparation,omitempty"` // 区域层级差异 0–100
+	MaterialMode           string `json:"materialMode,omitempty"`      // solid | soft | clear
+	ColorIntensity         *int   `json:"colorIntensity,omitempty"`    // 旧字段：atmosphere 的兼容别名
+	TerminalBackgroundMode string `json:"terminalBackgroundMode"`
+	GlassEnabled           bool   `json:"glassEnabled"`
+	Mode                   string `json:"mode"`         // preset | custom
+	PresetID               string `json:"presetId"`     // 预设主题 ID（preset 模式）
+	BaseTone               string `json:"baseTone"`     // auto | light | dark
+	Primary                string `json:"primary"`      // custom：配色种子（hex）
+	Secondary              string `json:"secondary"`    // custom：辅色（hex）
+	UiText                 string `json:"uiText"`       // custom：界面主文字色（hex；旧字段）
+	GlassOpacity           int    `json:"glassOpacity"` // 应用玻璃表面不透明度（60–100）
+	GlassBlur              int    `json:"glassBlur"`    // 应用玻璃表面模糊强度（0–60px）
 }
 
 // Fonts 字体设置。
@@ -453,17 +459,24 @@ type Fonts struct {
 	TerminalFontSize int    `json:"terminalFontSize"` // 终端字号（默认 13）
 }
 
-// DefaultAppearance 返回默认外观（Geist + 跟随系统明暗）。
+// DefaultAppearance 返回默认外观（天空蓝 + 深色 + 实色）。
 func DefaultAppearance() UIAppearance {
+	atmosphere := 75
+	separation := 65
 	return UIAppearance{
-		Mode:         "preset",
-		PresetID:     "geist",
-		BaseTone:     "auto",
-		Primary:      "#3b82f6",
-		Secondary:    "#a1a1aa",
-		UiText:       "#fafafa",
-		GlassOpacity: 85,
-		GlassBlur:    24,
+		Atmosphere:             &atmosphere,
+		SurfaceSeparation:      &separation,
+		MaterialMode:           "solid",
+		TerminalBackgroundMode: "follow",
+		GlassEnabled:           false,
+		Mode:                   "preset",
+		PresetID:               "sky",
+		BaseTone:               "dark",
+		Primary:                "#71B5D2",
+		Secondary:              "#71B5D2",
+		UiText:                 "#fafafa",
+		GlassOpacity:           85,
+		GlassBlur:              24,
 	}
 }
 
@@ -471,7 +484,7 @@ func DefaultAppearance() UIAppearance {
 func DefaultFonts() Fonts {
 	return Fonts{
 		UiFont:           "Geist Sans",
-		TerminalFont:     "Geist Mono",
+		TerminalFont:     "JetBrains Mono + Sarasa Mono SC",
 		TerminalFontSize: 13,
 	}
 }
@@ -479,10 +492,10 @@ func DefaultFonts() Fonts {
 // DefaultTheme 返回默认终端主题。
 func DefaultTheme() Theme {
 	return Theme{
-		Background: "#223550",
+		Background: "#18252b",
 		Foreground: "#fafafa",
-		Cursor:     "#3b82f6",
-		Selection:  "rgba(59, 130, 246, 0.28)",
+		Cursor:     "#71B5D2",
+		Selection:  "rgba(113, 181, 210, 0.28)",
 		BgImage:    "",
 		BlurAmount: 12,
 		TextShadow: false,

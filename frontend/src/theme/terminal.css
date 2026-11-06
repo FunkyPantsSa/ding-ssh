@@ -1,2 +1,5 @@
-/* The workspace owns the single glass tint; terminal wrappers must not add another. */
-.terminal-bg { background: transparent; }
+/* Terminal readability protection: the wrapper always paints the opaque
+   terminal surface derived by the theme engine. Shell glass must never show
+   through terminal text. xterm itself only goes translucent when the user
+   explicitly sets a terminal background image. */
+.terminal-bg { background: var(--terminal-bg, #11171a); }

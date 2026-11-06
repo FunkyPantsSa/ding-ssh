@@ -1,4 +1,4 @@
-// 预设主题库：7 套精选配色，每套含 UI 主/辅色与深/浅两套终端色板。
+// 预设主题库：精选配色，每套含 UI 主/辅色与深/浅两套终端色板。
 // 终端色板用于映射 ANSI 16 色，让 ls / vim / 提示符等程序输出跟随主题。
 import type {Theme} from '../types'
 
@@ -25,6 +25,23 @@ export interface ThemePreset {
 
 export const PRESETS: ThemePreset[] = [
   {
+    id: 'sky',
+    name: '天空蓝',
+    desc: '默认 · 清朗天空蓝',
+    primary: '#71B5D2',
+    secondary: '#71B5D2',
+    dark: {
+      background: '#18252b', foreground: '#fafafa', cursor: '#71B5D2', selection: 'rgba(113, 181, 210, 0.28)',
+      ansi: ['#09090b', '#ef4444', '#22c55e', '#f59e0b', '#3b82f6', '#a855f7', '#06b6d4', '#fafafa'],
+      bright: ['#52525b', '#f87171', '#4ade80', '#fbbf24', '#60a5fa', '#c084fc', '#22d3ee', '#ffffff'],
+    },
+    light: {
+      background: '#f5f6f7', foreground: '#18181b', cursor: '#2563eb', selection: 'rgba(37, 99, 235, 0.22)',
+      ansi: ['#18181b', '#dc2626', '#16a34a', '#d97706', '#2563eb', '#9333ea', '#0891b2', '#f4f4f5'],
+      bright: ['#71717a', '#ef4444', '#22c55e', '#f59e0b', '#3b82f6', '#a855f7', '#06b6d4', '#ffffff'],
+    },
+  },
+  {
     id: 'geist',
     name: 'Geist',
     desc: '默认 · 中性深色',
@@ -39,6 +56,20 @@ export const PRESETS: ThemePreset[] = [
       background: '#f5f6f7', foreground: '#18181b', cursor: '#2563eb', selection: 'rgba(37, 99, 235, 0.22)',
       ansi: ['#18181b', '#dc2626', '#16a34a', '#d97706', '#2563eb', '#9333ea', '#0891b2', '#f4f4f5'],
       bright: ['#71717a', '#ef4444', '#22c55e', '#f59e0b', '#3b82f6', '#a855f7', '#06b6d4', '#ffffff'],
+    },
+  },
+  {
+    id: 'monochrome', name: '黑白', desc: '黑白灰 · 简洁清晰',
+    primary: '#A3A3A3', secondary: '#737373',
+    dark: {
+      background: '#171717', foreground: '#f5f5f5', cursor: '#ffffff', selection: 'rgba(255, 255, 255, 0.22)',
+      ansi: ['#171717', '#a3a3a3', '#d4d4d4', '#bdbdbd', '#b3b3b3', '#c4c4c4', '#e5e5e5', '#f5f5f5'],
+      bright: ['#737373', '#d4d4d4', '#ededed', '#e0e0e0', '#d9d9d9', '#e5e5e5', '#f5f5f5', '#ffffff'],
+    },
+    light: {
+      background: '#fafafa', foreground: '#171717', cursor: '#171717', selection: 'rgba(0, 0, 0, 0.16)',
+      ansi: ['#171717', '#404040', '#262626', '#525252', '#454545', '#383838', '#303030', '#e5e5e5'],
+      bright: ['#737373', '#525252', '#404040', '#636363', '#595959', '#4a4a4a', '#454545', '#ffffff'],
     },
   },
   {
@@ -209,7 +240,7 @@ export function presetById(id: string): ThemePreset | undefined {
 }
 
 export function defaultPreset(): ThemePreset {
-  return PRESETS[0]
+  return presetById('sky')!
 }
 
 /** The pre-UI2 default, retained solely to identify untouched configurations. */

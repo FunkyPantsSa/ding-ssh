@@ -32,9 +32,10 @@ import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
 import {useTerminalCompletion} from '../composables/useTerminalCompletion'
 import {loadTerminalFonts} from '../theme/terminal-fonts'
+import {systemTone} from '../composables/useSystemTone'
 import {ClipboardGetText, ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import {LogClient, SetLogTrace} from '../../wailsjs/go/main/App'
-import {terminalContrastForeground, deriveSurfaceVars, isManagedTerminalBackground, effectiveBrand, resolveTone, monoFontStack, readableOn} from '../theme/engine'
+import {terminalAccentColor, terminalContrastForeground, terminalSurfaceColor, effectiveBrand, monoFontStack, readableOn, rgba} from '../theme/engine'
 import {recordRecentServer} from '../services/recent'
 import type {SessionTab} from '../types'
 
@@ -115,29 +116,43 @@ const bgImageStyle = computed(() => {
   }
 })
 
+const followsAppTheme = computed(
+  () => !settings.theme.bgImage && settings.appearance.terminalBackgroundMode !== 'independent',
+)
+const appTone = computed(() => settings.appearance.baseTone === 'auto' ? systemTone.value : settings.appearance.baseTone)
+const terminalTone = computed(() => appTone.value)
 const terminalBackground = computed(() => {
-  const tone = resolveTone(settings.appearance.baseTone)
   const seed = effectiveBrand(settings.appearance).primary
-  if (!settings.theme.bgImage && isManagedTerminalBackground(settings.theme.background, seed, tone)) {
-    return deriveSurfaceVars(seed, tone)['--theme-bg-main']
+  if (followsAppTheme.value) {
+    // Follow the app's light/dark tone and seed tint. The terminal palette's
+    // ANSI colors are left untouched; xterm's minimumContrastRatio and the
+    // foreground guard keep them legible on the new surface.
+    return terminalSurfaceColor(
+      seed,
+      terminalTone.value,
+      settings.appearance.atmosphere ?? settings.appearance.colorIntensity ?? 75,
+      settings.appearance.surfaceSeparation ?? 65,
+    )
   }
   return settings.theme.background
 })
-
-const useGlassTerminal = computed(() => {
-  if (!settings.appearance.glassEnabled || settings.theme.bgImage) return false
-  const tone = resolveTone(settings.appearance.baseTone)
-  return isManagedTerminalBackground(settings.theme.background, effectiveBrand(settings.appearance).primary, tone)
-})
+const terminalAccent = computed(() =>
+  terminalAccentColor(
+    effectiveBrand(settings.appearance).primary,
+    terminalTone.value,
+    settings.appearance.atmosphere ?? settings.appearance.colorIntensity ?? 75,
+    settings.appearance.surfaceSeparation ?? 65,
+  ),
+)
 
 const terminalStyle = computed(() => ({
-  '--xterm-text-shadow': settings.theme.textShadow && resolveTone(settings.appearance.baseTone) !== 'light'
+  '--xterm-text-shadow': settings.theme.textShadow && appTone.value !== 'light'
     ? 'var(--terminal-text-shadow)'
     : 'none',
   '--terminal-shadow-blur': `${settings.theme.shadowBlur}px`,
   // 终端容器底色跟随终端主题：xterm 的内边距区域也呈现终端背景色，
   // 避免浅色界面下终端四周露出一圈界面底色边框（终端主题与界面明暗相互独立）。
-  background: useGlassTerminal.value ? 'transparent' : terminalBackground.value,
+  background: terminalBackground.value,
   // 不再反向抵消全局 zoom：app-shell 的 zoom 会整体等比缩放（含终端字号），
   // 若在此处设置 zoom: 1/z 会把 xterm 容器压缩 1/z，导致分屏格右侧/底部出现空白。
 }))
@@ -153,14 +168,19 @@ function applyTheme() {
   const t = settings.theme
   // Windows 透明字形比不透明背景上的字形显细，使用真实 Medium 字重补偿。
   term.options.fontWeight = terminalFontWeight()
-  const background = useGlassTerminal.value ? hexToRgba(terminalBackground.value, 0) : t.bgImage ? hexToRgba(t.background, 0.85) : terminalBackground.value
-  term.options.allowTransparency = useGlassTerminal.value || !!t.bgImage
+  const background = t.bgImage ? hexToRgba(t.background, 0.85) : terminalBackground.value
+  // Readability protection: only a user-provided background image may make the
+  // terminal translucent. Glass material never lowers terminal opacity.
+  term.options.allowTransparency = !!t.bgImage
+  const follow = followsAppTheme.value
+  const cursor = follow ? terminalAccent.value : t.cursor
+  const selectionBackground = follow ? rgba(terminalAccent.value, 0.28) : t.selection
   term.options.theme = {
     background,
     foreground: terminalContrastForeground(t.foreground, terminalBackground.value),
-    cursor: t.cursor,
-    cursorAccent: readableOn(t.cursor),
-    selectionBackground: t.selection,
+    cursor,
+    cursorAccent: readableOn(cursor),
+    selectionBackground,
     black: t.black,
     red: t.red,
     green: t.green,
@@ -200,7 +220,7 @@ function applyFontSettings() {
 }
 
 function terminalFontWeight(): 400 | 500 {
-  return navigator.userAgent.includes('Windows') && (useGlassTerminal.value || !!settings.theme.bgImage) ? 500 : 400
+  return navigator.userAgent.includes('Windows') && !!settings.theme.bgImage ? 500 : 400
 }
 
 /**
@@ -1012,10 +1032,11 @@ onMounted(() => {
 })
 
 watch(
-  () => [settings.theme, useGlassTerminal.value, settings.appearance.glassEnabled, settings.appearance.glassOpacity],
+  () => [settings.theme, terminalBackground.value, followsAppTheme.value, terminalAccent.value],
   () => {
+    // Update xterm options only. The Terminal instance, SSH session, scroll
+    // position, input buffer and viewport size are never recreated here.
     applyTheme()
-    applyFontSettings()
   },
   {deep: true},
 )

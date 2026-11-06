@@ -105,7 +105,7 @@ onMounted(async () => {
       >
         <div class="flex items-center gap-2 flex-wrap">
           <span class="font-mono text-slate-500">{{ formatAuditTime(rec.ts) }}</span>
-          <span class="px-1.5 py-0.5 rounded bg-slate-800/70 text-slate-300">{{ auditSourceLabel(rec.source) }}</span>
+          <span class="px-1.5 py-0.5 rounded bg-surface-raised text-slate-300">{{ auditSourceLabel(rec.source) }}</span>
           <span class="font-mono text-slate-200 break-all">{{ rec.tool }}</span>
           <span v-if="rec.cap" class="font-mono text-[11px] text-signal break-all">{{ rec.cap }}</span>
           <span class="text-slate-500">{{ rec.durationMs }}ms</span>
@@ -119,7 +119,7 @@ onMounted(async () => {
         </div>
         <pre
           v-if="expandedAudit === rec.id"
-          class="mt-1 p-2 rounded bg-slate-900/70 text-[11px] text-slate-300 whitespace-pre-wrap break-all"
+          class="mt-1 p-2 rounded bg-surface text-[11px] text-slate-300 whitespace-pre-wrap break-all"
         >{{ rec.args }}</pre>
       </div>
     </div>

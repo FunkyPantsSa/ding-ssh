@@ -1,5 +1,5 @@
 import {afterEach, expect, it, vi} from 'vitest'
-import {loadTerminalFonts} from './terminal-fonts'
+import {loadTerminalFonts, fontPair, encodeFontPair, terminalFontFamilies} from './terminal-fonts'
 vi.mock('./remote-fonts', () => ({ensureRemoteFont: vi.fn().mockResolvedValue(undefined)}))
 
 afterEach(() => vi.unstubAllGlobals())
@@ -21,4 +21,12 @@ it('waits for Chinese and bold faces before the terminal can rebuild its atlas',
   ready[3]()
   await loading
   expect(finished).toBe(true)
+})
+
+
+it('keeps English and Chinese choices independent and preserves legacy schemes', () => {
+  const name = encodeFontPair('Maple Mono NF CN', 'Sarasa Mono SC')
+  expect(fontPair(name)).toEqual(['Maple Mono NF CN', 'Sarasa Mono SC'])
+  expect(terminalFontFamilies(name)).toEqual(['DingLatin-Maple Mono NF CN', 'Sarasa Mono SC'])
+  expect(fontPair('JetBrains Mono + Sarasa Mono SC')).toEqual(['JetBrains Mono', 'Sarasa Mono SC'])
 })

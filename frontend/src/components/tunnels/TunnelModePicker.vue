@@ -19,7 +19,7 @@ const modes: TunnelMode[] = ['local', 'remote', 'dynamic']
       v-for="mode in modes"
       :key="mode"
       class="relative neo-flat p-4 text-left transition-all"
-      :class="modelValue === mode ? 'ring-1 ring-[var(--primary-hover)] bg-[var(--primary-weak)]' : 'hover:bg-white/3'"
+      :class="modelValue === mode ? 'ring-1 ring-[var(--primary-hover)] bg-[var(--primary-weak)]' : 'hover:bg-surface-raised'"
       :aria-checked="modelValue === mode"
       role="radio"
       @click="emit('update:modelValue', mode)"

@@ -54,6 +54,7 @@ html, body, #app {
   margin: 0;
   overflow: hidden;
 }
+html { background: var(--app-bg, transparent); }
 body {
   font-family: var(--font-sans);
   background: transparent;
@@ -73,7 +74,7 @@ img, svg { display: block; max-width: 100%; }
 
 /* ---------- 焦点可见性（键盘导航） ---------- */
 :focus-visible {
-  outline: 2px solid var(--primary-hover);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
@@ -88,7 +89,9 @@ img, svg { display: block; max-width: 100%; }
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-window);
-  background: transparent;
+  /* Solid mode paints an opaque root; glass mode resolves this token to
+     transparent so the native backdrop remains visible. */
+  background: var(--app-bg, transparent);
   overflow: hidden;
 }
 .app-shell.platform-macos,.app-shell.platform-windows { padding-top: 28px; }
@@ -96,8 +99,8 @@ img, svg { display: block; max-width: 100%; }
   position: absolute;
   inset: 0 0 auto 0;
   height: 28px;
-  background: var(--theme-bg-sidebar, var(--surface-1));
-  box-shadow: inset 0 -1px 0 var(--line);
+  background: var(--sidebar-primary-bg, var(--surface-1));
+  box-shadow: inset 0 -1px 0 var(--border-subtle);
   -webkit-app-region: drag;
   --wails-draggable: drag;
   z-index: 70;
@@ -144,9 +147,11 @@ body.col-resizing * { cursor: col-resize !important; }
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--theme-bg-sidebar, var(--surface-1));
-  backdrop-filter: blur(var(--theme-glass-blur, 0)) saturate(120%);
-  -webkit-backdrop-filter: blur(var(--theme-glass-blur, 0)) saturate(120%);
+  /* Tier 1: the only large region that carries a visible ambient ramp.
+     The token includes the material alpha, so Solid / Glass share one path. */
+  background: var(--sidebar-primary-gradient, var(--sidebar-primary-bg, var(--surface-1)));
+  backdrop-filter: blur(var(--glass-shell-blur, 0px)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-shell-blur, 0px)) saturate(120%);
   border: 0;
   border-right: 1px solid var(--border-subtle);
   border-radius: var(--radius-layout);
@@ -225,8 +230,12 @@ body.col-resizing * { cursor: col-resize !important; }
   white-space: nowrap;
   transition: background var(--dur), color var(--dur);
 }
-.nav-item:hover { background: var(--hover); color: var(--foreground); }
-.nav-item.active { background: var(--hover-strong); color: var(--foreground); }
+.nav-item:hover { background: var(--interactive-hover-bg); color: var(--text-primary); }
+.nav-item.active {
+  background: var(--interactive-active-bg);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
 .nav-item.active::before {
   content: "";
   position: absolute;
@@ -234,11 +243,12 @@ body.col-resizing * { cursor: col-resize !important; }
   top: 7px;
   bottom: 7px;
   width: 2px;
-  background: var(--primary-hover);
+  border-radius: var(--radius-pill);
+  background: var(--accent-bg);
 }
-.nav-item .nav-ico { color: var(--muted-foreground); flex-shrink: 0; }
-.nav-item:hover .nav-ico { color: var(--foreground); }
-.nav-item.active .nav-ico { color: var(--primary-hover); }
+.nav-item .nav-ico { color: var(--text-muted); flex-shrink: 0; }
+.nav-item:hover .nav-ico { color: var(--text-primary); }
+.nav-item.active .nav-ico { color: var(--accent-bg); }
 .nav-item .nav-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .nav-item .nav-count {
   font-family: var(--font-mono);
@@ -324,8 +334,8 @@ body.col-resizing * { cursor: col-resize !important; }
   gap: 10px;
   padding: 0 12px 0 14px;
   border-radius: var(--radius-layout);
-  background: var(--surface-1);
-  box-shadow: inset 0 -1px 0 var(--line);
+  background: var(--toolbar-bg, var(--surface-1));
+  box-shadow: inset 0 -1px 0 var(--border-subtle);
   flex-shrink: 0;
 }
 .topbar h1 {
@@ -412,9 +422,9 @@ body.col-resizing * { cursor: col-resize !important; }
    面板 / 卡片
    ============================================================ */
 .panel {
-  background: var(--surface-1);
+  background: var(--surface-bg);
   border-radius: var(--radius-card);
-  box-shadow: inset 0 0 0 1px var(--line);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
 }
 .panel-head {
   height: 40px;
@@ -422,21 +432,21 @@ body.col-resizing * { cursor: col-resize !important; }
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  box-shadow: inset 0 -1px 0 var(--line);
+  box-shadow: inset 0 -1px 0 var(--border-subtle);
   flex-shrink: 0;
 }
 /* 兼容旧类名：neo 系列改为平面卡片 */
 .neo {
-  background: var(--surface-2);
+  background: var(--surface-bg);
   border-radius: var(--radius-card);
-  box-shadow: inset 0 0 0 1px var(--line);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
   transition: box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.neo-hover:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.neo-hover:hover { box-shadow: inset 0 0 0 1px var(--border-default); }
 .neo-flat {
-  background: var(--surface-3);
+  background: var(--surface-raised-bg);
   border-radius: var(--radius-sm);
-  box-shadow: inset 0 0 0 1px var(--line);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
 }
 .surface-quiet {
   background: var(--field-bg);
@@ -530,7 +540,12 @@ body.col-resizing * { cursor: col-resize !important; }
   transition: box-shadow var(--dur), background var(--dur);
 }
 .textarea { height: auto; min-height: 84px; padding: 8px 10px; line-height: 1.55; resize: vertical; }
-.input::placeholder, .textarea::placeholder { color: var(--muted-foreground); }
+.input::placeholder, .textarea::placeholder { color: var(--text-muted); }
+.input:disabled, .select:disabled, .textarea:disabled {
+  color: var(--text-disabled);
+  background: var(--interactive-disabled-bg);
+  cursor: not-allowed;
+}
 .input:hover, .select:hover, .textarea:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
 .input:focus, .select:focus, .textarea:focus {
   outline: none;
@@ -742,7 +757,7 @@ body.col-resizing * { cursor: col-resize !important; }
   min-height: 0;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--surface-2) var(--theme-glass-opacity, 88%), transparent);
+  background: var(--sidebar-secondary-bg);
   box-shadow: 0 14px 36px rgb(0 0 0 / 6%);
 }
 .side-group-item {
@@ -756,9 +771,13 @@ body.col-resizing * { cursor: col-resize !important; }
   color: var(--foreground-secondary);
   transition: color var(--dur), background var(--dur);
 }
-.side-group-item:hover { background: var(--hover); color: var(--foreground); }
-.side-group-item.active { color: var(--foreground); background: var(--hover-strong); }
-.side-group-item.active .count { color: var(--primary-hover); }
+.side-group-item:hover { background: var(--interactive-hover-bg); color: var(--text-primary); }
+.side-group-item.active {
+  color: var(--text-primary);
+  background: var(--interactive-active-bg);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+.side-group-item.active .count { color: var(--accent-bg); }
 .side-group-item .count {
   min-width: 18px;
   padding: 0 5px;
@@ -774,7 +793,7 @@ body.col-resizing * { cursor: col-resize !important; }
 .server-list-panel {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--surface-2) var(--theme-glass-opacity, 88%), transparent);
+  background: var(--surface-bg);
   box-shadow: 0 14px 36px rgb(0 0 0 / 6%);
 }
 /* 列表行：密集、发丝分隔 */
@@ -788,8 +807,8 @@ body.col-resizing * { cursor: col-resize !important; }
   transition: background var(--dur);
 }
 .server-row + .server-row { box-shadow: inset 0 1px 0 var(--line); }
-.server-row:hover { background: var(--hover); }
-.server-row.active { background: var(--primary-weak); }
+.server-row:hover { background: var(--interactive-hover-bg); }
+.server-row.active { background: var(--interactive-active-bg); box-shadow: inset 0 0 0 1px var(--accent-border); }
 .server-row .latency {
   display: inline-flex;
   align-items: center;
@@ -899,8 +918,10 @@ body.col-resizing * { cursor: col-resize !important; }
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--surface-1);
-  box-shadow: inset 1px 0 0 var(--line);
+  background: var(--surface-bg);
+  backdrop-filter: blur(var(--glass-shell-blur, 0px)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-shell-blur, 0px)) saturate(120%);
+  box-shadow: inset 1px 0 0 var(--border-subtle);
   flex-shrink: 0;
   /* 宽度可拖动（最窄 260px）：兜底裁剪，避免内部不换行的工具条把内容溢出到终端上。
      面板内的右键菜单是 Teleport 到 body 的，不受这里裁剪影响。 */
@@ -928,9 +949,9 @@ body.col-resizing * { cursor: col-resize !important; }
   border-radius: var(--radius-layout);
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--muted-foreground);
-  background: var(--surface-1);
-  box-shadow: inset 0 1px 0 var(--line);
+  color: var(--text-muted);
+  background: var(--toolbar-bg, var(--surface-1));
+  box-shadow: inset 0 1px 0 var(--border-subtle);
   flex-shrink: 0;
 }
 .metric { display: flex; align-items: center; gap: 6px; }
@@ -976,9 +997,9 @@ body.col-resizing * { cursor: col-resize !important; }
   padding: var(--space-5);
   max-height: min(90vh, 720px);
   overflow: auto;
-  background: var(--surface-2);
+  background: var(--surface-overlay-bg);
   border-radius: var(--radius-md);
-  box-shadow: inset 0 0 0 1px var(--line-strong), var(--shadow-pop);
+  box-shadow: inset 0 0 0 1px var(--border-strong), var(--shadow-pop);
 }
 .modal.wide { width: min(560px, 100%); padding: 0; }
 .modal h3 { font-size: 15px; font-weight: 600; color: var(--foreground); }
@@ -988,9 +1009,9 @@ body.col-resizing * { cursor: col-resize !important; }
   padding: 4px;
   z-index: 80;
   font-size: 12.5px;
-  background: var(--surface-2);
+  background: var(--surface-overlay-bg);
   border-radius: var(--radius-md);
-  box-shadow: inset 0 0 0 1px var(--line-strong), var(--shadow-pop);
+  box-shadow: inset 0 0 0 1px var(--border-strong), var(--shadow-pop);
 }
 .menu-pop button {
   display: flex;
@@ -1001,10 +1022,10 @@ body.col-resizing * { cursor: col-resize !important; }
   border-radius: var(--radius-sm);
   color: var(--foreground);
 }
-.menu-pop button:hover { background: var(--hover-strong); color: var(--foreground); }
+.menu-pop button:hover { background: var(--interactive-hover-bg); color: var(--text-primary); }
 .menu-pop button.danger { color: var(--destructive); }
 .menu-pop button.danger:hover { background: var(--destructive-weak-hover); }
-.menu-pop button.is-active { background: var(--primary-weak); color: var(--primary-hover); }
+.menu-pop button.is-active { background: var(--interactive-active-bg); color: var(--accent-bg); }
 .menu-pop button:disabled { opacity: 0.4; cursor: not-allowed; }
 .toast-root {
   position: fixed;
@@ -1026,8 +1047,8 @@ body.col-resizing * { cursor: col-resize !important; }
   gap: 10px;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--foreground);
-  background: var(--surface-2);
+  color: var(--text-primary);
+  background: var(--surface-overlay-bg);
   border-radius: var(--radius-md);
   box-shadow: inset 0 0 0 1px var(--line-strong), var(--shadow-pop);
   animation: fadeRise 200ms var(--ease);
@@ -1147,7 +1168,7 @@ body.col-resizing * { cursor: col-resize !important; }
   padding: var(--space-3);
   border-radius: var(--radius-layout);
   border-right: 1px solid var(--border-subtle);
-  background: var(--surface-1);
+  background: var(--sidebar-secondary-bg);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -1167,9 +1188,9 @@ body.col-resizing * { cursor: col-resize !important; }
   width: 100%;
   transition: background var(--dur), color var(--dur);
 }
-.set-nav button:hover { color: var(--foreground); background: var(--hover); }
-.set-nav button.active { color: var(--foreground); background: var(--hover-strong); }
-.set-nav button.active svg { color: var(--primary-hover); }
+.set-nav button:hover { color: var(--text-primary); background: var(--interactive-hover-bg); }
+.set-nav button.active { color: var(--text-primary); background: var(--interactive-active-bg); box-shadow: inset 2px 0 0 var(--accent-bg); }
+.set-nav button.active svg { color: var(--accent-bg); }
 .set-block {
   padding: var(--space-5);
   margin-bottom: var(--space-4);
@@ -1212,10 +1233,10 @@ body.col-resizing * { cursor: col-resize !important; }
   min-height: 0;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--surface-2) 96%, transparent);
+  background: var(--surface-overlay-bg);
   box-shadow: var(--shadow-side-panel), inset 0 1px rgb(255 255 255 / 5%);
-  backdrop-filter: blur(var(--theme-glass-blur, 24px));
-  -webkit-backdrop-filter: blur(var(--theme-glass-blur, 24px));
+  backdrop-filter: blur(var(--glass-overlay-blur, 0px));
+  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 0px));
   /* 面板内部重绘不外溢：开合位移时模糊阴影与列表内容不会牵连整屏 */
   contain: paint;
 }
@@ -1231,13 +1252,13 @@ body.col-resizing * { cursor: col-resize !important; }
   text-align: left;
   transition: background var(--dur);
 }
-.qconn-item:hover { background: var(--hover); }
-.qconn-item.active { background: var(--primary-weak); box-shadow: inset 0 0 0 1px var(--primary-border); }
+.qconn-item:hover { background: var(--interactive-hover-bg); }
+.qconn-item.active { background: var(--interactive-active-bg); box-shadow: inset 0 0 0 1px var(--accent-border); }
 
 /* ============================================================
    终端
    ============================================================ */
-.terminal-bg { background: transparent; }
+.terminal-bg { background: var(--terminal-bg, #11171a); }
 .xterm { height: 100%; padding: 14px 16px; }
 .xterm .xterm-rows { text-shadow: var(--terminal-text-shadow); }
 .xterm-viewport { background: transparent !important; }
@@ -1283,8 +1304,8 @@ body.col-resizing * { cursor: col-resize !important; }
   display: grid; place-items: center;
   padding: 1px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--surface-2) 82%, transparent);
-  box-shadow: inset 0 0 0 1px var(--primary-border);
+  background: var(--surface-raised-bg);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 .brand-name { font-size: 16px; font-weight: 600; letter-spacing: -0.02em; color: var(--foreground); }
 .brand-name span { color: var(--primary-hover); }
@@ -1348,33 +1369,62 @@ body.col-resizing * { cursor: col-resize !important; }
 
 } /* @layer components */
 
-/* One glass layer per shell region, with opaque fallback on unsupported engines. */
-.topbar,.status-bar{background:var(--theme-bg-toolbar,var(--surface-2));backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%);-webkit-backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%)}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.nav,.window-drag-region{background:var(--surface-1)}.topbar,.status-bar{background:var(--surface-2)}}
+/* ============================================================
+   Unified material layer
 
-/* Main pages share the same tinted material; terminal glyphs remain opaque. */
-.app-layout-main{background:var(--theme-bg-main)}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.app-layout-main{background:var(--background)}}
+   1. Native backdrop: macOS NSVisualEffectView / Windows Acrylic owns
+      desktop blur. The web layer never adds a full-window backdrop-filter.
+   2. Theme tint: every shell region has its own alpha background token.
+   3. Surface opacity: computed by the engine from the material mode.
+   4. Readability protection: terminal, inputs and overlays stay opaque or
+      near-opaque.
+   5. Fallback: unsupported platforms receive solid tokens automatically.
+   ============================================================ */
+.topbar,.status-bar{background:var(--toolbar-bg)}
+/* Tier 2: one wide, low-strength diagonal ramp for the whole workspace.
+   Cards, fields, dialogs and the terminal sit on their own solid tokens. */
+.app-layout-main{background:var(--workspace-gradient,var(--workspace-bg))}
+.app-layout-main:has(.workspace-home){background:var(--workspace-gradient,var(--workspace-bg))}
+.server-sidebar{background:var(--sidebar-secondary-bg)}
+.server-list-panel{background:var(--surface-bg)}
+.panel,.neo,.neo-flat{background:var(--surface-bg)}
 
-/* Keep page backgrounds on the shared native material rather than hiding it
-   behind opaque cards. Server data uses a quieter blur for legibility. */
-.app-layout-main{backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%);-webkit-backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%)}
-.app-layout-main:has(.workspace-home){background:var(--theme-bg-sidebar,var(--surface-1))}
-.server-sidebar,.server-list-panel{background:var(--theme-bg-surface,var(--surface-2));backdrop-filter:blur(calc(var(--theme-glass-blur,0px) / 2));-webkit-backdrop-filter:blur(calc(var(--theme-glass-blur,0px) / 2))}
-.panel,.neo,.neo-flat{background:var(--theme-bg-surface,var(--surface-2))}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.app-layout-main:has(.workspace-home){background:var(--background)}.server-sidebar,.server-list-panel,.panel,.neo,.neo-flat{background:var(--surface-2)}}
+/* Shell regions rely on the native backdrop + their own tint. Applying another
+   compositor blur here would blur the already-blurred desktop twice. */
+.nav,.topbar,.status-bar,.app-layout-main,.server-sidebar,.server-list-panel,.tool,.home-panel{
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
 
 .window-controls{position:absolute;right:0;top:0;bottom:0;width:max-content;display:flex;justify-content:flex-end;height:100%;margin-left:auto;--wails-draggable:no-drag}
-.window-controls button{width:42px;height:100%;color:var(--foreground);font-size:16px;--wails-draggable:no-drag}
-.window-controls button:hover{background:var(--hover-strong)}
-.window-controls button:last-child:hover{background:var(--destructive);color:var(--destructive-foreground)}
+.window-controls button{width:42px;height:100%;color:var(--text-primary);font-size:16px;--wails-draggable:no-drag}
+.window-controls button:hover{background:var(--interactive-hover-bg)}
+.window-controls button:last-child:hover{background:var(--status-error);color:var(--destructive-foreground)}
 
 /* Native Windows owns the window outline; do not cut transparent CSS corners. */
 .app-shell.platform-windows{border-radius:0;-webkit-font-smoothing:auto}
 .platform-windows .terminal-theme{-webkit-font-smoothing:auto;text-rendering:auto}
 
-/* Disabling glass also removes the compositor filter, rather than blur(0). */
-html[data-glass="off"] :is(.nav,.topbar,.status-bar,.app-layout-main,.server-sidebar,.server-list-panel,.home-panel,.ui-dialog){backdrop-filter:none;-webkit-backdrop-filter:none}
+/* Floating surfaces may blur app content behind them (never the desktop).
+   Their own tint token is near-opaque so text stays readable over any page. */
+:root body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item){
+  background:var(--surface-overlay-bg);
+  backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);
+  -webkit-backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);
+  border-color:var(--border-strong);
+  box-shadow:var(--shadow-pop);
+}
+.menu-pop{max-width:min(560px,calc(100vw - 24px));overflow-x:hidden}
+.menu-pop button{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-html[data-glass="off"] .qconn{background:var(--surface-2);backdrop-filter:none;-webkit-backdrop-filter:none}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.qconn{background:var(--surface-2)}}
+/* Solid mode and platforms without a native backdrop get no compositor filter. */
+html[data-material="solid"] :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.tool,.nav,.topbar,.status-bar,.app-layout-main){
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item){backdrop-filter:none;-webkit-backdrop-filter:none}
+}
+
+/* Tool panels share the shell material, including SFTP, history and system info. */
+.tool{background:var(--surface-bg)}

@@ -21,7 +21,7 @@ it('reuses a persistent font cache while offline', async () => {
   const {ensureRemoteFont} = await import('./remote-fonts')
   await ensureRemoteFont('Sarasa Mono SC', 400)
   expect(fetch).not.toHaveBeenCalled()
-  expect(add).toHaveBeenCalledTimes(1)
+  expect(add).toHaveBeenCalledTimes(2) // Full coverage plus Latin-only alias.
 })
 
 it('deduplicates downloads and allows retry after a network failure', async () => {

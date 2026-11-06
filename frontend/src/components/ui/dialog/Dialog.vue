@@ -126,17 +126,17 @@ onBeforeUnmount(cleanup)
 
 <style scoped>
 .ui-dialog-root{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:var(--space-4);background:var(--overlay)}
-.ui-dialog{width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:var(--space-5);background:var(--theme-bg-surface,var(--surface-1));backdrop-filter:blur(var(--theme-glass-blur,0px));-webkit-backdrop-filter:blur(var(--theme-glass-blur,0px));border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-pop)}
+.ui-dialog{width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:var(--space-5);background:var(--surface-overlay-bg);backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);-webkit-backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);border:1px solid var(--border-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow-pop)}
 .ui-dialog:focus{outline:none}
 .ui-dialog:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
 header,footer{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)}
 footer{justify-content:flex-end;margin-top:var(--space-5)}
 h2{margin:0;font-size:var(--text-md);color:var(--foreground)}
 .ui-dialog-close{width:26px;height:26px;display:grid;place-items:center;border-radius:var(--radius-sm);color:var(--muted-foreground);font-size:18px;line-height:1}
-.ui-dialog-close:hover{background:var(--hover);color:var(--foreground)}
+.ui-dialog-close:hover{background:var(--interactive-hover-bg);color:var(--text-primary)}
 .ui-dialog-body{margin-top:var(--space-3)}
 </style>
 
 <style scoped>
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.ui-dialog{background:var(--surface-1)}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.ui-dialog{background:var(--surface-overlay-bg);backdrop-filter:none;-webkit-backdrop-filter:none}}
 </style>

@@ -1,16 +1,23 @@
-import {computed, onBeforeUnmount, ref, watch} from 'vue'
-import {applyRootTheme, clearRootTheme, computeUiCssVars, deriveTerminalTheme, isManagedTerminalBackground, resolveTone, type Tone} from '@/theme/engine'
-import {defaultPreset, paletteToTheme, presetById} from '@/theme/presets'
+import {computed, onScopeDispose, ref, watch} from 'vue'
+import {
+  applyRootTheme,
+  clearRootTheme,
+  computeTheme,
+  detectCapabilities,
+  writeThemeCache,
+  type Tone,
+} from '@/theme/engine'
+import {normalizeAppearance} from '@/theme/migrate'
+import {refreshSystemTone, systemTone} from './useSystemTone'
 import type {Fonts, Theme, UIAppearance} from '@/types'
 
-const PALETTE_KEYS = [
-  'background', 'foreground', 'cursor', 'selection',
-  'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
-  'brightBlack', 'brightRed', 'brightGreen', 'brightYellow',
-  'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite',
-] as const
-
-/** Keeps document-level theme variables and terminal palette in sync with settings. */
+/**
+ * Single reactive bridge between Pinia settings and the CSS token layer.
+ *
+ * - The theme is not applied until settings are loaded, so the inline bootstrap
+ *   cache in index.html keeps the last correct palette on screen (no flash).
+ * - Terminal colors are never written here; the terminal composable owns them.
+ */
 export function useTheme(settings: {
   loaded: boolean
   appearance: UIAppearance
@@ -18,34 +25,48 @@ export function useTheme(settings: {
   theme: Theme
   setTheme(theme: Theme): Promise<void>
 }) {
-  const systemTone = ref<Tone>(resolveTone('auto'))
-  const tone = computed<Tone>(() => settings.appearance.baseTone === 'auto' ? systemTone.value : settings.appearance.baseTone)
-  const cssVars = computed(() => computeUiCssVars(settings.appearance, settings.fonts, tone.value))
+  const capabilities = ref(detectCapabilities())
+  const tone = computed<Tone>(() =>
+    settings.appearance.baseTone === 'auto' ? systemTone.value : settings.appearance.baseTone,
+  )
+  const computedTheme = computed(() =>
+    computeTheme(normalizeAppearance(settings.appearance), settings.fonts, tone.value, capabilities.value),
+  )
+  const cssVars = computed(() => computedTheme.value.vars)
 
-  function paletteSignature(t: Theme): string {
-    return PALETTE_KEYS.map((key) => t[key]).join('|')
+  function onSchemeChange() {
+    refreshSystemTone()
   }
-  function presetPaletteTheme(base: Theme, nextTone: Tone): Theme {
-    const preset = presetById(settings.appearance.presetId) ?? defaultPreset()
-    const palette = paletteToTheme(nextTone === 'dark' ? preset.dark : preset.light)
-    const next = {...base}
-    for (const key of PALETTE_KEYS) next[key] = palette[key]
-    next.background = nextTone === 'light' && preset.id === 'geist' ? '#f5f6f7' : palette.background
-    return next
-  }
-  function syncTerminalPalette() {
-    if (!settings.loaded) return
-    if (settings.appearance.mode === 'custom' && (settings.theme.bgImage || !isManagedTerminalBackground(settings.theme.background, settings.appearance.primary, tone.value))) return
-    const next = settings.appearance.mode === 'preset'
-      ? presetPaletteTheme(settings.theme, tone.value)
-      : deriveTerminalTheme(settings.theme, settings.appearance.primary, tone.value)
-    if (paletteSignature(next) !== paletteSignature(settings.theme)) void settings.setTheme(next)
-  }
-  function onSchemeChange() { systemTone.value = resolveTone('auto') }
 
-  watch([tone, () => settings.loaded, () => settings.appearance.mode, () => settings.appearance.presetId, () => settings.appearance.primary], syncTerminalPalette, {immediate: true})
-  watch([tone, cssVars], ([nextTone, vars]) => applyRootTheme(nextTone, vars), {immediate: true})
-  onBeforeUnmount(clearRootTheme)
+  function refreshCapabilities() {
+    capabilities.value = detectCapabilities()
+  }
 
-  return {tone, onSchemeChange}
+  // CSS application is synchronous; persisting a ~5 KB cache on every slider
+  // tick would be wasteful. Debounce only the storage write.
+  let cacheTimer: ReturnType<typeof setTimeout> | undefined
+  function scheduleCache(nextTone: Tone, theme: ReturnType<typeof computeTheme>) {
+    if (cacheTimer) clearTimeout(cacheTimer)
+    cacheTimer = setTimeout(() => {
+      cacheTimer = undefined
+      writeThemeCache(nextTone, theme)
+    }, 150)
+  }
+
+  watch(
+    [() => settings.loaded, tone, computedTheme],
+    ([loaded, nextTone, theme]) => {
+      if (!loaded) return
+      applyRootTheme(nextTone, theme.vars, theme.meta)
+      scheduleCache(nextTone, theme)
+    },
+    {immediate: true},
+  )
+
+  onScopeDispose(() => {
+    if (cacheTimer) clearTimeout(cacheTimer)
+    clearRootTheme()
+  })
+
+  return {tone, cssVars, capabilities, onSchemeChange, refreshCapabilities}
 }

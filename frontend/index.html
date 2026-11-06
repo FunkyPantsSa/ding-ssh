@@ -5,6 +5,36 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <link rel="icon" type="image/png" href="./icon/icon-512-large.png"/>
     <title>ding-ssh · Grid Desk</title>
+    <script>
+      // Paint the last known dynamic theme before Vue mounts. The engine writes
+      // this cache whenever settings change, so startup never flashes the
+      // default palette. Values are deterministic and are replaced by useTheme
+      // once settings finish loading.
+      (function () {
+        try {
+          var raw = localStorage.getItem('ding-ssh:dynamic-theme-v1')
+          if (!raw) return
+          var cache = JSON.parse(raw)
+          if (!cache || cache.version !== 1 || !cache.vars) return
+          var root = document.documentElement
+          root.setAttribute('data-tone', cache.tone || 'dark')
+          root.setAttribute('data-material', cache.material || 'solid')
+          root.setAttribute('data-glass', cache.material && cache.material !== 'solid' ? 'on' : 'off')
+          root.setAttribute('data-material-requested', cache.requested || cache.material || 'solid')
+          root.setAttribute('data-material-fallback', cache.fallback || 'none')
+          root.setAttribute('data-native-backdrop', cache.nativeBackdrop ? 'on' : 'off')
+          if (cache.platform) root.setAttribute('data-theme-platform', cache.platform)
+          root.style.colorScheme = cache.tone || 'dark'
+          for (var key in cache.vars) {
+            if (Object.prototype.hasOwnProperty.call(cache.vars, key) && cache.vars[key]) {
+              root.style.setProperty(key, cache.vars[key])
+            }
+          }
+        } catch (error) {
+          // A missing/corrupt cache only costs one default-palette frame.
+        }
+      })()
+    </script>
 </head>
 <body>
 <div id="app"></div>

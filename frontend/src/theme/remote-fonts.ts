@@ -1,6 +1,7 @@
 import {reactive} from 'vue'
 
 export const remoteFontStatus = reactive<Record<string, 'loading' | 'ready' | 'error'>>({})
+export const remoteFontProgress = reactive<Record<string, {done: number; total: number}>>({})
 const pending = new Map<string, Promise<void>>()
 const CACHE = 'ding-terminal-fonts-v1'
 const SARASA = 'https://cdn.jsdelivr.net/gh/xiaolai/claudepot-app@831df883498b1cecb9644ac1ba6c04c5d907e267/public/fonts/'
@@ -22,13 +23,17 @@ async function addFace(family: string, weight: number, url: string, unicodeRange
   await face.load()
   const fonts = document.fonts as FontFaceSet & {add(font: FontFace): FontFaceSet}
   fonts.add(face)
+  const latin = await new FontFace(`DingLatin-${family}`, data, {weight: String(weight), unicodeRange: 'U+0000-024F,U+1E00-1EFF'}).load()
+  fonts.add(latin)
 }
 
 async function install(family: string, weight: number) {
+  remoteFontProgress[`${family}:${weight}`] = {done: 0, total: 1}
   if (family === 'Sarasa Mono SC') {
     // Sarasa has no Medium; share Regular between 400 and 500.
     const file = weight === 700 ? 'Bold' : 'Regular'
     await addFace(family, weight, `${SARASA}SarasaMonoSC-${file}.woff2`)
+    remoteFontProgress[`${family}:${weight}`].done = 1
     return
   }
   const variant = weight === 700 ? 'bold' : weight === 500 ? 'medium' : 'main'
@@ -44,11 +49,13 @@ async function install(family: string, weight: number) {
   if (!faces.length) throw new Error('字体源未返回字体定义')
   // Fetch complete coverage, not only the preview characters: new terminal output
   // must never enter the glyph atlas before its Chinese/icon shard has loaded.
+  remoteFontProgress[`${family}:${weight}`].total = faces.length
   let next = 0
   await Promise.all(Array.from({length: Math.min(8, faces.length)}, async () => {
     while (next < faces.length) {
       const face = faces[next++]
       await addFace(family, weight, face.url, face.range)
+      remoteFontProgress[`${family}:${weight}`].done++
     }
   }))
 }

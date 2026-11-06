@@ -1,13 +1,13 @@
 export namespace apphost {
-
+	
 	export class AgentIdentity {
 	    keyType: string;
 	    fingerprint: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AgentIdentity(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.keyType = source["keyType"];
@@ -17,11 +17,11 @@ export namespace apphost {
 	export class SSHImportChoice {
 	    alias: string;
 	    strategy: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SSHImportChoice(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.alias = source["alias"];
@@ -32,15 +32,15 @@ export namespace apphost {
 }
 
 export namespace localterm {
-
+	
 	export class ShellOption {
 	    value: string;
 	    label: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ShellOption(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.value = source["value"];
@@ -51,16 +51,16 @@ export namespace localterm {
 }
 
 export namespace models {
-
+	
 	export class CommandSuggestion {
 	    command: string;
 	    count: number;
 	    source: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CommandSuggestion(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.command = source["command"];
@@ -71,11 +71,11 @@ export namespace models {
 	export class ConnectResult {
 	    sessionId: string;
 	    server: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConnectResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sessionId = source["sessionId"];
@@ -90,11 +90,11 @@ export namespace models {
 	    authType: string;
 	    keyPath?: string;
 	    keyContent?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Credential(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -121,11 +121,11 @@ export namespace models {
 	    capLifecycle: boolean;
 	    capSudoCredential: boolean;
 	    sftpWriteAllowlist: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DebugSettings(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabled = source["enabled"];
@@ -148,11 +148,11 @@ export namespace models {
 	    uiFont: string;
 	    terminalFont: string;
 	    terminalFontSize: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Fonts(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.uiFont = source["uiFont"];
@@ -164,11 +164,11 @@ export namespace models {
 	    servers: number;
 	    credentials: number;
 	    groups: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ImportConfigResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.servers = source["servers"];
@@ -182,11 +182,11 @@ export namespace models {
 	    isDir: boolean;
 	    size: number;
 	    modTime: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SFTPEntry(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -201,11 +201,11 @@ export namespace models {
 	    masterPasswordEnabled: boolean;
 	    keyringAvailable: boolean;
 	    needsUnlock: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SecurityStatus(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.unlocked = source["unlocked"];
@@ -236,11 +236,11 @@ export namespace models {
 	    bgImage: string;
 	    blurAmount: number;
 	    envVars: Record<string, string>;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ServerNode(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.identityFiles = source["identityFiles"];
@@ -271,11 +271,11 @@ export namespace models {
 	    latencyMs: number;
 	    reachable: boolean;
 	    error?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ServerTestResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.nodeId = source["nodeId"];
@@ -291,11 +291,11 @@ export namespace models {
 	    user: string;
 	    status: string;
 	    createdAt: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SessionInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sessionId = source["sessionId"];
@@ -307,6 +307,11 @@ export namespace models {
 	    }
 	}
 	export class UIAppearance {
+	    atmosphere?: number;
+	    surfaceSeparation?: number;
+	    materialMode?: string;
+	    colorIntensity?: number;
+	    terminalBackgroundMode: string;
 	    glassEnabled: boolean;
 	    mode: string;
 	    presetId: string;
@@ -316,13 +321,18 @@ export namespace models {
 	    uiText: string;
 	    glassOpacity: number;
 	    glassBlur: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new UIAppearance(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.atmosphere = source["atmosphere"];
+	        this.surfaceSeparation = source["surfaceSeparation"];
+	        this.materialMode = source["materialMode"];
+	        this.colorIntensity = source["colorIntensity"];
+	        this.terminalBackgroundMode = source["terminalBackgroundMode"];
 	        this.glassEnabled = source["glassEnabled"];
 	        this.mode = source["mode"];
 	        this.presetId = source["presetId"];
@@ -359,11 +369,11 @@ export namespace models {
 	    brightMagenta: string;
 	    brightCyan: string;
 	    brightWhite: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Theme(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.background = source["background"];
@@ -421,11 +431,11 @@ export namespace models {
 	    rightClickAction: string;
 	    navSectionOrder: string;
 	    debug: DebugSettings;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.uiSchema = source["uiSchema"];
@@ -457,7 +467,7 @@ export namespace models {
 	        this.navSectionOrder = source["navSectionOrder"];
 	        this.debug = this.convertValues(source["debug"], DebugSettings);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -476,7 +486,7 @@ export namespace models {
 		    return a;
 		}
 	}
-
+	
 	export class TunnelInfo {
 	    id: string;
 	    name: string;
@@ -489,11 +499,11 @@ export namespace models {
 	    status: string;
 	    message?: string;
 	    startedAt: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new TunnelInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -513,17 +523,17 @@ export namespace models {
 }
 
 export namespace sshconfig {
-
+	
 	export class Preview {
 	    alias: string;
 	    node: models.ServerNode;
 	    jumps: string[];
 	    warnings: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Preview(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.alias = source["alias"];
@@ -531,7 +541,7 @@ export namespace sshconfig {
 	        this.jumps = source["jumps"];
 	        this.warnings = source["warnings"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -554,7 +564,7 @@ export namespace sshconfig {
 }
 
 export namespace sshx {
-
+	
 	export class HostTrustRecord {
 	    line: number;
 	    hosts: string;
@@ -562,11 +572,11 @@ export namespace sshx {
 	    fingerprint: string;
 	    source: string;
 	    readOnly: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new HostTrustRecord(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.line = source["line"];
