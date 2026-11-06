@@ -236,16 +236,6 @@ body.col-resizing * { cursor: col-resize !important; }
   color: var(--text-primary);
   box-shadow: inset 0 0 0 1px var(--accent-border);
 }
-.nav-item.active::before {
-  content: "";
-  position: absolute;
-  left: -8px;
-  top: 7px;
-  bottom: 7px;
-  width: 2px;
-  border-radius: var(--radius-pill);
-  background: var(--accent-bg);
-}
 .nav-item .nav-ico { color: var(--text-muted); flex-shrink: 0; }
 .nav-item:hover .nav-ico { color: var(--text-primary); }
 .nav-item.active .nav-ico { color: var(--accent-bg); }
@@ -283,7 +273,6 @@ body.col-resizing * { cursor: col-resize !important; }
 .nav-collapsed .nav-body { padding: 8px 6px; align-items: center; }
 .nav-collapsed .nav-item { width: 38px; }
 .nav-collapsed .nav-brand .btn-icon { display: none; }
-.nav-collapsed .nav-item.active::before { left: -6px; }
 .nav-collapsed .nav-foot { padding: 0 6px; }
 
 /* ---------- 导航内标签页（设置：标签页位置 = 左侧导航；作为「标签页」区段并入 nav-body） ---------- */
@@ -1189,7 +1178,10 @@ body.col-resizing * { cursor: col-resize !important; }
   transition: background var(--dur), color var(--dur);
 }
 .set-nav button:hover { color: var(--text-primary); background: var(--interactive-hover-bg); }
-.set-nav button.active { color: var(--text-primary); background: var(--interactive-active-bg); box-shadow: inset 2px 0 0 var(--accent-bg); }
+/* Active state uses the same full 1px accent outline as other selected rows.
+   A solid 2px inset-left bar was clipped by the pill radius and read as a
+   stray bright crescent, especially on the darker settings sidebar. */
+.set-nav button.active { color: var(--text-primary); background: var(--interactive-active-bg); box-shadow: inset 0 0 0 1px var(--accent-border); }
 .set-nav button.active svg { color: var(--accent-bg); }
 .set-block {
   padding: var(--space-5);
