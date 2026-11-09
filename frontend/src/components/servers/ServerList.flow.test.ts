@@ -101,4 +101,23 @@ describe('server business flow', () => {
     expect(sshService.deleteServer).toHaveBeenCalledWith('s1')
     wrapper.unmount()
   })
+
+  it('marks at most one group as selected and keeps 未分组 out of the drop-target style when idle', async () => {
+    const wrapper = await mountList()
+    const items = wrapper.findAll('.side-group-item')
+    expect(items).toHaveLength(2)
+
+    const [all, ungrouped] = items
+    expect(all.classes()).toContain('active')
+    expect(all.classes()).not.toContain('drop-target')
+    // '' 是「未分组」的真实标识，空闲时不能被当成拖放目标高亮
+    expect(ungrouped.classes()).not.toContain('active')
+    expect(ungrouped.classes()).not.toContain('drop-target')
+
+    await ungrouped.trigger('click')
+    expect(all.classes()).not.toContain('active')
+    expect(ungrouped.classes()).toContain('active')
+    expect(ungrouped.classes()).not.toContain('drop-target')
+    wrapper.unmount()
+  })
 })

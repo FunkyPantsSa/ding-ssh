@@ -5,7 +5,7 @@ import {Button} from '@/components/ui'
 defineProps<{
   groups: string[]
   activeGroup: string
-  dragOver: string
+  dragOver: string | null
   allCount: number
   ungroupedCount: number
   countFor: (group: string) => number

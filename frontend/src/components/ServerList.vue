@@ -172,13 +172,15 @@ async function menuDuplicate() {
 
 // ---- 拖拽服务器到分组：修改服务器所在分组 ----
 const draggingServerId = ref('')
-const groupDragOver = ref('') // 当前悬停的分组名（'all' / '' / 分组名），用于高亮
+// 当前悬停的分组名（'all' / '' / 分组名）用于高亮；null 表示没有拖放目标。
+// 不能用空串当「无目标」哨兵：'' 本身就是「未分组」，会让未分组条目误显示成拖放高亮。
+const groupDragOver = ref<string | null>(null)
 let dragOverTimer: number | undefined
 
 /** 清掉拖放高亮（拖拽结束 / 落下 / 取消都要清，避免残留高亮）。 */
 function clearDragOver() {
   window.clearTimeout(dragOverTimer)
-  groupDragOver.value = ''
+  groupDragOver.value = null
 }
 
 /** 从拖拽事件里取服务器 id：dataTransfer 优先（跨窗口/重排也可靠），回退到内部状态。 */
@@ -216,7 +218,7 @@ function onGroupDragOver(e: DragEvent, target: string) {
   // 兜底：dragend 偶尔收不到（例如在拖动中切换视图），高亮最多保留 3 秒
   window.clearTimeout(dragOverTimer)
   dragOverTimer = window.setTimeout(() => {
-    groupDragOver.value = ''
+    groupDragOver.value = null
   }, 3000)
 }
 
