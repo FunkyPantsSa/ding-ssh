@@ -590,6 +590,8 @@ type TunnelInfo struct {
 	Name       string `json:"name"`
 	ServerID   string `json:"serverId"`
 	ServerName string `json:"serverName"`
+	ServerHost string `json:"serverHost,omitempty"`
+	ListenHost string `json:"listenHost,omitempty"`
 	Mode       string `json:"mode"`       // local | remote | dynamic
 	LocalPort  int    `json:"localPort"`  // 本地监听端口（local/dynamic）或本地目标端口（remote）
 	RemoteHost string `json:"remoteHost"` // 远程目标主机（local）或远程监听地址（remote）

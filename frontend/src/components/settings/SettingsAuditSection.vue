@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import {onMounted, ref} from 'vue'
 import Icon from '../Icon.vue'
+import SearchSelect from '../ui/select/SearchSelect.vue'
 import {Button, Select} from '../ui'
 import {GetCapabilities} from '../../../wailsjs/go/main/App'
 import {useSettingsAudit} from '../../composables/useSettingsAudit'
@@ -70,10 +71,8 @@ onMounted(async () => {
         >
           {{ opt.label }}
         </Button>
-        <Select v-model="auditCap" class="max-w-[16rem]" aria-label="按能力筛选" @update:model-value="refreshAudit">
-          <option value="">按能力筛选：全部</option>
-          <option v-for="c in capOptions" :key="c.value" :value="c.value">{{ c.label }}</option>
-        </Select>
+        <SearchSelect v-model="auditCap" class="max-w-[16rem]" aria-label="按能力筛选"
+          :options="[{value: '', label: '按能力筛选：全部'}, ...capOptions]" @update:model-value="refreshAudit" />
         <Select :model-value="auditLimit" class="max-w-[8rem]" aria-label="记录条数" @update:model-value="(value) => { auditLimit = Number(value) || 50; refreshAudit() }">
           <option :value="20">20 条</option>
           <option :value="50">50 条</option>

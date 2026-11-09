@@ -2,11 +2,14 @@ import {defineStore} from 'pinia'
 
 export type ViewName = 'home' | 'workspace' | 'servers' | 'tunnel' | 'settings'
 
+export type SettingsSection = 'general' | 'hotkeys' | 'connectionInfo' | 'theme' | 'credentials' | 'security' | 'debug' | 'logs' | 'audit' | 'migrate' | 'about'
+
 // 主导航视图切换（左侧导航轨）。
 export const useUIStore = defineStore('ui', {
   state: () => ({
     view: 'home' as ViewName,
     cmdOpen: false,
+    settingsSection: 'general' as SettingsSection,
     newServerTick: 0,
     // 终端页左侧「快速连接」侧边栏是否展开
     terminalSidebarOpen: false,
@@ -25,7 +28,8 @@ export const useUIStore = defineStore('ui', {
       this.view = 'tunnel'
       this.terminalSidebarOpen = false
     },
-    showSettings() {
+    showSettings(section?: SettingsSection) {
+      if (section) this.settingsSection = section
       this.view = 'settings'
       this.terminalSidebarOpen = false
     },

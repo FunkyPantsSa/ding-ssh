@@ -23,10 +23,12 @@ type chainConn struct {
 func (c *chainConn) Close() error {
 	var err error
 	c.once.Do(func() {
-		err = c.Conn.Close()
-		for i := len(c.upstream) - 1; i >= 0; i-- {
-			_ = c.upstream[i].Close()
+		// Close the underlying TCP transport before closing tunneled channels.
+		// A channel close can itself block on an unresponsive upstream.
+		for _, upstream := range c.upstream {
+			_ = upstream.Close()
 		}
+		err = c.Conn.Close()
 	})
 	return err
 }

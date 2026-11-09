@@ -61,6 +61,8 @@ export function GetLogInfo():Promise<Record<string, any>>;
 
 export function GetPlatform():Promise<string>;
 
+export function GetRuntimeStatus():Promise<Record<string, number>>;
+
 export function GetSecurityStatus():Promise<models.SecurityStatus>;
 
 export function GetServers():Promise<Array<models.ServerNode>>;
@@ -70,6 +72,8 @@ export function GetSettings():Promise<models.Settings>;
 export function ImportConfig(arg1:string,arg2:boolean):Promise<models.ImportConfigResult>;
 
 export function ImportSSHConfig(arg1:string,arg2:Array<apphost.SSHImportChoice>):Promise<number>;
+
+export function ListLocalIPv4():Promise<Array<string>>;
 
 export function ListSessions():Promise<Array<models.SessionInfo>>;
 
@@ -163,6 +167,8 @@ export function StartTunnel(arg1:models.ServerNode,arg2:string,arg3:string,arg4:
 
 export function StartTunnelAuthenticated(arg1:models.ServerNode,arg2:string,arg3:string,arg4:number,arg5:string,arg6:number,arg7:Record<string, string>):Promise<models.TunnelInfo>;
 
+export function StartTunnelWithListenHost(arg1:models.ServerNode,arg2:string,arg3:string,arg4:number,arg5:string,arg6:number,arg7:string,arg8:Record<string, string>):Promise<models.TunnelInfo>;
+
 export function Startup(arg1:context.Context):Promise<void>;
 
 export function StopSysInfoCollector(arg1:string):Promise<void>;
@@ -184,6 +190,8 @@ export function UndoAuditRecord(arg1:string,arg2:string,arg3:string):Promise<voi
 export function UnlockWithMasterPassword(arg1:string):Promise<void>;
 
 export function UpdateTunnel(arg1:string,arg2:models.ServerNode,arg3:string,arg4:string,arg5:number,arg6:string,arg7:number):Promise<models.TunnelInfo>;
+
+export function UpdateTunnelWithListenHost(arg1:string,arg2:models.ServerNode,arg3:string,arg4:string,arg5:number,arg6:string,arg7:number,arg8:string,arg9:Record<string, string>):Promise<models.TunnelInfo>;
 
 export function Write(arg1:string,arg2:string):Promise<void>;
 

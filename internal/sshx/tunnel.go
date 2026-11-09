@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,6 +43,7 @@ type Tunnel struct {
 	name       string
 	mode       TunnelMode
 	node       models.ServerNode
+	listenHost string
 	localPort  int
 	remoteHost string
 	remotePort int
@@ -76,6 +78,7 @@ func newTunnel(
 		name:       name,
 		mode:       mode,
 		node:       node,
+		listenHost: "127.0.0.1",
 		localPort:  localPort,
 		remoteHost: remoteHost,
 		remotePort: remotePort,
@@ -95,6 +98,8 @@ func (t *Tunnel) Info() models.TunnelInfo {
 		Name:       t.name,
 		ServerID:   t.node.ID,
 		ServerName: t.node.Name,
+		ServerHost: t.node.Host,
+		ListenHost: t.listenHost,
 		Mode:       string(t.mode),
 		LocalPort:  t.localPort,
 		RemoteHost: t.remoteHost,
@@ -154,10 +159,15 @@ func (t *Tunnel) Start() error {
 			return fmt.Errorf("监听本地 SOCKS5 端口 %d 失败: %w", t.localPort, err)
 		}
 	default: // local
-		ln, err = net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(t.localPort)))
+		addr := net.JoinHostPort(t.listenHost, strconv.Itoa(t.localPort))
+		network := "tcp4"
+		if strings.Contains(t.listenHost, ":") {
+			network = "tcp6"
+		}
+		ln, err = net.Listen(network, addr)
 		if err != nil {
 			client.Close()
-			return fmt.Errorf("监听本地端口 %d 失败: %w", t.localPort, err)
+			return fmt.Errorf("监听本地地址 %s 失败: %w", addr, err)
 		}
 	}
 

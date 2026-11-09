@@ -7,7 +7,8 @@ import {useServersStore} from '../stores/servers'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import type {Credential, ServerNode} from '../types'
-import {Button, Dialog, Field, Input, Select, Textarea} from './ui'
+import SearchSelect from './ui/select/SearchSelect.vue'
+import {Button, Dialog, Field, Input, Textarea} from './ui'
 
 /**
  * editing：编辑对象（null = 新建）。
@@ -393,10 +394,13 @@ onMounted(() => {
             </Button>
           </div>
         </div>
-        <Select v-if="groupMode === 'select'" v-model="selectedGroup" class="mt-1" aria-label="服务器分组">
-          <option value="">未分组</option>
-          <option v-for="g in groups" :key="g" :value="g">{{ g }}</option>
-        </Select>
+        <SearchSelect
+          v-if="groupMode === 'select'"
+          v-model="selectedGroup"
+          class="mt-1"
+          aria-label="服务器分组"
+          :options="[{value: '', label: '未分组'}, ...groups.map(g => ({value: g, label: g}))]"
+        />
         <Input
           v-else
           v-model="newGroupName"
@@ -437,10 +441,13 @@ onMounted(() => {
       <div class="space-y-3">
         <Field label="跳板机连接路径（最多 5 级）">
           <div v-for="(jump, index) in form.jumpServerIds" :key="index" class="flex flex-wrap items-center gap-2 mb-2">
-            <Select class="flex-1 basis-40" :model-value="jump" @update:model-value="value => { if (form.jumpServerIds) form.jumpServerIds[index] = String(value) }">
-              <option value="">请选择跳板机</option>
-              <option v-for="server in servers.servers.filter(s => s.id !== form.id)" :key="server.id" :value="server.id">{{ server.name }} · {{ server.host }}</option>
-            </Select>
+            <SearchSelect
+              class="flex-1 basis-40"
+              :model-value="jump"
+              :aria-label="`第 ${index + 1} 级跳板机`"
+              :options="[{value: '', label: '请选择跳板机'}, ...servers.servers.filter(s => s.id !== form.id).map(s => ({value: s.id, label: `${s.name} · ${s.host}`, keywords: `${s.user} ${s.group}`}))]"
+              @update:model-value="value => { if (form.jumpServerIds) form.jumpServerIds[index] = value }"
+            />
             <Button size="sm" :disabled="index === 0" @click="() => { const items = form.jumpServerIds!; [items[index - 1], items[index]] = [items[index]!, items[index - 1]!] }">上移</Button>
             <Button size="sm" @click="form.jumpServerIds?.splice(index, 1)">删除</Button>
           </div>
@@ -463,10 +470,12 @@ onMounted(() => {
           <Input id="server-password" v-model="form.password" type="password" placeholder="登录密码" autocomplete="current-password" />
         </Field>
         <Field v-if="credentials.list.length" label="使用已保存凭证（可选）" html-for="server-credential">
-          <Select id="server-credential" v-model="selectedCred" @change="applyCredential(selectedCred)">
-            <option value="">— 不使用 —</option>
-            <option v-for="c in credentials.list" :key="c.id" :value="c.id">{{ credentialLabel(c) }}</option>
-          </Select>
+          <SearchSelect
+            id="server-credential"
+            v-model="selectedCred"
+            :options="[{value: '', label: '— 不使用 —'}, ...credentials.list.map(c => ({value: c.id, label: credentialLabel(c)}))]"
+            @update:model-value="applyCredential"
+          />
           <p class="text-[12px] text-slate-500">私钥类凭证同样可选：会带出用户名与认证方式，私钥内容不会显示在界面上。</p>
         </Field>
       </div>
@@ -530,10 +539,12 @@ onMounted(() => {
         </div>
 
         <Field v-if="credentials.list.length" label="使用已保存凭证（可选）" html-for="server-key-credential">
-          <Select id="server-key-credential" v-model="selectedCred" @change="applyCredential(selectedCred)">
-            <option value="">— 不使用 —</option>
-            <option v-for="c in credentials.list" :key="c.id" :value="c.id">{{ credentialLabel(c) }}</option>
-          </Select>
+          <SearchSelect
+            id="server-key-credential"
+            v-model="selectedCred"
+            :options="[{value: '', label: '— 不使用 —'}, ...credentials.list.map(c => ({value: c.id, label: credentialLabel(c)}))]"
+            @update:model-value="applyCredential"
+          />
         </Field>
 
         <Field label="私钥口令（可选）" html-for="server-key-passphrase">

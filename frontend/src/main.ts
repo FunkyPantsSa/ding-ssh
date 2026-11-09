@@ -3,6 +3,7 @@ import {createPinia} from 'pinia'
 import App from './App.vue'
 import {installDebugBridge} from './debug/bridge'
 import {installDebugUI} from './debug/ui'
+import {monitorFrontendRuntime} from './utils/runtime-status'
 import './style.css'
 
 const app = createApp(App)
@@ -16,3 +17,5 @@ installDebugUI()
 
 // 调试模式的前端桥：只有后端开启调试模式并下发 debug:request 时才会被触发。
 installDebugBridge()
+
+monitorFrontendRuntime()

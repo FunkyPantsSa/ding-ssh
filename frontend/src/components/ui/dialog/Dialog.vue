@@ -47,6 +47,7 @@ function close() {
 
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') {
+    if (e.isComposing || (e.target instanceof HTMLElement && e.target.matches('[role=combobox][aria-expanded=true]'))) return
     e.preventDefault()
     e.stopPropagation()
     close()

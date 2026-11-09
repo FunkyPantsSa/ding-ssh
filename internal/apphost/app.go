@@ -624,6 +624,10 @@ func (a *App) SftpRemove(sessionID, path string) error {
 
 // StartTunnel 创建并启动一条 SSH 隧道（mode: local | remote | dynamic）。
 func (a *App) StartTunnel(node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
+	return a.startTunnel(node, name, mode, localPort, remoteHost, remotePort, "")
+}
+
+func (a *App) startTunnel(node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int, listenHost string) (models.TunnelInfo, error) {
 	if err := a.ensureUnlocked(); err != nil {
 		return models.TunnelInfo{}, err
 	}
@@ -631,7 +635,7 @@ func (a *App) StartTunnel(node models.ServerNode, name, mode string, localPort i
 	if err != nil {
 		return models.TunnelInfo{}, err
 	}
-	info, err := a.manager.StartTunnel(node, name, mode, localPort, remoteHost, remotePort)
+	info, err := a.manager.StartTunnel(node, name, mode, localPort, remoteHost, remotePort, listenHost)
 	if err != nil {
 		logx.Errorf("启动 SSH 隧道失败: mode=%s name=%s local=%d remote=%s:%d err=%v", mode, name, localPort, remoteHost, remotePort, err)
 		return models.TunnelInfo{}, err
@@ -641,6 +645,10 @@ func (a *App) StartTunnel(node models.ServerNode, name, mode string, localPort i
 
 // UpdateTunnel 修改已有隧道的配置，运行中的隧道会按新配置重启。
 func (a *App) UpdateTunnel(id string, node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
+	return a.updateTunnel(id, node, name, mode, localPort, remoteHost, remotePort, "")
+}
+
+func (a *App) updateTunnel(id string, node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int, listenHost string) (models.TunnelInfo, error) {
 	if err := a.ensureUnlocked(); err != nil {
 		return models.TunnelInfo{}, err
 	}
@@ -648,7 +656,7 @@ func (a *App) UpdateTunnel(id string, node models.ServerNode, name, mode string,
 	if err != nil {
 		return models.TunnelInfo{}, err
 	}
-	info, err := a.manager.UpdateTunnel(id, node, name, mode, localPort, remoteHost, remotePort)
+	info, err := a.manager.UpdateTunnel(id, node, name, mode, localPort, remoteHost, remotePort, listenHost)
 	if err != nil {
 		logx.Errorf("修改 SSH 隧道失败: id=%s mode=%s name=%s local=%d remote=%s:%d err=%v", id, mode, name, localPort, remoteHost, remotePort, err)
 		return info, err
@@ -821,6 +829,24 @@ func (a *App) ConnectLocal(sessionID string, cols, rows int) (models.ConnectResu
 	}
 	_, _, label, _ := localterm.Resolve(shellPref)
 	return models.ConnectResult{SessionID: sessionID, Server: "本机 · " + label}, nil
+}
+
+// GetRuntimeStatus 返回用于排查应用无响应的后端快照。
+func (a *App) GetRuntimeStatus() map[string]int64 {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	var uptime int64
+	if a.startedAt > 0 {
+		uptime = (time.Now().UnixMilli() - a.startedAt) / 1000
+	}
+	status := map[string]int64{
+		"uptimeSec":     uptime,
+		"goroutines":    int64(runtime.NumGoroutine()),
+		"heapBytes":     int64(mem.HeapAlloc),
+		"goMemoryBytes": int64(mem.Sys - mem.HeapReleased),
+	}
+	addProcessUsage(status)
+	return status
 }
 
 // GetPlatform 返回当前操作系统标识（darwin / windows / linux）。

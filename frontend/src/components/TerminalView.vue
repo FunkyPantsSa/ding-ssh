@@ -58,8 +58,10 @@ const webglFallbackToast = ref('')
 
 let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
+let pendingOutputBytes = 0
+let peakOutputBytes = 0
 let webglAddon: WebglAddon | null = null
-// WebGL 画布位图补丁探测结果：null = 尚未探测，false = 私有 API 不可用（缩放≠100% 时回退 Canvas）
+// WebGL 画布位图补丁探测结果：null = 尚未探测，false = 私有 API 不可用（缩放≠100% 时回退 DOM）
 let webglZoomPatched: boolean | null = null
 let zmodem: ZmodemController | null = null
 let resizeObserver: ResizeObserver | null = null
@@ -232,7 +234,7 @@ function terminalFontWeight(): 400 | 500 {
  *
  * 现在由 `patchWebglZoomCanvas()`（见 utils/xterm-webgl-zoom.ts）把位图拉回网格尺寸并
  * 重设 GL viewport / uniform，任意缩放档位都能正常使用 WebGL；只有补丁打不上
- * （addon 私有 API 变化）且缩放 ≠ 100% 时，才回退 Canvas。
+ * （addon 私有 API 变化）且缩放 ≠ 100% 时，才回退 DOM。
  */
 function webglUsable(): boolean {
   if (!settings.webGLEnabled) return false
@@ -260,17 +262,17 @@ function tryEnableWebGL() {
   if (!term || !settings.webGLEnabled) return
   if (!webglUsable()) {
     disableWebGL()
-    console.info('[webgl] 界面缩放 ≠ 100% 且无法修正画布位图，已使用 Canvas 渲染')
-    logClient('info', `[webgl] uiScale=${settings.uiScale} → Canvas 渲染（画布位图补丁不可用）`)
+    console.info('[webgl] 界面缩放 ≠ 100% 且无法修正画布位图，已使用 DOM 渲染')
+    logClient('info', `[webgl] uiScale=${settings.uiScale} → DOM 渲染（画布位图补丁不可用）`)
     return
   }
   try {
     webglAddon?.dispose()
     webglAddon = new WebglAddon()
     webglAddon.onContextLoss(() => {
-      webglAddon?.dispose()
-      webglAddon = null
-      webglFallbackToast.value = 'WebGL 上下文丢失，已降级 Canvas 渲染'
+      disableWebGL()
+      logClient('warn', '[webgl] 上下文丢失，已回退 DOM 渲染')
+      webglFallbackToast.value = 'WebGL 上下文丢失，已降级 DOM 渲染'
       setTimeout(() => {
         webglFallbackToast.value = ''
       }, 4000)
@@ -280,20 +282,21 @@ function tryEnableWebGL() {
     const patched = patchWebglZoomCanvas(webglAddon, uiZoom)
     if (webglZoomPatched === null) webglZoomPatched = patched
     if (!patched && uiZoom() !== 1) {
-      // 私有 API 变了 → 老策略兜底：缩放 ≠ 100% 时宁可用 Canvas，也不画错位
+      // 私有 API 变了 → 老策略兜底：缩放 ≠ 100% 时宁可用 DOM，也不画错位
       disableWebGL()
-      webglFallbackToast.value = 'WebGL 在界面缩放下不可用，已降级 Canvas 渲染'
+      webglFallbackToast.value = 'WebGL 在界面缩放下不可用，已降级 DOM 渲染'
       setTimeout(() => {
         webglFallbackToast.value = ''
       }, 4000)
-      logClient('warn', `[webgl] 画布位图补丁不可用（uiScale=${settings.uiScale}）→ Canvas 渲染`)
+      logClient('warn', `[webgl] 画布位图补丁不可用（uiScale=${settings.uiScale}）→ DOM 渲染`)
       return
     }
     syncWebglCanvas(webglAddon)
     logClient('debug', `[webgl] enabled ${renderDiag()}`)
   } catch {
-    webglAddon = null
-    webglFallbackToast.value = '当前环境不支持 WebGL，已降级 Canvas 渲染'
+    disableWebGL()
+    logClient('warn', '[webgl] 初始化失败，已回退 DOM 渲染')
+    webglFallbackToast.value = '当前环境不支持 WebGL，已降级 DOM 渲染'
     setTimeout(() => {
       webglFallbackToast.value = ''
     }, 4000)
@@ -362,11 +365,12 @@ function scheduleFocusActiveSurface() {
 
 function fit() {
   if (!term || !fitAddon || disposed) return
+  const {cols, rows} = term
   fitAddon.fit()
   // fit 改了网格尺寸：WebGL 下确保 canvas 位图 / GL viewport 跟着对齐
   // （CSS zoom 下观察器上报的是含 zoom 的尺寸，不能直接采用）
   if (webglAddon) syncWebglCanvas(webglAddon)
-  if (props.tab.sessionId) {
+  if (props.tab.sessionId && (cols !== term.cols || rows !== term.rows)) {
     sshService.resize(props.tab.sessionId, term.cols, term.rows).catch(() => {})
   }
 }
@@ -606,6 +610,16 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+function writeOutput(output: Uint8Array) {
+  if (!term || disposed || !output.length) return
+  const size = output.length
+  pendingOutputBytes += size
+  peakOutputBytes = Math.max(peakOutputBytes, pendingOutputBytes)
+  term.write(output, () => {
+    pendingOutputBytes -= size
+  })
+}
+
 async function setupZmodem(sessionId: string) {
   if (!term) return
   zmodem?.dispose()
@@ -614,6 +628,7 @@ async function setupZmodem(sessionId: string) {
     zmodem = await attachZmodem({
       term,
       sessionId,
+      writeOutput,
       onProgress: (p) => {
         zmodemProgress.value = p
         if (p.done) {
@@ -739,7 +754,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
       const bytes = base64ToBytes(data)
       if (zmodem) zmodem.consume(bytes)
       // 语义着色：只注入 SGR；off 档 / TUI（alt-buffer）内部直接原样返回输入字节
-      else term.write(colorize.feed(bytes))
+      else writeOutput(colorize.feed(bytes))
     }),
   )
 
@@ -817,7 +832,7 @@ function scheduleAutoReconnect() {
     if (disposed || !settings.autoReconnect) return
     if (props.tab.status !== 'disconnected') return
     term?.write(`\r\n\x1b[33m[自动重连] 第 ${autoReconnectAttempt} 次尝试…\x1b[0m\r\n`)
-    const ok = await reconnectSession()
+    const ok = await reconnectSession(false)
     if (ok) {
       autoReconnectAttempt = 0
     } else if (props.tab.status === 'disconnected' && settings.autoReconnect && !disposed) {
@@ -826,7 +841,7 @@ function scheduleAutoReconnect() {
   }, delay)
 }
 
-async function reconnectSession(): Promise<boolean> {
+async function reconnectSession(countLogin = true): Promise<boolean> {
   if (!term) return false
   cancelAutoReconnect()
   const prevStatus = props.tab.status
@@ -837,7 +852,7 @@ async function reconnectSession(): Promise<boolean> {
     try {
       await reconnect(props.tab.sessionId, term.cols, term.rows)
       sessions.setStatus(props.tab.clientId, 'connected')
-      recordRecentServer({id: props.tab.node.id, name: props.tab.serverName, host: props.tab.host, connectedAt: Date.now()})
+      recordRecentServer({id: props.tab.node.id, name: props.tab.serverName, host: props.tab.host, connectedAt: Date.now()}, countLogin)
       autoReconnectAttempt = 0
       await setupZmodem(props.tab.sessionId)
       fit()
@@ -954,6 +969,7 @@ onMounted(() => {
     title: props.tab.serverName,
     kind: props.tab.kind ?? 'ssh',
     term,
+    runtimeStatus: () => ({webgl: webglAddon !== null, pendingOutputBytes, peakOutputBytes}),
     container: () => container.value ?? null,
     write: writeRaw,
     reconnect: () => {
@@ -1100,7 +1116,7 @@ watch(
     nextTick(() => {
       applyFontSize()
       // 缩放变化会改变 CSS zoom：补丁可用的环境继续用 WebGL（位图已在 fit() 里重新对齐），
-      // 补丁不可用且缩放 ≠ 100% 时回退 Canvas
+      // 补丁不可用且缩放 ≠ 100% 时回退 DOM
       if (!settings.webGLEnabled) return
       if (webglAddon && !webglUsable()) disableWebGL()
       else if (!webglAddon && webglUsable()) tryEnableWebGL()

@@ -30,22 +30,28 @@ type Session struct {
 	server    models.ServerNode
 	createdAt int64
 
-	mu         sync.Mutex
-	closed     bool
-	closeOnce  sync.Once
-	onClosed   func(id string)
-	onOutput   func(id string, data []byte)
-	onStatus   func(id string, status models.SessionStatus, message string)
-	onDirSync  func(id string, path string)
-	onProgress func(id, step, status, log, message string) // 连接过程分步日志
-	lastDir    string                                      // 最近一次同步的路径，用于去重避免重复事件
+	mu           sync.Mutex
+	writeMu      sync.Mutex
+	closed       bool
+	closing      bool
+	reconnecting bool
+	onClosed     func(id string)
+	onOutput     func(id string, data []byte)
+	onStatus     func(id string, status models.SessionStatus, message string)
+	onDirSync    func(id string, path string)
+	onProgress   func(id, step, status, log, message string) // 连接过程分步日志
+	lastDir      string                                      // 最近一次同步的路径，用于去重避免重复事件
 
-	sftpOnce sync.Once
-	sftpErr  error
-	sftp     *sftp.Client
-	home     string // 远程 home，用于把提示符里的 ~ 展开成绝对路径
+	sftpState *sessionSFTP
+	home      string // 远程 home，用于把提示符里的 ~ 展开成绝对路径
 
 	keepAliveEnabled bool // 是否发送心跳包（由应用设置控制）
+}
+
+type sessionSFTP struct {
+	once   sync.Once
+	client *sftp.Client
+	err    error
 }
 
 // noopProgress 无操作进度回调，用于无需展示连接过程日志的调用方（如隧道）。
@@ -156,10 +162,11 @@ func newSession(
 		onDirSync:        onDirSync,
 		onProgress:       onProgress,
 		keepAliveEnabled: keepAliveEnabled,
+		sftpState:        &sessionSFTP{},
 	}
 
 	// 启动 SSH KeepAlive 心跳 Goroutine
-	go s.keepAliveLoop()
+	go s.keepAliveLoop(client)
 
 	go s.pump(stdout)
 	go s.pump(stderr)
@@ -168,7 +175,7 @@ func newSession(
 	// 等待 Shell 退出，统一触发清理。
 	go func() {
 		_ = shell.Wait()
-		s.close(models.StatusClosed, "")
+		s.closeClient(client, models.StatusClosed, "")
 	}()
 
 	return s, nil
@@ -220,30 +227,41 @@ func (s *Session) pump(r io.Reader) {
 // Write 向前端写入终端输入。
 func (s *Session) Write(data []byte) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	stdin, closed := s.stdin, s.closed || s.closing
+	s.mu.Unlock()
+	if closed {
 		return fmt.Errorf("会话已关闭")
 	}
-	_, err := s.stdin.Write(data)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, err := stdin.Write(data)
 	return err
 }
 
 // Resize 调整终端窗口尺寸。
 func (s *Session) Resize(cols, rows int) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	shell, closed := s.shell, s.closed || s.closing
+	s.mu.Unlock()
+	if closed {
 		return nil
 	}
-	return s.shell.WindowChange(rows, cols)
+	return shell.WindowChange(rows, cols)
 }
 
-// SftpClient 返回会话对应的 SFTP 客户端（按需懒创建，随会话关闭）。
+// SftpClient 返回会话对应的 SFTP 客户端（按需懒创建，随 SSH 连接关闭）。
 func (s *Session) SftpClient() (*sftp.Client, error) {
-	s.sftpOnce.Do(func() {
-		s.sftp, s.sftpErr = sftp.NewClient(s.client)
+	s.mu.Lock()
+	if s.closed || s.closing {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("会话已关闭")
+	}
+	state, client := s.sftpState, s.client
+	s.mu.Unlock()
+	state.once.Do(func() {
+		state.client, state.err = sftp.NewClient(client)
 	})
-	return s.sftp, s.sftpErr
+	return state.client, state.err
 }
 
 // guessHome 在尚未探测到远程 home 时给出常见默认值。
@@ -331,30 +349,34 @@ func (s *Session) Info() models.SessionInfo {
 }
 
 func (s *Session) close(status models.SessionStatus, message string) {
-	s.closeOnce.Do(func() {
-		s.mu.Lock()
-		if s.closed {
-			s.mu.Unlock()
-			return
-		}
-		s.closed = true
+	s.closeClient(nil, status, message)
+}
+
+func (s *Session) closeClient(expected *ssh.Client, status models.SessionStatus, message string) {
+	s.mu.Lock()
+	client := s.client
+	if s.closed || s.closing || (expected != nil && expected != client) {
 		s.mu.Unlock()
+		return
+	}
+	s.closing = true
+	s.mu.Unlock()
 
-		logx.Debugf("SSH 会话关闭: session=%s status=%s message=%q", s.ID, status, message)
-		if s.sftp != nil {
-			_ = s.sftp.Close()
-		}
-		_ = s.shell.Close()
-		_ = s.client.Close()
+	// 先关闭传输，解除等待 SSH 通道读写和回复的操作。
+	_ = client.Close()
 
-		if s.onStatus != nil {
-			s.onStatus(s.ID, status, message)
-		}
-		// disconnected 状态保留会话在 Manager 中，支持一键重新连接
-		if s.onClosed != nil && status != models.StatusDisconnected {
-			s.onClosed(s.ID)
-		}
-	})
+	s.mu.Lock()
+	s.closed = true
+	s.closing = false
+	s.mu.Unlock()
+
+	logx.Debugf("SSH 会话关闭: session=%s status=%s message=%q", s.ID, status, message)
+	if s.onStatus != nil {
+		s.onStatus(s.ID, status, message)
+	}
+	if s.onClosed != nil && status != models.StatusDisconnected {
+		s.onClosed(s.ID)
+	}
 }
 
 // buildClientConfig 根据节点配置构造 SSH 客户端配置。
@@ -547,32 +569,43 @@ func parsePrivateKey(data []byte, passphrase string) (ssh.Signer, error) {
 	return key, nil
 }
 
-// keepAliveLoop 定期发送 SSH keepalive 心跳包，防止 NAT 或防火墙超时断开。
-// 当 keepAliveEnabled 为 false 时仅发送空请求保持终端活跃，不做失败检测。
-// 连续失败立即触发连接断开事件，前端保留终端上下文并提供重新连接入口。
-func (s *Session) keepAliveLoop() {
+// keepAliveLoop 定期发送心跳。服务端拒绝请求也表示 SSH 连接仍能收发。
+func (s *Session) keepAliveLoop(client *ssh.Client) {
+	const replyTimeout = 10 * time.Second
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
 		s.mu.Lock()
-		closed := s.closed
-		client := s.client
-		kaEnabled := s.keepAliveEnabled
+		closed := s.closed || s.closing || s.client != client
+		enabled := s.keepAliveEnabled
 		s.mu.Unlock()
-		if closed || client == nil {
+		if closed {
 			return
 		}
-		if !kaEnabled {
-			// 心跳关闭时仍发送 no-op 请求防止服务端终端超时，但不处理错误
+		if !enabled {
 			_, _, _ = client.SendRequest("keepalive@openssh.com", false, nil)
 			continue
 		}
-		_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-		if err != nil {
-			logx.Debugf("SSH keepalive 失败，触发断开事件: session=%s err=%v", s.ID, err)
-			s.close(models.StatusDisconnected, "连接已断开（心跳超时）")
-			return
+
+		result := make(chan error, 1)
+		go func() {
+			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+			result <- err
+		}()
+		timer := time.NewTimer(replyTimeout)
+		select {
+		case err := <-result:
+			timer.Stop()
+			if err == nil {
+				continue
+			}
+			logx.Warnf("SSH 心跳请求失败: session=%s err=%v", s.ID, err)
+			s.closeClient(client, models.StatusDisconnected, "连接已断开（心跳请求失败）")
+		case <-timer.C:
+			logx.Warnf("SSH 心跳未在期限内收到回复: session=%s timeout=%s", s.ID, replyTimeout)
+			s.closeClient(client, models.StatusDisconnected, "连接已断开（心跳超时）")
 		}
+		return
 	}
 }
 
@@ -588,17 +621,20 @@ func (s *Session) SetKeepAliveEnabled(enabled bool) {
 // keepAliveEnabled 用于更新心跳开关设置。
 func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 	s.mu.Lock()
-	wasClosed := s.closed
-	if !wasClosed {
+	if !s.closed || s.closing || s.reconnecting {
 		s.mu.Unlock()
 		return fmt.Errorf("会话仍在连接中，无需重连")
 	}
 	server := s.server
 	onStatus := s.onStatus
 	onProgress := s.onProgress
-	oldClient := s.client
-	oldSftp := s.sftp
+	s.reconnecting = true
 	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.reconnecting = false
+		s.mu.Unlock()
+	}()
 
 	report := func(step, status, log, message string) {
 		if onProgress != nil {
@@ -606,14 +642,6 @@ func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 		}
 	}
 	report(models.ConnectStepDNS, "running", "正在重新连接…", "")
-
-	// 先清理旧连接，避免重连过程中残留占用端口或 SFTP 句柄。
-	if oldSftp != nil {
-		_ = oldSftp.Close()
-	}
-	if oldClient != nil {
-		_ = oldClient.Close()
-	}
 
 	client, err := dialNode(server, report)
 	if err != nil {
@@ -678,21 +706,18 @@ func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 	s.client = client
 	s.shell = shell
 	s.stdin = stdin
-	s.sftp = nil
-	s.sftpOnce = sync.Once{}
-	s.sftpErr = nil
+	s.sftpState = &sessionSFTP{}
 	s.closed = false
-	s.closeOnce = sync.Once{}
 	s.keepAliveEnabled = keepAliveEnabled
 	s.mu.Unlock()
 
-	go s.keepAliveLoop()
+	go s.keepAliveLoop(client)
 	go s.pump(stdout)
 	go s.pump(stderr)
 
 	go func() {
 		_ = shell.Wait()
-		s.close(models.StatusClosed, "")
+		s.closeClient(client, models.StatusClosed, "")
 	}()
 
 	if onStatus != nil {

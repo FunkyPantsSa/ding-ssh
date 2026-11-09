@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -1126,15 +1127,31 @@ func normalizeTunnelConfig(node models.ServerNode, name, mode string, localPort 
 	return tm, remoteHost, name, nil
 }
 
+func tunnelListenHost(mode TunnelMode, hosts []string) (string, error) {
+	if mode != TunnelLocal || len(hosts) == 0 || strings.TrimSpace(hosts[0]) == "" {
+		return "127.0.0.1", nil
+	}
+	ip, err := netip.ParseAddr(strings.TrimSpace(hosts[0]))
+	if err != nil || ip.IsMulticast() || (ip.Is6() && ip.Unmap().IsUnspecified()) {
+		return "", fmt.Errorf("请输入本机网卡的 IP 地址，或选择所有 IPv4 网卡")
+	}
+	return ip.Unmap().String(), nil
+}
+
 // StartTunnel 创建并启动一条 SSH 隧道，
 // 状态变更通过 tunnel:status 事件上报。
-func (m *Manager) StartTunnel(node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
+func (m *Manager) StartTunnel(node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int, listenHosts ...string) (models.TunnelInfo, error) {
 	tm, remoteHost, name, err := normalizeTunnelConfig(node, name, mode, localPort, remoteHost, remotePort)
+	if err != nil {
+		return models.TunnelInfo{}, err
+	}
+	listenHost, err := tunnelListenHost(tm, listenHosts)
 	if err != nil {
 		return models.TunnelInfo{}, err
 	}
 	id := fmt.Sprintf("tunnel-%d", time.Now().UnixMilli())
 	t := newTunnel(id, name, tm, node, localPort, remoteHost, remotePort, m.tunnelStatusNotifier())
+	t.listenHost = listenHost
 	if err := t.Start(); err != nil {
 		return models.TunnelInfo{}, err
 	}
@@ -1146,7 +1163,7 @@ func (m *Manager) StartTunnel(node models.ServerNode, name, mode string, localPo
 
 // UpdateTunnel 以新配置替换已有隧道；原本处于运行状态的隧道会按新配置重新启动。
 // 隧道 ID 保持不变，列表中的位置与既有引用因此得以保留。
-func (m *Manager) UpdateTunnel(id string, node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
+func (m *Manager) UpdateTunnel(id string, node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int, listenHosts ...string) (models.TunnelInfo, error) {
 	tm, remoteHost, name, err := normalizeTunnelConfig(node, name, mode, localPort, remoteHost, remotePort)
 	if err != nil {
 		return models.TunnelInfo{}, err
@@ -1155,10 +1172,18 @@ func (m *Manager) UpdateTunnel(id string, node models.ServerNode, name, mode str
 	if err != nil {
 		return models.TunnelInfo{}, err
 	}
+	if tm == TunnelLocal && old.mode == TunnelLocal && (len(listenHosts) == 0 || strings.TrimSpace(listenHosts[0]) == "") {
+		listenHosts = []string{old.listenHost}
+	}
+	listenHost, err := tunnelListenHost(tm, listenHosts)
+	if err != nil {
+		return models.TunnelInfo{}, err
+	}
 	wasRunning := old.Status() == TunnelRunning
 	old.Stop()
 
 	t := newTunnel(id, name, tm, node, localPort, remoteHost, remotePort, m.tunnelStatusNotifier())
+	t.listenHost = listenHost
 	m.mu.Lock()
 	m.tunnels[id] = t
 	m.mu.Unlock()
@@ -1187,11 +1212,14 @@ func (m *Manager) StopTunnel(id string) error {
 	return nil
 }
 
-// RestartTunnel 重新启动已停止/异常的隧道。
+// RestartTunnel 启动已停止的隧道，或重新建立运行中的隧道。
 func (m *Manager) RestartTunnel(id string) error {
 	t, err := m.getTunnel(id)
 	if err != nil {
 		return err
+	}
+	if t.Status() == TunnelRunning {
+		t.Stop()
 	}
 	return t.Start()
 }

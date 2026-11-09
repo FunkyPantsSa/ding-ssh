@@ -217,7 +217,7 @@ onBeforeUnmount(() => {
         <div class="min-w-0">
           <p class="text-sm font-medium text-slate-200">WebGL 硬件加速</p>
           <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            优先使用 GPU 渲染终端；不可用或上下文丢失时自动降级 Canvas。关闭后强制使用 Canvas。
+            优先使用 GPU 渲染终端；不可用或上下文丢失时自动降级 DOM。关闭后强制使用 DOM。
           </p>
         </div>
         <ToggleSwitch :model-value="settings.webGLEnabled" :disabled="saving" @update:model-value="toggleWebGL" />

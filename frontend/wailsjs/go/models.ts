@@ -492,6 +492,8 @@ export namespace models {
 	    name: string;
 	    serverId: string;
 	    serverName: string;
+	    serverHost?: string;
+	    listenHost?: string;
 	    mode: string;
 	    localPort: number;
 	    remoteHost: string;
@@ -510,6 +512,8 @@ export namespace models {
 	        this.name = source["name"];
 	        this.serverId = source["serverId"];
 	        this.serverName = source["serverName"];
+	        this.serverHost = source["serverHost"];
+	        this.listenHost = source["listenHost"];
 	        this.mode = source["mode"];
 	        this.localPort = source["localPort"];
 	        this.remoteHost = source["remoteHost"];

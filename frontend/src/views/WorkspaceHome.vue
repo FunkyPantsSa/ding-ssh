@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import {computed, onMounted, ref, watch} from 'vue'
+import {computed, onMounted} from 'vue'
+import {serverUsage} from '@/services/recent'
 import {useUIStore} from '@/stores/ui'
 import Icon from '@/components/Icon.vue'
 import {Button} from '@/components/ui'
@@ -9,26 +10,34 @@ import {useSessionsStore} from '@/stores/sessions'
 const emit = defineEmits<{
   quickConnect: []
   manageServers: []
-  openSettings: []
 }>()
 
 const ui = useUIStore()
 const servers = useServersStore()
 const sessions = useSessionsStore()
 
-const featuredServers = computed(() => servers.servers.slice(0, 4))
+const knownServers = computed(() => new Map(servers.servers.map((server) => [server.id, server])))
+const usage = computed(() => serverUsage.value.flatMap((entry) => {
+  const server = knownServers.value.get(entry.id)
+  return server ? [{...entry, server}] : []
+}))
+const featuredServers = computed(() => usage.value
+  .filter((entry) => entry.count > 0)
+  .sort((a, b) => b.count - a.count || b.connectedAt - a.connectedAt)
+  .slice(0, 4))
+const recentServers = computed(() => [...usage.value]
+  .sort((a, b) => b.connectedAt - a.connectedAt)
+  .slice(0, 4))
 const groupCount = computed(() => new Set(servers.servers.map((server) => server.group).filter(Boolean)).size)
-
-function readRecent(): string[] {
-  try { const ids = JSON.parse(localStorage.getItem('ding-ssh:recent-servers') || '[]'); return Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [] } catch { return [] }
-}
-const recentIds = ref<string[]>(readRecent())
-const recentServers = computed(() => recentIds.value.map(id => servers.servers.find(s => s.id === id)).filter(Boolean).slice(0, 4))
 const onlineTabs = computed(() => sessions.tabs.filter(t => t.status === 'connected'))
-watch(() => sessions.tabs.filter(t => t.status === 'connected' && t.node?.id).map(t => t.node!.id), ids => {
-  recentIds.value = [...new Set([...ids, ...recentIds.value])].slice(0, 8)
-  try { localStorage.setItem('ding-ssh:recent-servers', JSON.stringify(recentIds.value)) } catch { /* storage is optional */ }
-}, {immediate: true})
+const shortcuts = [
+  {label: '命令面板', description: '搜索并执行应用命令', icon: 'command', open: () => ui.openCommandPalette()},
+  {label: '新建服务器', description: '保存新的 SSH 连接', icon: 'plus', open: () => ui.requestNewServer()},
+  {label: 'SSH 隧道', description: '管理端口转发', icon: 'terminal', open: () => ui.showTunnel()},
+  {label: '运行状态', description: '查看资源占用和渲染方式', icon: 'activity', open: () => ui.showSettings('about')},
+  {label: '应用日志', description: '查看连接和诊断日志', icon: 'file', open: () => ui.showSettings('logs')},
+  {label: '导入导出', description: '迁移服务器与配置', icon: 'package', open: () => ui.showSettings('migrate')},
+]
 
 onMounted(() => {
   if (!servers.loadedOnce && !servers.loading) void servers.load().catch(() => {})
@@ -67,6 +76,7 @@ function connect(server: (typeof servers.servers)[number]) {
             <div>
               <span class="home-kicker">SERVERS</span>
               <h3>常用服务器</h3>
+              <p class="home-panel-hint">按成功登录次数排序</p>
             </div>
             <button class="home-link" type="button" @click="emit('manageServers')">
               管理全部 <Icon name="arrow-right" :size="13" />
@@ -78,7 +88,7 @@ function connect(server: (typeof servers.servers)[number]) {
           </div>
           <div v-else-if="featuredServers.length" class="home-server-list">
             <button
-              v-for="server in featuredServers"
+              v-for="{server, count} in featuredServers"
               :key="server.id"
               type="button"
               class="home-server-row"
@@ -89,14 +99,17 @@ function connect(server: (typeof servers.servers)[number]) {
                 <strong>{{ server.name }}</strong>
                 <small>{{ server.user }}@{{ server.host }}:{{ server.port }}</small>
               </span>
+              <span class="home-server-group">{{ count }} 次</span>
               <span v-if="server.group" class="home-server-group">{{ server.group }}</span>
               <Icon name="chevron-right" :size="14" extra-class="home-row-arrow" />
             </button>
           </div>
           <div v-else class="home-empty">
             <span class="home-empty-icon"><Icon name="plus" :size="18" /></span>
-            <div><strong>添加第一台服务器</strong><p>保存连接信息，下次一键进入终端。</p></div>
-            <Button variant="ghost" size="sm" @click="emit('manageServers')">新建服务器</Button>
+            <div v-if="servers.servers.length"><strong>还没有常用服务器</strong><p>成功连接已保存的服务器后，这里会按登录次数更新。</p></div>
+            <div v-else><strong>添加第一台服务器</strong><p>保存连接信息，下次一键进入终端。</p></div>
+            <Button v-if="servers.servers.length" variant="ghost" size="sm" @click="emit('quickConnect')">快速连接</Button>
+            <Button v-else variant="ghost" size="sm" @click="ui.requestNewServer()">新建服务器</Button>
           </div>
         </section>
 
@@ -118,16 +131,27 @@ function connect(server: (typeof servers.servers)[number]) {
           </section>
           <section class="home-panel home-status">
             <h3>最近连接</h3>
-            <button v-for="server in recentServers" :key="server!.id" class="home-server-row" @click="connect(server!)">{{ server!.name }} <Icon name="arrow-right" :size="14" /></button>
+            <button v-for="{server} in recentServers" :key="server.id" class="home-server-row" @click="connect(server)">{{ server.name }} <Icon name="arrow-right" :size="14" /></button>
             <p v-if="!recentServers.length">连接服务器后将在这里显示</p>
           </section>
-          <button type="button" class="home-panel home-theme" @click="emit('openSettings')">
+          <button type="button" class="home-panel home-theme" @click="ui.showSettings('theme')">
             <span class="home-theme-icon"><Icon name="palette" :size="17" /></span>
             <span><strong>让工作区更像你</strong><small>调整颜色、明暗与终端主题</small></span>
             <Icon name="arrow-right" :size="14" extra-class="home-row-arrow" />
           </button>
         </aside>
       </div>
+
+      <section class="home-panel home-tools" aria-labelledby="home-tools-title">
+        <h3 id="home-tools-title">快捷入口</h3>
+        <div class="home-tool-grid">
+          <button v-for="shortcut in shortcuts" :key="shortcut.label" type="button" class="home-server-row" @click="shortcut.open()">
+            <span class="home-server-icon"><Icon :name="shortcut.icon" :size="16" /></span>
+            <span class="home-server-copy"><strong>{{ shortcut.label }}</strong><small>{{ shortcut.description }}</small></span>
+            <Icon name="arrow-right" :size="14" extra-class="home-row-arrow" />
+          </button>
+        </div>
+      </section>
 
       <footer class="home-shortcuts">
         <span><kbd>⌘ K</kbd> 命令面板</span>
@@ -151,6 +175,10 @@ function connect(server: (typeof servers.servers)[number]) {
 .home-grid{flex:1 0 auto;min-height:0}
 .home-servers{min-height:0;display:flex;flex-direction:column}
 .home-server-list{min-height:0}
+.home-panel-hint{margin-top:5px;color:var(--muted-foreground);font-size:11px}
+.home-tools{margin-top:14px;padding:18px 24px}
+.home-tools h3{margin:0 0 10px}
+.home-tool-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,205px),1fr));gap:6px}
 @keyframes shimmer{to{background-position:-200% 0}}
 @media(max-width:820px){.home-content{width:min(100% - 32px,680px);padding-top:32px}.home-hero{align-items:flex-start;flex-direction:column}.home-grid{grid-template-columns:1fr}.home-shortcuts{display:none}}
 </style>

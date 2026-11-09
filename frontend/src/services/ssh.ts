@@ -34,7 +34,9 @@ import {
   TestServer,
   TestServerLogin,
   TestServers,
-  UpdateTunnel,
+  UpdateTunnelWithListenHost,
+  StartTunnelWithListenHost,
+  ListLocalIPv4,
   Write,
   ConnectLocal,
   GetPlatform,
@@ -96,7 +98,9 @@ export const sshService = {
     localPort: number,
     remoteHost: string,
     remotePort: number,
-  ): Promise<TunnelInfo> => withAuthentication(phrases => withHostTrust(() => (window as any).go.main.App.StartTunnelAuthenticated(node, name, mode, localPort, remoteHost, remotePort, phrases))),
+    listenHost = '',
+  ): Promise<TunnelInfo> => withAuthentication(phrases => withHostTrust(() =>
+    StartTunnelWithListenHost(node, name, mode, localPort, remoteHost, remotePort, listenHost, phrases))),
   updateTunnel: (
     id: string,
     node: ServerNode,
@@ -105,7 +109,10 @@ export const sshService = {
     localPort: number,
     remoteHost: string,
     remotePort: number,
-  ): Promise<TunnelInfo> => UpdateTunnel(id, node, name, mode, localPort, remoteHost, remotePort),
+    listenHost = '',
+  ): Promise<TunnelInfo> => withAuthentication(phrases => withHostTrust(() =>
+    UpdateTunnelWithListenHost(id, node, name, mode, localPort, remoteHost, remotePort, listenHost, phrases))),
+  listLocalIPv4: (): Promise<string[]> => ListLocalIPv4(),
   stopTunnel: (id: string): Promise<void> => StopTunnel(id),
   restartTunnel: (id: string): Promise<void> => RestartTunnel(id),
   removeTunnel: (id: string): Promise<void> => RemoveTunnel(id),

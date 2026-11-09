@@ -7,6 +7,7 @@ import type {TunnelInfo, TunnelStatusEvent} from '../types'
 import Icon from './Icon.vue'
 import TunnelCard from './tunnels/TunnelCard.vue'
 import TunnelModePicker, {type TunnelMode} from './tunnels/TunnelModePicker.vue'
+import SearchSelect from './ui/select/SearchSelect.vue'
 import {Button, Dialog, EmptyState, ErrorState, Field, Input, Select} from './ui'
 
 const servers = useServersStore()
@@ -17,6 +18,10 @@ const error = ref('')
 const showDialog = ref(false)
 const editing = ref<TunnelInfo | null>(null)
 const copiedId = ref('')
+const localIPv4 = ref<string[]>([])
+const loadingLocalIPv4 = ref(false)
+const localIPv4Error = ref(false)
+const pendingActions = reactive(new Set<string>())
 let copiedTimer: number | undefined
 /** 载入已有隧道时暂停「按模式/服务器自动填默认值」的联动，避免覆盖原有配置。 */
 let syncingForm = false
@@ -25,12 +30,36 @@ const form = reactive({
   name: '',
   mode: 'local' as TunnelMode,
   localPort: 13306,
+  listenScope: 'loopback',
+  listenIP: '',
   remoteHost: '127.0.0.1',
   remotePort: 3306,
 })
 const disposers: Array<() => void> = []
 
 const selectedServer = computed(() => servers.servers.find((s) => s.id === form.serverId))
+
+const listenIPOptions = computed(() => {
+  const options = localIPv4.value.map(ip => ({value: ip, label: ip}))
+  const saved = editing.value?.listenHost
+  if (saved && form.listenIP === saved && !localIPv4.value.includes(saved)) {
+    options.unshift({value: saved, label: `${saved}（原配置）`})
+  }
+  return options
+})
+watch(
+  () => showDialog.value && form.mode === 'local' && form.listenScope === 'specific',
+  (active) => { if (active) void loadLocalIPv4() },
+)
+
+const listenHost = computed(() => {
+  if (form.mode !== 'local' || form.listenScope === 'loopback') return '127.0.0.1'
+  return form.listenScope === 'all-ipv4' ? '0.0.0.0' : form.listenIP.trim()
+})
+
+function hostPort(host: string, port: number | string) {
+  return `${host.includes(':') && !host.startsWith('[') ? `[${host}]` : host}:${port}`
+}
 
 const modeDetails = {
   local: {
@@ -74,7 +103,7 @@ const hint = computed(() => {
   if (form.mode === 'remote') {
     return `远程转发：远端 ${form.remoteHost || '127.0.0.1'}:${form.remotePort || '?'} → 本机 127.0.0.1:${form.localPort || '?'}`
   }
-  return `本地转发：127.0.0.1:${form.localPort || '?'} → ${form.remoteHost || '?'}:${form.remotePort || '?'}`
+  return `本地转发：${hostPort(listenHost.value || '?', form.localPort || '?')} → ${form.remoteHost || '?'}:${form.remotePort || '?'}`
 })
 
 watch(
@@ -131,15 +160,22 @@ async function submit() {
       return
     }
   }
+  if (form.mode === 'local' && form.listenScope === 'specific' && (!listenHost.value || listenHost.value === '0.0.0.0')) {
+    error.value = '请输入指定网卡的 IP 地址；通配监听请选择「所有 IPv4 网卡」'
+    return
+  }
   const name = form.name.trim() || node.name
   const remoteHost = isReverseDynamic.value ? '127.0.0.1' : form.remoteHost.trim() || '127.0.0.1'
   const targetPort = form.mode === 'dynamic' ? 0 : remotePort
   busy.value = true
   try {
     if (editing.value) {
-      await sshService.updateTunnel(editing.value.id, node, name, form.mode, localPort, remoteHost, targetPort)
+      const wasRunning = editing.value.status === 'running'
+      const updated = await sshService.updateTunnel(editing.value.id, node, name, form.mode, localPort, remoteHost, targetPort, listenHost.value)
+      // An authentication retry can update the already-stopped replacement.
+      if (wasRunning && updated.status === 'stopped') await sshService.restartTunnel(updated.id)
     } else {
-      await sshService.startTunnel(node, name, form.mode, localPort, remoteHost, targetPort)
+      await sshService.startTunnel(node, name, form.mode, localPort, remoteHost, targetPort, listenHost.value)
     }
     await refresh()
     showDialog.value = false
@@ -155,6 +191,9 @@ async function submit() {
 /** 用指定隧道的配置填充表单；传 null 表示按当前模式重置为新建默认值。 */
 function fillForm(t: TunnelInfo | null) {
   syncingForm = true
+  const host = t?.listenHost || '127.0.0.1'
+  form.listenScope = host === '127.0.0.1' ? 'loopback' : host === '0.0.0.0' ? 'all-ipv4' : 'specific'
+  form.listenIP = form.listenScope === 'specific' ? host : ''
   if (t) {
     form.serverId = servers.servers.some((s) => s.id === t.serverId)
       ? t.serverId
@@ -196,33 +235,17 @@ function closeDialog() {
   editing.value = null
 }
 
-async function stop(id: string) {
+async function runTunnelAction(id: string, action: (id: string) => Promise<void>) {
+  if (pendingActions.has(id)) return
+  pendingActions.add(id)
   error.value = ''
   try {
-    await sshService.stopTunnel(id)
+    await action(id)
     await refresh()
   } catch (e) {
     error.value = String(e)
-  }
-}
-
-async function restart(id: string) {
-  error.value = ''
-  try {
-    await sshService.restartTunnel(id)
-    await refresh()
-  } catch (e) {
-    error.value = String(e)
-  }
-}
-
-async function remove(id: string) {
-  error.value = ''
-  try {
-    await sshService.removeTunnel(id)
-    await refresh()
-  } catch (e) {
-    error.value = String(e)
+  } finally {
+    pendingActions.delete(id)
   }
 }
 
@@ -239,29 +262,48 @@ const filteredTunnels = computed(() => tunnels.value.filter((t) => t.mode === fo
 function tunnelAddress(t: TunnelInfo): string {
   if (t.mode === 'reverse-dynamic') return `socks5h://127.0.0.1:${t.remotePort}`
   if (t.mode === 'dynamic') return `socks5://127.0.0.1:${t.localPort}`
-  if (t.mode === 'remote') return `${t.remoteHost || '127.0.0.1'}:${t.remotePort}`
-  return `127.0.0.1:${t.localPort}`
+  if (t.mode === 'remote') return hostPort(t.remoteHost || '127.0.0.1', t.remotePort)
+  return hostPort(t.listenHost || '127.0.0.1', t.localPort)
 }
 
 function addressLabel(t: TunnelInfo): string {
-  if (t.mode === 'reverse-dynamic') return '服务器代理地址'
-  if (t.mode === 'dynamic') return '代理地址'
-  if (t.mode === 'remote') return '远端访问地址'
-  return '本机访问地址'
+  if (t.mode === 'reverse-dynamic') return '服务器代理监听地址'
+  if (t.mode === 'dynamic') return '代理监听地址'
+  if (t.mode === 'remote') return '远端监听地址'
+  return '本机监听地址'
 }
 
-function tunnelPath(t: TunnelInfo): string {
-  if (t.mode === 'reverse-dynamic') return `${t.serverName} 上的应用经本机出口访问网络`
-  if (t.mode === 'dynamic') return `经 ${t.serverName} 出口访问网络`
-  if (t.mode === 'remote') {
-    return `${t.remoteHost}:${t.remotePort}（${t.serverName}）→ 本机 127.0.0.1:${t.localPort}`
-  }
-  return `本机 127.0.0.1:${t.localPort} → ${t.remoteHost}:${t.remotePort}（经 ${t.serverName}）`
+function tunnelTarget(t: TunnelInfo): string {
+  if (t.mode === 'reverse-dynamic') return '本机网络'
+  if (t.mode === 'dynamic') return 'SSH 服务器网络'
+  if (t.mode === 'remote') return hostPort('127.0.0.1', t.localPort)
+  return hostPort(t.remoteHost, t.remotePort)
 }
 
-async function copyAddress(t: TunnelInfo) {
+async function loadLocalIPv4() {
+  if (loadingLocalIPv4.value) return
+  loadingLocalIPv4.value = true
+  localIPv4Error.value = false
   try {
-    await ClipboardSetText(tunnelAddress(t))
+    localIPv4.value = await sshService.listLocalIPv4()
+    if (form.listenIP !== editing.value?.listenHost && !localIPv4.value.includes(form.listenIP)) {
+      form.listenIP = ''
+    }
+  } catch {
+    localIPv4Error.value = true
+  } finally {
+    loadingLocalIPv4.value = false
+  }
+}
+
+function copyOptions(t: TunnelInfo): string[] {
+  if (t.mode !== 'local' || t.listenHost !== '0.0.0.0') return []
+  return [...localIPv4.value, '127.0.0.1'].map(ip => hostPort(ip, t.localPort))
+}
+
+async function copyAddress(t: TunnelInfo, address: string) {
+  try {
+    await ClipboardSetText(address)
     copiedId.value = t.id
     window.clearTimeout(copiedTimer)
     copiedTimer = window.setTimeout(() => {
@@ -324,7 +366,24 @@ onBeforeUnmount(() => {
       />
 
       <div v-if="filteredTunnels.length" class="grid gap-4 mb-6" style="grid-template-columns: repeat(auto-fill, minmax(300px, 1fr))">
-        <TunnelCard v-for="t in filteredTunnels" :key="t.id" :tunnel="t" :address="tunnelAddress(t)" :address-label="addressLabel(t)" :path="tunnelPath(t)" :copied="copiedId === t.id" @copy="copyAddress(t)" @start="restart(t.id)" @stop="stop(t.id)" @restart="restart(t.id)" @edit="openEdit(t)" @remove="remove(t.id)" />
+        <TunnelCard
+          v-for="t in filteredTunnels"
+          :key="t.id"
+          :tunnel="t"
+          :address="tunnelAddress(t)"
+          :address-label="addressLabel(t)"
+          :target="tunnelTarget(t)"
+          :copy-options="copyOptions(t)"
+          :copied="copiedId === t.id"
+          :busy="pendingActions.has(t.id)"
+          @load-addresses="loadLocalIPv4"
+          @copy="address => copyAddress(t, address)"
+          @start="runTunnelAction(t.id, sshService.restartTunnel)"
+          @stop="runTunnelAction(t.id, sshService.stopTunnel)"
+          @restart="runTunnelAction(t.id, sshService.restartTunnel)"
+          @edit="openEdit(t)"
+          @remove="runTunnelAction(t.id, sshService.removeTunnel)"
+        />
       </div>
       <EmptyState
         v-else-if="!loading"
@@ -363,11 +422,41 @@ onBeforeUnmount(() => {
             <Input id="tunnel-name" v-model="form.name" placeholder="例如：MySQL 本地入口" />
           </Field>
           <Field label="SSH 服务器" html-for="tunnel-server">
-            <Select id="tunnel-server" v-model="form.serverId">
-              <option v-for="s in servers.servers" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </Select>
+            <SearchSelect
+              id="tunnel-server"
+              v-model="form.serverId"
+              placeholder="选择 SSH 服务器"
+              :options="servers.servers.map(s => ({value: s.id, label: s.name === s.host ? s.name : `${s.name} · ${s.host}`, keywords: `${s.user} ${s.group}`}))"
+            />
           </Field>
         </div>
+
+        <Field v-if="form.mode === 'local'" label="监听范围" html-for="tunnel-listen-scope">
+          <Select id="tunnel-listen-scope" v-model="form.listenScope">
+            <option value="loopback">仅本机（127.0.0.1）</option>
+            <option value="specific">指定本机 IP</option>
+            <option value="all-ipv4">所有 IPv4 网卡（0.0.0.0）</option>
+          </Select>
+          <p v-if="form.listenScope !== 'loopback'" class="mt-2 text-xs text-mist">
+            可达此端口的设备无需登录 SSH 即可使用转发。请在本机防火墙按来源 IP 限制访问。
+          </p>
+        </Field>
+        <Field v-if="form.mode === 'local' && form.listenScope === 'specific'" label="本机网卡 IP" html-for="tunnel-listen-ip">
+          <div class="flex items-start gap-2">
+            <SearchSelect
+              id="tunnel-listen-ip"
+              v-model="form.listenIP"
+              class="font-mono"
+              placeholder="选择或搜索本机 IPv4"
+              :options="listenIPOptions"
+              :disabled="loadingLocalIPv4 || !listenIPOptions.length"
+            />
+            <Button size="sm" variant="ghost" :disabled="loadingLocalIPv4" @click="loadLocalIPv4">刷新网卡</Button>
+          </div>
+          <p v-if="loadingLocalIPv4" class="mt-1 text-xs text-mist">正在读取网卡地址…</p>
+          <p v-else-if="localIPv4Error" class="mt-1 text-xs text-danger">读取网卡地址失败，请刷新重试。</p>
+          <p v-else-if="!localIPv4.length" class="mt-1 text-xs text-mist">未发现启用的非回环 IPv4 地址。</p>
+        </Field>
 
         <div class="grid grid-cols-2 gap-3">
           <Field

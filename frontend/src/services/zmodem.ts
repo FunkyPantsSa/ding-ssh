@@ -54,12 +54,14 @@ async function loadZmodem(): Promise<AnyZ> {
 export async function attachZmodem(opts: {
   term: Terminal
   sessionId: string
+  writeOutput?: (bytes: Uint8Array) => void
   onProgress?: (p: ZmodemProgress) => void
   onStatus?: (msg: string) => void
   /** active 变化时回调，用于挂起/恢复键盘 */
   onActiveChange?: (active: boolean) => void
 }): Promise<ZmodemController> {
   const Zmodem = await loadZmodem()
+  const writeOutput = opts.writeOutput ?? ((bytes: Uint8Array) => opts.term.write(bytes))
   let active = false
   let disposed = false
   const timeoutMs = 120_000
@@ -314,7 +316,7 @@ export async function attachZmodem(opts: {
     // 切勿因 active 丢弃输出：收尾字节与后续 shell 输出都要写回终端
     to_terminal: (octets: number[]) => {
       if (disposed || !octets?.length) return
-      opts.term.write(Uint8Array.from(octets))
+      writeOutput(Uint8Array.from(octets))
     },
     sender: (octets: number[]) => writeSSH(octets),
     on_retract: () => {
@@ -336,7 +338,7 @@ export async function attachZmodem(opts: {
   return {
     consume: (bytes: Uint8Array) => {
       if (disposed) {
-        opts.term.write(bytes)
+        writeOutput(bytes)
         return
       }
       try {
@@ -351,7 +353,7 @@ export async function attachZmodem(opts: {
           }
           finish(currentSession, 'Zmodem 异常，已恢复终端')
         }
-        opts.term.write(bytes)
+        writeOutput(bytes)
       }
     },
     dispose: () => {

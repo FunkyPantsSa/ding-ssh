@@ -1,5 +1,7 @@
 <script lang="ts" setup>
-import {onMounted, ref} from 'vue'
+import {onMounted} from 'vue'
+import {storeToRefs} from 'pinia'
+import {useUIStore, type SettingsSection} from '../stores/ui'
 import SettingsNavigation from './settings/SettingsNavigation.vue'
 import HotkeysSection from './settings/HotkeysSection.vue'
 import ConnectionInfoSection from './ConnectionInfoSection.vue'
@@ -30,8 +32,7 @@ const menuItems = [
   {key: 'migrate', label: '导入导出', icon: 'package'},
   {key: 'about', label: '关于', icon: 'info'},
 ] as const
-type SettingsSection = 'general' | 'hotkeys' | 'connectionInfo' | 'theme' | 'credentials' | 'security' | 'debug' | 'logs' | 'audit' | 'migrate' | 'about'
-const section = ref<SettingsSection>('general')
+const {settingsSection: section, view} = storeToRefs(useUIStore())
 
 onMounted(() => {
   if (!settings.loaded) void settings.load()
@@ -56,7 +57,7 @@ onMounted(() => {
         <SettingsLogsSection v-else-if="section === 'logs'" />
         <SettingsAuditSection v-else-if="section === 'audit'" />
         <SettingsMigrateSection v-else-if="section === 'migrate'" />
-        <SettingsAboutSection v-else />
+        <SettingsAboutSection v-else :active="view === 'settings'" />
       </div>
     </div>
   </div>
