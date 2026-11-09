@@ -1,6 +1,7 @@
 package sshx
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -29,12 +30,13 @@ const (
 type TunnelMode string
 
 const (
-	TunnelLocal   TunnelMode = "local"   // -L 本地转发
-	TunnelRemote  TunnelMode = "remote"  // -R 远程转发
-	TunnelDynamic TunnelMode = "dynamic" // -D SOCKS5
+	TunnelLocal          TunnelMode = "local"           // -L 本地转发
+	TunnelRemote         TunnelMode = "remote"          // -R 远程转发
+	TunnelDynamic        TunnelMode = "dynamic"         // -D SOCKS5
+	TunnelReverseDynamic TunnelMode = "reverse-dynamic" // -R SOCKS5
 )
 
-// Tunnel 一条 SSH 隧道（支持 Local / Remote / Dynamic）。
+// Tunnel 一条 SSH 隧道。
 type Tunnel struct {
 	id         string
 	name       string
@@ -50,7 +52,6 @@ type Tunnel struct {
 	message  string
 	client   *ssh.Client
 	listener net.Listener
-	stopCtx  context.Context
 	stopFn   context.CancelFunc
 	wg       sync.WaitGroup
 
@@ -67,7 +68,6 @@ func newTunnel(
 	remotePort int,
 	onStatus func(string, TunnelStatus, string),
 ) *Tunnel {
-	ctx, cancel := context.WithCancel(context.Background())
 	if mode == "" {
 		mode = TunnelLocal
 	}
@@ -81,8 +81,7 @@ func newTunnel(
 		remotePort: remotePort,
 		startedAt:  time.Now().UnixMilli(),
 		status:     TunnelStopped,
-		stopCtx:    ctx,
-		stopFn:     cancel,
+		stopFn:     func() {},
 		onStatus:   onStatus,
 	}
 }
@@ -120,16 +119,15 @@ func (t *Tunnel) Start() error {
 		t.mu.Unlock()
 		return fmt.Errorf("隧道已在运行")
 	}
-	if t.listener != nil {
-		_ = t.listener.Close()
-	}
 	if t.client != nil {
 		_ = t.client.Close()
+	}
+	if t.listener != nil {
+		_ = t.listener.Close()
 	}
 	// 重置 stop context，支持 restart
 	t.stopFn()
 	ctx, cancel := context.WithCancel(context.Background())
-	t.stopCtx = ctx
 	t.stopFn = cancel
 	t.mu.Unlock()
 
@@ -140,9 +138,11 @@ func (t *Tunnel) Start() error {
 
 	var ln net.Listener
 	switch t.mode {
-	case TunnelRemote:
+	case TunnelRemote, TunnelReverseDynamic:
 		addr := net.JoinHostPort(t.remoteHost, strconv.Itoa(t.remotePort))
+		stopListen := context.AfterFunc(ctx, func() { client.Close() })
 		ln, err = client.Listen("tcp", addr)
+		stopListen()
 		if err != nil {
 			client.Close()
 			return fmt.Errorf("远程监听 %s 失败: %w", addr, err)
@@ -164,8 +164,8 @@ func (t *Tunnel) Start() error {
 	t.mu.Lock()
 	if err := ctx.Err(); err != nil {
 		t.mu.Unlock()
-		ln.Close()
 		client.Close()
+		ln.Close()
 		return err
 	}
 	t.client = client
@@ -173,13 +173,13 @@ func (t *Tunnel) Start() error {
 	t.status = TunnelRunning
 	t.message = ""
 	t.startedAt = time.Now().UnixMilli()
+	t.wg.Add(1)
 	t.mu.Unlock()
 
 	logx.Infof("SSH 隧道已启动: id=%s mode=%s name=%s local=%d remote=%s:%d",
 		t.id, t.mode, t.name, t.localPort, t.remoteHost, t.remotePort)
 	t.notify(TunnelRunning, "")
-	t.wg.Add(1)
-	go t.acceptLoop()
+	go t.acceptLoop(ctx, ln, client)
 	return nil
 }
 
@@ -187,11 +187,11 @@ func (t *Tunnel) Start() error {
 func (t *Tunnel) Stop() {
 	t.mu.Lock()
 	t.stopFn()
-	if t.listener != nil {
-		_ = t.listener.Close()
-	}
 	if t.client != nil {
 		_ = t.client.Close()
+	}
+	if t.listener != nil {
+		_ = t.listener.Close()
 	}
 	t.status = TunnelStopped
 	t.message = ""
@@ -201,31 +201,41 @@ func (t *Tunnel) Stop() {
 	t.notify(TunnelStopped, "")
 }
 
-func (t *Tunnel) acceptLoop() {
+func (t *Tunnel) acceptLoop(ctx context.Context, listener net.Listener, client *ssh.Client) {
 	defer t.wg.Done()
 	for {
-		conn, err := t.listener.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
-			if t.stopCtx.Err() != nil {
-				return
-			}
-			t.fail(fmt.Sprintf("监听异常: %v", err))
+			t.fail(ctx, fmt.Sprintf("监听异常: %v", err))
 			return
 		}
 		switch t.mode {
 		case TunnelRemote:
 			go t.handleRemoteConn(conn)
 		case TunnelDynamic:
-			go t.handleSocksConn(conn)
+			go t.handleSocksConn(ctx, conn, func(target string) (net.Conn, error) {
+				return client.Dial("tcp", target)
+			})
+		case TunnelReverseDynamic:
+			// sshd can override the requested bind address. Only accept loopback peers.
+			peer, ok := conn.RemoteAddr().(*net.TCPAddr)
+			if !ok || !peer.IP.IsLoopback() {
+				conn.Close()
+				continue
+			}
+			go t.handleSocksConn(ctx, conn, func(target string) (net.Conn, error) {
+				dialer := net.Dialer{Timeout: 10 * time.Second}
+				return dialer.DialContext(ctx, "tcp", target)
+			})
 		default:
-			go t.handleLocalConn(conn)
+			go t.handleLocalConn(client, conn)
 		}
 	}
 }
 
-func (t *Tunnel) handleLocalConn(local net.Conn) {
+func (t *Tunnel) handleLocalConn(client *ssh.Client, local net.Conn) {
 	defer local.Close()
-	remote, err := t.client.Dial("tcp", net.JoinHostPort(t.remoteHost, strconv.Itoa(t.remotePort)))
+	remote, err := client.Dial("tcp", net.JoinHostPort(t.remoteHost, strconv.Itoa(t.remotePort)))
 	if err != nil {
 		logx.Debugf("SSH 本地转发失败: id=%s remote=%s:%d err=%v", t.id, t.remoteHost, t.remotePort, err)
 		return
@@ -246,20 +256,26 @@ func (t *Tunnel) handleRemoteConn(remote net.Conn) {
 	pipe(remote, local)
 }
 
-func (t *Tunnel) handleSocksConn(conn net.Conn) {
+func (t *Tunnel) handleSocksConn(ctx context.Context, conn net.Conn, dial func(string) (net.Conn, error)) {
 	defer conn.Close()
+	stopConn := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stopConn()
+	handshakeTimeout := time.AfterFunc(10*time.Second, func() { conn.Close() })
 	target, err := socks5Handshake(conn)
+	handshakeTimeout.Stop()
 	if err != nil {
 		logx.Debugf("SOCKS5 握手失败: id=%s err=%v", t.id, err)
 		return
 	}
-	remote, err := t.client.Dial("tcp", target)
+	remote, err := dial(target)
 	if err != nil {
 		// 回复连接失败
 		_, _ = conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
 	defer remote.Close()
+	stopRemote := context.AfterFunc(ctx, func() { remote.Close() })
+	defer stopRemote()
 	// 成功响应
 	_, _ = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 	pipe(conn, remote)
@@ -273,8 +289,13 @@ func pipe(a, b net.Conn) {
 	_, _ = io.Copy(a, b)
 }
 
-func (t *Tunnel) fail(message string) {
+func (t *Tunnel) fail(ctx context.Context, message string) {
 	t.mu.Lock()
+	if ctx.Err() != nil {
+		t.mu.Unlock()
+		return
+	}
+	t.stopFn()
 	t.status = TunnelError
 	t.message = message
 	t.mu.Unlock()
@@ -300,6 +321,10 @@ func socks5Handshake(conn net.Conn) (string, error) {
 	nMethods := int(buf[1])
 	if _, err := io.ReadFull(conn, buf[:nMethods]); err != nil {
 		return "", err
+	}
+	if !bytes.Contains(buf[:nMethods], []byte{0}) {
+		_, _ = conn.Write([]byte{0x05, 0xff})
+		return "", fmt.Errorf("客户端未提供 SOCKS5 无认证方式")
 	}
 	// 无认证
 	if _, err := conn.Write([]byte{0x05, 0x00}); err != nil {

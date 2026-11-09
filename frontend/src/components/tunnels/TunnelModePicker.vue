@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Icon from '@/components/Icon.vue'
 
-export type TunnelMode = 'local' | 'remote' | 'dynamic'
+export type TunnelMode = 'local' | 'remote' | 'dynamic' | 'reverse-dynamic'
 export type TunnelModeDetail = {title: string; summary: string; description: string; example: string}
 
 defineProps<{
@@ -10,11 +10,11 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{'update:modelValue': [mode: TunnelMode]}>()
-const modes: TunnelMode[] = ['local', 'remote', 'dynamic']
+const modes: TunnelMode[] = ['local', 'remote', 'dynamic', 'reverse-dynamic']
 </script>
 
 <template>
-  <div class="grid grid-cols-3 gap-3 mb-6" role="radiogroup" aria-label="隧道类型">
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6" role="radiogroup" aria-label="隧道类型">
     <button
       v-for="mode in modes"
       :key="mode"

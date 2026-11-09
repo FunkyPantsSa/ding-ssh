@@ -355,15 +355,16 @@ func appctlToolEntries() []mcpTool {
 			"type=local（-L）：listenPort=本地监听端口，targetHost/targetPort=远端目标；" +
 			"type=remote（-R）：listenHost/listenPort=远端监听地址与端口，targetPort=本地目标端口（当前实现里本地目标固定 127.0.0.1）；" +
 			"type=dynamic（-D）：listenPort=本地 SOCKS5 端口，不需要 target*。" +
+			"type=reverse-dynamic（反向 SOCKS5）：listenPort=远端 SOCKS5 端口，固定请求服务器回环监听，不需要 target*。" +
 			"listenHost 在 local / dynamic 下当前固定为 127.0.0.1（传入会被忽略）。" +
 			"serverId 用已保存的服务器，sessionId 用某个已打开会话的服务器节点（二选一）。",
 			InputSchema: obj(map[string]any{
 				"serverId":   strProp("已保存的服务器 id（与 sessionId 二选一）"),
 				"sessionId":  strProp("已打开会话的 id（与 serverId 二选一）"),
-				"type":       strProp("local | remote | dynamic"),
+				"type":       strProp("local | remote | dynamic | reverse-dynamic"),
 				"name":       strProp("隧道名（可选，缺省自动生成）"),
 				"listenHost": strProp("监听地址（remote 模式 = 远端监听地址；可选）"),
-				"listenPort": intProp("监听端口（local: 本地；remote: 远端；dynamic: 本地 SOCKS5）"),
+				"listenPort": intProp("监听端口（local: 本地；remote: 远端；dynamic: 本地 SOCKS5；reverse-dynamic: 远端 SOCKS5）"),
 				"targetHost": strProp("目标主机（local 模式，缺省 127.0.0.1）"),
 				"targetPort": intProp("目标端口（local: 远端目标端口；remote: 本地目标端口）"),
 				"token":      tokenProp,
@@ -373,7 +374,7 @@ func appctlToolEntries() []mcpTool {
 				"id":         strProp("隧道 id（见 tunnels.list）"),
 				"serverId":   strProp("已保存的服务器 id（与 sessionId 二选一）"),
 				"sessionId":  strProp("已打开会话的 id（与 serverId 二选一）"),
-				"type":       strProp("local | remote | dynamic"),
+				"type":       strProp("local | remote | dynamic | reverse-dynamic"),
 				"name":       strProp("隧道名（可选）"),
 				"listenHost": strProp("监听地址（可选）"),
 				"listenPort": intProp("监听端口"),

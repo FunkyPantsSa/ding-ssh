@@ -2684,8 +2684,10 @@ func (c *debugController) ctlTunnelUpsert(ctx context.Context, op string, args m
 		}
 	case "dynamic":
 		localPort = listenPort
+	case "reverse-dynamic":
+		remoteHost, remotePort = "127.0.0.1", listenPort
 	default:
-		return nil, fmt.Errorf("%w: 非法 type %q（只支持 local | remote | dynamic）", debugsrv.ErrBadInput, mode)
+		return nil, fmt.Errorf("%w: 非法 type %q（只支持 local | remote | dynamic | reverse-dynamic）", debugsrv.ErrBadInput, mode)
 	}
 
 	var info models.TunnelInfo
@@ -2705,7 +2707,9 @@ func (c *debugController) ctlTunnelUpsert(ctx context.Context, op string, args m
 	switch {
 	case mode == "remote":
 		out["targetNote"] = "remote 模式下本地目标固定为 127.0.0.1:targetPort（当前实现），targetHost 被忽略。"
-	case mode != "remote" && listenHost != "" && listenHost != "127.0.0.1":
+	case mode == "reverse-dynamic" && listenHost != "" && listenHost != "127.0.0.1":
+		out["listenHostNote"] = "反向 SOCKS5 固定请求服务器回环监听，已忽略 listenHost。"
+	case mode != "remote" && mode != "reverse-dynamic" && listenHost != "" && listenHost != "127.0.0.1":
 		out["listenHostNote"] = fmt.Sprintf("当前实现里 %s 模式的本地监听地址固定为 127.0.0.1，已忽略 listenHost=%s。", mode, listenHost)
 	}
 	return out, nil

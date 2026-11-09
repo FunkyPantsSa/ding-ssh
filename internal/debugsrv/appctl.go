@@ -1142,13 +1142,13 @@ func (s *Server) appctlTunnelArgs(args map[string]any) (map[string]any, error) {
 	}
 	typ := appctlString(args, "type")
 	switch typ {
-	case "local", "remote", "dynamic":
+	case "local", "remote", "dynamic", "reverse-dynamic":
 	default:
-		return nil, fmt.Errorf("%w: 缺少 / 非法 type %q（只支持 local | remote | dynamic）", ErrBadInput, typ)
+		return nil, fmt.Errorf("%w: 缺少 / 非法 type %q（只支持 local | remote | dynamic | reverse-dynamic）", ErrBadInput, typ)
 	}
 	port, ok := appctlInt(args, "listenPort")
 	if !ok || port <= 0 {
-		return nil, fmt.Errorf("%w: 缺少 listenPort（local: 本地监听端口；remote: 远端监听端口；dynamic: 本地 SOCKS5 端口）", ErrBadInput)
+		return nil, fmt.Errorf("%w: 缺少 listenPort（local: 本地监听端口；remote: 远端监听端口；dynamic: 本地 SOCKS5；reverse-dynamic: 远端 SOCKS5 端口）", ErrBadInput)
 	}
 	if port < 1 || port > 65535 {
 		return nil, fmt.Errorf("%w: listenPort 越界（%d，合法范围 1-65535）", ErrBadInput, port)

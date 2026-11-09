@@ -1096,18 +1096,18 @@ func normalizeTunnelConfig(node models.ServerNode, name, mode string, localPort 
 		tm = TunnelLocal
 	}
 	switch tm {
-	case TunnelLocal, TunnelRemote, TunnelDynamic:
+	case TunnelLocal, TunnelRemote, TunnelDynamic, TunnelReverseDynamic:
 	default:
 		return "", "", "", fmt.Errorf("不支持的隧道模式: %s", mode)
 	}
-	if localPort < 1 || localPort > 65535 {
+	if tm != TunnelReverseDynamic && (localPort < 1 || localPort > 65535) {
 		return "", "", "", fmt.Errorf("本地端口无效: %d", localPort)
 	}
 	if tm != TunnelDynamic {
 		if remotePort < 1 || remotePort > 65535 {
 			return "", "", "", fmt.Errorf("远程端口无效: %d", remotePort)
 		}
-		if remoteHost == "" {
+		if tm == TunnelReverseDynamic || remoteHost == "" {
 			remoteHost = "127.0.0.1"
 		}
 	}
@@ -1115,6 +1115,8 @@ func normalizeTunnelConfig(node models.ServerNode, name, mode string, localPort 
 		switch tm {
 		case TunnelDynamic:
 			name = fmt.Sprintf("SOCKS5:%d", localPort)
+		case TunnelReverseDynamic:
+			name = fmt.Sprintf("反向 SOCKS5:%d", remotePort)
 		case TunnelRemote:
 			name = fmt.Sprintf("R:%d→%d", remotePort, localPort)
 		default:
@@ -1124,7 +1126,7 @@ func normalizeTunnelConfig(node models.ServerNode, name, mode string, localPort 
 	return tm, remoteHost, name, nil
 }
 
-// StartTunnel 创建并启动一条 SSH 隧道（local / remote / dynamic），
+// StartTunnel 创建并启动一条 SSH 隧道，
 // 状态变更通过 tunnel:status 事件上报。
 func (m *Manager) StartTunnel(node models.ServerNode, name, mode string, localPort int, remoteHost string, remotePort int) (models.TunnelInfo, error) {
 	tm, remoteHost, name, err := normalizeTunnelConfig(node, name, mode, localPort, remoteHost, remotePort)

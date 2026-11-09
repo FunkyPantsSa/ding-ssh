@@ -6,10 +6,8 @@ import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
 import type {TunnelInfo, TunnelStatusEvent} from '../types'
 import Icon from './Icon.vue'
 import TunnelCard from './tunnels/TunnelCard.vue'
-import TunnelModePicker from './tunnels/TunnelModePicker.vue'
+import TunnelModePicker, {type TunnelMode} from './tunnels/TunnelModePicker.vue'
 import {Button, Dialog, EmptyState, ErrorState, Field, Input, Select} from './ui'
-
-type TunnelMode = 'local' | 'remote' | 'dynamic'
 
 const servers = useServersStore()
 const tunnels = ref<TunnelInfo[]>([])
@@ -47,6 +45,12 @@ const modeDetails = {
     description: '在 SSH 服务器上开放一个端口，收到的连接会通过隧道转发到本机服务。',
     example: '例如：本机在 3000 端口运行开发站点。远端监听 127.0.0.1:13000 后，服务器访问该地址即可打开本机站点。',
   },
+  'reverse-dynamic': {
+    title: '反向 SOCKS5 -R',
+    summary: '让服务器应用通过本机访问网络',
+    description: '通过现有 SSH 连接，在服务器的 127.0.0.1 上开 SOCKS5 入口，目标连接由本机发起。服务器须允许远程 TCP 转发。',
+    example: '例如：在服务器上运行 curl --proxy socks5h://127.0.0.1:1080 https://example.com。',
+  },
   dynamic: {
     title: '动态 SOCKS5 -D',
     summary: '让应用通过 SSH 服务器访问网络',
@@ -57,7 +61,13 @@ const modeDetails = {
 
 const currentModeDetail = computed(() => modeDetails[form.mode])
 
+const isReverseDynamic = computed(() => form.mode === 'reverse-dynamic')
+const isFixedForward = computed(() => form.mode === 'local' || form.mode === 'remote')
+
 const hint = computed(() => {
+  if (isReverseDynamic.value) {
+    return `服务器 SOCKS5 代理：127.0.0.1:${form.remotePort || '?'} → 本机网络`
+  }
   if (form.mode === 'dynamic') {
     return `SOCKS5 代理：127.0.0.1:${form.localPort || '?'}`
   }
@@ -81,8 +91,10 @@ watch(
 
 watch(
   () => form.mode,
-  (mode) => {
+  (mode, previousMode) => {
     if (syncingForm) return
+    if (mode === 'reverse-dynamic') form.remotePort = 1080
+    if (previousMode === 'reverse-dynamic') form.remotePort = 3306
     if (mode === 'dynamic' && form.localPort === 13306) form.localPort = 1080
     if (mode === 'local' && form.localPort === 1080) form.localPort = 13306
   },
@@ -107,9 +119,9 @@ async function submit() {
   }
   const node = selectedServer.value
   if (!node) return
-  const localPort = Number(form.localPort)
+  const localPort = isReverseDynamic.value ? 0 : Number(form.localPort)
   const remotePort = Number(form.remotePort)
-  if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535) {
+  if (!isReverseDynamic.value && (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535)) {
     error.value = '本地端口无效（1-65535）'
     return
   }
@@ -120,7 +132,7 @@ async function submit() {
     }
   }
   const name = form.name.trim() || node.name
-  const remoteHost = form.remoteHost.trim() || '127.0.0.1'
+  const remoteHost = isReverseDynamic.value ? '127.0.0.1' : form.remoteHost.trim() || '127.0.0.1'
   const targetPort = form.mode === 'dynamic' ? 0 : remotePort
   busy.value = true
   try {
@@ -157,7 +169,7 @@ function fillForm(t: TunnelInfo | null) {
     form.name = selectedServer.value?.name ?? ''
     form.localPort = form.mode === 'dynamic' ? 1080 : 13306
     form.remoteHost = '127.0.0.1'
-    form.remotePort = 3306
+    form.remotePort = isReverseDynamic.value ? 1080 : 3306
   }
   void nextTick(() => {
     syncingForm = false
@@ -225,18 +237,21 @@ const filteredTunnels = computed(() => tunnels.value.filter((t) => t.mode === fo
 
 /** 使用者真正需要填到客户端里的地址。 */
 function tunnelAddress(t: TunnelInfo): string {
+  if (t.mode === 'reverse-dynamic') return `socks5h://127.0.0.1:${t.remotePort}`
   if (t.mode === 'dynamic') return `socks5://127.0.0.1:${t.localPort}`
   if (t.mode === 'remote') return `${t.remoteHost || '127.0.0.1'}:${t.remotePort}`
   return `127.0.0.1:${t.localPort}`
 }
 
 function addressLabel(t: TunnelInfo): string {
+  if (t.mode === 'reverse-dynamic') return '服务器代理地址'
   if (t.mode === 'dynamic') return '代理地址'
   if (t.mode === 'remote') return '远端访问地址'
   return '本机访问地址'
 }
 
 function tunnelPath(t: TunnelInfo): string {
+  if (t.mode === 'reverse-dynamic') return `${t.serverName} 上的应用经本机出口访问网络`
   if (t.mode === 'dynamic') return `经 ${t.serverName} 出口访问网络`
   if (t.mode === 'remote') {
     return `${t.remoteHost}:${t.remotePort}（${t.serverName}）→ 本机 127.0.0.1:${t.localPort}`
@@ -294,6 +309,10 @@ onBeforeUnmount(() => {
       <div class="neo-flat px-4 py-3 mb-5">
         <p class="text-[13px] text-[var(--foreground)]">{{ currentModeDetail.description }}</p>
         <p class="text-[12px] text-mist mt-1.5 leading-relaxed">{{ currentModeDetail.example }}</p>
+        <p v-if="isReverseDynamic" class="text-[12px] text-danger mt-2">
+          此代理无认证。服务器上的其他用户和进程也可能借此访问本机和本机可达的内网。
+          仅连接可信服务器。OpenSSH 请使用 GatewayPorts no，并通过防火墙阻止外部访问代理端口。
+        </p>
       </div>
 
       <ErrorState
@@ -327,10 +346,15 @@ onBeforeUnmount(() => {
             <button type="button" :class="form.mode === 'local' ? 'active' : ''" :aria-pressed="form.mode === 'local'" @click="form.mode = 'local'">本地 -L</button>
             <button type="button" :class="form.mode === 'remote' ? 'active' : ''" :aria-pressed="form.mode === 'remote'" @click="form.mode = 'remote'">远程 -R</button>
             <button type="button" :class="form.mode === 'dynamic' ? 'active' : ''" :aria-pressed="form.mode === 'dynamic'" @click="form.mode = 'dynamic'">SOCKS5 -D</button>
+            <button type="button" :class="isReverseDynamic ? 'active' : ''" :aria-pressed="isReverseDynamic" @click="form.mode = 'reverse-dynamic'">反向 SOCKS5</button>
           </div>
           <div class="neo-flat px-3 py-2.5 mt-2">
             <p class="text-[12px] text-[var(--foreground)]">{{ currentModeDetail.description }}</p>
             <p class="text-[12px] text-mist mt-1">{{ currentModeDetail.example }}</p>
+            <p v-if="isReverseDynamic" class="text-[12px] text-danger mt-2">
+              此代理无认证。服务器上的其他用户和进程也可能借此访问本机和本机可达的内网。
+              仅连接可信服务器。OpenSSH 请使用 GatewayPorts no，并通过防火墙阻止外部访问代理端口。
+            </p>
           </div>
         </div>
 
@@ -347,6 +371,7 @@ onBeforeUnmount(() => {
 
         <div class="grid grid-cols-2 gap-3">
           <Field
+            v-if="!isReverseDynamic"
             :label="form.mode === 'remote' ? '本机服务端口' : form.mode === 'dynamic' ? '本地代理端口' : '本地监听端口'"
             html-for="tunnel-local-port"
           >
@@ -360,12 +385,12 @@ onBeforeUnmount(() => {
               @update:model-value="form.localPort = Number($event)"
             />
           </Field>
-          <Field v-if="form.mode !== 'dynamic'" :label="form.mode === 'remote' ? '远端监听地址' : '目标主机'" html-for="tunnel-remote-host">
+          <Field v-if="isFixedForward" :label="form.mode === 'remote' ? '远端监听地址' : '目标主机'" html-for="tunnel-remote-host">
             <Input id="tunnel-remote-host" v-model="form.remoteHost" class="font-mono" placeholder="127.0.0.1" />
           </Field>
         </div>
 
-        <Field v-if="form.mode !== 'dynamic'" :label="form.mode === 'remote' ? '远端监听端口' : '目标端口'" html-for="tunnel-remote-port">
+        <Field v-if="form.mode !== 'dynamic'" :label="isReverseDynamic ? '服务器代理端口' : form.mode === 'remote' ? '远端监听端口' : '目标端口'" html-for="tunnel-remote-port">
           <Input
             id="tunnel-remote-port"
             :model-value="form.remotePort"

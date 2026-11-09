@@ -325,7 +325,7 @@ export interface TunnelInfo {
   name: string
   serverId: string
   serverName: string
-  mode: string // local | remote | dynamic
+  mode: string // local | remote | dynamic | reverse-dynamic
   localPort: number
   remoteHost: string
   remotePort: number
