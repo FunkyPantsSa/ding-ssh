@@ -102,6 +102,32 @@ describe('server business flow', () => {
     wrapper.unmount()
   })
 
+  it('opens the edit dialog on request from another page and syncs the open tab', async () => {
+    const wrapper = await mountList()
+    const sessions = useSessionsStore()
+    const ui = useUIStore()
+    sessions.openTab({...node, password: 'secret'})
+    vi.mocked(sshService.saveServer).mockImplementation(async (saved) => ({...saved, id: 's1'}))
+
+    ui.requestEditServer('s1')
+    await flushPromises()
+    expect(document.body.textContent).toContain('编辑服务器')
+
+    const host = document.querySelector<HTMLInputElement>('#server-host')!
+    host.value = '10.0.0.9'
+    host.dispatchEvent(new Event('input', {bubbles: true}))
+    const password = document.querySelector<HTMLInputElement>('#server-password')!
+    password.value = 'secret'
+    password.dispatchEvent(new Event('input', {bubbles: true}))
+    const save = Array.from(document.querySelectorAll<HTMLElement>('button')).find((button) => button.textContent?.trim() === '保存')!
+    save.click()
+    await flushPromises()
+
+    expect(sshService.saveServer).toHaveBeenCalled()
+    expect(sessions.tabs[0].node.host).toBe('10.0.0.9')
+    wrapper.unmount()
+  })
+
   it('marks at most one group as selected and keeps 未分组 out of the drop-target style when idle', async () => {
     const wrapper = await mountList()
     const items = wrapper.findAll('.side-group-item')

@@ -11,6 +11,9 @@ export const useUIStore = defineStore('ui', {
     cmdOpen: false,
     settingsSection: 'general' as SettingsSection,
     newServerTick: 0,
+    // 从任意页面请求编辑某台服务器：ServerList 常驻，由其打开编辑弹窗
+    editServerId: '',
+    editServerTick: 0,
     // 终端页左侧「快速连接」侧边栏是否展开
     terminalSidebarOpen: false,
   }),
@@ -42,6 +45,11 @@ export const useUIStore = defineStore('ui', {
     requestNewServer() {
       this.showServers()
       this.newServerTick++
+    },
+    requestEditServer(id: string) {
+      if (!id) return
+      this.editServerId = id
+      this.editServerTick++
     },
     openTerminalSidebar() {
       this.terminalSidebarOpen = true

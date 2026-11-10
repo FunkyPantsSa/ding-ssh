@@ -631,12 +631,14 @@ body.col-resizing * { cursor: col-resize !important; }
   padding: 2px;
   border-radius: var(--radius-sm);
   background: var(--field-bg);
+  /* 只保留外框这一层；选中项不再单独描边，避免「按钮 + 外框」两层轮廓 */
   box-shadow: inset 0 0 0 1px var(--line);
 }
 .seg button {
   height: 26px;
   padding: 0 10px;
-  border-radius: var(--radius-small);
+  /* 与外框同心：外圆角 - 内边距，避免内层圆角比外框更“方”而被切出缺口 */
+  border-radius: calc(var(--radius-sm) - 2px);
   font-size: 12px;
   font-weight: 500;
   color: var(--muted-foreground);
@@ -646,7 +648,6 @@ body.col-resizing * { cursor: col-resize !important; }
 .seg button.active {
   color: var(--foreground);
   background: var(--primary-weak);
-  box-shadow: inset 0 0 0 1px var(--primary-border);
 }
 .toggle {
   width: 36px; height: 20px;

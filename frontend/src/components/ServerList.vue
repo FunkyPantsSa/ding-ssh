@@ -27,6 +27,27 @@ watch(
   },
 )
 
+// 任意页面（如终端连接失败页）请求编辑服务器时，复用这里的编辑弹窗。
+watch(
+  () => ui.editServerTick,
+  async () => {
+    const openRequested = () => {
+      const node = servers.servers.find((s) => s.id === ui.editServerId)
+      if (node) openEdit(node)
+    }
+    if (servers.servers.length) {
+      openRequested()
+      return
+    }
+    try {
+      await servers.load()
+      openRequested()
+    } catch {
+      /* 列表加载失败时保持原页面，由服务器页展示错误状态 */
+    }
+  },
+)
+
 const keyword = ref('')
 const activeGroup = ref('all') // 'all' | ''（未分组）| 分组名
 const showDialog = ref(false)

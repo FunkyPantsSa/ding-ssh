@@ -39,8 +39,9 @@ const credentialsUsed = ref('')
 const groups = computed(() => {
   const set = new Set(servers.servers.map((s) => s.group.trim()).filter(Boolean))
   // 左栏选中的分组可能还没有任何服务器（手动建的空分组），也要出现在可选项里。
+  // 'all' 是「全部服务器」的哨兵值，不是真实分组，不能出现在下拉选项里。
   const current = (props.defaultGroup ?? '').trim()
-  if (current) set.add(current)
+  if (current && current !== 'all') set.add(current)
   return [...set].sort((a, b) => a.localeCompare(b))
 })
 
@@ -48,6 +49,9 @@ const groups = computed(() => {
 const groupMode = ref<'select' | 'create'>('select')
 const selectedGroup = ref('')
 const newGroupName = ref('')
+
+/** 高级连接配置（跳板机 / 主机密钥别名 / known_hosts）默认折叠，已有配置时自动展开。 */
+const advancedOpen = ref(false)
 
 const form = reactive<ServerNode>({
   id: '',
@@ -64,6 +68,12 @@ const form = reactive<ServerNode>({
   blurAmount: 12,
   envVars: {},
 })
+
+const configuredAdvanced = computed(() => !!(
+  form.jumpServerIds?.length ||
+  form.hostKeyAlias?.trim() ||
+  form.knownHostsSources?.length
+))
 
 function syncGroupFromForm(group: string) {
   const g = (group || '').trim()
@@ -147,6 +157,7 @@ watch(
       envVars: {},
     })
     syncGroupFromForm(editing?.group ?? presetGroup)
+    advancedOpen.value = configuredAdvanced.value
   },
 )
 
@@ -229,7 +240,8 @@ async function save() {
   saving.value = true
   errorMsg.value = ''
   try {
-    await servers.save({...payload, group: payload.group.trim()})
+    const saved = await servers.save({...payload, group: payload.group.trim()})
+    sessions.syncServerNode(saved)
     show.value = false
   } catch (e) {
     errorMsg.value = String(e)
@@ -247,6 +259,7 @@ async function saveAndConnect() {
   errorMsg.value = ''
   try {
     const saved = await servers.save({...payload, group: payload.group.trim()})
+    sessions.syncServerNode(saved)
     show.value = false
     ui.showWorkspace()
     sessions.openTab(saved)
@@ -438,31 +451,40 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="space-y-3">
-        <Field label="跳板机连接路径（最多 5 级）">
-          <div v-for="(jump, index) in form.jumpServerIds" :key="index" class="flex flex-wrap items-center gap-2 mb-2">
-            <SearchSelect
-              class="flex-1 basis-40"
-              :model-value="jump"
-              :aria-label="`第 ${index + 1} 级跳板机`"
-              :options="[{value: '', label: '请选择跳板机'}, ...servers.servers.filter(s => s.id !== form.id).map(s => ({value: s.id, label: `${s.name} · ${s.host}`, keywords: `${s.user} ${s.group}`}))]"
-              @update:model-value="value => { if (form.jumpServerIds) form.jumpServerIds[index] = value }"
-            />
-            <Button size="sm" :disabled="index === 0" @click="() => { const items = form.jumpServerIds!; [items[index - 1], items[index]] = [items[index]!, items[index - 1]!] }">上移</Button>
-            <Button size="sm" @click="form.jumpServerIds?.splice(index, 1)">删除</Button>
-          </div>
-          <Button size="sm" :disabled="(form.jumpServerIds?.length ?? 0) >= 5" @click="(form.jumpServerIds ??= []).push('')">添加下一跳</Button>
-          <p class="text-xs text-mist mt-2">本机 → {{ (form.jumpServerIds ?? []).map(id => servers.servers.find(s => s.id === id)?.name ?? '请选择').concat(form.name || '目标服务器').join(' → ') }}</p>
-        </Field>
-        <template v-if="form.authType === 'agent' || form.authType === 'auto'">
-          <Field label="Agent 地址（留空使用系统默认）"><Input v-model="form.identityAgent" placeholder="SSH_AUTH_SOCK / Windows OpenSSH Agent" /></Field>
-          <Field label="身份文件（每行一个路径）"><Textarea :model-value="(form.identityFiles ?? []).join('\n')" @update:model-value="value => form.identityFiles = String(value).split('\n').filter(Boolean)" /></Field>
-          <Button size="sm" @click="inspectAgent">查看 Agent 公钥</Button>
-          <p v-for="identity in agentIdentities" :key="identity.fingerprint" class="text-xs break-all select-text">{{ identity.keyType }} · {{ identity.fingerprint }}</p>
-          <label class="flex items-center gap-2 text-sm"><input v-model="form.identitiesOnly" type="checkbox" />仅使用指定身份（IdentitiesOnly）</label>
-        </template>
-        <Field label="主机密钥别名（可选）"><Input v-model="form.hostKeyAlias" /></Field>
-        <Field label="额外 known_hosts 文件（每行一个，只读）"><Textarea :model-value="(form.knownHostsSources ?? []).join('\n')" @update:model-value="value => form.knownHostsSources = String(value).split('\n').filter(Boolean)" /></Field>
+      <div v-if="form.authType === 'agent' || form.authType === 'auto'" class="space-y-3">
+        <Field label="Agent 地址（留空使用系统默认）"><Input v-model="form.identityAgent" placeholder="SSH_AUTH_SOCK / Windows OpenSSH Agent" /></Field>
+        <Field label="身份文件（每行一个路径）"><Textarea :model-value="(form.identityFiles ?? []).join('\n')" @update:model-value="value => form.identityFiles = String(value).split('\n').filter(Boolean)" /></Field>
+        <Button size="sm" @click="inspectAgent">查看 Agent 公钥</Button>
+        <p v-for="identity in agentIdentities" :key="identity.fingerprint" class="text-xs break-all select-text">{{ identity.keyType }} · {{ identity.fingerprint }}</p>
+        <label class="flex items-center gap-2 text-sm"><input v-model="form.identitiesOnly" type="checkbox" />仅使用指定身份（IdentitiesOnly）</label>
+      </div>
+
+      <div class="server-advanced">
+        <button type="button" class="server-advanced-toggle" :aria-expanded="advancedOpen" @click="advancedOpen = !advancedOpen">
+          <Icon name="chevron-down" :size="14" extra-class="advanced-chevron" />
+          <span>高级设置</span>
+          <span class="server-advanced-hint">跳板机 · 主机密钥别名 · known_hosts</span>
+          <span v-if="!advancedOpen && configuredAdvanced" class="server-advanced-badge">已配置</span>
+        </button>
+        <div v-show="advancedOpen" class="server-advanced-body space-y-3">
+          <Field label="跳板机连接路径（最多 5 级）">
+            <div v-for="(jump, index) in form.jumpServerIds" :key="index" class="flex flex-wrap items-center gap-2 mb-2">
+              <SearchSelect
+                class="flex-1 basis-40"
+                :model-value="jump"
+                :aria-label="`第 ${index + 1} 级跳板机`"
+                :options="[{value: '', label: '请选择跳板机'}, ...servers.servers.filter(s => s.id !== form.id).map(s => ({value: s.id, label: `${s.name} · ${s.host}`, keywords: `${s.user} ${s.group}`}))]"
+                @update:model-value="value => { if (form.jumpServerIds) form.jumpServerIds[index] = value }"
+              />
+              <Button size="sm" :disabled="index === 0" @click="() => { const items = form.jumpServerIds!; [items[index - 1], items[index]] = [items[index]!, items[index - 1]!] }">上移</Button>
+              <Button size="sm" @click="form.jumpServerIds?.splice(index, 1)">删除</Button>
+            </div>
+            <Button size="sm" :disabled="(form.jumpServerIds?.length ?? 0) >= 5" @click="(form.jumpServerIds ??= []).push('')">添加下一跳</Button>
+            <p class="text-xs text-mist mt-2">本机 → {{ (form.jumpServerIds ?? []).map(id => servers.servers.find(s => s.id === id)?.name ?? '请选择').concat(form.name || '目标服务器').join(' → ') }}</p>
+          </Field>
+          <Field label="主机密钥别名（可选）"><Input v-model="form.hostKeyAlias" /></Field>
+          <Field label="额外 known_hosts 文件（每行一个，只读）"><Textarea :model-value="(form.knownHostsSources ?? []).join('\n')" @update:model-value="value => form.knownHostsSources = String(value).split('\n').filter(Boolean)" /></Field>
+        </div>
       </div>
 
       <div v-if="form.authType === 'password'" class="space-y-3">
@@ -575,3 +597,30 @@ onMounted(() => {
     </template>
   </Dialog>
 </template>
+
+<style scoped>
+.server-advanced { border-top: 1px solid var(--line); }
+.server-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 2px;
+  font-size: 12.5px;
+  color: var(--foreground-secondary);
+  text-align: left;
+}
+.server-advanced-toggle:hover { color: var(--foreground); }
+.advanced-chevron { color: var(--muted-foreground); transform: rotate(-90deg); transition: transform 160ms ease; }
+.server-advanced-toggle[aria-expanded='true'] .advanced-chevron { transform: rotate(0deg); }
+.server-advanced-hint { margin-left: auto; font-size: 11.5px; color: var(--muted-foreground); }
+.server-advanced-badge {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 10.5px;
+  color: var(--accent-bg);
+  background: var(--primary-weak);
+}
+.server-advanced-body { padding-bottom: 4px; }
+</style>

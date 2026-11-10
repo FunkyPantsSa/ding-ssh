@@ -19,6 +19,7 @@ const emit = defineEmits<{
   close: []
   connect: []
   reconnect: []
+  edit: []
   cancelAutoReconnect: []
   toggleStep: [key: string]
 }>()
@@ -79,6 +80,7 @@ defineExpose({focus: () => (statusPanel.value ?? disconnectedPanel.value)?.focus
           </template>
           <template v-else>
             <Button variant="primary" size="sm" data-testid="terminal-retry" @click.stop="emit('reconnect')">重试连接</Button>
+            <Button variant="ghost" size="sm" data-testid="terminal-edit-server" @click.stop="emit('edit')">编辑服务器</Button>
             <Button variant="ghost" size="sm" @click.stop="emit('close')">关闭标签页</Button>
           </template>
         </div>

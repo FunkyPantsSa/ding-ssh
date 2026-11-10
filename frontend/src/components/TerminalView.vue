@@ -21,7 +21,13 @@ import {sysInfoService} from '../services/sysinfo'
 import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../services/zmodem'
 import {Colorizer} from '../utils/output-color'
 import {patchXtermZoomCoords} from '../utils/xterm-zoom'
-import {patchWebglZoomCanvas, syncWebglCanvas, webglCanvasReport} from '../utils/xterm-webgl-zoom'
+import {invalidateWebglGlyphModel, patchWebglZoomCanvas, syncWebglCanvas, webglCanvasReport} from '../utils/xterm-webgl-zoom'
+import {
+  registerSharedAtlasTerminal,
+  resetSharedAtlasTerminals,
+  scheduleSharedAtlasReset,
+  unregisterSharedAtlasTerminal,
+} from '../utils/terminal-atlas'
 import {registerDebugTerminal, unregisterDebugTerminal, type DebugTerminalEntry} from '../debug/registry'
 import Icon from './Icon.vue'
 import TerminalContextMenu from './terminal/TerminalContextMenu.vue'
@@ -30,6 +36,7 @@ import TerminalConnectionOverlay from './terminal/TerminalConnectionOverlay.vue'
 import TerminalTransferOverlay from './terminal/TerminalTransferOverlay.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
+import {useUIStore} from '../stores/ui'
 import {useTerminalCompletion} from '../composables/useTerminalCompletion'
 import {loadTerminalFonts} from '../theme/terminal-fonts'
 import {systemTone} from '../composables/useSystemTone'
@@ -42,6 +49,7 @@ import type {SessionTab} from '../types'
 const props = defineProps<{tab: SessionTab; paneId?: string}>()
 const sessions = useSessionsStore()
 const settings = useSettingsStore()
+const ui = useUIStore()
 // 分屏中：该 TerminalView 所在格是否焦点格；未分屏：全局 activeId 是否命中
 const isActiveTab = computed(() => {
   if (props.paneId) return sessions.focusedPaneId === props.paneId
@@ -78,6 +86,19 @@ let autoReconnectAttempt = 0
 const autoReconnectCountdown = ref(0)
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 let focusTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * 共享图集协调登记项：图集被清空/合并时，先丢弃本终端的 WebGL 顶点模型（只 refresh
+ * 不会重建未变化的单元格），再整屏重绘。
+ */
+const atlasEntry = {
+  invalidateModel: () => {
+    if (!webglAddon) return
+    // 私有 API 不可用时退回公开的 clearTextureAtlas（会连带清图集，但保证模型失效）
+    if (!invalidateWebglGlyphModel(webglAddon)) term?.clearTextureAtlas()
+  },
+  refresh: () => term?.refresh(0, (term?.rows ?? 1) - 1),
+}
 
 // 命令补全的候选、输入行跟踪与快捷键从视图层抽出（见 composables/useTerminalCompletion.ts）。
 const completion = useTerminalCompletion({
@@ -213,7 +234,8 @@ function applyFontSettings() {
     if (!term) return
     term.clearTextureAtlas()
     fit()
-    term.refresh(0, term.rows - 1)
+    // 图集是多终端共享的：清空后必须让兄弟终端也重建顶点模型，否则切回其它标签会整屏乱码。
+    resetSharedAtlasTerminals()
   }).catch((error: unknown) => {
     logClient('warn', `[fonts] 终端字体加载失败，使用回退字体：${String(error)}`)
   })
@@ -278,6 +300,8 @@ function tryEnableWebGL() {
       }, 4000)
     })
     term.loadAddon(webglAddon)
+    // 图集页合并/新增后，共享同一图集的其它终端模型会失效；合并到下一轮统一重绘。
+    webglAddon.onAddTextureAtlasCanvas(() => scheduleSharedAtlasReset())
     // CSS zoom 修正：必须在 loadAddon 之后（此时才拿得到渲染器实例）
     const patched = patchWebglZoomCanvas(webglAddon, uiZoom)
     if (webglZoomPatched === null) webglZoomPatched = patched
@@ -961,6 +985,7 @@ onMounted(() => {
   fitAddon = new FitAddon()
   term.loadAddon(fitAddon)
   term.open(container.value!)
+  registerSharedAtlasTerminal(atlasEntry)
   // 调试模式：把自己注册进终端注册表，供调试 API 读取 xterm 内部状态 / 输入 / 滚动。
   // 放在 WebGL / 字号 / 事件接线之前：后面任何一步抛错都不该造成「终端已挂载、注册表却为空」
   //（调试 API 的 list_terminals / terminal.* 全都依赖这份登记）。
@@ -1104,6 +1129,9 @@ watch(
   () => [isActiveTab.value, props.tab.status] as const,
   ([active]) => {
     if (!active) return
+    // 共享字形图集可能在后台标签渲染时被清空/重排；切回时丢弃顶点模型并整屏重绘。
+    atlasEntry.invalidateModel()
+    atlasEntry.refresh()
     scheduleFocusActiveSurface()
   },
   {immediate: true},
@@ -1151,6 +1179,7 @@ onBeforeUnmount(() => {
     const tail = colorize.flush()
     if (tail.length) term.write(tail)
   }
+  unregisterSharedAtlasTerminal(atlasEntry)
   term?.dispose()
   term = null
 })
@@ -1185,6 +1214,7 @@ onBeforeUnmount(() => {
       @close="closeTab"
       @connect="connect"
       @reconnect="reconnectSession"
+      @edit="ui.requestEditServer(tab.node.id)"
       @cancel-auto-reconnect="cancelAutoReconnect"
       @toggle-step="toggleStep"
     />

@@ -206,6 +206,16 @@ export const useSessionsStore = defineStore('sessions', {
       const tab = this.tabs.find((t) => t.clientId === clientId)
       if (tab) tab.sftpPath = dir
     },
+    /** 服务器配置保存后同步引用它的标签，重试连接才会使用新的主机 / 凭据。 */
+    syncServerNode(node: ServerNode) {
+      for (const tab of this.tabs) {
+        if (tab.node.id !== node.id) continue
+        tab.node = node
+        tab.serverName = node.name || `${node.user}@${node.host}`
+        tab.host = node.host
+        tab.user = node.user
+      }
+    },
     closeTab(clientId: string) {
       const idx = this.tabs.findIndex((t) => t.clientId === clientId)
       if (idx < 0) return

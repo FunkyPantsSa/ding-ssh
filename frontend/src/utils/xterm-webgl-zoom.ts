@@ -30,6 +30,7 @@ interface WebglRendererLike {
   }
   _setCanvasDevicePixelDimensions?: (width: number, height: number) => void
   handleResize?: (cols: number, rows: number) => void
+  _clearModel?: (clearGlyphs?: boolean) => void
 }
 
 interface WebglAddonLike {
@@ -126,4 +127,23 @@ function reportOf(addon: unknown, zoom: number): string | null {
     `rect=${rect ? `${Math.round(rect.width)}x${Math.round(rect.height)}` : '?'}`,
   ]
   return parts.join(' ')
+}
+
+/**
+ * 丢弃 WebglRenderer 的顶点模型缓存：下一次重绘会按当前字形图集坐标重建。
+ *
+ * 共享同一 TextureAtlas 的兄弟终端在 `clearTextureAtlas()` / 图集页合并后，模型里
+ * 仍是旧坐标；只 `refresh()` 不够（未变化的单元格不会重写顶点）。返回 false 表示
+ * 私有 API 不可用，调用方应退回公开的 `term.clearTextureAtlas()`。
+ */
+export function invalidateWebglGlyphModel(addon: unknown): boolean {
+  try {
+    const renderer = rendererOf(addon)
+    if (!renderer || typeof renderer._clearModel !== 'function') return false
+    renderer._clearModel(true)
+    return true
+  } catch {
+    // 私有 API 行为变化时不能把异常抛进渲染 / 字体加载流程
+    return false
+  }
 }

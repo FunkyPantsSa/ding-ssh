@@ -7,6 +7,27 @@
 
 ---
 
+## [未发布] 2026-11-09 · 终端乱码复修、服务器高级设置折叠与界面细节
+
+### 修复
+
+- **终端乱码（复现：关闭一个标签、自动切到上一个标签后整屏字形错位；关闭 WebGL 即恢复）**：xterm 6 + `@xterm/addon-webgl` 0.19 在字体/主题/DPR 相同时让多个 `Terminal` 共享同一个字形图集。任一终端 `clearTextureAtlas()`（字体加载、系统恢复）或图集页合并后，其它终端的 WebGL 顶点模型仍指向旧纹理坐标；后台标签不会立即重绘，切回时直接画出错位字形（上游 [`xtermjs/xterm.js#6014`](https://github.com/xtermjs/xterm.js/issues/6014)、[`#6042`](https://github.com/xtermjs/xterm.js/pull/6042)、[`#6055`](https://github.com/xtermjs/xterm.js/pull/6055)，稳定版修复尚未发布）。
+  上一版只补了 `term.refresh()`，但 `WebglRenderer._updateModel` 只在单元格内容变化时才重写顶点，未变化的行会继续使用旧坐标，所以仍然乱码。改为在 `frontend/src/utils/terminal-atlas.ts` 登记所有终端：共享图集被清空、图集页新增/合并、窗口重新获得焦点、页面恢复可见、标签重新激活时，通过 `xterm-webgl-zoom.invalidateWebglGlyphModel()` 丢弃每个渲染器的顶点模型（addon 私有 `_clearModel(true)`，与既有画布缩放补丁同类的受控私有 API 用法；私有 API 失效时回退公开的 `term.clearTextureAtlas()`），再整屏重绘。
+- 连接失败页新增「编辑服务器」：从 `TerminalConnectionOverlay` 发出 `edit`，经 UI store 让常驻的 `ServerList` 复用编辑弹窗（不切页）；保存后 `sessions.syncServerNode()` 同步同 id 标签的节点，重试连接会使用新配置。
+- 「新建服务器」分组下拉出现 `all`：`defaultGroup` 传入了左栏「全部服务器」的哨兵值，`groups` 计算属性又把它当真实分组加入选项。现在 `all` 会被排除（与弹窗打开时回落到「未分组」的逻辑一致）。
+- 分段选择器（如设置页「打开选项栏 / 直接粘贴」）看起来像「按钮 + 外框」两层、内层圆角与外框不贴合：`.seg` 选中项移除多余的内描边，内层圆角改为 `外圆角 - 2px`；同步修正 `ui/tabs` 的同类圆角不一致与「深色材质」按钮的 `border + inset` 双描边。
+
+### 变更
+
+- 「新建 / 编辑服务器」把跳板机连接路径、主机密钥别名、额外 known_hosts 收进可折叠的「高级设置」；已有相关配置时自动展开，收起时显示「已配置」。SSH Agent 的地址 / 身份文件仍跟随认证方式直接显示。
+
+### 验证
+
+- 新增 / 更新测试：`terminal-atlas`（模型失效 + 重绘、合并去重、注销）、`xterm-webgl-zoom`（私有模型失效 API 与兜底）、`ServerDialog`（分组不含 `all`、高级设置默认折叠与自动展开）、`TerminalConnectionOverlay`（编辑按钮）、`ServerList`（跨页面请求编辑并同步标签）。
+- `vue-tsc --noEmit` 通过，`npm run build` 成功；36 个测试文件、155 项测试通过。
+
+---
+
 ## [未发布] 2026-11-06 · 深色骨架抬亮与层次重排
 
 - 现象：上一轮已经把导航/终端/SFTP 的色相关系校准，但实际终端页仍然偏“沉重”：终端接近纯黑，导航、顶部栏、SFTP 挤在约 14–28 tone 的窄带里，大面积阅读区域缺少空气感。
