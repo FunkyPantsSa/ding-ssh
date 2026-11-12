@@ -28,10 +28,8 @@ const (
 const sysInfoScript = `
 echo '---CONFIG---'
 . /etc/os-release 2>/dev/null; printf '%s\n' "$PRETTY_NAME"; uname -m; getconf _NPROCESSORS_ONLN
-echo '---CPU---'
-LC_ALL=C cat /proc/stat 2>/dev/null
-echo '---MEM---'
-LC_ALL=C cat /proc/meminfo 2>/dev/null
+echo '---TOP---'
+LC_ALL=C TERM=dumb top -b -d 0.5 -n 2 -w 512 2>/dev/null
 echo '---DISK---'
 LC_ALL=C df -k -P -T 2>/dev/null
 echo '---MOUNTS---'
@@ -55,6 +53,7 @@ type cpuSample struct {
 
 // SysInfoCollector 在独立无 PTY Session 上周期性采集系统指标。
 type SysInfoCollector struct {
+	refresh   chan struct{}
 	realtime  func() bool
 	sessionID string
 	client    *ssh.Client
@@ -78,6 +77,7 @@ func newSysInfoCollector(sessionID string, client *ssh.Client, onSnap func(model
 		onSnap:    onSnap,
 		onError:   onError,
 		prevNet:   make(map[string]netSample),
+		refresh:   make(chan struct{}, 1),
 	}
 }
 
@@ -85,6 +85,11 @@ func (c *SysInfoCollector) Start() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.running {
+		// A newly opened subscriber needs a fresh snapshot even in one-shot mode.
+		select {
+		case c.refresh <- struct{}{}:
+		default:
+		}
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -117,7 +122,7 @@ func (c *SysInfoCollector) SetIdle(idle bool) {
 
 func (c *SysInfoCollector) loop(ctx context.Context) {
 	defer c.wg.Done()
-	c.collectOnce()
+	c.collectOnce(ctx)
 	for {
 		c.mu.Lock()
 		idle := c.idle
@@ -129,23 +134,32 @@ func (c *SysInfoCollector) loop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-c.refresh:
+			c.collectOnce(ctx)
 		case <-time.After(interval):
 			if c.realtime != nil && !c.realtime() {
 				continue
 			}
-			c.collectOnce()
+			c.collectOnce(ctx)
 		}
 	}
 }
 
-func (c *SysInfoCollector) collectOnce() {
+func (c *SysInfoCollector) collectOnce(ctx context.Context) {
 	var raw string
 	var lastErr error
 	for attempt := 0; attempt < sysInfoMaxAttempts; attempt++ {
-		if attempt > 0 {
-			time.Sleep(250 * time.Millisecond)
+		if ctx.Err() != nil {
+			return
 		}
-		out, err := c.runRemoteScript()
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+		out, err := c.runRemoteScript(ctx)
 		if strings.TrimSpace(out) != "" {
 			raw = out
 			lastErr = err // 非零退出但有 stdout 时仍解析
@@ -170,7 +184,8 @@ func (c *SysInfoCollector) collectOnce() {
 	snap, cpuRaw, counters, ips := parseSysInfoLoose(raw)
 	snap.SessionID = c.sessionID
 	snap.CollectedAt = time.Now().UnixMilli()
-	snap.CPUUsage = c.diffCPU(cpuRaw)
+	// CPU and memory come exclusively from top.
+	_ = cpuRaw
 	snap.NetIfaces = c.ratesFromCounters(counters, ips)
 
 	hasData := snap.MemTotalMB > 0 || len(snap.DiskUsage) > 0 || len(snap.NetIfaces) > 0 || cpuRaw != nil
@@ -185,6 +200,9 @@ func (c *SysInfoCollector) collectOnce() {
 
 	// 有有效数据则清除瞬时错误；exit code / stderr 不阻断 partial
 	snap.Error = ""
+	if !snap.TopAvailable {
+		snap.Error = "top 输出不可用或格式不支持（需要 Linux procps top）；磁盘数据独立展示"
+	}
 	c.mu.Lock()
 	cp := snap
 	c.lastGood = &cp
@@ -196,7 +214,7 @@ func (c *SysInfoCollector) collectOnce() {
 }
 
 // runRemoteScript 在独立 exec 通道上用 sh -c 跑采集脚本（不占用主 PTY）。
-func (c *SysInfoCollector) runRemoteScript() (string, error) {
+func (c *SysInfoCollector) runRemoteScript(ctx context.Context) (string, error) {
 	sess, err := c.client.NewSession()
 	if err != nil {
 		return "", fmt.Errorf("创建采集会话失败: %w", err)
@@ -216,6 +234,10 @@ func (c *SysInfoCollector) runRemoteScript() (string, error) {
 	var runErr error
 	select {
 	case runErr = <-done:
+	case <-ctx.Done():
+		_ = sess.Close()
+		runErr = ctx.Err()
+		<-done
 	case <-time.After(sysInfoCollectTimeout):
 		_ = sess.Close()
 		runErr = fmt.Errorf("采集超时")
@@ -351,27 +373,6 @@ func parseSysInfoLoose(raw string) (models.SysInfoSnapshot, *cpuSample, []netCou
 	}
 	snap.DiskUsage = parseDisk(section("DISK"))
 	snap.DiskIncomplete = strings.TrimSpace(section("DISK")) == ""
-	identities := map[string]string{}
-	for _, line := range strings.Split(section("MOUNTS"), "\n") {
-		f := strings.Fields(line)
-		if len(f) > 5 {
-			identities[f[4]] = f[2]
-		}
-	}
-	seenFS := map[string]bool{}
-	unique := snap.DiskUsage[:0]
-	for _, d := range snap.DiskUsage {
-		identity := identities[d.MountPoint]
-		if identity == "" {
-			identity = d.Device
-		}
-		if seenFS[identity] {
-			continue
-		}
-		seenFS[identity] = true
-		unique = append(unique, d)
-	}
-	snap.DiskUsage = unique
 	for i := range snap.DiskUsage {
 		d := &snap.DiskUsage[i]
 		if d.FSType == "btrfs" || d.FSType == "zfs" || !knownFilesystem(d.FSType) {
@@ -382,6 +383,7 @@ func parseSysInfoLoose(raw string) (models.SysInfoSnapshot, *cpuSample, []netCou
 	counters := parseNetRaw(section("NET"))
 	ips := parseIPAddr(section("IP"))
 	snap.Uptime = parseUptime(section("UP"))
+	parseTop(section("TOP"), &snap)
 	return snap, cpuRaw, counters, ips
 }
 
@@ -477,10 +479,7 @@ func parseDisk(s string) []models.DiskInfo {
 		if strings.HasPrefix(mount, "/proc") || strings.HasPrefix(mount, "/sys") || device == "tmpfs" || device == "overlay" || device == "devtmpfs" {
 			continue
 		}
-		identity := device
-		if fs == "zfs" {
-			identity = strings.Split(device, "/")[0]
-		}
+		identity := device + "|" + mount
 		if seen[identity] {
 			continue
 		}

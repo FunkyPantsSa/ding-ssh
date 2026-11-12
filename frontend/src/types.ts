@@ -365,7 +365,26 @@ export interface NetIface {
   txMbps: number
 }
 
+export interface TopProcess {
+  pid: number
+  user: string
+  cpu: number
+  memory: number
+  resident: string
+  state: string
+  time: string
+  command: string
+}
+
 export interface SysInfoSnapshot {
+  topAvailable?: boolean
+  cpuDetail?: Record<string, number>
+  load?: number[]
+  processes?: TopProcess[]
+  swapTotalMb?: number
+  swapUsedMb?: number
+  memAvailableMb?: number
+
  diskIncomplete?: boolean
   osName?: string
   architecture?: string

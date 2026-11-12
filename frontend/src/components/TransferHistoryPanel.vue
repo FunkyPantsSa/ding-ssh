@@ -100,7 +100,7 @@ onBeforeUnmount(() => window.clearTimeout(copiedTimer))
     <div class="tool-head">
       <div class="seg">
         <button @click="sessions.showRightPanel('sftp')">SFTP</button>
-        <button @click="sessions.showRightPanel('sysinfo')">看板</button>
+        <button @click="sessions.showRightPanel('sysinfo')">运行状态</button>
       </div>
       <Button variant="ghost" size="icon" class="ml-auto" title="收起" aria-label="收起侧栏" @click="sessions.sftpVisible = false">
         <Icon name="close" :size="14" />

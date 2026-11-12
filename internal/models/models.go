@@ -610,7 +610,26 @@ type TunnelStatusEvent struct {
 }
 
 // SysInfoSnapshot 系统信息快照（SysInfo Dashboard / 状态栏）。
+type TopProcess struct {
+	PID      int     `json:"pid"`
+	User     string  `json:"user"`
+	CPU      float64 `json:"cpu"`
+	Memory   float64 `json:"memory"`
+	Resident string  `json:"resident"`
+	State    string  `json:"state"`
+	Time     string  `json:"time"`
+	Command  string  `json:"command"`
+}
+
 type SysInfoSnapshot struct {
+	TopAvailable   bool               `json:"topAvailable"`
+	CPUDetail      map[string]float64 `json:"cpuDetail"`
+	Load           []float64          `json:"load"`
+	Processes      []TopProcess       `json:"processes"`
+	SwapTotalMB    float64            `json:"swapTotalMb"`
+	SwapUsedMB     float64            `json:"swapUsedMb"`
+	MemAvailableMB float64            `json:"memAvailableMb"`
+
 	DiskIncomplete bool       `json:"diskIncomplete"`
 	OSName         string     `json:"osName"`
 	Architecture   string     `json:"architecture"`

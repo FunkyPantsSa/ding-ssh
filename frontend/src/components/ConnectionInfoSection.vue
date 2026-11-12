@@ -9,7 +9,7 @@ const settings = useSettingsStore()
 const savingCollecting = ref(false)
 
 // 与 Go 端 internal/sshx/sysinfo.go 的 sysInfoScript 保持一致（转义展示用）。
-const collectScript = "\necho '---CONFIG---'\n. /etc/os-release 2>/dev/null; printf '%s\\n' \"$PRETTY_NAME\"; uname -m; getconf _NPROCESSORS_ONLN\necho '---CPU---'\nLC_ALL=C cat /proc/stat 2>/dev/null\necho '---MEM---'\nLC_ALL=C cat /proc/meminfo 2>/dev/null\necho '---DISK---'\nLC_ALL=C df -k -P -T 2>/dev/null\necho '---MOUNTS---'\ncat /proc/self/mountinfo 2>/dev/null\necho '---NET---'\nLC_ALL=C cat /proc/net/dev 2>/dev/null\necho '---IP---'\nLC_ALL=C ip -o -4 addr show 2>/dev/null || LC_ALL=C ip -4 -o addr 2>/dev/null || true\necho '---UP---'\nLC_ALL=C cat /proc/uptime 2>/dev/null\n"
+const collectScript = "\necho '---CONFIG---'\n. /etc/os-release 2>/dev/null; printf '%s\\n' \"$PRETTY_NAME\"; uname -m; getconf _NPROCESSORS_ONLN\necho '---TOP---'\nLC_ALL=C TERM=dumb top -b -d 0.5 -n 2 -w 512 2>/dev/null\necho '---DISK---'\nLC_ALL=C df -k -P -T 2>/dev/null\necho '---MOUNTS---'\ncat /proc/self/mountinfo 2>/dev/null\necho '---NET---'\nLC_ALL=C cat /proc/net/dev 2>/dev/null\necho '---IP---'\nLC_ALL=C ip -o -4 addr show 2>/dev/null || LC_ALL=C ip -4 -o addr 2>/dev/null || true\necho '---UP---'\nLC_ALL=C cat /proc/uptime 2>/dev/null\n"
 
 async function setCollecting(v: boolean) {
   if (savingCollecting.value || v === settings.sysInfoCollectEnabled) return
@@ -29,7 +29,7 @@ async function setCollecting(v: boolean) {
       <h3 class="text-[18px] font-semibold text-white tracking-tight">连接说明</h3>
       <p class="text-[13px] text-mist mt-1.5 leading-relaxed">
         SSH 登录一台服务器后，ding-ssh 会做两件事：打开一个交互式终端，并在必要时向远端发起少量采集请求，
-        用于在底部状态栏与右侧「系统看板」展示 CPU / 内存 / 磁盘 / 网卡。下面按代码逐一说明会执行什么、采集什么，
+        用于在底部状态栏与右侧「运行状态」展示 CPU / 内存 / 磁盘 / 网卡。下面按代码逐一说明会执行什么、采集什么，
         以及关闭自动采集后会影响哪些功能。
       </p>
     </div>
@@ -42,7 +42,7 @@ async function setCollecting(v: boolean) {
             <p class="text-xs text-slate-500 mt-1 leading-relaxed">
               开启时，登录 SSH 服务器后会自动在远端采集 CPU / 内存 / 磁盘 / 网卡指标（见下方脚本）。
               <strong class="text-slate-300">关闭后，登录服务器不再向远端执行任何采集命令</strong>，
-              底部状态栏与系统看板不再有数据；终端、SFTP、传输、隧道等其余功能不受影响。
+              底部状态栏与运行状态不再有数据；终端、SFTP、传输、隧道等其余功能不受影响。
             </p>
           </div>
           <ToggleSwitch
@@ -63,7 +63,7 @@ async function setCollecting(v: boolean) {
         </div>
       </div>
 
-<div class="neo px-5 py-4"><div class="flex justify-between gap-4"><div><p>实时刷新系统信息</p><p class="text-xs text-mist mt-2">默认关闭：每次 SSH 连接成功后只采集一次，下次连接再刷新。开启后前台约 3 秒、后台约 10 秒刷新，关闭后停止周期采集。需开启自动采集；手动刷新仅针对指定服务器。</p></div><ToggleSwitch :model-value="settings.sysInfoRealtimeEnabled" @update:model-value="settings.setSysInfoRealtimeEnabled" /></div><p class="text-xs text-mist mt-2">采集内容：系统版本、架构、逻辑 CPU 数、CPU 计数、内存、文件系统容量与挂载标识、网卡计数和 IPv4、运行时间。单次采集无法计算连续的 CPU 使用率和网速。</p></div>
+<div class="neo px-5 py-4"><div class="flex justify-between gap-4"><div><p>实时刷新系统信息</p><p class="text-xs text-mist mt-2">默认关闭：每次 SSH 连接成功后只采集一次，下次连接再刷新。开启后前台约 3 秒、后台约 10 秒刷新，关闭后停止周期采集。需开启自动采集；手动刷新仅针对指定服务器。</p></div><ToggleSwitch :model-value="settings.sysInfoRealtimeEnabled" @update:model-value="settings.setSysInfoRealtimeEnabled" /></div><p class="text-xs text-mist mt-2">采集内容：系统版本、架构、逻辑 CPU 数、top CPU 分布、内存、Swap、负载及进程、文件系统容量与挂载标识、网卡计数和 IPv4、运行时间。CPU 使用率取 top 第二帧；网速需要连续采样。</p></div>
       <!-- commands -->
       <section>
         <h3 class="text-[15px] font-semibold text-white flex items-center gap-2">
@@ -167,13 +167,13 @@ async function setCollecting(v: boolean) {
             </thead>
             <tbody class="align-top">
               <tr class="border-b border-slate-800/40">
-                <td class="px-4 py-3 font-mono text-slate-300">CPU</td>
-                <td class="px-4 py-3 text-slate-400 leading-relaxed">CPU 累计时间（user / system / idle / iowait 等）</td>
+                <td class="px-4 py-3 font-mono text-slate-300">TOP · CPU</td>
+                <td class="px-4 py-3 text-slate-400 leading-relaxed">top 第二帧的 CPU 时间分布（us / sy / id / wa 等）</td>
                 <td class="px-4 py-3 text-slate-500 leading-relaxed">计算使用率</td>
               </tr>
               <tr class="border-b border-slate-800/40">
-                <td class="px-4 py-3 font-mono text-slate-300">MEM</td>
-                <td class="px-4 py-3 text-slate-400 leading-relaxed">内存总量、可用、空闲、buffers / cached</td>
+                <td class="px-4 py-3 font-mono text-slate-300">TOP · 内存</td>
+                <td class="px-4 py-3 text-slate-400 leading-relaxed">top 内存、Swap、负载及进程列表</td>
                 <td class="px-4 py-3 text-slate-500 leading-relaxed">计算内存使用率</td>
               </tr>
               <tr class="border-b border-slate-800/40">
@@ -207,7 +207,7 @@ async function setCollecting(v: boolean) {
             <p class="text-[12.5px] text-amber-300/90 font-medium">不再工作</p>
             <ul class="mt-1.5 space-y-1 text-[12.5px] text-slate-400 leading-relaxed">
               <li>· 底部状态栏的 CPU / 内存 / 磁盘 / 网卡指标（显示为占位提示）</li>
-              <li>· 右侧「系统看板」的实时数据</li>
+              <li>· 右侧「运行状态」的实时数据</li>
               <li>· 远端采集脚本不再执行（登录服务器后不会在远端运行任何采集命令）</li>
             </ul>
           </div>

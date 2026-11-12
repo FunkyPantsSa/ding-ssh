@@ -67,3 +67,23 @@ describe('settings defaults', () => {
     expect(store.appearance.atmosphere).toBe(60)
   })
 })
+
+it('persists a changed preference and reloads the saved choice', async () => {
+ vi.mocked(settingsService.saveSettings).mockResolvedValue(undefined)
+ const store=useSettingsStore()
+ await store.setCopyOnSelect(true)
+ expect(settingsService.saveSettings).toHaveBeenCalledWith(expect.objectContaining({copyOnSelect:true}))
+ const saved=vi.mocked(settingsService.saveSettings).mock.calls[0][0]
+ vi.mocked(settingsService.getSettings).mockResolvedValue(saved)
+ setActivePinia(createPinia())
+ const restored=useSettingsStore();await restored.load()
+ expect(restored.copyOnSelect).toBe(true)
+})
+it('propagates save failures so the caller can report them and permits retry', async () => {
+ const store=useSettingsStore()
+ vi.mocked(settingsService.saveSettings).mockRejectedValueOnce(new Error('disk full'))
+ await expect(store.setCopyOnSelect(true)).rejects.toThrow('disk full')
+ vi.mocked(settingsService.saveSettings).mockResolvedValue(undefined)
+ await expect(store.setCopyOnSelect(true)).resolves.toBeUndefined()
+ expect(settingsService.saveSettings).toHaveBeenCalledTimes(2)
+})

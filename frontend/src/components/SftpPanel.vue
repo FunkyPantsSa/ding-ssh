@@ -126,6 +126,7 @@ async function loadFromSync(dir: string) {
     error.value = ''
     console.info('[sftp-sync] 面板已切换', dir, '条目', list.length)
   } catch (e) {
+    error.value = String(e)
     console.warn('[sftp-sync] 列出失败，保持当前列表', dir, e)
   }
 }
@@ -585,7 +586,7 @@ onBeforeUnmount(() => {
     <div class="tool-head">
       <div class="seg">
         <button class="active">SFTP</button>
-        <button @click="sessions.showRightPanel('sysinfo')">看板</button>
+        <button @click="sessions.showRightPanel('sysinfo')">运行状态</button>
       </div>
       <Button
         variant="ghost"

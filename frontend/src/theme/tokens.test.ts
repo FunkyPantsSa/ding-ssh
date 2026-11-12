@@ -76,3 +76,11 @@ describe('design token single source', () => {
     expect(style.match(/linear-gradient\(\s*135deg/g)?.length ?? 0).toBe(0)
   })
 })
+
+it('keeps component corner radii on the shared scale', () => {
+  for (const file of walk(join(process.cwd(), 'src/components')).filter(path => path.endsWith('.vue'))) {
+    const source = readFileSync(file, 'utf8')
+    const css = source.slice(source.indexOf('<style'))
+    expect(css, file).not.toMatch(/border-radius:\s*\d+(?:\.\d+)?px\s*[;}]/)
+  }
+})

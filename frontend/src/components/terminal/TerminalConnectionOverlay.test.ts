@@ -53,3 +53,35 @@ describe('terminal connection overlay', () => {
     expect(wrapper.emitted('edit')).toHaveLength(1)
   })
 })
+
+function overlay(session: Partial<SessionTab> = {}) {
+ return mount(TerminalConnectionOverlay,{props:{tab:{...tab,...session},settings:{autoReconnect:true},steps,connectSteps:[{key:'dns',label:'DNS'}],activeStepLabel:'',anyStepError:false,autoReconnectCountdown:5,autoReconnectAttempt:2}})
+}
+it('routes SSH retry to reconnect and local shell retry to connect', async () => {
+ const remote=overlay()
+ await remote.get('[data-testid="terminal-retry"]').trigger('click')
+ expect(remote.emitted('reconnect')).toHaveLength(1)
+ expect(remote.emitted('connect')).toBeUndefined()
+ const local=overlay({kind:'local'})
+ await local.get('[data-testid="terminal-retry"]').trigger('click')
+ expect(local.emitted('connect')).toHaveLength(1)
+ expect(local.find('[data-testid="terminal-edit-server"]').exists()).toBe(false)
+})
+it('supports keyboard reconnect and cancellation of the automatic retry countdown', async () => {
+ const wrapper=overlay({status:'disconnected'})
+ expect(wrapper.text()).toContain('5s 后自动重连')
+ await wrapper.get('[tabindex="0"]').trigger('keydown',{key:'Enter'})
+ expect(wrapper.emitted('reconnect')).toHaveLength(1)
+ await wrapper.findAll('button').find(button => button.text()==='取消自动重连')!.trigger('click')
+ expect(wrapper.emitted('cancelAutoReconnect')).toHaveLength(1)
+ await wrapper.setProps({autoReconnectCountdown:0})
+ expect(wrapper.text()).not.toContain('取消自动重连')
+})
+it('does not expose retry while connecting and removes the overlay once connected', async () => {
+ const wrapper=overlay({status:'connecting'})
+ expect(wrapper.find('[data-testid="terminal-retry"]').exists()).toBe(false)
+ await wrapper.get('[data-testid="terminal-close-session"]').trigger('click')
+ expect(wrapper.emitted('close')).toHaveLength(1)
+ await wrapper.setProps({tab:{...tab,status:'connected'}})
+ expect(wrapper.find('[tabindex="0"]').exists()).toBe(false)
+})

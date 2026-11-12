@@ -87,3 +87,28 @@ it('offers directory actions on blank space and refresh on entries', async () =>
   expect(menu.textContent).toContain('重命名')
   wrapper.unmount()
 })
+
+it('recovers from a failed listing through the visible retry action', async () => {
+ const pinia=createPinia();setActivePinia(pinia)
+ vi.mocked(sshService.sftpList).mockRejectedValueOnce(new Error('permission denied'))
+ const wrapper=mount(SftpPanel,{props:{tab:{...tab,sftpPath:'/home'}},global:{plugins:[pinia]}})
+ await flushPromises()
+ expect(wrapper.text()).toContain('permission denied')
+ expect(wrapper.text()).not.toContain('空目录')
+ const retry=wrapper.findAll('button').find(button => button.text()==='重试')!
+ await retry.trigger('click');await flushPromises()
+ expect(wrapper.text()).not.toContain('permission denied')
+ expect(wrapper.find('[data-path="/home/logs"]').exists()).toBe(true)
+ wrapper.unmount()
+})
+
+it('does not sync directory navigation to the terminal when synchronization is disabled', async () => {
+ const pinia=createPinia();setActivePinia(pinia)
+ const settings=useSettingsStore();settings.loaded=true;settings.sftpToTerminalSync=false
+ const wrapper=mount(SftpPanel,{props:{tab:{...tab,sftpPath:'/home'}},global:{plugins:[pinia]}})
+ await flushPromises()
+ await wrapper.get('[data-path="/home/logs"]').trigger('dblclick');await flushPromises()
+ expect(sshService.sftpList).toHaveBeenLastCalledWith('sess-1','/home/logs')
+ expect(sshService.syncSftpToTerminal).not.toHaveBeenCalled()
+ wrapper.unmount()
+})

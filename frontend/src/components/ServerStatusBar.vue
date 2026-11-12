@@ -287,7 +287,7 @@ function fmtMbps(v: number): string {
   gap: 2px;
   height: 22px;
   padding: 0 6px;
-  border-radius: 4px;
+  border-radius:var(--radius-small);
   background: var(--hover);
   box-shadow: inset 0 0 0 1px var(--line-strong);
   color: var(--foreground);

@@ -1263,7 +1263,7 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   width: 3px;
   align-self: stretch;
-  border-radius: 2px;
+  border-radius:var(--radius-small);
   background: var(--warning);
 }
 

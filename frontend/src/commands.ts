@@ -59,7 +59,7 @@ const commandEffects: Record<string, CommandEffect> = {
   local: {cap: '', confirm: false, note: '会新建一个本机终端标签'},
   'hide-tool': {cap: '', confirm: false, note: '收起右侧工具侧栏'},
   'show-sftp': {cap: '', confirm: false, note: '展开右侧 SFTP 面板'},
-  'show-sys': {cap: '', confirm: false, note: '展开右侧系统看板'},
+  'show-sys': {cap: '', confirm: false, note: '展开右侧运行状态'},
 }
 
 /** 前缀命令的影响范围（按服务器动态生成的 connect-<serverId>）。 */
@@ -147,7 +147,7 @@ export function buildCommands(ctx: CommandContext): AppCommand[] {
       },
     })
     items.push({
-      id: 'show-sys', title: '打开系统看板', section: '工作区', ...commandEffect('show-sys'),
+      id: 'show-sys', title: '打开运行状态', section: '工作区', ...commandEffect('show-sys'),
       run: () => {
         sessions.showRightPanel('sysinfo')
         return {ok: true}
