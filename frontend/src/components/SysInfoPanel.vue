@@ -14,7 +14,6 @@ const error = ref('')
 const history = ref<{t: number; cpu: number; memPct: number}[]>([])
 const MAX_POINTS = 40
 let dispose: (() => void) | null = null
-let started = false
 
 const memPct = computed(() => {
   if (!snap.value?.memTotalMb) return 0
@@ -67,7 +66,6 @@ async function start() {
   })
   try {
     await sysInfoService.start(props.tab.sessionId)
-    started = true
   } catch (e) {
     error.value = String(e)
   }
@@ -76,14 +74,7 @@ async function start() {
 async function stop() {
   dispose?.()
   dispose = null
-  if (started && props.tab.sessionId) {
-    try {
-      await sysInfoService.stop(props.tab.sessionId)
-    } catch {
-      /* ignore */
-    }
-  }
-  started = false
+  // 采集器由会话共享；关闭看板只取消本组件监听，避免停止状态栏的数据源。
 }
 
 watch(

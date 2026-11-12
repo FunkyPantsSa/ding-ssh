@@ -3,7 +3,7 @@ import {
   StartSysInfoCollector,
   StopSysInfoCollector,
 } from '../../wailsjs/go/main/App'
-import {EventsOff, EventsOn} from '../../wailsjs/runtime/runtime'
+import {EventsOn} from '../../wailsjs/runtime/runtime'
 import type {SysInfoSnapshot} from '../types'
 
 export const sysInfoService = {
@@ -14,6 +14,5 @@ export const sysInfoService = {
 
 export function onSysInfoSnapshot(sessionId: string, handler: (snap: SysInfoSnapshot) => void): () => void {
   const event = `sysinfo:snapshot:${sessionId}`
-  EventsOn(event, (payload: SysInfoSnapshot) => handler(payload))
-  return () => EventsOff(event)
+  return EventsOn(event, (payload: SysInfoSnapshot) => handler(payload))
 }

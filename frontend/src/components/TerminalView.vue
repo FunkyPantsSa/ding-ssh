@@ -947,6 +947,10 @@ function closeTab() {
 
 function writeRaw(data: string) {
   if (!props.tab.sessionId) return
+  // 发往会话的输入（按键 / 粘贴 / 补全）先补写被语义着色挂起的提示符，并让回显逐字符透传。
+  // 否则逐字符输入会被当成「未完成的输出行」缓存，表现为输入了但屏幕不显示。
+  const pending = colorize.beginInput()
+  if (pending.length) term?.write(pending)
   // btoa 仅支持 latin1；对 Unicode 用 encodeURIComponent 兜底
   try {
     void sshService.write(props.tab.sessionId, btoa(data)).catch(() => {})

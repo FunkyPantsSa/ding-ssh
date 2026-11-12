@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import {ref} from 'vue'
+import {ref, watchPostEffect} from 'vue'
 import Icon from '../Icon.vue'
 import {Button} from '../ui'
 import type {SessionTab} from '../../types'
 
 type Step = { status: 'pending' | 'running' | 'done' | 'error'; logs: string[]; expanded: boolean; message: string }
-defineProps<{
+const props = defineProps<{
   tab: SessionTab
   settings: { autoReconnect: boolean }
   steps: Record<string, Step>
@@ -25,6 +25,20 @@ const emit = defineEmits<{
 }>()
 const statusPanel = ref<HTMLElement | null>(null)
 const disconnectedPanel = ref<HTMLElement | null>(null)
+
+// 等日志 DOM 更新后滚到底部，覆盖所有连接阶段及重新展开的日志。
+watchPostEffect(() => {
+  void props.tab.status
+  for (const step of Object.values(props.steps)) {
+    void step.status
+    void step.expanded
+    void step.logs.length
+    void step.message
+  }
+  statusPanel.value?.querySelectorAll<HTMLElement>('.conn-step-logs').forEach((panel) => {
+    panel.scrollTop = panel.scrollHeight
+  })
+})
 defineExpose({focus: () => (statusPanel.value ?? disconnectedPanel.value)?.focus()})
 </script>
 
