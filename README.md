@@ -195,7 +195,7 @@ Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前
 
 | 脚本 | 产物 |
 | --- | --- |
-| `package-macos.sh` | `ding-ssh-<ver>-macos-universal.dmg` / `.app.zip` |
+| `package-macos.sh` | `ding-ssh-<ver>-macos-<arch>.dmg` / `.app.zip`（`arm64` 为 M 系列，`amd64` 为 Intel） |
 | `package-windows.ps1` | `ding-ssh-<ver>-windows-amd64.zip` / `-setup.exe` |
 | `package-linux.sh` | `.tar.gz` / `.deb`（nfpm，声明 gtk3 + webkit2gtk-4.1 依赖）/ `.AppImage` |
 | `set-version.py` | 把版本号写进 `wails.json` 的 `info.productVersion` |

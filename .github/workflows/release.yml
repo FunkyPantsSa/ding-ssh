@@ -43,8 +43,13 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            platform: darwin/universal
-            artifact: macos
+            platform: darwin/arm64
+            artifact: macos-arm64
+            macos_arch: arm64
+          - os: macos-latest
+            platform: darwin/amd64
+            artifact: macos-amd64
+            macos_arch: amd64
           - os: windows-latest
             platform: windows/amd64
             artifact: windows
@@ -128,6 +133,7 @@ jobs:
         if: runner.os == 'macOS'
         env:
           APP_VERSION: ${{ steps.ver.outputs.app_version }}
+          APP_ARCH: ${{ matrix.macos_arch }}
         run: |
           chmod +x scripts/package-macos.sh
           ./scripts/package-macos.sh
@@ -193,7 +199,8 @@ jobs:
 
             | 平台 | 文件 |
             | --- | --- |
-            | macOS (Universal) | `ding-ssh-*-macos-universal.dmg` / `.app.zip` |
+            | macOS Apple Silicon (M 系列) | `ding-ssh-*-macos-arm64.dmg` / `.app.zip` |
+            | macOS Intel | `ding-ssh-*-macos-amd64.dmg` / `.app.zip` |
             | Windows x64 | `ding-ssh-*-windows-amd64-setup.exe` / `.zip` |
             | Linux x64 | `.AppImage` / `.deb` / `.tar.gz` |
 
