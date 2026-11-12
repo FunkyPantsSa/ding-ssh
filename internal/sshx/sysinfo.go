@@ -26,12 +26,16 @@ const (
 // 明确用 sh -c 执行；段落失败不影响后续（各命令独立 2>/dev/null）。
 // 不使用 head，避免 SIGPIPE 在个别 shell/pipefail 下中断整段脚本。
 const sysInfoScript = `
+echo '---CONFIG---'
+. /etc/os-release 2>/dev/null; printf '%s\n' "$PRETTY_NAME"; uname -m; getconf _NPROCESSORS_ONLN
 echo '---CPU---'
 LC_ALL=C cat /proc/stat 2>/dev/null
 echo '---MEM---'
 LC_ALL=C cat /proc/meminfo 2>/dev/null
 echo '---DISK---'
-LC_ALL=C df -k -P 2>/dev/null
+LC_ALL=C df -k -P -T 2>/dev/null
+echo '---MOUNTS---'
+cat /proc/self/mountinfo 2>/dev/null
 echo '---NET---'
 LC_ALL=C cat /proc/net/dev 2>/dev/null
 echo '---IP---'
@@ -51,6 +55,7 @@ type cpuSample struct {
 
 // SysInfoCollector 在独立无 PTY Session 上周期性采集系统指标。
 type SysInfoCollector struct {
+	realtime  func() bool
 	sessionID string
 	client    *ssh.Client
 	onSnap    func(models.SysInfoSnapshot)
@@ -125,6 +130,9 @@ func (c *SysInfoCollector) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(interval):
+			if c.realtime != nil && !c.realtime() {
+				continue
+			}
 			c.collectOnce()
 		}
 	}
@@ -237,7 +245,6 @@ func (c *SysInfoCollector) emitSoftError(msg string) {
 	if prev != nil {
 		snap := *prev
 		snap.Error = msg
-		snap.CollectedAt = time.Now().UnixMilli()
 		if c.onSnap != nil {
 			c.onSnap(snap)
 		}
@@ -336,7 +343,42 @@ func parseSysInfoLoose(raw string) (models.SysInfoSnapshot, *cpuSample, []netCou
 
 	cpuRaw := parseCPUStat(section("CPU"))
 	snap.MemUsedMB, snap.MemTotalMB = parseMeminfo(section("MEM"))
+	config := strings.Split(strings.TrimSpace(section("CONFIG")), "\n")
+	if len(config) >= 3 {
+		snap.OSName = config[0]
+		snap.Architecture = config[1]
+		snap.CPUCount, _ = strconv.Atoi(config[2])
+	}
 	snap.DiskUsage = parseDisk(section("DISK"))
+	snap.DiskIncomplete = strings.TrimSpace(section("DISK")) == ""
+	identities := map[string]string{}
+	for _, line := range strings.Split(section("MOUNTS"), "\n") {
+		f := strings.Fields(line)
+		if len(f) > 5 {
+			identities[f[4]] = f[2]
+		}
+	}
+	seenFS := map[string]bool{}
+	unique := snap.DiskUsage[:0]
+	for _, d := range snap.DiskUsage {
+		identity := identities[d.MountPoint]
+		if identity == "" {
+			identity = d.Device
+		}
+		if seenFS[identity] {
+			continue
+		}
+		seenFS[identity] = true
+		unique = append(unique, d)
+	}
+	snap.DiskUsage = unique
+	for i := range snap.DiskUsage {
+		d := &snap.DiskUsage[i]
+		if d.FSType == "btrfs" || d.FSType == "zfs" || !knownFilesystem(d.FSType) {
+			d.Uncertain = true
+			snap.DiskIncomplete = true
+		}
+	}
 	counters := parseNetRaw(section("NET"))
 	ips := parseIPAddr(section("IP"))
 	snap.Uptime = parseUptime(section("UP"))
@@ -403,47 +445,58 @@ func parseMeminfo(s string) (used, total uint64) {
 	return used, total
 }
 
+func knownFilesystem(fs string) bool {
+	switch fs {
+	case "ext2", "ext3", "ext4", "xfs", "vfat", "exfat", "ntfs", "ntfs3", "f2fs", "jfs", "reiserfs", "nfs", "nfs4", "cifs", "smb3", "sshfs", "fuse.sshfs", "ceph", "glusterfs":
+		return true
+	}
+	return false
+}
+
 func parseDisk(s string) []models.DiskInfo {
 	var out []models.DiskInfo
-	sc := bufio.NewScanner(strings.NewReader(s))
-	headerSkipped := false
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
+	seen := map[string]bool{}
+	for _, line := range strings.Split(s, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 6 || strings.Contains(line, "Filesystem") {
 			continue
 		}
-		if !headerSkipped {
-			if strings.Contains(line, "Filesystem") || strings.Contains(line, "文件系统") {
-				headerSkipped = true
-			}
+		typed := len(f) >= 7
+		offset := 0
+		fs := ""
+		if typed {
+			offset = 1
+			fs = f[1]
+		}
+		device := f[0]
+		switch fs {
+		case "tmpfs", "devtmpfs", "proc", "sysfs", "overlay", "squashfs", "devpts", "cgroup", "cgroup2", "tracefs", "securityfs", "debugfs", "pstore", "hugetlbfs", "mqueue", "fusectl", "autofs", "ramfs":
 			continue
 		}
-		fields := strings.Fields(line)
-		if len(fields) < 6 {
+		mount := strings.Join(f[5+offset:], " ")
+		if strings.HasPrefix(mount, "/proc") || strings.HasPrefix(mount, "/sys") || device == "tmpfs" || device == "overlay" || device == "devtmpfs" {
 			continue
 		}
-		mount := fields[len(fields)-1]
-		if mount == "tmpfs" || mount == "devtmpfs" ||
-			strings.HasPrefix(mount, "/run") || strings.HasPrefix(mount, "/sys") || strings.HasPrefix(mount, "/proc") {
+		identity := device
+		if fs == "zfs" {
+			identity = strings.Split(device, "/")[0]
+		}
+		if seen[identity] {
 			continue
 		}
-		totalKB := parseUint(fields[1])
-		usedKB := parseUint(fields[2])
-		pctStr := strings.TrimSuffix(fields[4], "%")
-		pct, _ := strconv.ParseFloat(pctStr, 64)
-		info := models.DiskInfo{
-			MountPoint: mount,
-			TotalGB:    totalKB / (1024 * 1024),
-			UsedGB:     usedKB / (1024 * 1024),
-			UsagePct:   pct,
+		seen[identity] = true
+		total := parseUint(f[1+offset])
+		used := parseUint(f[2+offset])
+		if total == 0 {
+			continue
 		}
-		if info.TotalGB == 0 && totalKB > 0 {
-			info.TotalGB = 1
+		pct, _ := strconv.ParseFloat(strings.TrimSuffix(f[4+offset], "%"), 64)
+		network := strings.Contains(device, ":") || strings.HasPrefix(device, "//")
+		switch fs {
+		case "nfs", "nfs4", "cifs", "smb3", "sshfs", "fuse.sshfs", "ceph", "glusterfs":
+			network = true
 		}
-		out = append(out, info)
-		if len(out) >= 16 {
-			break
-		}
+		out = append(out, models.DiskInfo{MountPoint: mount, Device: device, FSType: fs, Network: network, TotalGB: total / (1024 * 1024), UsedGB: used / (1024 * 1024), TotalBytes: total * 1024, UsedBytes: used * 1024, UsagePct: pct})
 	}
 	return out
 }

@@ -126,8 +126,9 @@ type Settings struct {
 	KeepAliveEnabled     bool         `json:"keepAliveEnabled"`     // 发送心跳包防止终端超时（默认开启）
 	// SysInfoCollectEnabled 登录 SSH 服务器后是否自动采集系统指标（默认开启）。
 	// 关闭后连接服务器不再向远端执行任何采集命令；系统看板与底部状态栏不再有数据。
-	SysInfoCollectEnabled bool   `json:"sysInfoCollectEnabled"`
-	LocalShell            string `json:"localShell"` // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
+	SysInfoRealtimeEnabled bool   `json:"sysInfoRealtimeEnabled"`
+	SysInfoCollectEnabled  bool   `json:"sysInfoCollectEnabled"`
+	LocalShell             string `json:"localShell"` // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
 	// AutoLoginLastServer 启动（解锁）后自动重新连接「上次关闭时仍在打开的服务器」（默认关闭）。
 	// LastOpenServers 记录上次关闭应用时仍在打开的服务器 ID 列表（按打开顺序，可重复），
 	// 由前端在标签页增删时写入，启动时据此提示并恢复会话。
@@ -610,19 +611,29 @@ type TunnelStatusEvent struct {
 
 // SysInfoSnapshot 系统信息快照（SysInfo Dashboard / 状态栏）。
 type SysInfoSnapshot struct {
-	SessionID   string     `json:"sessionId"`
-	CPUUsage    float64    `json:"cpuUsage"`
-	MemUsedMB   uint64     `json:"memUsedMb"`
-	MemTotalMB  uint64     `json:"memTotalMb"`
-	DiskUsage   []DiskInfo `json:"diskUsage"`
-	NetIfaces   []NetIface `json:"netIfaces"`
-	Uptime      string     `json:"uptime"`
-	CollectedAt int64      `json:"collectedAt"`
-	Error       string     `json:"error,omitempty"`
+	DiskIncomplete bool       `json:"diskIncomplete"`
+	OSName         string     `json:"osName"`
+	Architecture   string     `json:"architecture"`
+	CPUCount       int        `json:"cpuCount"`
+	SessionID      string     `json:"sessionId"`
+	CPUUsage       float64    `json:"cpuUsage"`
+	MemUsedMB      uint64     `json:"memUsedMb"`
+	MemTotalMB     uint64     `json:"memTotalMb"`
+	DiskUsage      []DiskInfo `json:"diskUsage"`
+	NetIfaces      []NetIface `json:"netIfaces"`
+	Uptime         string     `json:"uptime"`
+	CollectedAt    int64      `json:"collectedAt"`
+	Error          string     `json:"error,omitempty"`
 }
 
 // DiskInfo 磁盘分区用量。
 type DiskInfo struct {
+	Device     string  `json:"device"`
+	FSType     string  `json:"fsType"`
+	Network    bool    `json:"network"`
+	Uncertain  bool    `json:"uncertain"`
+	TotalBytes uint64  `json:"totalBytes"`
+	UsedBytes  uint64  `json:"usedBytes"`
 	MountPoint string  `json:"mountPoint"`
 	TotalGB    uint64  `json:"totalGb"`
 	UsedGB     uint64  `json:"usedGb"`

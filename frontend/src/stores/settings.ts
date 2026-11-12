@@ -78,6 +78,7 @@ export const useSettingsStore = defineStore('settings', {
     autoReconnect: true,
     keepAliveEnabled: true,
     // 登录 SSH 服务器后自动采集系统指标（默认开启）。关闭后连接服务器不执行任何采集命令。
+    sysInfoRealtimeEnabled: false,
     sysInfoCollectEnabled: true,
     localShell: '',
     // 启动时自动重新连接「上次关闭时仍在打开的服务器」：默认关闭
@@ -132,6 +133,7 @@ export const useSettingsStore = defineStore('settings', {
       this.autoReconnect = settings.autoReconnect ?? true
       this.keepAliveEnabled = settings.keepAliveEnabled ?? true
       // 登录后自动采集：缺省 / 非法值一律回落「开启」（与 Go 端默认一致）
+      this.sysInfoRealtimeEnabled = settings.sysInfoRealtimeEnabled ?? false
       this.sysInfoCollectEnabled = settings.sysInfoCollectEnabled ?? true
       this.localShell = settings.localShell ?? ''
       this.autoLoginLastServer = settings.autoLoginLastServer ?? false
@@ -217,6 +219,10 @@ export const useSettingsStore = defineStore('settings', {
       this.keepAliveEnabled = v
       await this.save()
     },
+    async setSysInfoRealtimeEnabled(v: boolean) {
+      this.sysInfoRealtimeEnabled = v
+      await this.save()
+    },
     async setSysInfoCollectEnabled(v: boolean) {
       this.sysInfoCollectEnabled = v
       await this.save()
@@ -283,6 +289,7 @@ export const useSettingsStore = defineStore('settings', {
         fonts: this.fonts,
         autoReconnect: this.autoReconnect,
         keepAliveEnabled: this.keepAliveEnabled,
+        sysInfoRealtimeEnabled: this.sysInfoRealtimeEnabled,
         sysInfoCollectEnabled: this.sysInfoCollectEnabled,
         localShell: this.localShell,
         autoLoginLastServer: this.autoLoginLastServer,

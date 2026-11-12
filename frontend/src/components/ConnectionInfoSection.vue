@@ -9,20 +9,7 @@ const settings = useSettingsStore()
 const savingCollecting = ref(false)
 
 // 与 Go 端 internal/sshx/sysinfo.go 的 sysInfoScript 保持一致（转义展示用）。
-const collectScript = [
-  'echo \'---CPU---\'',
-  'LC_ALL=C cat /proc/stat 2>/dev/null',
-  'echo \'---MEM---\'',
-  'LC_ALL=C cat /proc/meminfo 2>/dev/null',
-  'echo \'---DISK---\'',
-  'LC_ALL=C df -k -P 2>/dev/null',
-  'echo \'---NET---\'',
-  'LC_ALL=C cat /proc/net/dev 2>/dev/null',
-  'echo \'---IP---\'',
-  'LC_ALL=C ip -o -4 addr show 2>/dev/null || LC_ALL=C ip -4 -o addr 2>/dev/null || true',
-  'echo \'---UP---\'',
-  'LC_ALL=C cat /proc/uptime 2>/dev/null',
-].join('\n')
+const collectScript = "\necho '---CONFIG---'\n. /etc/os-release 2>/dev/null; printf '%s\\n' \"$PRETTY_NAME\"; uname -m; getconf _NPROCESSORS_ONLN\necho '---CPU---'\nLC_ALL=C cat /proc/stat 2>/dev/null\necho '---MEM---'\nLC_ALL=C cat /proc/meminfo 2>/dev/null\necho '---DISK---'\nLC_ALL=C df -k -P -T 2>/dev/null\necho '---MOUNTS---'\ncat /proc/self/mountinfo 2>/dev/null\necho '---NET---'\nLC_ALL=C cat /proc/net/dev 2>/dev/null\necho '---IP---'\nLC_ALL=C ip -o -4 addr show 2>/dev/null || LC_ALL=C ip -4 -o addr 2>/dev/null || true\necho '---UP---'\nLC_ALL=C cat /proc/uptime 2>/dev/null\n"
 
 async function setCollecting(v: boolean) {
   if (savingCollecting.value || v === settings.sysInfoCollectEnabled) return
@@ -76,7 +63,8 @@ async function setCollecting(v: boolean) {
         </div>
       </div>
 
-      <!-- 自动执行的命令 -->
+<div class="neo px-5 py-4"><div class="flex justify-between gap-4"><div><p>实时刷新系统信息</p><p class="text-xs text-mist mt-2">默认关闭：每次 SSH 连接成功后只采集一次，下次连接再刷新。开启后前台约 3 秒、后台约 10 秒刷新，关闭后停止周期采集。需开启自动采集；手动刷新仅针对指定服务器。</p></div><ToggleSwitch :model-value="settings.sysInfoRealtimeEnabled" @update:model-value="settings.setSysInfoRealtimeEnabled" /></div><p class="text-xs text-mist mt-2">采集内容：系统版本、架构、逻辑 CPU 数、CPU 计数、内存、文件系统容量与挂载标识、网卡计数和 IPv4、运行时间。单次采集无法计算连续的 CPU 使用率和网速。</p></div>
+      <!-- commands -->
       <section>
         <h3 class="text-[15px] font-semibold text-white flex items-center gap-2">
           <Icon name="terminal" :size="15" class="text-signal" />
@@ -97,8 +85,8 @@ async function setCollecting(v: boolean) {
             <tbody class="align-top">
               <tr class="border-b border-slate-800/40">
                 <td class="px-4 py-3">
-                  <span class="text-slate-200">登录后立即，然后周期执行</span>
-                  <span class="block text-[11px] text-mist mt-1">前台约 3 秒 / 后台约 10 秒</span>
+                  <span class="text-slate-200">登录后采集一次</span>
+                  <span class="block text-[11px] text-mist mt-1">仅开启实时刷新时：前台 3 秒 / 后台 10 秒</span>
                 </td>
                 <td class="px-4 py-3 text-slate-300 leading-relaxed">
                   <p class="font-mono text-[12px] text-signal">sh -c '&lt;采集脚本&gt;'</p>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ServerConfigSummary from './ServerConfigSummary.vue'
 import Icon from '../Icon.vue'
 import type {ServerNode} from '../../types'
 type Badge = {dot: string; text: string; textClass: string; tip?: string} | null
@@ -44,6 +45,7 @@ function onMainKeydown(event: KeyboardEvent) {
         <span class="server-host font-mono">{{ node.user }}@{{ node.host }}:{{ node.port }}</span>
       </span>
     </button>
+    <ServerConfigSummary :node="node" :status="status" />
     <button
       v-if="badge"
       type="button"
@@ -67,9 +69,11 @@ function onMainKeydown(event: KeyboardEvent) {
 </template>
 
 <style scoped>
+.server-row { container-type: inline-size; }
 .server-row-main {
   min-width: 0;
-  flex: 1;
+  flex: 1 0 190px;
+  max-width: 340px;
   display: flex;
   align-items: center;
   gap: 12px;

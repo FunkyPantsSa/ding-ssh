@@ -64,3 +64,26 @@ describe('SFTP flow', () => {
     wrapper.unmount()
   })
 })
+
+it('offers directory actions on blank space and refresh on entries', async () => {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const wrapper = mount(SftpPanel, {attachTo: document.body, props: {tab: {...tab, sftpPath: '/home'}}, global: {plugins: [pinia]}})
+  await flushPromises()
+  await wrapper.get('[data-testid="sftp-file-list"]').trigger('contextmenu', {clientX: 50, clientY: 50})
+  let menu = document.querySelector('[data-ui="context-menu"]')!
+  expect(menu.textContent).toContain('复制当前目录路径')
+  expect(menu.textContent).toContain('新建文件夹')
+  expect(menu.textContent).not.toContain('重命名')
+  const refresh = Array.from(menu.querySelectorAll('button')).find(b => b.textContent === '刷新')!
+  const previous = vi.mocked(sshService.sftpList).mock.calls.length
+  refresh.click()
+  await flushPromises()
+  expect(vi.mocked(sshService.sftpList).mock.calls.length).toBeGreaterThan(previous)
+  await wrapper.get('[data-testid="sftp-entry"]').trigger('contextmenu')
+  menu = document.querySelector('[data-ui="context-menu"]')!
+  expect(menu.textContent).toContain('刷新')
+  expect(menu.textContent).toContain('复制完整路径')
+  expect(menu.textContent).toContain('重命名')
+  wrapper.unmount()
+})

@@ -423,6 +423,7 @@ export namespace models {
 	    fonts: Fonts;
 	    autoReconnect: boolean;
 	    keepAliveEnabled: boolean;
+	    sysInfoRealtimeEnabled: boolean;
 	    sysInfoCollectEnabled: boolean;
 	    localShell: string;
 	    autoLoginLastServer: boolean;
@@ -458,6 +459,7 @@ export namespace models {
 	        this.fonts = this.convertValues(source["fonts"], Fonts);
 	        this.autoReconnect = source["autoReconnect"];
 	        this.keepAliveEnabled = source["keepAliveEnabled"];
+	        this.sysInfoRealtimeEnabled = source["sysInfoRealtimeEnabled"];
 	        this.sysInfoCollectEnabled = source["sysInfoCollectEnabled"];
 	        this.localShell = source["localShell"];
 	        this.autoLoginLastServer = source["autoLoginLastServer"];

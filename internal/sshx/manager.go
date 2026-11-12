@@ -1320,6 +1320,7 @@ func (m *Manager) StartSysInfoCollector(sessionID string) error {
 			})
 		},
 	)
+	c.realtime = func() bool { return m.currentSettings().SysInfoRealtimeEnabled }
 	m.sysinfo[sessionID] = c
 	m.mu.Unlock()
 	return c.Start()

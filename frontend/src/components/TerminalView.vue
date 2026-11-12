@@ -17,7 +17,8 @@ import {
   reconnect,
   sshService,
 } from '../services/ssh'
-import {sysInfoService} from '../services/sysinfo'
+import {cacheServerSnapshot} from '../services/serverSnapshot'
+import {onSysInfoSnapshot, sysInfoService} from '../services/sysinfo'
 import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../services/zmodem'
 import {Colorizer} from '../utils/output-color'
 import {patchXtermZoomCoords} from '../utils/xterm-zoom'
@@ -801,6 +802,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
     if (!isLocal) {
       // 「登录后自动采集」开关关闭时，不在远端启动采集（status bar / 看板无数据）。
       if (settings.sysInfoCollectEnabled) {
+        disposers.push(onSysInfoSnapshot(result.sessionId, snap => cacheServerSnapshot(props.tab.node, snap)))
         void sysInfoService.start(result.sessionId).catch(() => {})
         disposers.push(() => {
           void sysInfoService.stop(result.sessionId).catch(() => {})

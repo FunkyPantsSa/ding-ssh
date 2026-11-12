@@ -5,7 +5,7 @@ import {onSftpTransfer, onSftpDirUpdated, sshService} from '../services/ssh'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
 import {useTransfersStore} from '../stores/transfers'
-import {OnFileDrop, OnFileDropOff} from '../../wailsjs/runtime/runtime'
+import {ClipboardSetText, OnFileDrop, OnFileDropOff} from '../../wailsjs/runtime/runtime'
 import type {SFTPEntry, SessionTab, TransferRecord} from '../types'
 import {Button, Input} from './ui'
 
@@ -20,7 +20,7 @@ const error = ref('')
 
 // 交互状态：选中 / 右键菜单 / 重命名 / 删除确认 / 新建文件夹 / 路径编辑
 const selected = ref('')
-const menu = ref<{x: number; y: number; entry: SFTPEntry} | null>(null)
+const menu = ref<{x: number; y: number; entry: SFTPEntry | null} | null>(null)
 const renaming = ref<{path: string; name: string} | null>(null)
 const renameInput = ref('')
 const confirmDeletePath = ref('')
@@ -139,31 +139,41 @@ function refresh() {
 }
 
 // ---- 右键菜单 ----
-function openMenu(e: MouseEvent, entry: SFTPEntry) {
-  selected.value = entry.path
+function openMenu(e: MouseEvent, entry: SFTPEntry | null = null) {
+  selected.value = entry?.path || ''
   menu.value = {
-    x: Math.min(e.clientX, window.innerWidth - 150),
-    y: Math.min(e.clientY, window.innerHeight - 120),
+    x: Math.max(0, Math.min(e.clientX, window.innerWidth - 200)),
+    y: Math.max(0, Math.min(e.clientY, window.innerHeight - 320)),
     entry,
   }
 }
 
+async function copyMenuPath(entry = false) {
+  const value = entry ? menu.value?.entry?.path : path.value
+  closeMenu()
+  if (!value) return
+  try { await ClipboardSetText(value) } catch (e) { error.value = `复制路径失败：${String(e)}` }
+}
+function menuAction(action: () => unknown) {
+  closeMenu()
+  void action()
+}
 function closeMenu() {
   menu.value = null
 }
 
 function menuEnter() {
-  if (menu.value?.entry.isDir) enter(menu.value.entry)
+  if (menu.value?.entry?.isDir) enter(menu.value.entry)
   closeMenu()
 }
 
 function menuDownload() {
-  if (menu.value && !menu.value.entry.isDir) void download(menu.value.entry)
+  if (menu.value?.entry && !menu.value.entry.isDir) void download(menu.value.entry)
   closeMenu()
 }
 
 function menuDownloadFolder() {
-  if (menu.value?.entry.isDir) void downloadFolder(menu.value.entry)
+  if (menu.value?.entry?.isDir) void downloadFolder(menu.value.entry)
   closeMenu()
 }
 
@@ -645,6 +655,8 @@ onBeforeUnmount(() => {
       class="flex-1 overflow-y-auto px-2 py-1.5 relative transition-colors"
       style="--wails-drop-target: drop"
       :class="dragOver ? 'bg-[var(--primary-weak)]' : ''"
+      data-testid="sftp-file-list"
+      @contextmenu.prevent="openMenu($event)"
       @dragenter.prevent="dragOver = true"
       @dragover.prevent="dragOver = true"
       @dragleave.prevent="dragOver = false"
@@ -664,7 +676,7 @@ onBeforeUnmount(() => {
         :class="selected === e.path ? 'bg-[var(--primary-weak)]' : 'hover:bg-[var(--hover)]'"
         @click="selected = e.path"
         @dblclick="onDblClick(e)"
-        @contextmenu.prevent="openMenu($event, e)"
+        @contextmenu.stop.prevent="openMenu($event, e)"
       >
         <Icon :name="e.isDir ? 'folder' : 'file'" :size="14" :extra-class="e.isDir ? 'text-copper' : 'text-mist'" />
         <template v-if="renaming?.path === e.path">
@@ -733,15 +745,27 @@ onBeforeUnmount(() => {
         v-if="menu"
         class="menu-pop neo fixed z-50"
         data-ui="context-menu"
+        @keydown.esc="closeMenu"
         :style="{left: menu.x + 'px', top: menu.y + 'px'}"
         @contextmenu.prevent
         @click.stop
       >
-        <button v-if="menu.entry.isDir" @click="menuEnter">进入目录</button>
-        <button v-if="menu.entry.isDir" @click="menuDownloadFolder">下载文件夹到本地</button>
-        <button v-else @click="menuDownload">下载到本地</button>
-        <button @click="startRename(menu.entry)">重命名</button>
-        <button class="danger" @click="requestDelete(menu.entry)">删除</button>
+        <button @click="menuAction(refresh)">刷新</button>
+        <button @click="copyMenuPath()">复制当前目录路径</button>
+        <template v-if="menu.entry">
+          <button @click="copyMenuPath(true)">复制完整路径</button>
+          <button v-if="menu.entry.isDir" @click="menuEnter">进入目录</button>
+          <button v-if="menu.entry.isDir" @click="menuDownloadFolder">下载文件夹到本地</button>
+          <button v-else @click="menuDownload">下载到本地</button>
+          <button @click="startRename(menu.entry)">重命名</button>
+          <button class="danger" @click="requestDelete(menu.entry)">删除</button>
+        </template>
+        <template v-else>
+          <button @click="menuAction(up)">返回上级目录</button>
+          <button @click="menuAction(startNewFolder)">新建文件夹</button>
+          <button @click="menuAction(upload)">上传文件</button>
+          <button @click="menuAction(uploadFolder)">上传文件夹</button>
+        </template>
       </div>
     </Teleport>
   </div>

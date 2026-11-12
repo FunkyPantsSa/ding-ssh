@@ -344,6 +344,9 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		st.KeepAliveEnabled = v == "true"
 	}
 	// 登录后自动采集系统指标：旧库没有该键 → 保持默认（开启）
+	if v, ok := values["sysInfoRealtimeEnabled"]; ok {
+		st.SysInfoRealtimeEnabled = v == "true"
+	}
 	if v, ok := values["sysInfoCollectEnabled"]; ok {
 		st.SysInfoCollectEnabled = v == "true"
 	}
@@ -514,6 +517,7 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"autoReconnect", boolStr(st.AutoReconnect)},
 		{"keepAliveEnabled", boolStr(st.KeepAliveEnabled)},
 		{"sysInfoCollectEnabled", boolStr(st.SysInfoCollectEnabled)},
+		{"sysInfoRealtimeEnabled", boolStr(st.SysInfoRealtimeEnabled)},
 		{"autoLoginLastServer", boolStr(st.AutoLoginLastServer)},
 		{"lastOpenServers", string(openServersJSON)},
 		{"localShell", st.LocalShell},
