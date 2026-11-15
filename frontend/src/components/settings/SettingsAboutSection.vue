@@ -1,4 +1,8 @@
 <script lang="ts" setup>
+import {t as $t} from '../../i18n'
+
+import {t} from '../../i18n'
+
 import {copyText as ClipboardSetText} from '../../utils/clipboard'
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from '../Icon.vue'
@@ -22,40 +26,40 @@ const status = ref<Record<string, number>>()
 const frontend = ref<ReturnType<typeof frontendRuntimeStatus>>()
 const cpuPercent = ref<number>()
 let cpuSample: {cpuMs: number; timeMs: number} | undefined
-const bridge = ref('等待检测')
+const bridge = ref(t("等待检测"))
 const sampledAt = ref('')
 const refreshing = ref(false)
 let slowTimer: number | undefined
 
 function formatBytes(bytes: number | undefined) {
-  return bytes === undefined ? '不可用' : `${(bytes / 1048576).toFixed(1)} MiB`
+  return bytes === undefined ? t("不可用") : `${(bytes / 1048576).toFixed(1)} MiB`
 }
 
 const runtimeRows = computed(() => [
-  {label: '应用桥接', value: bridge.value},
-  {label: '采样时间', value: sampledAt.value || '—'},
-  {label: '已运行', value: status.value ? `${status.value.uptimeSec} 秒` : '—'},
-  {label: 'Go 协程', value: status.value?.goroutines ?? '—'},
-  {label: '主进程 CPU（单核为 100%）', value: cpuPercent.value === undefined ? (status.value?.processCPUms === undefined ? '不可用' : '再次刷新计算') : `${cpuPercent.value.toFixed(1)}%`},
-  {label: '主进程当前常驻内存', value: formatBytes(status.value?.processRSSBytes)},
-  {label: '主进程峰值常驻内存', value: formatBytes(status.value?.processPeakRSSBytes)},
-  {label: 'Go 运行时内存（估算）', value: formatBytes(status.value?.goMemoryBytes)},
-  {label: 'Go 堆内存', value: formatBytes(status.value?.heapBytes)},
-  {label: 'WebView JS 堆内存', value: formatBytes(frontend.value?.jsHeapBytes)},
-  {label: '前端定时器延迟（最近 / 峰值）', value: frontend.value ? `${frontend.value.lastDelayMs} / ${frontend.value.maxDelayMs} ms` : '—'},
-  {label: '终端渲染（实际）', value: frontend.value ? `${frontend.value.terminalCount} 个终端 · WebGL ${frontend.value.webglCount} · DOM ${frontend.value.domCount}` : '—'},
-  {label: '单终端待解析输出峰值', value: frontend.value ? `${frontend.value.peakOutputBytes.toLocaleString()} B` : '—'},
-  {label: '终端待解析输出', value: frontend.value ? `${frontend.value.pendingOutputBytes.toLocaleString()} B` : '—'},
+  {label: t("应用桥接"), value: bridge.value},
+  {label: t("采样时间"), value: sampledAt.value || '—'},
+  {label: t("已运行"), value: status.value ? t("{0} 秒", [status.value.uptimeSec]) : '—'},
+  {label: t("Go 协程"), value: status.value?.goroutines ?? '—'},
+  {label: t("主进程 CPU（单核为 100%）"), value: cpuPercent.value === undefined ? (status.value?.processCPUms === undefined ? t("不可用") : t("再次刷新计算")) : `${cpuPercent.value.toFixed(1)}%`},
+  {label: t("主进程当前常驻内存"), value: formatBytes(status.value?.processRSSBytes)},
+  {label: t("主进程峰值常驻内存"), value: formatBytes(status.value?.processPeakRSSBytes)},
+  {label: t("Go 运行时内存（估算）"), value: formatBytes(status.value?.goMemoryBytes)},
+  {label: t("Go 堆内存"), value: formatBytes(status.value?.heapBytes)},
+  {label: t("WebView JS 堆内存"), value: formatBytes(frontend.value?.jsHeapBytes)},
+  {label: t("前端定时器延迟（最近 / 峰值）"), value: frontend.value ? `${frontend.value.lastDelayMs} / ${frontend.value.maxDelayMs} ms` : '—'},
+  {label: t("终端渲染（实际）"), value: frontend.value ? t("{0} 个终端 · WebGL {1} · DOM {2}", [frontend.value.terminalCount, frontend.value.webglCount, frontend.value.domCount]) : '—'},
+  {label: t("单终端待解析输出峰值"), value: frontend.value ? `${frontend.value.peakOutputBytes.toLocaleString()} B` : '—'},
+  {label: t("终端待解析输出"), value: frontend.value ? `${frontend.value.pendingOutputBytes.toLocaleString()} B` : '—'},
 ])
 
 async function refreshStatus() {
   if (!props.active || refreshing.value) return
   refreshing.value = true
-  bridge.value = '检测中'
+  bridge.value = t("检测中")
   frontend.value = frontendRuntimeStatus()
   const started = performance.now()
   slowTimer = window.setTimeout(() => {
-    bridge.value = '超过 3 秒未收到后端回复'
+    bridge.value = t("超过 3 秒未收到后端回复")
   }, 3000)
   try {
     status.value = await GetRuntimeStatus()
@@ -66,10 +70,10 @@ async function refreshStatus() {
       cpuSample = {cpuMs, timeMs}
     }
     frontend.value = frontendRuntimeStatus()
-    bridge.value = `已响应（${Math.round(performance.now() - started)} ms）`
+    bridge.value = t("已响应（{0} ms）", [Math.round(performance.now() - started)])
     sampledAt.value = new Date().toLocaleString()
   } catch {
-    bridge.value = '读取后端状态失败'
+    bridge.value = t("读取后端状态失败")
   } finally {
     window.clearTimeout(slowTimer)
     refreshing.value = false
@@ -77,11 +81,11 @@ async function refreshStatus() {
 }
 
 const rows = computed(() => [
-  {label: '版本标签', value: APP_VERSION || 'dev'},
-  {label: '构建日期', value: buildDateLabel()},
-  {label: '构建时间', value: buildTimeLabel()},
-  {label: '代码提交', value: APP_COMMIT || '未知'},
-  {label: '运行平台', value: platformLabel(platform.value || detectPlatform())},
+  {label: t("版本标签"), value: APP_VERSION || 'dev'},
+  {label: t("构建日期"), value: buildDateLabel()},
+  {label: t("构建时间"), value: buildTimeLabel()},
+  {label: t("代码提交"), value: APP_COMMIT || t("未知")},
+  {label: t("运行平台"), value: platformLabel(platform.value || detectPlatform())},
 ])
 
 async function copyAbout() {
@@ -127,8 +131,8 @@ onBeforeUnmount(() => {
 <template>
   <section class="max-w-2xl space-y-6 fade-rise" data-section-content="about" aria-labelledby="settings-about-title">
     <div>
-      <h3 id="settings-about-title" class="text-[18px] font-semibold text-white tracking-tight">关于</h3>
-      <p class="text-[13px] text-mist mt-1.5">版本信息与构建详情，反馈问题时请一并附上。</p>
+      <h3 id="settings-about-title" class="text-[18px] font-semibold text-white tracking-tight">{{ $t('关于') }}</h3>
+      <p class="text-[13px] text-mist mt-1.5">{{ $t('版本信息与构建详情，反馈问题时请一并附上。') }}</p>
     </div>
 
     <div class="neo">
@@ -156,17 +160,17 @@ onBeforeUnmount(() => {
 
     <div class="neo px-5 py-3">
       <div class="flex items-center justify-between gap-4 py-1">
-        <h4 class="text-sm font-medium text-slate-200">当前运行状态</h4>
-        <Button variant="ghost" size="sm" :disabled="refreshing" @click="refreshStatus">刷新状态</Button>
+        <h4 class="text-sm font-medium text-slate-200">{{ $t('当前运行状态') }}</h4>
+        <Button variant="ghost" size="sm" :disabled="refreshing" @click="refreshStatus">{{ $t('刷新状态') }}</Button>
       </div>
       <div class="flex items-center justify-between gap-4 border-b border-slate-800/40 py-3">
         <div class="min-w-0">
-          <p id="runtime-auto-refresh-label" class="text-sm font-medium text-slate-200">自动刷新</p>
-          <p class="mt-1 text-xs leading-relaxed text-slate-500">每 5 秒刷新一次，离开此页后自动关闭。</p>
+          <p id="runtime-auto-refresh-label" class="text-sm font-medium text-slate-200">{{ $t('自动刷新') }}</p>
+          <p class="mt-1 text-xs leading-relaxed text-slate-500">{{ $t('每 5 秒刷新一次，离开此页后自动关闭。') }}</p>
         </div>
         <ToggleSwitch v-model="autoRefresh" aria-labelledby="runtime-auto-refresh-label" />
       </div>
-      <p class="py-2 text-xs text-slate-500">主进程数据仅覆盖应用本体。WebView 子进程、GPU 和其他辅助进程单独计量，页面无法汇总。JS 堆仅在 WebView 提供指标时显示。</p>
+      <p class="py-2 text-xs text-slate-500">{{ $t('主进程数据仅覆盖应用本体。WebView 子进程、GPU 和其他辅助进程单独计量，页面无法汇总。JS 堆仅在 WebView 提供指标时显示。') }}</p>
       <div
         v-for="row in runtimeRows"
         :key="row.label"
@@ -180,9 +184,9 @@ onBeforeUnmount(() => {
     <div class="flex items-center gap-3">
       <Button variant="ghost" size="sm" @click="copyAbout">
         <Icon name="copy" :size="14" />
-        {{ copied ? '已复制' : '复制版本和运行状态' }}
+        {{ copied ? t('已复制') : t('复制版本和运行状态') }}
       </Button>
-      <p class="text-xs text-slate-500">构建时间取本次打包时的时间戳，可用于确认是否运行了最新版本。</p>
+      <p class="text-xs text-slate-500">{{ $t('构建时间取本次打包时的时间戳，可用于确认是否运行了最新版本。') }}</p>
     </div>
   </section>
 </template>

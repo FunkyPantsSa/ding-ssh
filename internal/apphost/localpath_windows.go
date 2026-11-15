@@ -3,6 +3,7 @@
 package apphost
 
 import (
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,7 +31,7 @@ func revealLocalPath(path string) error {
 	}
 	cmd := exec.Command("explorer.exe", args...)
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("启动资源管理器失败: %w", err)
+		return fmt.Errorf(i18n.T("启动资源管理器失败: %w"), err)
 	}
 	// 不等待进程退出（资源管理器会复用已有窗口并长期驻留），后台回收句柄即可。
 	go func() { _ = cmd.Wait() }()

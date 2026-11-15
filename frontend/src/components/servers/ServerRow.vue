@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import {t as $t} from '../../i18n'
+
+import {t} from '../../i18n'
+
 import ServerConfigSummary from './ServerConfigSummary.vue'
 import Icon from '../Icon.vue'
 import type {ServerNode} from '../../types'
@@ -34,8 +38,8 @@ function onMainKeydown(event: KeyboardEvent) {
     <button
       type="button"
       class="server-row-main"
-      :title="`连接 ${node.name}（右键更多操作，可拖到左侧分组改分组）`"
-      :aria-label="`连接 ${node.name}，${node.user}@${node.host}:${node.port}`"
+      :title="t('连接 {0}（右键更多操作，可拖到左侧分组改分组）', [node.name])"
+      :aria-label="t('连接 {0}，{1}@{2}:{3}', [node.name, node.user, node.host, node.port])"
       @click="emit('connect')"
       @keydown="onMainKeydown"
     >
@@ -50,20 +54,20 @@ function onMainKeydown(event: KeyboardEvent) {
       v-if="badge"
       type="button"
       class="latency shrink-0"
-      :title="(badge.tip || '') + '（点击重新测试）'"
-      :aria-label="badge.tip ? `${badge.text}，${badge.tip}，点击重新测试` : `${badge.text}，点击重新测试`"
+      :title="(badge.tip || '') + t('（点击重新测试）')"
+      :aria-label="badge.tip ? t('{0}，{1}，点击重新测试', [badge.text, badge.tip]) : t('{0}，点击重新测试', [badge.text])"
       @click="emit('test')"
     >
       <span class="w-1.5 h-1.5 rounded-full" :class="badge.dot" aria-hidden="true"></span>
       <span class="text-[12px] leading-none" :class="badge.textClass">{{ badge.text }}</span>
     </button>
-    <span v-else class="latency shrink-0 text-mist">未测试</span>
+    <span v-else class="latency shrink-0 text-mist">{{ $t('未测试') }}</span>
     <div class="row-actions shrink-0">
-      <button class="row-act" type="button" title="连接" aria-label="连接" :data-testid="`server-connect-${node.id}`" @click="emit('connect')"><Icon name="terminal" :size="14" /><span>连接</span></button>
-      <button class="row-act" type="button" :class="copied ? 'text-[var(--success)]' : ''" :title="copied ? '已复制主机地址' : `复制主机地址 ${node.host}`" aria-label="复制主机地址" @click="emit('copy')"><Icon :name="copied ? 'check' : 'copy'" :size="14" /><span>{{ copied ? '已复制' : '复制' }}</span></button>
-      <button class="row-act" type="button" title="测试在线状态" aria-label="测试在线状态" @click="emit('test')"><Icon name="activity" :size="14" /><span>测试</span></button>
-      <button class="row-act" type="button" title="编辑" aria-label="编辑" @click="emit('edit')"><Icon name="pencil" :size="14" /><span>编辑</span></button>
-      <button class="row-act row-act-danger" type="button" title="删除" aria-label="删除" :data-testid="`server-delete-${node.id}`" @click="emit('remove')"><Icon name="trash" :size="14" /><span>删除</span></button>
+      <button class="row-act" type="button" :title="$t('连接')" :aria-label="$t('连接')" :data-testid="`server-connect-${node.id}`" @click="emit('connect')"><Icon name="terminal" :size="14" /><span>{{ $t('连接') }}</span></button>
+      <button class="row-act" type="button" :class="copied ? 'text-[var(--success)]' : ''" :title="copied ? t('已复制主机地址') : t('复制主机地址 {0}', [node.host])" :aria-label="$t('复制主机地址')" @click="emit('copy')"><Icon :name="copied ? 'check' : 'copy'" :size="14" /><span>{{ copied ? t('已复制') : t('复制') }}</span></button>
+      <button class="row-act" type="button" :title="$t('测试在线状态')" :aria-label="$t('测试在线状态')" @click="emit('test')"><Icon name="activity" :size="14" /><span>{{ $t('测试') }}</span></button>
+      <button class="row-act" type="button" :title="$t('编辑')" :aria-label="$t('编辑')" @click="emit('edit')"><Icon name="pencil" :size="14" /><span>{{ $t('编辑') }}</span></button>
+      <button class="row-act row-act-danger" type="button" :title="$t('删除')" :aria-label="$t('删除')" :data-testid="`server-delete-${node.id}`" @click="emit('remove')"><Icon name="trash" :size="14" /><span>{{ $t('删除') }}</span></button>
     </div>
   </div>
 </template>

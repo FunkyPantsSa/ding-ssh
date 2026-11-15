@@ -1,4 +1,10 @@
 <script lang="ts" setup>
+import {errorText} from '../i18n'
+
+import {t as $t} from '../i18n'
+
+import {t as translate} from '../i18n'
+
 import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
@@ -99,7 +105,7 @@ async function load(dir: string) {
       a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
     )
   } catch (e) {
-    error.value = String(e)
+    error.value = errorText(e)
   } finally {
     loading.value = false
   }
@@ -128,10 +134,10 @@ async function loadFromSync(dir: string) {
       a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
     )
     error.value = ''
-    console.info('[sftp-sync] 面板已切换', dir, '条目', list.length)
+    console.info(translate("[sftp-sync] 面板已切换"), dir, translate("条目"), list.length)
   } catch (e) {
-    error.value = String(e)
-    console.warn('[sftp-sync] 列出失败，保持当前列表', dir, e)
+    error.value = errorText(e)
+    console.warn(translate("[sftp-sync] 列出失败，保持当前列表"), dir, e)
   }
 }
 
@@ -157,7 +163,7 @@ async function copyMenuPath(entry = false) {
   const value = entry ? menu.value?.entry?.path : path.value
   closeMenu()
   if (!value) return
-  try { await ClipboardSetText(value) } catch (e) { error.value = `复制路径失败：${String(e)}` }
+  try { await ClipboardSetText(value) } catch (e) { error.value = translate("复制路径失败：{0}", [errorText(e)]) }
 }
 function menuAction(action: () => unknown) {
   closeMenu()
@@ -201,7 +207,7 @@ async function doRename() {
     await sshService.sftpRename(props.tab.sessionId, target.path, newPath)
     await refresh()
   } catch (e) {
-    error.value = String(e)
+    error.value = errorText(e)
   }
 }
 
@@ -219,7 +225,7 @@ async function doDelete() {
     await sshService.sftpRemove(props.tab.sessionId, target)
     await refresh()
   } catch (e) {
-    error.value = String(e)
+    error.value = errorText(e)
   }
 }
 
@@ -238,7 +244,7 @@ async function doNewFolder() {
     await sshService.sftpMkdir(props.tab.sessionId, joinPath(path.value, name))
     await refresh()
   } catch (e) {
-    error.value = String(e)
+    error.value = errorText(e)
   }
 }
 
@@ -303,8 +309,8 @@ function fmtEta(t: TransferItem): string {
   const rest = t.total - t.transferred
   if (rest <= 0) return ''
   const s = Math.round(rest / t.speed)
-  if (s < 60) return `约 ${s}s`
-  return `约 ${Math.floor(s / 60)}m${s % 60}s`
+  if (s < 60) return translate("约 {0}s", [s])
+  return translate("约 {0}m{1}s", [Math.floor(s / 60), s % 60])
 }
 
 function percent(t: TransferItem): number {
@@ -420,12 +426,12 @@ async function runTransfer(
       if (dur > 0 && t.transferred > 0) t.speed = (t.transferred * 1000) / dur
     }
   } catch (e) {
-    t.error = String(e)
+    t.error = errorText(e)
     t.done = true
     t.finishedAt = Date.now()
   }
   // 取消的判定：错误文案由后端在取消时给出「已取消」
-  if (t.error && t.error.includes('已取消')) cancelled = true
+  if (t.error && t.error.includes(translate("已取消"))) cancelled = true
   recordHistory(t, cancelled)
   if (disposed) return
   // 完成的行保留一小会儿再移除，让用户看到「完成 / 失败」状态；
@@ -598,29 +604,29 @@ onBeforeUnmount(() => {
     <div class="tool-head">
       <div class="seg">
         <button class="active">SFTP</button>
-        <button @click="sessions.showRightPanel('sysinfo')">运行状态</button>
+        <button @click="sessions.showRightPanel('sysinfo')">{{ $t('运行状态') }}</button>
       </div>
       <Button
         variant="ghost"
         size="icon"
         class="ml-auto"
-        :title="transfersStore.records.length ? `传输记录（${transfersStore.records.length} 条）` : '传输记录'"
-        aria-label="传输记录"
+        :title="transfersStore.records.length ? translate('传输记录（{0} 条）', [transfersStore.records.length]) : translate('传输记录')"
+        :aria-label="$t('传输记录')"
         @click="sessions.showRightPanel('transfers')"
       >
         <Icon name="clock" :size="14" />
       </Button>
-      <Button variant="ghost" size="icon" title="收起" aria-label="收起侧栏" @click="sessions.sftpVisible = false">
+      <Button variant="ghost" size="icon" :title="$t('收起')" :aria-label="$t('收起侧栏')" @click="sessions.sftpVisible = false">
         <Icon name="close" :size="14" />
       </Button>
     </div>
 
     <!-- 工具条：面板宽度可拖动（最窄 260px），窄的时候让按钮换行而不是溢出到终端上 -->
     <div class="flex flex-wrap items-center gap-1.5 p-3 inset-line-b">
-      <Button variant="ghost" size="icon" title="上级" aria-label="返回上级目录" @click="up">
+      <Button variant="ghost" size="icon" :title="$t('上级')" :aria-label="$t('返回上级目录')" @click="up">
         <Icon name="up" :size="14" />
       </Button>
-      <Button variant="ghost" size="icon" title="刷新" aria-label="刷新目录" @click="refresh">
+      <Button variant="ghost" size="icon" :title="$t('刷新')" :aria-label="$t('刷新目录')" @click="refresh">
         <Icon name="refresh" :size="14" />
       </Button>
       <Input
@@ -629,7 +635,7 @@ onBeforeUnmount(() => {
         v-model="pathInput"
         class="flex-1 font-mono text-[12px]"
         spellcheck="false"
-        aria-label="远程路径"
+        :aria-label="$t('远程路径')"
         @keyup.enter="doPathEdit"
         @keyup.esc="editingPath = false"
         @blur="doPathEdit"
@@ -637,7 +643,7 @@ onBeforeUnmount(() => {
       <div
         v-else
         class="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar text-[12px] font-mono text-mist cursor-text"
-        title="点击编辑完整路径"
+        :title="$t('点击编辑完整路径')"
         @click="startPathEdit"
       >
         <template v-for="(c, i) in crumbs" :key="c.path">
@@ -645,19 +651,19 @@ onBeforeUnmount(() => {
           <span v-if="i < crumbs.length - 1" class="shrink-0 opacity-40">/</span>
         </template>
       </div>
-      <Button variant="ghost" size="sm" data-testid="sftp-create-folder" @click="startNewFolder">新建</Button>
-      <Button variant="ghost" size="sm" data-testid="sftp-upload" @click="upload">上传</Button>
-      <Button variant="ghost" size="sm" title="选择本地文件夹，整体递归上传到当前目录（保留文件夹名）" data-testid="sftp-upload-folder" @click="uploadFolder">上传文件夹</Button>
+      <Button variant="ghost" size="sm" data-testid="sftp-create-folder" @click="startNewFolder">{{ $t('新建') }}</Button>
+      <Button variant="ghost" size="sm" data-testid="sftp-upload" @click="upload">{{ $t('上传') }}</Button>
+      <Button variant="ghost" size="sm" :title="$t('选择本地文件夹，整体递归上传到当前目录（保留文件夹名）')" data-testid="sftp-upload-folder" @click="uploadFolder">{{ $t('上传文件夹') }}</Button>
     </div>
 
     <div v-if="newFolderActive" class="flex items-center gap-2 px-3 py-2 inset-line-b">
-      <span class="text-[12px] text-mist shrink-0">名称</span>
+      <span class="text-[12px] text-mist shrink-0">{{ $t('名称') }}</span>
       <Input
         ref="newFolderInputEl"
         v-model="newFolderName"
         class="flex-1"
-        placeholder="新文件夹名称"
-        aria-label="新文件夹名称"
+        :placeholder="$t('新文件夹名称')"
+        :aria-label="$t('新文件夹名称')"
         @keyup.enter="doNewFolder"
         @keyup.esc="newFolderActive = false"
         @blur="doNewFolder"
@@ -676,9 +682,9 @@ onBeforeUnmount(() => {
       @drop.prevent="dragOver = false"
     >
       <div v-if="dragOver" class="absolute inset-2 rounded-[10px] border-2 border-dashed border-[var(--primary-hover)] bg-[var(--primary-glow-soft)] grid place-items-center pointer-events-none z-10">
-        <p class="text-xs text-[var(--primary-hover)]">松开以上传到当前目录</p>
+        <p class="text-xs text-[var(--primary-hover)]">{{ $t('松开以上传到当前目录') }}</p>
       </div>
-      <div v-if="!entries.length && !loading && !error" class="py-6 text-center text-xs text-mist">空目录</div>
+      <div v-if="!entries.length && !loading && !error" class="py-6 text-center text-xs text-mist">{{ $t('空目录') }}</div>
       <div
         v-for="e in entries"
         :key="e.path"
@@ -698,7 +704,7 @@ onBeforeUnmount(() => {
             v-model="renameInput"
             class="col-span-2"
             spellcheck="false"
-            aria-label="重命名条目"
+            :aria-label="$t('重命名条目')"
             @click.stop
             @keyup.enter="doRename"
             @keyup.esc="renaming = null"
@@ -706,10 +712,10 @@ onBeforeUnmount(() => {
           />
         </template>
         <template v-else-if="confirmDeletePath === e.path">
-          <span class="text-[12px] text-danger truncate">删除「{{ e.name }}」？</span>
+          <span class="text-[12px] text-danger truncate">{{ $t('删除「') }} {{ e.name }}」？</span>
           <div class="flex gap-1">
-            <Button variant="danger" size="sm" @click.stop="doDelete">确认</Button>
-            <Button variant="ghost" size="sm" @click.stop="confirmDeletePath = ''">取消</Button>
+            <Button variant="danger" size="sm" @click.stop="doDelete">{{ $t('确认') }}</Button>
+            <Button variant="ghost" size="sm" @click.stop="confirmDeletePath = ''">{{ $t('取消') }}</Button>
           </div>
         </template>
         <template v-else>
@@ -717,12 +723,10 @@ onBeforeUnmount(() => {
           <span class="font-mono text-[11px] text-mist">{{ e.isDir ? '—' : fmtSize(e.size) }}</span>
         </template>
       </div>
-      <div v-if="loading" class="sticky bottom-0 flex items-center justify-center gap-2 py-2 text-[12px] text-mist">
-        加载中…
-      </div>
+      <div v-if="loading" class="sticky bottom-0 flex items-center justify-center gap-2 py-2 text-[12px] text-mist">{{ $t('加载中…') }}</div>
       <div v-if="error" class="sticky bottom-0 px-2 py-2 text-[12px] text-danger break-all">
         {{ error }}
-        <button class="ml-1 underline hover:text-signal" @click="refresh">重试</button>
+        <button class="ml-1 underline hover:text-signal" @click="refresh">{{ $t('重试') }}</button>
       </div>
     </div>
 
@@ -730,18 +734,18 @@ onBeforeUnmount(() => {
       <div v-for="t in transfers" :key="t.key" class="grid grid-cols-[1fr_auto] gap-1 text-[12px]">
         <span class="truncate text-[var(--foreground)]">{{ t.direction === 'upload' ? '↑' : '↓' }} {{ t.name }}</span>
         <span class="flex items-center gap-2">
-          <Button v-if="!t.done && !t.error" variant="ghost" size="sm" @click="cancelTransfer(t)">取消</Button>
+          <Button v-if="!t.done && !t.error" variant="ghost" size="sm" @click="cancelTransfer(t)">{{ $t('取消') }}</Button>
           <span class="font-mono" :class="t.error ? 'text-danger' : 'text-signal'">
-            {{ t.error ? (t.error.includes('已取消') ? '已取消' : '失败') : percent(t) + '%' }}
+            {{ t.error ? (t.error.includes(translate('已取消')) ? translate('已取消') : translate('失败')) : percent(t) + '%' }}
           </span>
         </span>
         <div class="prog col-span-2" :class="{indeterminate: !t.done && !t.error && percent(t) === 0}">
           <i :style="{width: (percent(t) === 0 && !t.done ? 30 : percent(t)) + '%'}"></i>
         </div>
         <div class="col-span-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-mist">
-          <span>{{ t.total ? `${fmtSize(t.transferred)} / ${fmtSize(t.total)}` : t.done ? '完成' : fmtSize(t.transferred) }}</span>
-          <span v-if="!t.error" :title="t.done ? '平均速度' : '当前速度'">
-            {{ t.done ? '平均' : '' }}{{ fmtSpeed(t.speed) }}
+          <span>{{ t.total ? `${fmtSize(t.transferred)} / ${fmtSize(t.total)}` : t.done ? translate('完成') : fmtSize(t.transferred) }}</span>
+          <span v-if="!t.error" :title="t.done ? translate('平均速度') : translate('当前速度')">
+            {{ t.done ? translate('平均') : '' }} {{ fmtSpeed(t.speed) }}
           </span>
           <span>{{ fmtElapsed(t) }}</span>
           <span v-if="fmtEta(t)">{{ fmtEta(t) }}</span>
@@ -763,21 +767,21 @@ onBeforeUnmount(() => {
         @contextmenu.prevent
         @click.stop
       >
-        <button @click="menuAction(refresh)">刷新</button>
-        <button @click="copyMenuPath()">复制当前目录路径</button>
+        <button @click="menuAction(refresh)">{{ $t('刷新') }}</button>
+        <button @click="copyMenuPath()">{{ $t('复制当前目录路径') }}</button>
         <template v-if="menu.entry">
-          <button @click="copyMenuPath(true)">复制完整路径</button>
-          <button v-if="menu.entry.isDir" @click="menuEnter">进入目录</button>
-          <button v-if="menu.entry.isDir" @click="menuDownloadFolder">下载文件夹到本地</button>
-          <button v-else @click="menuDownload">下载到本地</button>
-          <button @click="startRename(menu.entry)">重命名</button>
-          <button class="danger" @click="requestDelete(menu.entry)">删除</button>
+          <button @click="copyMenuPath(true)">{{ $t('复制完整路径') }}</button>
+          <button v-if="menu.entry.isDir" @click="menuEnter">{{ $t('进入目录') }}</button>
+          <button v-if="menu.entry.isDir" @click="menuDownloadFolder">{{ $t('下载文件夹到本地') }}</button>
+          <button v-else @click="menuDownload">{{ $t('下载到本地') }}</button>
+          <button @click="startRename(menu.entry)">{{ $t('重命名') }}</button>
+          <button class="danger" @click="requestDelete(menu.entry)">{{ $t('删除') }}</button>
         </template>
         <template v-else>
-          <button @click="menuAction(up)">返回上级目录</button>
-          <button @click="menuAction(startNewFolder)">新建文件夹</button>
-          <button @click="menuAction(upload)">上传文件</button>
-          <button @click="menuAction(uploadFolder)">上传文件夹</button>
+          <button @click="menuAction(up)">{{ $t('返回上级目录') }}</button>
+          <button @click="menuAction(startNewFolder)">{{ $t('新建文件夹') }}</button>
+          <button @click="menuAction(upload)">{{ $t('上传文件') }}</button>
+          <button @click="menuAction(uploadFolder)">{{ $t('上传文件夹') }}</button>
         </template>
       </div>
     </Teleport>

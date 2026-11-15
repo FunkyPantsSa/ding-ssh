@@ -1,3 +1,4 @@
+import {t} from '../i18n'
 // 预设主题库：精选配色，每套含 UI 主/辅色与深/浅两套终端色板。
 // 终端色板用于映射 ANSI 16 色，让 ls / vim / 提示符等程序输出跟随主题。
 import type {Theme} from '../types'
@@ -26,8 +27,8 @@ export interface ThemePreset {
 export const PRESETS: ThemePreset[] = [
   {
     id: 'sky',
-    name: '天空蓝',
-    desc: '默认 · 清朗天空蓝',
+    name: t("天空蓝"),
+    desc: t("默认 · 清朗天空蓝"),
     primary: '#71B5D2',
     secondary: '#71B5D2',
     dark: {
@@ -44,7 +45,7 @@ export const PRESETS: ThemePreset[] = [
   {
     id: 'geist',
     name: 'Geist',
-    desc: '默认 · 中性深色',
+    desc: t("默认 · 中性深色"),
     primary: '#3b82f6',
     secondary: '#a1a1aa',
     dark: {
@@ -59,7 +60,7 @@ export const PRESETS: ThemePreset[] = [
     },
   },
   {
-    id: 'monochrome', name: '黑白', desc: '黑白灰 · 简洁清晰',
+    id: 'monochrome', name: t("黑白"), desc: t("黑白灰 · 简洁清晰"),
     primary: '#A3A3A3', secondary: '#737373',
     dark: {
       background: '#171717', foreground: '#f5f5f5', cursor: '#ffffff', selection: 'rgba(255, 255, 255, 0.22)',
@@ -74,8 +75,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'signal',
-    name: '信号青绿',
-    desc: '经典默认 · 连接即锁合',
+    name: t("信号青绿"),
+    desc: t("经典默认 · 连接即锁合"),
     primary: '#3ec4b4',
     secondary: '#c97a4a',
     dark: {
@@ -97,8 +98,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'copper',
-    name: '日落铜橙',
-    desc: '暖色系 · 运维如坐席',
+    name: t("日落铜橙"),
+    desc: t("暖色系 · 运维如坐席"),
     primary: '#d97b3f',
     secondary: '#c9a24a',
     dark: {
@@ -120,8 +121,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'ocean',
-    name: '深海蓝',
-    desc: '沉稳冷静 · 深蓝之海',
+    name: t("深海蓝"),
+    desc: t("沉稳冷静 · 深蓝之海"),
     primary: '#4a8fe0',
     secondary: '#3ec4b4',
     dark: {
@@ -143,8 +144,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'violet',
-    name: '紫罗兰',
-    desc: '神秘优雅 · 电子紫调',
+    name: t("紫罗兰"),
+    desc: t("神秘优雅 · 电子紫调"),
     primary: '#9b7ce0',
     secondary: '#e08ab8',
     dark: {
@@ -166,8 +167,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'rose',
-    name: '玫瑰红',
-    desc: '热情醒目 · 玫瑰之光',
+    name: t("玫瑰红"),
+    desc: t("热情醒目 · 玫瑰之光"),
     primary: '#e05a7a',
     secondary: '#d4a04a',
     dark: {
@@ -189,8 +190,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'forest',
-    name: '森林绿',
-    desc: '清爽自然 · 松林之息',
+    name: t("森林绿"),
+    desc: t("清爽自然 · 松林之息"),
     primary: '#4ab07a',
     secondary: '#d4a04a',
     dark: {
@@ -212,8 +213,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'graphite',
-    name: '石墨黑白',
-    desc: '极简克制 · 工业灰调',
+    name: t("石墨黑白"),
+    desc: t("极简克制 · 工业灰调"),
     primary: '#9aa8b8',
     secondary: '#7a8ba0',
     dark: {

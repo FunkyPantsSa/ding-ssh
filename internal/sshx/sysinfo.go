@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"sort"
 	"strconv"
@@ -168,14 +169,14 @@ func (c *SysInfoCollector) collectOnce(ctx context.Context) {
 		if err != nil {
 			lastErr = err
 		} else {
-			lastErr = fmt.Errorf("远程无输出")
+			lastErr = fmt.Errorf("%s", i18n.T("远程无输出"))
 		}
 	}
 
 	if strings.TrimSpace(raw) == "" {
-		msg := "无法采集指标（远程无输出，可能非 Linux）"
+		msg := i18n.T("无法采集指标（远程无输出，可能非 Linux）")
 		if lastErr != nil {
-			msg = fmt.Sprintf("无法采集指标: %v", lastErr)
+			msg = fmt.Sprintf(i18n.T("无法采集指标: %v"), lastErr)
 		}
 		c.emitSoftError(msg)
 		return
@@ -190,7 +191,7 @@ func (c *SysInfoCollector) collectOnce(ctx context.Context) {
 
 	hasData := snap.MemTotalMB > 0 || len(snap.DiskUsage) > 0 || len(snap.NetIfaces) > 0 || cpuRaw != nil
 	if !hasData {
-		msg := "部分指标暂不可用"
+		msg := i18n.T("部分指标暂不可用")
 		if lastErr != nil {
 			msg = fmt.Sprintf("%s（%v）", msg, lastErr)
 		}
@@ -201,7 +202,7 @@ func (c *SysInfoCollector) collectOnce(ctx context.Context) {
 	// 有有效数据则清除瞬时错误；exit code / stderr 不阻断 partial
 	snap.Error = ""
 	if !snap.TopAvailable {
-		snap.Error = "top 输出不可用或格式不支持（需要 Linux procps top）；磁盘数据独立展示"
+		snap.Error = i18n.T("top 输出不可用或格式不支持（需要 Linux procps top）；磁盘数据独立展示")
 	}
 	c.mu.Lock()
 	cp := snap
@@ -217,7 +218,7 @@ func (c *SysInfoCollector) collectOnce(ctx context.Context) {
 func (c *SysInfoCollector) runRemoteScript(ctx context.Context) (string, error) {
 	sess, err := c.client.NewSession()
 	if err != nil {
-		return "", fmt.Errorf("创建采集会话失败: %w", err)
+		return "", fmt.Errorf(i18n.T("创建采集会话失败: %w"), err)
 	}
 	defer sess.Close()
 
@@ -240,7 +241,7 @@ func (c *SysInfoCollector) runRemoteScript(ctx context.Context) (string, error) 
 		<-done
 	case <-time.After(sysInfoCollectTimeout):
 		_ = sess.Close()
-		runErr = fmt.Errorf("采集超时")
+		runErr = fmt.Errorf("%s", i18n.T("采集超时"))
 		<-done
 	}
 

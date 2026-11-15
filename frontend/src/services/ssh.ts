@@ -1,3 +1,5 @@
+import {errorText} from '../i18n'
+import {t} from '../i18n'
 import {requestHostTrust} from './hostTrust'
 import {requestPassphrase} from './passphrase'
 
@@ -136,7 +138,7 @@ export const sshService = {
   revealLocalPath: (path: string): Promise<void> => {
     const fn = (window as any)?.go?.main?.App?.RevealLocalPath
     if (typeof fn !== 'function') {
-      return Promise.reject(new Error('当前版本不支持打开本地文件夹，请重新构建应用'))
+      return Promise.reject(new Error(t("当前版本不支持打开本地文件夹，请重新构建应用")))
     }
     return fn(path)
   },
@@ -236,7 +238,7 @@ export function onSftpSyncPath(sessionId: string, handler: (path: string) => voi
   const event = `sftp:sync-path:${sessionId}`
   EventsOn(event, (...args: unknown[]) => {
     const p = extractSyncPath(args.length === 1 ? args[0] : args)
-    console.info('[sftp-sync] 收到事件', event, args, '→', p)
+    console.info(t("[sftp-sync] 收到事件"), event, args, '→', p)
     handler(p)
   })
   return () => EventsOff(event)
@@ -284,7 +286,7 @@ export function onSftpDirUpdated(sessionId: string, handler: (evt: { path: strin
 // Only explicit UI actions call this wrapper; reconnect and backend API calls
 // retain fail-closed behavior for unknown hosts.
 async function approveUnknownHost(error: unknown): Promise<boolean> {
-  const match = String(error).match(/SSH_HOST_TRUST:([A-Za-z0-9_-]+)/)
+  const match = errorText(error).match(/SSH_HOST_TRUST:([A-Za-z0-9_-]+)/)
   if (!match) return false
   const raw = match[1]!.replace(/-/g, '+').replace(/_/g, '/')
   const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0))
@@ -322,7 +324,7 @@ async function withAuthentication<T>(action: (phrases: Record<string, string>) =
    const raw = match[1]!.replace(/-/g, '+').replace(/_/g, '/')
    const path = new TextDecoder().decode(Uint8Array.from(atob(raw), c => c.charCodeAt(0)))
    const value = await requestPassphrase(path)
-   if (value === null) { if (result !== undefined) return result; throw new Error('已取消私钥解锁') }
+   if (value === null) { if (result !== undefined) return result; throw new Error(t("已取消私钥解锁")) }
    phrases[path] = value
   }
  } finally { for (const path of Object.keys(phrases)) delete phrases[path] }

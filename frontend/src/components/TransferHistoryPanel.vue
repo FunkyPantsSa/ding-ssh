@@ -1,4 +1,10 @@
 <script lang="ts" setup>
+import {errorText} from '../i18n'
+
+import {t as $t} from '../i18n'
+
+import {t} from '../i18n'
+
 import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, onBeforeUnmount, ref} from 'vue'
 import Icon from './Icon.vue'
@@ -48,7 +54,7 @@ function fmtDuration(ms: number): string {
   const s = ms / 1000
   if (s < 60) return `${s.toFixed(1)} s`
   const m = Math.floor(s / 60)
-  return `${m} 分 ${Math.round(s - m * 60)} 秒`
+  return t("{0} 分 {1} 秒", [m, Math.round(s - m * 60)])
 }
 
 function fmtTime(ts: number): string {
@@ -59,9 +65,9 @@ function fmtTime(ts: number): string {
 }
 
 function statusMeta(r: TransferRecord): {text: string; cls: string} {
-  if (r.status === 'error') return {text: '失败', cls: 'text-[var(--destructive)]'}
-  if (r.status === 'cancelled') return {text: '已取消', cls: 'text-[var(--warning)]'}
-  return {text: '完成', cls: 'text-[var(--success)]'}
+  if (r.status === 'error') return {text: t("失败"), cls: 'text-[var(--destructive)]'}
+  if (r.status === 'cancelled') return {text: t("已取消"), cls: 'text-[var(--warning)]'}
+  return {text: t("完成"), cls: 'text-[var(--success)]'}
 }
 
 /** 下载完成后在系统文件管理器中打开本地文件所在文件夹（Windows 会同时选中该文件）。 */
@@ -69,13 +75,13 @@ async function openFolder(r: TransferRecord) {
   error.value = ''
   const target = (r.localPath || '').trim()
   if (!target) {
-    error.value = '该记录没有本地路径（历史数据可能不完整）'
+    error.value = t("该记录没有本地路径（历史数据可能不完整）")
     return
   }
   try {
     await sshService.revealLocalPath(target)
   } catch (e) {
-    error.value = String(e)
+    error.value = errorText(e)
   }
 }
 
@@ -89,7 +95,7 @@ async function copyPath(text: string, id: string) {
       copiedId.value = ''
     }, 1600)
   } catch (e) {
-    error.value = String(e)
+    error.value = errorText(e)
   }
 }
 
@@ -101,43 +107,41 @@ onBeforeUnmount(() => window.clearTimeout(copiedTimer))
     <div class="tool-head">
       <div class="seg">
         <button @click="sessions.showRightPanel('sftp')">SFTP</button>
-        <button @click="sessions.showRightPanel('sysinfo')">运行状态</button>
+        <button @click="sessions.showRightPanel('sysinfo')">{{ $t('运行状态') }}</button>
       </div>
-      <Button variant="ghost" size="icon" class="ml-auto" title="收起" aria-label="收起侧栏" @click="sessions.sftpVisible = false">
+      <Button variant="ghost" size="icon" class="ml-auto" :title="$t('收起')" :aria-label="$t('收起侧栏')" @click="sessions.sftpVisible = false">
         <Icon name="close" :size="14" />
       </Button>
     </div>
 
     <!-- 面板宽度可拖动（最窄 260px）：窄的时候让按钮换行而不是溢出到终端上 -->
     <div class="flex flex-wrap items-center gap-1.5 p-3 inset-line-b">
-      <span class="text-[12.5px] font-medium text-[var(--foreground)]">传输记录</span>
+      <span class="text-[12.5px] font-medium text-[var(--foreground)]">{{ $t('传输记录') }}</span>
       <span class="text-[11.5px] text-mist">
-        {{ transfers.records.length ? `共 ${transfers.records.length} 条` : '暂无' }}
+        {{ transfers.records.length ? t('共 {0} 条', [transfers.records.length]) : t('暂无') }}
       </span>
       <Button
         v-if="transfers.records.length"
         variant="ghost"
         size="sm"
         class="ml-auto"
-        title="清空全部传输记录"
+        :title="$t('清空全部传输记录')"
         @click="transfers.clear()"
       >
-        <Icon name="trash" :size="13" />
-        清空
-      </Button>
-      <Button variant="ghost" size="sm" :class="transfers.records.length ? '' : 'ml-auto'" @click="sessions.showRightPanel('sftp')">返回</Button>
+        <Icon name="trash" :size="13" />{{ $t('清空') }}</Button>
+      <Button variant="ghost" size="sm" :class="transfers.records.length ? '' : 'ml-auto'" @click="sessions.showRightPanel('sftp')">{{ $t('返回') }}</Button>
     </div>
 
     <!-- 方向筛选 -->
     <div class="flex items-center gap-1 px-3 py-2 inset-line-b">
-      <Button variant="ghost" size="sm" :class="filter === 'all' ? 'text-signal' : ''" :aria-pressed="filter === 'all'" @click="filter = 'all'">全部 {{ transfers.records.length }}</Button>
-      <Button variant="ghost" size="sm" :class="filter === 'upload' ? 'text-signal' : ''" :aria-pressed="filter === 'upload'" @click="filter = 'upload'">↑ 上传 {{ uploadCount }}</Button>
-      <Button variant="ghost" size="sm" :class="filter === 'download' ? 'text-signal' : ''" :aria-pressed="filter === 'download'" @click="filter = 'download'">↓ 下载 {{ downloadCount }}</Button>
+      <Button variant="ghost" size="sm" :class="filter === 'all' ? 'text-signal' : ''" :aria-pressed="filter === 'all'" @click="filter = 'all'">{{ $t('全部') }} {{ transfers.records.length }}</Button>
+      <Button variant="ghost" size="sm" :class="filter === 'upload' ? 'text-signal' : ''" :aria-pressed="filter === 'upload'" @click="filter = 'upload'">{{ $t('↑ 上传') }} {{ uploadCount }}</Button>
+      <Button variant="ghost" size="sm" :class="filter === 'download' ? 'text-signal' : ''" :aria-pressed="filter === 'download'" @click="filter = 'download'">{{ $t('↓ 下载') }} {{ downloadCount }}</Button>
     </div>
 
     <div class="flex-1 overflow-y-auto px-2 py-1.5">
       <div v-if="!visible.length" class="py-10 text-center text-xs text-mist">
-        {{ transfers.records.length ? '该方向暂无记录' : '还没有上传 / 下载记录，传输完成后会自动出现在这里。' }}
+        {{ transfers.records.length ? t('该方向暂无记录') : t('还没有上传 / 下载记录，传输完成后会自动出现在这里。') }}
       </div>
 
       <div
@@ -174,22 +178,18 @@ onBeforeUnmount(() => window.clearTimeout(copiedTimer))
             v-if="r.direction === 'download' && r.localPath"
             variant="ghost"
             size="sm"
-            title="在系统文件管理器中打开（Windows 会选中该文件）"
+            :title="$t('在系统文件管理器中打开（Windows 会选中该文件）')"
             @click="openFolder(r)"
           >
-            <Icon name="folder" :size="13" />
-            打开所在文件夹
-          </Button>
+            <Icon name="folder" :size="13" />{{ $t('打开所在文件夹') }}</Button>
           <Button
             variant="ghost"
             size="sm"
-            :title="`复制路径：${r.direction === 'download' ? r.localPath : r.remotePath}`"
+            :title="t('复制路径：{0}', [r.direction === 'download' ? r.localPath : r.remotePath])"
             @click="copyPath(r.direction === 'download' ? r.localPath : r.remotePath, r.id)"
           >
-            <Icon :name="copiedId === r.id ? 'check' : 'copy'" :size="13" />
-            复制路径
-          </Button>
-          <Button variant="ghost" size="icon" class="ml-auto" title="从记录中移除" aria-label="从记录中移除" @click="transfers.remove(r.id)">
+            <Icon :name="copiedId === r.id ? 'check' : 'copy'" :size="13" />{{ $t('复制路径') }}</Button>
+          <Button variant="ghost" size="icon" class="ml-auto" :title="$t('从记录中移除')" :aria-label="$t('从记录中移除')" @click="transfers.remove(r.id)">
             <Icon name="close" :size="13" />
           </Button>
         </div>

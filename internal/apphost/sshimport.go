@@ -1,6 +1,7 @@
 package apphost
 
 import (
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,7 +24,7 @@ func (a *App) PreviewSSHConfig(path string) ([]sshconfig.Preview, error) {
 	return sshconfig.Parse(path)
 }
 func (a *App) SelectSSHConfig() (string, error) {
-	return wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{Title: "选择 OpenSSH Config"})
+	return wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{Title: i18n.T("选择 OpenSSH Config")})
 }
 
 type SSHImportChoice struct {
@@ -56,14 +57,14 @@ func (a *App) ImportSSHConfig(path string, choices []SSHImportChoice) (int, erro
 			continue
 		}
 		if choice.Strategy != "copy" && choice.Strategy != "overwrite" {
-			return 0, fmt.Errorf("无效冲突策略")
+			return 0, fmt.Errorf("%s", i18n.T("无效冲突策略"))
 		}
 		if _, duplicate := selected[choice.Alias]; duplicate {
-			return 0, fmt.Errorf("重复导入项")
+			return 0, fmt.Errorf("%s", i18n.T("重复导入项"))
 		}
 		entry, ok := byAlias[choice.Alias]
 		if !ok || len(entry.Warnings) > 0 {
-			return 0, fmt.Errorf("主机 %s 需要人工检查", choice.Alias)
+			return 0, fmt.Errorf(i18n.T("主机 %s 需要人工检查"), choice.Alias)
 		}
 		node := entry.Node
 		node.ID = uuid.NewString()
@@ -74,7 +75,7 @@ func (a *App) ImportSSHConfig(path string, choices []SSHImportChoice) (int, erro
 			}
 		}
 		if choice.Strategy == "overwrite" && len(matches) > 1 {
-			return 0, fmt.Errorf("%s 存在多个冲突，无法安全覆盖", choice.Alias)
+			return 0, fmt.Errorf(i18n.T("%s 存在多个冲突，无法安全覆盖"), choice.Alias)
 		}
 		if len(matches) > 0 {
 			if choice.Strategy == "overwrite" {
@@ -93,7 +94,7 @@ func (a *App) ImportSSHConfig(path string, choices []SSHImportChoice) (int, erro
 		for _, jump := range byAlias[alias].Jumps {
 			target, ok := selected[jump]
 			if !ok {
-				return 0, fmt.Errorf("%s 依赖 %s，请同时选择导入", alias, jump)
+				return 0, fmt.Errorf(i18n.T("%s 依赖 %s，请同时选择导入"), alias, jump)
 			}
 			node.JumpServerIDs = append(node.JumpServerIDs, target.ID)
 		}
@@ -128,7 +129,7 @@ func (a *App) ImportSSHConfig(path string, choices []SSHImportChoice) (int, erro
 		SaveBatch([]models.ServerNode) error
 	})
 	if !ok {
-		return 0, fmt.Errorf("存储不支持原子导入")
+		return 0, fmt.Errorf("%s", i18n.T("存储不支持原子导入"))
 	}
 	if err := batch.SaveBatch(incoming); err != nil {
 		return 0, err

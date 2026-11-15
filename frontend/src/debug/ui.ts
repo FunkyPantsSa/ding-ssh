@@ -1,3 +1,5 @@
+import {errorText} from '../i18n'
+import {t} from '../i18n'
 // 调试模式：UI 观测与实验（M5 + M6）的前端实现。
 //
 // 分工（与 internal/debugsrv/ui.go 配套）：
@@ -45,7 +47,7 @@ const num = (v: unknown, fallback = 0): number => {
 }
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n))
 const clip = (s: string, max: number): string => (s.length <= max ? s : s.slice(0, max) + `…（已截断 ${s.length - max} 字符）`)
-const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
+const errText = (e: unknown): string => (e instanceof Error ? e.message : errorText(e))
 
 /** 等一帧：让 Vue 的更新与浏览器布局完成（保证「返回即可截图」）。 */
 function nextFrame(): Promise<void> {
@@ -279,7 +281,7 @@ function installErrorHandler(): void {
   const prev = app.config.errorHandler as ((err: unknown, instance: unknown, info: string) => void) | undefined
   app.config.errorHandler = (err: unknown, instance: unknown, info: string) => {
     try {
-      pushConsole('error', [err instanceof Error ? err : String(err)], `vue:errorHandler:${info}`, err instanceof Error ? err.stack : undefined)
+      pushConsole('error', [err instanceof Error ? err : errorText(err)], `vue:errorHandler:${info}`, err instanceof Error ? err.stack : undefined)
     } catch {
       /* 同上 */
     }
@@ -1049,17 +1051,17 @@ async function storePatchOp(args: Args): Promise<unknown> {
 }
 
 const SETTINGS_SECTIONS: Record<string, string> = {
-  general: '通用',
+  general: t("通用"),
   hotkeys: '快捷键',
   connectionInfo: '连接说明',
-  theme: '外观',
+  theme: t("外观"),
   credentials: '保存的凭证',
-  security: '安全',
+  security: t("安全"),
   debug: '调试模式',
-  logs: '日志',
+  logs: t("日志"),
   audit: 'AI 记录',
   migrate: '导入导出',
-  about: '关于',
+  about: t("关于"),
 }
 
 async function navigateOp(args: Args): Promise<unknown> {

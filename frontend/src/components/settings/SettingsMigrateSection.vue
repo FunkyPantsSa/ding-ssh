@@ -1,4 +1,8 @@
 <script lang="ts" setup>
+import {errorText} from '../../i18n'
+
+import {t} from '../../i18n'
+
 import {ref} from 'vue'
 import ImportExportSection from './ImportExportSection.vue'
 import {securityService} from '../../services/security'
@@ -23,19 +27,19 @@ async function exportPack() {
   exportError.value = ''
   exportMsg.value = ''
   if (!exportPass.value || exportPass.value !== exportPassConfirm.value) {
-    exportError.value = '请填写并确认导出密码'
+    exportError.value = t("请填写并确认导出密码")
     return
   }
   exportBusy.value = true
   try {
     const path = await securityService.exportConfig(exportPass.value)
     if (path) {
-      exportMsg.value = `已导出到 ${path}`
+      exportMsg.value = t("已导出到 {0}", [path])
       exportPass.value = ''
       exportPassConfirm.value = ''
     }
   } catch (e) {
-    exportError.value = String(e)
+    exportError.value = errorText(e)
   } finally {
     exportBusy.value = false
   }
@@ -45,18 +49,18 @@ async function importPack() {
   importError.value = ''
   importMsg.value = ''
   if (!importPass.value) {
-    importError.value = '请填写导入密码'
+    importError.value = t("请填写导入密码")
     return
   }
   importBusy.value = true
   try {
     const r = await securityService.importConfig(importPass.value, packOverwrite.value)
-    importMsg.value = `已导入服务器 ${r.servers}、凭证 ${r.credentials}、分组 ${r.groups}`
+    importMsg.value = t("已导入服务器 {0}、凭证 {1}、分组 {2}", [r.servers, r.credentials, r.groups])
     importPass.value = ''
     await servers.load()
     await credentials.load()
   } catch (e) {
-    importError.value = String(e)
+    importError.value = errorText(e)
   } finally {
     importBusy.value = false
   }

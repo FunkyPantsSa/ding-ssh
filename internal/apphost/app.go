@@ -3,6 +3,7 @@ package apphost
 import (
 	"context"
 	"database/sql"
+	"ding-ssh/internal/i18n"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -176,7 +177,7 @@ func (a *App) ensureUnlocked() error {
 	}
 	st := a.vault.Status()
 	if st.NeedsUnlock || !st.Unlocked {
-		return fmt.Errorf("请先解锁主密码")
+		return fmt.Errorf("%s", i18n.T("请先解锁主密码"))
 	}
 	return nil
 }
@@ -265,7 +266,7 @@ func (a *App) SaveServer(node models.ServerNode) (models.ServerNode, error) {
 		return models.ServerNode{}, err
 	}
 	if err := a.store.Save(node); err != nil {
-		return models.ServerNode{}, fmt.Errorf("保存服务器失败: %w", err)
+		return models.ServerNode{}, fmt.Errorf(i18n.T("保存服务器失败: %w"), err)
 	}
 	return node, nil
 }
@@ -273,7 +274,7 @@ func (a *App) SaveServer(node models.ServerNode) (models.ServerNode, error) {
 // SelectKeyFile 弹出系统文件选择框，返回私钥文件路径。
 func (a *App) SelectKeyFile() (string, error) {
 	file, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title: "选择 SSH 私钥文件",
+		Title: i18n.T("选择 SSH 私钥文件"),
 	})
 	if err != nil {
 		return "", err
@@ -284,8 +285,8 @@ func (a *App) SelectKeyFile() (string, error) {
 // SelectImageFile 弹出系统文件选择框，返回背景图片路径。
 func (a *App) SelectImageFile() (string, error) {
 	file, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title:   "选择背景图片",
-		Filters: []wailsruntime.FileFilter{{DisplayName: "图片文件", Pattern: "*.png;*.jpg;*.jpeg;*.gif;*.webp"}},
+		Title:   i18n.T("选择背景图片"),
+		Filters: []wailsruntime.FileFilter{{DisplayName: i18n.T("图片文件"), Pattern: "*.png;*.jpg;*.jpeg;*.gif;*.webp"}},
 	})
 	if err != nil {
 		return "", err
@@ -302,13 +303,13 @@ func (a *App) DeleteServer(id string) error {
 	for _, n := range nodes {
 		for _, jump := range n.JumpServerIDs {
 			if jump == id {
-				return fmt.Errorf("服务器被 %s 引用为跳板机，请先修改其连接路径", n.Name)
+				return fmt.Errorf(i18n.T("服务器被 %s 引用为跳板机，请先修改其连接路径"), n.Name)
 			}
 		}
 	}
 
 	if err := a.store.Delete(id); err != nil {
-		return fmt.Errorf("删除服务器失败: %w", err)
+		return fmt.Errorf(i18n.T("删除服务器失败: %w"), err)
 	}
 	return nil
 }
@@ -366,7 +367,7 @@ func (a *App) GetSettings() models.Settings {
 // SaveSettings 保存应用设置并立即生效（无需重启）。
 func (a *App) SaveSettings(settings models.Settings) error {
 	if err := a.settings.Save(settings); err != nil {
-		return fmt.Errorf("保存设置失败: %w", err)
+		return fmt.Errorf(i18n.T("保存设置失败: %w"), err)
 	}
 	syncNativeAppearance(settings.Appearance.BaseTone)
 	// 日志四项开关（控制台 / 文件 / 级别 / 调用日志）立即生效
@@ -462,7 +463,7 @@ func (a *App) SaveCredential(c models.Credential) (models.Credential, error) {
 		c.ID = uuid.NewString()
 	}
 	if err := a.credentials.Save(c); err != nil {
-		return models.Credential{}, fmt.Errorf("保存凭证失败: %w", err)
+		return models.Credential{}, fmt.Errorf(i18n.T("保存凭证失败: %w"), err)
 	}
 	return c, nil
 }
@@ -470,7 +471,7 @@ func (a *App) SaveCredential(c models.Credential) (models.Credential, error) {
 // DeleteCredential 删除常用凭证。
 func (a *App) DeleteCredential(id string) error {
 	if err := a.credentials.Delete(id); err != nil {
-		return fmt.Errorf("删除凭证失败: %w", err)
+		return fmt.Errorf(i18n.T("删除凭证失败: %w"), err)
 	}
 	return nil
 }
@@ -485,7 +486,7 @@ func (a *App) SftpList(sessionID, path string) ([]models.SFTPEntry, error) {
 // SelectLocalFile 选择本地文件（用于 SFTP 上传）。
 func (a *App) SelectLocalFile() (string, error) {
 	file, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title: "选择要上传的文件",
+		Title: i18n.T("选择要上传的文件"),
 	})
 	if err != nil {
 		return "", err
@@ -496,7 +497,7 @@ func (a *App) SelectLocalFile() (string, error) {
 // SelectLocalFiles 弹出系统文件选择框（支持多选），返回所选文件路径列表（用于 SFTP 批量上传）。
 func (a *App) SelectLocalFiles() ([]string, error) {
 	files, err := wailsruntime.OpenMultipleFilesDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title: "选择要上传的文件（可多选）",
+		Title: i18n.T("选择要上传的文件（可多选）"),
 	})
 	if err != nil {
 		return nil, err
@@ -507,7 +508,7 @@ func (a *App) SelectLocalFiles() ([]string, error) {
 // SelectLocalFolder 弹出系统文件夹选择框，返回所选文件夹路径（用于 SFTP 上传文件夹）。
 func (a *App) SelectLocalFolder() (string, error) {
 	dir, err := wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title: "选择要上传的文件夹",
+		Title: i18n.T("选择要上传的文件夹"),
 	})
 	if err != nil {
 		return "", err
@@ -518,7 +519,7 @@ func (a *App) SelectLocalFolder() (string, error) {
 // SelectSaveFolder 弹出系统文件夹选择框，返回所选保存位置（用于 SFTP 下载文件夹）。
 func (a *App) SelectSaveFolder() (string, error) {
 	dir, err := wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title: "选择保存到本地文件夹",
+		Title: i18n.T("选择保存到本地文件夹"),
 	})
 	if err != nil {
 		return "", err
@@ -530,7 +531,7 @@ func (a *App) SelectSaveFolder() (string, error) {
 func (a *App) LocalPathIsDir(path string) (bool, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
-		return false, fmt.Errorf("本地路径不存在或不可访问: %s", path)
+		return false, fmt.Errorf(i18n.T("本地路径不存在或不可访问: %s"), path)
 	}
 	return fi.IsDir(), nil
 }
@@ -538,7 +539,7 @@ func (a *App) LocalPathIsDir(path string) (bool, error) {
 // SelectSavePath 选择本地保存路径（用于 SFTP 下载）。
 func (a *App) SelectSavePath(defaultName string) (string, error) {
 	path, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
-		Title:           "保存到本地",
+		Title:           i18n.T("保存到本地"),
 		DefaultFilename: defaultName,
 	})
 	if err != nil {
@@ -729,10 +730,10 @@ func (a *App) GetGroups() []string {
 func (a *App) AddGroup(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return errors.New("分组名称不能为空")
+		return errors.New(i18n.T("分组名称不能为空"))
 	}
 	if err := a.groups.Add(name); err != nil {
-		return fmt.Errorf("新增分组失败: %w", err)
+		return fmt.Errorf(i18n.T("新增分组失败: %w"), err)
 	}
 	return nil
 }
@@ -742,17 +743,17 @@ func (a *App) RenameGroup(oldName, newName string) error {
 	oldName = strings.TrimSpace(oldName)
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
-		return errors.New("分组名称不能为空")
+		return errors.New(i18n.T("分组名称不能为空"))
 	}
 	if oldName == newName {
 		return nil
 	}
 	if err := a.groups.Rename(oldName, newName); err != nil {
-		return fmt.Errorf("重命名分组失败: %w", err)
+		return fmt.Errorf(i18n.T("重命名分组失败: %w"), err)
 	}
 	nodes, err := a.store.List()
 	if err != nil {
-		return fmt.Errorf("读取服务器列表失败: %w", err)
+		return fmt.Errorf(i18n.T("读取服务器列表失败: %w"), err)
 	}
 	for _, n := range nodes {
 		if n.Group == oldName {
@@ -769,14 +770,14 @@ func (a *App) RenameGroup(oldName, newName string) error {
 func (a *App) RemoveGroup(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return errors.New("分组名称不能为空")
+		return errors.New(i18n.T("分组名称不能为空"))
 	}
 	if err := a.groups.Remove(name); err != nil {
-		return fmt.Errorf("删除分组失败: %w", err)
+		return fmt.Errorf(i18n.T("删除分组失败: %w"), err)
 	}
 	nodes, err := a.store.List()
 	if err != nil {
-		return fmt.Errorf("读取服务器列表失败: %w", err)
+		return fmt.Errorf(i18n.T("读取服务器列表失败: %w"), err)
 	}
 	for _, n := range nodes {
 		if n.Group == name {
@@ -813,7 +814,7 @@ func (a *App) Connect(sessionID string, node models.ServerNode, cols, rows int) 
 // ConnectLocal 打开本机终端会话（复用 ssh:output / ssh:status 事件通道）。
 func (a *App) ConnectLocal(sessionID string, cols, rows int) (models.ConnectResult, error) {
 	if a.local == nil {
-		return models.ConnectResult{}, fmt.Errorf("本地终端未初始化")
+		return models.ConnectResult{}, fmt.Errorf("%s", i18n.T("本地终端未初始化"))
 	}
 	if strings.TrimSpace(sessionID) == "" {
 		sessionID = uuid.NewString()
@@ -828,7 +829,7 @@ func (a *App) ConnectLocal(sessionID string, cols, rows int) (models.ConnectResu
 		}
 	}
 	_, _, label, _ := localterm.Resolve(shellPref)
-	return models.ConnectResult{SessionID: sessionID, Server: "本机 · " + label}, nil
+	return models.ConnectResult{SessionID: sessionID, Server: i18n.T("本机 · ") + label}, nil
 }
 
 // GetRuntimeStatus 返回用于排查应用无响应的后端快照。
@@ -861,14 +862,14 @@ func (a *App) GetPlatform() string {
 func (a *App) RevealLocalPath(path string) error {
 	target := strings.TrimSpace(path)
 	if target == "" {
-		return fmt.Errorf("路径为空，无法打开所在文件夹")
+		return fmt.Errorf("%s", i18n.T("路径为空，无法打开所在文件夹"))
 	}
 	if _, err := os.Stat(target); err != nil {
-		return fmt.Errorf("本地路径不存在或不可访问: %s", target)
+		return fmt.Errorf(i18n.T("本地路径不存在或不可访问: %s"), target)
 	}
 	if err := revealLocalPath(target); err != nil {
 		logx.Errorf("打开本地文件夹失败: path=%s err=%v", target, err)
-		return fmt.Errorf("打开本地文件夹失败: %w", err)
+		return fmt.Errorf(i18n.T("打开本地文件夹失败: %w"), err)
 	}
 	return nil
 }
@@ -980,11 +981,11 @@ func (a *App) QueryCommandHistory(serverID, prefix string, limit int) []models.C
 func (a *App) ReadLocalFileBase64(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "", errors.New("文件路径为空")
+		return "", errors.New(i18n.T("文件路径为空"))
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("读取本地文件失败: %w", err)
+		return "", fmt.Errorf(i18n.T("读取本地文件失败: %w"), err)
 	}
 	return base64.StdEncoding.EncodeToString(data), nil
 }
@@ -993,14 +994,14 @@ func (a *App) ReadLocalFileBase64(path string) (string, error) {
 func (a *App) WriteLocalFileBase64(path, dataBase64 string) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return errors.New("文件路径为空")
+		return errors.New(i18n.T("文件路径为空"))
 	}
 	data, err := base64.StdEncoding.DecodeString(dataBase64)
 	if err != nil {
-		return fmt.Errorf("解码文件内容失败: %w", err)
+		return fmt.Errorf(i18n.T("解码文件内容失败: %w"), err)
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("写入本地文件失败: %w", err)
+		return fmt.Errorf(i18n.T("写入本地文件失败: %w"), err)
 	}
 	return nil
 }
@@ -1024,13 +1025,13 @@ func (a *App) GetSecurityStatus() models.SecurityStatus {
 // UnlockWithMasterPassword 使用主密码解锁（错误三次短锁 30s）。
 func (a *App) UnlockWithMasterPassword(password string) error {
 	if a.vault == nil {
-		return errors.New("保险库未初始化")
+		return errors.New(i18n.T("保险库未初始化"))
 	}
 	a.unlockMu.Lock()
 	if time.Now().Before(a.unlockLockedUntil) {
 		remain := int(time.Until(a.unlockLockedUntil).Seconds())
 		a.unlockMu.Unlock()
-		return fmt.Errorf("尝试过多，请 %d 秒后再试", remain)
+		return fmt.Errorf(i18n.T("尝试过多，请 %d 秒后再试"), remain)
 	}
 	a.unlockMu.Unlock()
 
@@ -1059,7 +1060,7 @@ func (a *App) UnlockWithMasterPassword(password string) error {
 // EnableMasterPassword 开启启动主密码。
 func (a *App) EnableMasterPassword(password string) error {
 	if a.vault == nil {
-		return errors.New("保险库未初始化")
+		return errors.New(i18n.T("保险库未初始化"))
 	}
 	if err := a.ensureUnlocked(); err != nil {
 		return err
@@ -1070,7 +1071,7 @@ func (a *App) EnableMasterPassword(password string) error {
 	}
 	if a.db != nil {
 		if err := store.ReencryptAllSecrets(a.db, oldKey, newKey); err != nil {
-			return fmt.Errorf("重加密敏感字段失败: %w", err)
+			return fmt.Errorf(i18n.T("重加密敏感字段失败: %w"), err)
 		}
 	}
 	a.attachCipher()
@@ -1080,7 +1081,7 @@ func (a *App) EnableMasterPassword(password string) error {
 // DisableMasterPassword 关闭主密码（需验证当前密码）。
 func (a *App) DisableMasterPassword(password string) error {
 	if a.vault == nil {
-		return errors.New("保险库未初始化")
+		return errors.New(i18n.T("保险库未初始化"))
 	}
 	oldKey, newKey, err := a.vault.DisableMasterPassword(password)
 	if err != nil {
@@ -1088,7 +1089,7 @@ func (a *App) DisableMasterPassword(password string) error {
 	}
 	if a.db != nil {
 		if err := store.ReencryptAllSecrets(a.db, oldKey, newKey); err != nil {
-			return fmt.Errorf("重加密敏感字段失败: %w", err)
+			return fmt.Errorf(i18n.T("重加密敏感字段失败: %w"), err)
 		}
 	}
 	a.attachCipher()
@@ -1098,7 +1099,7 @@ func (a *App) DisableMasterPassword(password string) error {
 // ChangeMasterPassword 更换主密码。
 func (a *App) ChangeMasterPassword(oldPassword, newPassword string) error {
 	if a.vault == nil {
-		return errors.New("保险库未初始化")
+		return errors.New(i18n.T("保险库未初始化"))
 	}
 	oldKey, newKey, err := a.vault.ChangeMasterPassword(oldPassword, newPassword)
 	if err != nil {
@@ -1106,7 +1107,7 @@ func (a *App) ChangeMasterPassword(oldPassword, newPassword string) error {
 	}
 	if a.db != nil {
 		if err := store.ReencryptAllSecrets(a.db, oldKey, newKey); err != nil {
-			return fmt.Errorf("重加密敏感字段失败: %w", err)
+			return fmt.Errorf(i18n.T("重加密敏感字段失败: %w"), err)
 		}
 	}
 	a.attachCipher()
@@ -1134,7 +1135,7 @@ func (a *App) ExportConfig(passphrase string) (string, error) {
 		return "", err
 	}
 	path, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
-		Title:           "导出配置包",
+		Title:           i18n.T("导出配置包"),
 		DefaultFilename: "ding-ssh.dingpack",
 		Filters:         []wailsruntime.FileFilter{{DisplayName: "dingpack", Pattern: "*.dingpack"}},
 	})
@@ -1163,7 +1164,7 @@ func (a *App) ImportConfig(passphrase string, overwrite bool) (models.ImportConf
 		return empty, err
 	}
 	path, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title:   "导入配置包",
+		Title:   i18n.T("导入配置包"),
 		Filters: []wailsruntime.FileFilter{{DisplayName: "dingpack", Pattern: "*.dingpack"}},
 	})
 	if err != nil || path == "" {

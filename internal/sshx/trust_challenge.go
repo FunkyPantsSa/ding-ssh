@@ -2,6 +2,7 @@ package sshx
 
 import (
 	"crypto/rand"
+	"ding-ssh/internal/i18n"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -64,11 +65,11 @@ func hostTrustChallenge(host string, key ssh.PublicKey, sources []string, verifi
 		}
 	}
 	if len(challenges) >= 256 {
-		return fmt.Errorf("待确认主机过多，请稍后重试")
+		return fmt.Errorf("%s", i18n.T("待确认主机过多，请稍后重试"))
 	}
 	challenges[view.ID] = pendingHostTrust{view, key, append([]string{}, sources...), string(data), time.Now().Add(5 * time.Minute)}
 	payload, _ := json.Marshal(view)
-	return fmt.Errorf("主机身份需要确认 SSH_HOST_TRUST:%s", base64.RawURLEncoding.EncodeToString(payload))
+	return fmt.Errorf(i18n.T("主机身份需要确认 SSH_HOST_TRUST:%s"), base64.RawURLEncoding.EncodeToString(payload))
 }
 
 // ResolveHostTrust consumes a backend-issued one-time challenge. Caller input
@@ -80,7 +81,7 @@ func ResolveHostTrust(id string, approve, replace bool) error {
 	delete(challenges, id)
 	challengeMu.Unlock()
 	if !ok || time.Now().After(pending.expires) {
-		return fmt.Errorf("主机确认已过期，请重新连接")
+		return fmt.Errorf("%s", i18n.T("主机确认已过期，请重新连接"))
 	}
 	if !approve {
 		return nil
@@ -90,7 +91,7 @@ func ResolveHostTrust(id string, approve, replace bool) error {
 	paths := trustPaths(nil)
 	for _, source := range pending.sources {
 		if _, err := os.Stat(expandSSHPath(source)); err != nil {
-			return fmt.Errorf("读取指定信任源失败: %w", err)
+			return fmt.Errorf(i18n.T("读取指定信任源失败: %w"), err)
 		}
 		paths = append(paths, expandSSHPath(source))
 	}
@@ -112,7 +113,7 @@ func ResolveHostTrust(id string, approve, replace bool) error {
 		return readErr
 	}
 	if string(data) != pending.snapshot {
-		return fmt.Errorf("信任记录已变化，请重新连接并核对")
+		return fmt.Errorf("%s", i18n.T("信任记录已变化，请重新连接并核对"))
 	}
 	lines := strings.Split(string(data), "\n")
 	if len(mismatch.Want) > 0 {
@@ -121,15 +122,15 @@ func ResolveHostTrust(id string, approve, replace bool) error {
 			expected[fingerprint] = true
 		}
 		if len(mismatch.Want) != len(pending.view.OldFingerprints) {
-			return fmt.Errorf("信任记录已变化，请重新核对")
+			return fmt.Errorf("%s", i18n.T("信任记录已变化，请重新核对"))
 		}
 		for _, want := range mismatch.Want {
 			if !expected[ssh.FingerprintSHA256(want.Key)] {
-				return fmt.Errorf("信任记录已变化，请重新核对")
+				return fmt.Errorf("%s", i18n.T("信任记录已变化，请重新核对"))
 			}
 		}
 		if !pending.view.Changed || !replace || !pending.view.CanReplace {
-			return fmt.Errorf("未授权覆盖，或冲突来自只读信任源")
+			return fmt.Errorf("%s", i18n.T("未授权覆盖，或冲突来自只读信任源"))
 		}
 		remove := map[int]bool{}
 		for _, want := range mismatch.Want {
@@ -138,7 +139,7 @@ func ResolveHostTrust(id string, approve, replace bool) error {
 			} // Preserve read-only OpenSSH sources.
 			fields := strings.Fields(lines[want.Line-1])
 			if len(fields) < 3 || strings.HasPrefix(fields[0], "@") || strings.Contains(fields[0], ",") {
-				return fmt.Errorf("该记录包含特殊标记或多个主机，请在信任管理中处理")
+				return fmt.Errorf("%s", i18n.T("该记录包含特殊标记或多个主机，请在信任管理中处理"))
 			}
 			remove[want.Line-1] = true
 		}

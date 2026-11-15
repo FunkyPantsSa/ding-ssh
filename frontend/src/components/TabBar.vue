@@ -1,4 +1,8 @@
 <script lang="ts" setup>
+import {t as $t} from '../i18n'
+
+import {t} from '../i18n'
+
 import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import Icon from './Icon.vue'
@@ -193,7 +197,7 @@ async function copyTabHost(clientId: string) {
       copiedTabId.value = ''
     }, 1600)
   } catch (e) {
-    console.warn('[tabs] 复制 IP 失败', e)
+    console.warn(t("[tabs] 复制 IP 失败"), e)
   }
   closeTabMenu()
 }
@@ -322,7 +326,7 @@ onBeforeUnmount(() => {
         <span class="truncate">{{ item.tab.serverName }}</span>
         <span
           class="tab-close"
-          title="关闭"
+          :title="$t('关闭')"
           @click.stop="close(item.tab.clientId)"
         >
           <Icon name="close" :size="10" />
@@ -334,7 +338,7 @@ onBeforeUnmount(() => {
         v-else
         class="tab group split-tab"
         :class="[splitActive ? 'active' : '']"
-        title="拖到空白处取消分屏"
+        :title="$t('拖到空白处取消分屏')"
         @click="activateSplitGroup"
         @contextmenu.prevent
         draggable="true"
@@ -346,7 +350,7 @@ onBeforeUnmount(() => {
         <span class="truncate">{{ item.title }}</span>
         <span
           class="tab-close"
-          title="关闭分屏组"
+          :title="$t('关闭分屏组')"
           @click.stop="sessions.closeSplitGroup()"
         >
           <Icon name="close" :size="10" />
@@ -359,9 +363,7 @@ onBeforeUnmount(() => {
 
   <!-- 左侧导航纵向标签列表 -->
   <div v-else class="side-tabs" data-ui="tabbar">
-    <div class="nav-label side-tabs-label">
-      标签页
-      <span v-if="sessions.tabs.length" class="nav-count">{{ sessions.tabs.length }}</span>
+    <div class="nav-label side-tabs-label">{{ $t('标签页') }} <span v-if="sessions.tabs.length" class="nav-count">{{ sessions.tabs.length }}</span>
     </div>
     <template v-for="item in tabItems" :key="item.key">
       <button
@@ -392,7 +394,7 @@ onBeforeUnmount(() => {
           {{ item.tab.serverName.slice(0, 1) }}
         </span>
         <span class="nav-text">{{ item.tab.serverName }}</span>
-        <span class="tab-close" title="关闭" @click.stop="close(item.tab.clientId)">
+        <span class="tab-close" :title="$t('关闭')" @click.stop="close(item.tab.clientId)">
           <Icon name="close" :size="10" />
         </span>
       </button>
@@ -402,7 +404,7 @@ onBeforeUnmount(() => {
         v-else
         class="nav-item side-tab group"
         :class="[splitActive ? 'active' : '']"
-        title="拖到列表空白处取消分屏"
+        :title="$t('拖到列表空白处取消分屏')"
         @click="activateSplitGroup"
         @contextmenu.prevent
         draggable="true"
@@ -411,7 +413,7 @@ onBeforeUnmount(() => {
       >
         <Icon name="columns" :size="15" extra-class="nav-ico text-signal" />
         <span class="nav-text">{{ item.title }}</span>
-        <span class="tab-close" title="关闭分屏组" @click.stop="sessions.closeSplitGroup()">
+        <span class="tab-close" :title="$t('关闭分屏组')" @click.stop="sessions.closeSplitGroup()">
           <Icon name="close" :size="10" />
         </span>
       </button>
@@ -429,26 +431,22 @@ onBeforeUnmount(() => {
       @click.stop
     >
       <button class="!flex items-center gap-1.5" @click="duplicateTab(tabMenu.clientId)">
-        <Icon name="copy" :size="13" />
-        复制终端
-      </button>
+        <Icon name="copy" :size="13" />{{ $t('复制终端') }}</button>
       <button
         class="!flex items-center gap-1.5"
         :disabled="tabMenuTab?.kind === 'local'"
-        :title="tabMenuTab?.kind === 'local' ? '本机终端没有远程 IP' : `复制 IP ${tabMenuTab?.host ?? ''}`"
+        :title="tabMenuTab?.kind === 'local' ? t('本机终端没有远程 IP') : t('复制 IP {0}', [tabMenuTab?.host ?? ''])"
         @click="copyTabHost(tabMenu.clientId)"
       >
         <Icon :name="copiedTabId === tabMenu.clientId ? 'check' : 'clipboard-copy'" :size="13" />
-        {{ copiedTabId === tabMenu.clientId ? '已复制 IP' : '复制IP' }}
+        {{ copiedTabId === tabMenu.clientId ? t('已复制 IP') : t('复制IP') }}
       </button>
       <div class="divider-h my-1"></div>
       <!-- 分屏子菜单 -->
       <div class="relative" @mouseenter="cancelSplitClose(); splitSubmenu = true" @mouseleave="scheduleSplitClose">
         <button class="!flex items-center gap-1.5 justify-between w-full">
           <span class="flex items-center gap-1.5">
-            <Icon name="columns" :size="13" />
-            分屏
-          </span>
+            <Icon name="columns" :size="13" />{{ $t('分屏') }}</span>
           <Icon name="chevron-right" :size="12" class="text-mist" />
         </button>
         <div
@@ -459,17 +457,17 @@ onBeforeUnmount(() => {
           @mouseenter="cancelSplitClose()"
           @mouseleave="scheduleSplitClose"
         >
-          <button @click="splitTab(tabMenu.clientId, 'left')">分屏到左侧</button>
-          <button @click="splitTab(tabMenu.clientId, 'right')">分屏到右侧</button>
-          <button @click="splitTab(tabMenu.clientId, 'up')">分屏到上方</button>
-          <button @click="splitTab(tabMenu.clientId, 'down')">分屏到下方</button>
+          <button @click="splitTab(tabMenu.clientId, 'left')">{{ $t('分屏到左侧') }}</button>
+          <button @click="splitTab(tabMenu.clientId, 'right')">{{ $t('分屏到右侧') }}</button>
+          <button @click="splitTab(tabMenu.clientId, 'up')">{{ $t('分屏到上方') }}</button>
+          <button @click="splitTab(tabMenu.clientId, 'down')">{{ $t('分屏到下方') }}</button>
         </div>
       </div>
       <div class="divider-h my-1"></div>
-      <button @click="sessions.activateTab(tabMenu.clientId); closeTabMenu()">切换到此标签</button>
-      <button @click="close(tabMenu.clientId); closeTabMenu()">关闭标签</button>
-      <button @click="closeOthers(tabMenu.clientId)">关闭其他标签</button>
-      <button class="danger" @click="closeAll">关闭全部标签</button>
+      <button @click="sessions.activateTab(tabMenu.clientId); closeTabMenu()">{{ $t('切换到此标签') }}</button>
+      <button @click="close(tabMenu.clientId); closeTabMenu()">{{ $t('关闭标签') }}</button>
+      <button @click="closeOthers(tabMenu.clientId)">{{ $t('关闭其他标签') }}</button>
+      <button class="danger" @click="closeAll">{{ $t('关闭全部标签') }}</button>
     </div>
   </Teleport>
 </template>

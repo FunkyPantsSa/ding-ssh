@@ -3,6 +3,7 @@ package sshx
 import (
 	"bytes"
 	"context"
+	"ding-ssh/internal/i18n"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -122,7 +123,7 @@ func (t *Tunnel) Start() error {
 	t.mu.Lock()
 	if t.status == TunnelRunning {
 		t.mu.Unlock()
-		return fmt.Errorf("隧道已在运行")
+		return fmt.Errorf("%s", i18n.T("隧道已在运行"))
 	}
 	if t.client != nil {
 		_ = t.client.Close()
@@ -150,13 +151,13 @@ func (t *Tunnel) Start() error {
 		stopListen()
 		if err != nil {
 			client.Close()
-			return fmt.Errorf("远程监听 %s 失败: %w", addr, err)
+			return fmt.Errorf(i18n.T("远程监听 %s 失败: %w"), addr, err)
 		}
 	case TunnelDynamic:
 		ln, err = net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(t.localPort)))
 		if err != nil {
 			client.Close()
-			return fmt.Errorf("监听本地 SOCKS5 端口 %d 失败: %w", t.localPort, err)
+			return fmt.Errorf(i18n.T("监听本地 SOCKS5 端口 %d 失败: %w"), t.localPort, err)
 		}
 	default: // local
 		addr := net.JoinHostPort(t.listenHost, strconv.Itoa(t.localPort))
@@ -167,7 +168,7 @@ func (t *Tunnel) Start() error {
 		ln, err = net.Listen(network, addr)
 		if err != nil {
 			client.Close()
-			return fmt.Errorf("监听本地地址 %s 失败: %w", addr, err)
+			return fmt.Errorf(i18n.T("监听本地地址 %s 失败: %w"), addr, err)
 		}
 	}
 
@@ -216,7 +217,7 @@ func (t *Tunnel) acceptLoop(ctx context.Context, listener net.Listener, client *
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			t.fail(ctx, fmt.Sprintf("监听异常: %v", err))
+			t.fail(ctx, fmt.Sprintf(i18n.T("监听异常: %v"), err))
 			return
 		}
 		switch t.mode {
@@ -326,7 +327,7 @@ func socks5Handshake(conn net.Conn) (string, error) {
 		return "", err
 	}
 	if buf[0] != 0x05 {
-		return "", fmt.Errorf("非 SOCKS5 协议")
+		return "", fmt.Errorf("%s", i18n.T("非 SOCKS5 协议"))
 	}
 	nMethods := int(buf[1])
 	if _, err := io.ReadFull(conn, buf[:nMethods]); err != nil {
@@ -334,7 +335,7 @@ func socks5Handshake(conn net.Conn) (string, error) {
 	}
 	if !bytes.Contains(buf[:nMethods], []byte{0}) {
 		_, _ = conn.Write([]byte{0x05, 0xff})
-		return "", fmt.Errorf("客户端未提供 SOCKS5 无认证方式")
+		return "", fmt.Errorf("%s", i18n.T("客户端未提供 SOCKS5 无认证方式"))
 	}
 	// 无认证
 	if _, err := conn.Write([]byte{0x05, 0x00}); err != nil {
@@ -344,7 +345,7 @@ func socks5Handshake(conn net.Conn) (string, error) {
 		return "", err
 	}
 	if buf[0] != 0x05 || buf[1] != 0x01 {
-		return "", fmt.Errorf("仅支持 CONNECT")
+		return "", fmt.Errorf("%s", i18n.T("仅支持 CONNECT"))
 	}
 	var host string
 	switch buf[3] {
@@ -368,7 +369,7 @@ func socks5Handshake(conn net.Conn) (string, error) {
 		}
 		host = net.IP(buf[:16]).String()
 	default:
-		return "", fmt.Errorf("不支持的地址类型")
+		return "", fmt.Errorf("%s", i18n.T("不支持的地址类型"))
 	}
 	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
 		return "", err

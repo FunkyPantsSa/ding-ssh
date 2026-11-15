@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import {t as $t} from '../../../i18n'
+
+import {t} from '../../../i18n'
+
 import {nextTick, onBeforeUnmount, ref, useId, watch} from 'vue'
 
 const open = defineModel<boolean>({default: false})
@@ -110,13 +114,13 @@ onBeforeUnmount(cleanup)
         role="dialog"
         aria-modal="true"
         :aria-labelledby="title ? titleId : undefined"
-        :aria-label="title ? undefined : '对话框'"
+        :aria-label="title ? undefined : t('对话框')"
         tabindex="-1"
         :style="{width: typeof width === 'number' ? `min(${width}px, 100%)` : width}"
       >
         <header v-if="title || $slots.header">
           <slot name="header"><h2 :id="titleId">{{ title }}</h2></slot>
-          <button type="button" class="ui-dialog-close" aria-label="关闭对话框" @click="close">×</button>
+          <button type="button" class="ui-dialog-close" :aria-label="$t('关闭对话框')" @click="close">×</button>
         </header>
         <div class="ui-dialog-body"><slot /></div>
         <footer v-if="$slots.footer"><slot name="footer" /></footer>

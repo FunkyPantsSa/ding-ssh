@@ -1,3 +1,5 @@
+import {errorText} from '../i18n'
+import {t as translate} from '../i18n'
 import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
 import {onTunnelStatus, sshService} from '../services/ssh'
@@ -41,7 +43,7 @@ const listenIPOptions = computed(() => {
   const options = localIPv4.value.map(ip => ({value: ip, label: ip}))
   const saved = editing.value?.listenHost
   if (saved && form.listenIP === saved && !localIPv4.value.includes(saved)) {
-    options.unshift({value: saved, label: `${saved}（原配置）`})
+    options.unshift({value: saved, label: translate("{0}（原配置）", [saved])})
   }
   return options
 })
@@ -61,28 +63,28 @@ function hostPort(host: string, port: number | string) {
 
 const modeDetails = {
   local: {
-    title: '本地转发 -L',
-    summary: '从本机访问远端网络中的服务',
-    description: '在本机开放一个端口，经 SSH 服务器连接只有远端网络才能访问的目标。',
-    example: '例如：数据库 10.0.0.8:3306 仅内网可见。创建后访问本机 127.0.0.1:13306，即可连接该数据库。',
+    title: translate("本地转发 -L"),
+    summary: translate("从本机访问远端网络中的服务"),
+    description: translate("在本机开放一个端口，经 SSH 服务器连接只有远端网络才能访问的目标。"),
+    example: translate("例如：数据库 10.0.0.8:3306 仅内网可见。创建后访问本机 127.0.0.1:13306，即可连接该数据库。"),
   },
   remote: {
-    title: '远程转发 -R',
-    summary: '让远端访问本机上的服务',
-    description: '在 SSH 服务器上开放一个端口，收到的连接会通过隧道转发到本机服务。',
-    example: '例如：本机在 3000 端口运行开发站点。远端监听 127.0.0.1:13000 后，服务器访问该地址即可打开本机站点。',
+    title: translate("远程转发 -R"),
+    summary: translate("让远端访问本机上的服务"),
+    description: translate("在 SSH 服务器上开放一个端口，收到的连接会通过隧道转发到本机服务。"),
+    example: translate("例如：本机在 3000 端口运行开发站点。远端监听 127.0.0.1:13000 后，服务器访问该地址即可打开本机站点。"),
   },
   'reverse-dynamic': {
-    title: '反向 SOCKS5 -R',
-    summary: '让服务器应用通过本机访问网络',
-    description: '通过现有 SSH 连接，在服务器的 127.0.0.1 上开 SOCKS5 入口，目标连接由本机发起。服务器须允许远程 TCP 转发。',
-    example: '例如：在服务器上运行 curl --proxy socks5h://127.0.0.1:1080 https://example.com。',
+    title: translate("反向 SOCKS5 -R"),
+    summary: translate("让服务器应用通过本机访问网络"),
+    description: translate("通过现有 SSH 连接，在服务器的 127.0.0.1 上开 SOCKS5 入口，目标连接由本机发起。服务器须允许远程 TCP 转发。"),
+    example: translate("例如：在服务器上运行 curl --proxy socks5h://127.0.0.1:1080 https://example.com。"),
   },
   dynamic: {
-    title: '动态 SOCKS5 -D',
-    summary: '让应用通过 SSH 服务器访问网络',
-    description: '在本机创建 SOCKS5 代理，应用发出的不同目标请求都会经 SSH 服务器转发。',
-    example: '例如：在浏览器中将 SOCKS5 代理设为 127.0.0.1:1080，浏览器流量就会从 SSH 服务器出口访问网络。',
+    title: translate("动态 SOCKS5 -D"),
+    summary: translate("让应用通过 SSH 服务器访问网络"),
+    description: translate("在本机创建 SOCKS5 代理，应用发出的不同目标请求都会经 SSH 服务器转发。"),
+    example: translate("例如：在浏览器中将 SOCKS5 代理设为 127.0.0.1:1080，浏览器流量就会从 SSH 服务器出口访问网络。"),
   },
 } as const
 
@@ -93,15 +95,15 @@ const isFixedForward = computed(() => form.mode === 'local' || form.mode === 're
 
 const hint = computed(() => {
   if (isReverseDynamic.value) {
-    return `服务器 SOCKS5 代理：127.0.0.1:${form.remotePort || '?'} → 本机网络`
+    return translate("服务器 SOCKS5 代理：127.0.0.1:{0} → 本机网络", [form.remotePort || '?'])
   }
   if (form.mode === 'dynamic') {
-    return `SOCKS5 代理：127.0.0.1:${form.localPort || '?'}`
+    return translate("SOCKS5 代理：127.0.0.1:{0}", [form.localPort || '?'])
   }
   if (form.mode === 'remote') {
-    return `远程转发：远端 ${form.remoteHost || '127.0.0.1'}:${form.remotePort || '?'} → 本机 127.0.0.1:${form.localPort || '?'}`
+    return translate("远程转发：远端 {0}:{1} → 本机 127.0.0.1:{2}", [form.remoteHost || '127.0.0.1', form.remotePort || '?', form.localPort || '?'])
   }
-  return `本地转发：${hostPort(listenHost.value || '?', form.localPort || '?')} → ${form.remoteHost || '?'}:${form.remotePort || '?'}`
+  return translate("本地转发：{0} → {1}:{2}", [hostPort(listenHost.value || '?', form.localPort || '?'), form.remoteHost || '?', form.remotePort || '?'])
 })
 
 watch(
@@ -132,7 +134,7 @@ async function refresh() {
   try {
     tunnels.value = await sshService.listTunnels()
   } catch (e) {
-    error.value = String(e)
+    error.value = errorText(e)
   } finally {
     loading.value = false
   }
@@ -141,7 +143,7 @@ async function refresh() {
 async function submit() {
   error.value = ''
   if (!form.serverId) {
-    error.value = '请选择服务器'
+    error.value = translate("请选择服务器")
     return
   }
   const node = selectedServer.value
@@ -149,17 +151,17 @@ async function submit() {
   const localPort = isReverseDynamic.value ? 0 : Number(form.localPort)
   const remotePort = Number(form.remotePort)
   if (!isReverseDynamic.value && (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535)) {
-    error.value = '本地端口无效（1-65535）'
+    error.value = translate("本地端口无效（1-65535）")
     return
   }
   if (form.mode !== 'dynamic') {
     if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) {
-      error.value = '远程端口无效（1-65535）'
+      error.value = translate("远程端口无效（1-65535）")
       return
     }
   }
   if (form.mode === 'local' && form.listenScope === 'specific' && (!listenHost.value || listenHost.value === '0.0.0.0')) {
-    error.value = '请输入指定网卡的 IP 地址；通配监听请选择「所有 IPv4 网卡」'
+    error.value = translate("请输入指定网卡的 IP 地址；通配监听请选择「所有 IPv4 网卡」")
     return
   }
   const name = form.name.trim() || node.name
@@ -179,7 +181,7 @@ async function submit() {
     showDialog.value = false
     editing.value = null
   } catch (e) {
-    error.value = String(e)
+    error.value = errorText(e)
     await refresh()
   } finally {
     busy.value = false
@@ -241,7 +243,7 @@ async function runTunnelAction(id: string, action: (id: string) => Promise<void>
     await action(id)
     await refresh()
   } catch (e) {
-    error.value = String(e)
+    error.value = errorText(e)
   } finally {
     pendingActions.delete(id)
   }
@@ -265,15 +267,15 @@ function tunnelAddress(t: TunnelInfo): string {
 }
 
 function addressLabel(t: TunnelInfo): string {
-  if (t.mode === 'reverse-dynamic') return '服务器代理监听地址'
-  if (t.mode === 'dynamic') return '代理监听地址'
-  if (t.mode === 'remote') return '远端监听地址'
-  return '本机监听地址'
+  if (t.mode === 'reverse-dynamic') return translate("服务器代理监听地址")
+  if (t.mode === 'dynamic') return translate("代理监听地址")
+  if (t.mode === 'remote') return translate("远端监听地址")
+  return translate("本机监听地址")
 }
 
 function tunnelTarget(t: TunnelInfo): string {
-  if (t.mode === 'reverse-dynamic') return '本机网络'
-  if (t.mode === 'dynamic') return 'SSH 服务器网络'
+  if (t.mode === 'reverse-dynamic') return translate("本机网络")
+  if (t.mode === 'dynamic') return translate("SSH 服务器网络")
   if (t.mode === 'remote') return hostPort('127.0.0.1', t.localPort)
   return hostPort(t.remoteHost, t.remotePort)
 }
@@ -308,7 +310,7 @@ async function copyAddress(t: TunnelInfo, address: string) {
       copiedId.value = ''
     }, 1600)
   } catch (e) {
-    error.value = String(e)
+    error.value = errorText(e)
   }
 }
 

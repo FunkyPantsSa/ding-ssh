@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import {t} from '../i18n'
+
 import {onMounted} from 'vue'
 import {storeToRefs} from 'pinia'
 import {useUIStore, type SettingsSection} from '../stores/ui'
@@ -20,17 +22,17 @@ const settings = useSettingsStore()
 
 // 一级菜单：通用 / 快捷键 / 连接说明 / 外观 / 凭证 / 安全 / 调试 / 日志 / AI 记录 / 导入导出 / 关于
 const menuItems = [
-  {key: 'general', label: '通用', icon: 'clock'},
-  {key: 'hotkeys', label: '快捷键', icon: 'command'},
-  {key: 'connectionInfo', label: '连接说明', icon: 'info'},
-  {key: 'theme', label: '外观', icon: 'palette'},
-  {key: 'credentials', label: '保存的凭证', icon: 'key'},
-  {key: 'security', label: '安全', icon: 'lock'},
-  {key: 'debug', label: '调试模式', icon: 'terminal'},
-  {key: 'logs', label: '日志', icon: 'file'},
-  {key: 'audit', label: 'AI 记录', icon: 'activity'},
-  {key: 'migrate', label: '导入导出', icon: 'package'},
-  {key: 'about', label: '关于', icon: 'info'},
+  {key: 'general', label: t("通用"), icon: 'clock'},
+  {key: 'hotkeys', label: t("快捷键"), icon: 'command'},
+  {key: 'connectionInfo', label: t("连接说明"), icon: 'info'},
+  {key: 'theme', label: t("外观"), icon: 'palette'},
+  {key: 'credentials', label: t("保存的凭证"), icon: 'key'},
+  {key: 'security', label: t("安全"), icon: 'lock'},
+  {key: 'debug', label: t("调试模式"), icon: 'terminal'},
+  {key: 'logs', label: t("日志"), icon: 'file'},
+  {key: 'audit', label: t("AI 记录"), icon: 'activity'},
+  {key: 'migrate', label: t("导入导出"), icon: 'package'},
+  {key: 'about', label: t("关于"), icon: 'info'},
 ] as const
 const {settingsSection: section, view} = storeToRefs(useUIStore())
 

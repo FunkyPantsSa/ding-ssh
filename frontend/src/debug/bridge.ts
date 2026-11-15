@@ -1,3 +1,4 @@
+import {errorText} from '../i18n'
 // 调试模式：前端桥。
 //
 // 后端（internal/debugsrv + debug.go）通过 `debug:request` 事件下发操作，这里执行后调用
@@ -317,7 +318,7 @@ export function installDebugBridge(): void {
       const data = await handle(payload)
       await DebugReply(payload.id, JSON.stringify({ok: true, data: data ?? null}))
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
+      const msg = e instanceof Error ? e.message : errorText(e)
       try {
         await DebugReply(payload.id, JSON.stringify({ok: false, error: msg}))
       } catch {

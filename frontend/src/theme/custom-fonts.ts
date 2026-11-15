@@ -1,3 +1,4 @@
+import {t} from '../i18n'
 import {ref} from 'vue'
 
 export const customFontSizes = ref<Record<string, number>>({})
@@ -36,7 +37,7 @@ export function restoreCustomFonts() {
   })()
 }
 export async function importCustomFont(file: File) {
-  if (!/\.(ttf|otf|woff2?)$/i.test(file.name)) throw new Error('不是字体文件，请选择 TTF、OTF、WOFF 或 WOFF2 字体。')
+  if (!/\.(ttf|otf|woff2?)$/i.test(file.name)) throw new Error(t("不是字体文件，请选择 TTF、OTF、WOFF 或 WOFF2 字体。"))
   validateFontHeader(await file.slice(0, 12).arrayBuffer())
   const data = await file.arrayBuffer()
   const digest = await crypto.subtle.digest('SHA-256', data)
@@ -44,7 +45,7 @@ export async function importCustomFont(file: File) {
   const name = `${PREFIX}${file.name.replace(/[^\p{L}\p{N} ._-]/gu, '')}-${id.slice(0, 12)}`
   // Validate before persisting or exposing the font in the selector.
   try { await new FontFace(name, data).load() }
-  catch { throw new Error('不是有效的字体文件，文件可能已损坏或格式不受支持。') }
+  catch { throw new Error(t("不是有效的字体文件，文件可能已损坏或格式不受支持。")) }
   const db = await database()
   try {
     await new Promise<void>((resolve, reject) => {
@@ -99,10 +100,10 @@ export function supportsChinese(family: string): boolean {
 
 
 export function validateFontHeader(data: ArrayBuffer) {
-  if (data.byteLength < 12) throw new Error('不是字体文件：文件内容无效。')
+  if (data.byteLength < 12) throw new Error(t("不是字体文件：文件内容无效。"))
   const signature = new DataView(data).getUint32(0)
   if (![0x00010000, 0x4f54544f, 0x74727565, 0x774f4646, 0x774f4632].includes(signature)) {
-    throw new Error('不是字体文件，请选择 TTF、OTF、WOFF 或 WOFF2 字体。')
+    throw new Error(t("不是字体文件，请选择 TTF、OTF、WOFF 或 WOFF2 字体。"))
   }
 }
 export function formatFontSize(bytes: number) {

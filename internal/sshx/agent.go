@@ -1,6 +1,7 @@
 package sshx
 
 import (
+	"ding-ssh/internal/i18n"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -28,7 +29,7 @@ func expandSSHPath(path string) string {
 func agentSocket(node models.ServerNode) (string, error) {
 	socket := node.IdentityAgent
 	if socket == "none" {
-		return "", fmt.Errorf("IdentityAgent 禁用了 SSH Agent")
+		return "", fmt.Errorf("%s", i18n.T("IdentityAgent 禁用了 SSH Agent"))
 	}
 	if socket == "" || socket == "SSH_AUTH_SOCK" {
 		socket = os.Getenv("SSH_AUTH_SOCK")
@@ -37,7 +38,7 @@ func agentSocket(node models.ServerNode) (string, error) {
 		socket = defaultAgentSocket()
 	}
 	if socket == "" {
-		return "", fmt.Errorf("SSH Agent 不可用：SSH_AUTH_SOCK 未设置")
+		return "", fmt.Errorf("%s", i18n.T("SSH Agent 不可用：SSH_AUTH_SOCK 未设置"))
 	}
 	return expandSSHPath(socket), nil
 }
@@ -45,7 +46,7 @@ func agentSocket(node models.ServerNode) (string, error) {
 func openAgent(socket string) (net.Conn, error) {
 	conn, err := dialAgent(socket)
 	if err != nil {
-		return nil, fmt.Errorf("连接 SSH Agent 失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("连接 SSH Agent 失败: %w"), err)
 	}
 	_ = conn.SetDeadline(time.Now().Add(connectTimeout))
 	return &boundedAgentConn{Conn: conn, timer: time.AfterFunc(connectTimeout, func() { conn.Close() })}, nil
@@ -80,7 +81,7 @@ func AgentSigners(node models.ServerNode) ([]ssh.Signer, error) {
 				data, readErr = os.ReadFile(path)
 			}
 			if readErr != nil {
-				return nil, fmt.Errorf("读取身份公钥 %s: %w", path, readErr)
+				return nil, fmt.Errorf(i18n.T("读取身份公钥 %s: %w"), path, readErr)
 			}
 			pub, _, _, _, parseErr := ssh.ParseAuthorizedKey(data)
 			if parseErr != nil {
@@ -90,7 +91,7 @@ func AgentSigners(node models.ServerNode) ([]ssh.Signer, error) {
 					if errors.As(e, &missing) && missing.PublicKey != nil {
 						pub = missing.PublicKey
 					} else {
-						return nil, fmt.Errorf("IdentitiesOnly 需要 %s.pub 公钥文件", path)
+						return nil, fmt.Errorf(i18n.T("IdentitiesOnly 需要 %s.pub 公钥文件"), path)
 					}
 				} else {
 					pub = signer.PublicKey()
@@ -111,7 +112,7 @@ func AgentSigners(node models.ServerNode) ([]ssh.Signer, error) {
 		result = append(result, &agentIdentity{socket: socket, key: pub})
 	}
 	if len(result) == 0 {
-		return nil, fmt.Errorf("SSH Agent 中没有匹配的身份")
+		return nil, fmt.Errorf("%s", i18n.T("SSH Agent 中没有匹配的身份"))
 	}
 	return result, nil
 }
@@ -161,7 +162,7 @@ func autoSigners(node models.ServerNode) ([]ssh.Signer, error) {
 		data, err := os.ReadFile(expandSSHPath(path))
 		if err != nil {
 			if len(signers) == 0 {
-				return nil, fmt.Errorf("读取身份文件 %s: %w", path, err)
+				return nil, fmt.Errorf(i18n.T("读取身份文件 %s: %w"), path, err)
 			}
 			continue
 		}
@@ -173,12 +174,12 @@ func autoSigners(node models.ServerNode) ([]ssh.Signer, error) {
 			}
 			phrase := node.RuntimePassphrases[path]
 			if phrase == "" {
-				return nil, fmt.Errorf("加密私钥需要密码短语 SSH_KEY_PASSPHRASE:%s", base64.RawURLEncoding.EncodeToString([]byte(path)))
+				return nil, fmt.Errorf(i18n.T("加密私钥需要密码短语 SSH_KEY_PASSPHRASE:%s"), base64.RawURLEncoding.EncodeToString([]byte(path)))
 			}
 			signer, err = ssh.ParsePrivateKeyWithPassphrase(data, []byte(phrase))
 		}
 		if err != nil {
-			return nil, fmt.Errorf("解析身份文件 %s: %w", path, err)
+			return nil, fmt.Errorf(i18n.T("解析身份文件 %s: %w"), path, err)
 		}
 		if !seen[string(signer.PublicKey().Marshal())] {
 			signers = append(signers, signer)
@@ -189,7 +190,7 @@ func autoSigners(node models.ServerNode) ([]ssh.Signer, error) {
 		if agentErr != nil {
 			return nil, agentErr
 		}
-		return nil, fmt.Errorf("没有可用的 SSH 身份")
+		return nil, fmt.Errorf("%s", i18n.T("没有可用的 SSH 身份"))
 	}
 	return signers, nil
 }

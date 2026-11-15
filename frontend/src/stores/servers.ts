@@ -1,3 +1,4 @@
+import {errorText} from '../i18n'
 import {clearServerSnapshot} from '../services/serverSnapshot'
 import {defineStore} from 'pinia'
 import {sshService} from '../services/ssh'
@@ -25,7 +26,7 @@ export const useServersStore = defineStore('servers', {
         this.servers = await sshService.getServers()
         this.loadedOnce = true
       } catch (e) {
-        this.error = e instanceof Error ? e.message : String(e)
+        this.error = e instanceof Error ? e.message : errorText(e)
         throw e
       } finally {
         this.loading = false

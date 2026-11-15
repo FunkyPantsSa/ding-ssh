@@ -1,3 +1,4 @@
+import {t} from '../i18n'
 import {reactive} from 'vue'
 
 export const remoteFontStatus = reactive<Record<string, 'loading' | 'ready' | 'error'>>({})
@@ -12,7 +13,7 @@ async function download(url: string): Promise<Response> {
   const saved = await cache?.match(url)
   if (saved) return saved
   const response = await fetch(url, {signal: AbortSignal.timeout(30_000)})
-  if (!response.ok) throw new Error(`字体下载失败 (${response.status})`)
+  if (!response.ok) throw new Error(t("字体下载失败 ({0})", [response.status]))
   try { await cache?.put(url, response.clone()) } catch { /* Storage quota must not prevent font use. */ }
   return response
 }
@@ -43,10 +44,10 @@ async function install(family: string, weight: number) {
   const faces = blocks.map(([, block]) => {
     const source = block.match(/url\(["']?([^"')]+)["']?\)/)?.[1]
     const range = block.match(/unicode-range\s*:\s*([^;}]+)/)?.[1]
-    if (!source) throw new Error('字体源缺少文件地址')
+    if (!source) throw new Error(t("字体源缺少文件地址"))
     return {url: new URL(source, cssURL).href, range}
   })
-  if (!faces.length) throw new Error('字体源未返回字体定义')
+  if (!faces.length) throw new Error(t("字体源未返回字体定义"))
   // Fetch complete coverage, not only the preview characters: new terminal output
   // must never enter the glyph atlas before its Chinese/icon shard has loaded.
   remoteFontProgress[`${family}:${weight}`].total = faces.length

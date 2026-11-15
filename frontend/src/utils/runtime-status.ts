@@ -1,3 +1,4 @@
+import {t} from '../i18n'
 import {LogClient} from '../../wailsjs/go/main/App'
 import {listDebugTerminals} from '../debug/registry'
 
@@ -31,7 +32,7 @@ export function monitorFrontendRuntime() {
       if (lastDelayMs >= 1000 && now - lastWarning >= 30000) {
         lastWarning = now
         const snapshot = frontendRuntimeStatus()
-        void Promise.resolve().then(() => LogClient('warn', `[runtime] 前端定时器延迟 ${lastDelayMs}ms，WebGL=${snapshot.webglCount}/${snapshot.terminalCount}，待解析终端输出=${snapshot.pendingOutputBytes}B，单终端峰值=${snapshot.peakOutputBytes}B`)).catch(() => {})
+        void Promise.resolve().then(() => LogClient('warn', t("[runtime] 前端定时器延迟 {0}ms，WebGL={1}/{2}，待解析终端输出={3}B，单终端峰值={4}B", [lastDelayMs, snapshot.webglCount, snapshot.terminalCount, snapshot.pendingOutputBytes, snapshot.peakOutputBytes]))).catch(() => {})
       }
     }
     expected = now + interval

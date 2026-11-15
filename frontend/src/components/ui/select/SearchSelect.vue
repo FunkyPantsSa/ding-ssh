@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import {t as $t} from '../../../i18n'
+
+import {t} from '../../../i18n'
+
 import {computed, nextTick, onBeforeUnmount, ref, useId} from 'vue'
 import Icon from '../../Icon.vue'
 import Input from '../input/Input.vue'
@@ -152,7 +156,7 @@ function onKeydown(event: KeyboardEvent) {
         :aria-expanded="open"
         :aria-controls="open ? listId : undefined"
         :aria-activedescendant="open && matches[active] ? `${listId}-${active}` : undefined"
-        :placeholder="open ? '输入关键词搜索' : (placeholder ?? '请选择或搜索')"
+        :placeholder="open ? t('输入关键词搜索') : (placeholder ?? t('请选择或搜索'))"
         :disabled="disabled"
         @focus="show"
         @click="show"
@@ -173,7 +177,7 @@ function onKeydown(event: KeyboardEvent) {
           @mousedown.prevent
           @click="choose(option.value)"
         >{{ option.label }}</li>
-        <li v-if="!matches.length" class="search-select-empty" role="presentation">没有匹配选项</li>
+        <li v-if="!matches.length" class="search-select-empty" role="presentation">{{ $t('没有匹配选项') }}</li>
       </ul>
     </Teleport>
   </div>

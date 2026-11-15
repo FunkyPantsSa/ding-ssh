@@ -1,3 +1,4 @@
+import {t} from '../i18n'
 import { onMounted, reactive, ref } from 'vue'
 import { securityService } from '../services/security'
 import type { SecurityStatus } from '../types'
@@ -26,9 +27,9 @@ export function useSettingsSecurity() {
     busy.value = true
     try { await action(); clear(); message.value = success; await refresh() } catch (cause) { error.value = String(cause) } finally { busy.value = false }
   }
-  const enableMaster = () => run(() => !form.password || form.password !== form.confirm ? '请填写并确认主密码' : '', () => securityService.enableMasterPassword(form.password), '主密码已启用，下次启动需输入解锁', () => { form.password = ''; form.confirm = '' })
-  const disableMaster = () => run(() => !form.oldPassword ? '请输入当前主密码' : '', () => securityService.disableMasterPassword(form.oldPassword), '已关闭主密码，改回系统钥匙串保管', () => { form.oldPassword = '' })
-  const changeMaster = () => run(() => !form.oldPassword || !form.newPassword || form.newPassword !== form.newConfirm ? '请填写旧密码与一致的新密码' : '', () => securityService.changeMasterPassword(form.oldPassword, form.newPassword), '主密码已更新', () => { form.oldPassword = ''; form.newPassword = ''; form.newConfirm = '' })
+  const enableMaster = () => run(() => !form.password || form.password !== form.confirm ? t("请填写并确认主密码") : '', () => securityService.enableMasterPassword(form.password), t("主密码已启用，下次启动需输入解锁"), () => { form.password = ''; form.confirm = '' })
+  const disableMaster = () => run(() => !form.oldPassword ? t("请输入当前主密码") : '', () => securityService.disableMasterPassword(form.oldPassword), t("已关闭主密码，改回系统钥匙串保管"), () => { form.oldPassword = '' })
+  const changeMaster = () => run(() => !form.oldPassword || !form.newPassword || form.newPassword !== form.newConfirm ? t("请填写旧密码与一致的新密码") : '', () => securityService.changeMasterPassword(form.oldPassword, form.newPassword), t("主密码已更新"), () => { form.oldPassword = ''; form.newPassword = ''; form.newConfirm = '' })
   onMounted(() => { void refresh() })
   return { security, loading, statusError, form, error, message, busy, refresh, enableMaster, disableMaster, changeMaster }
 }

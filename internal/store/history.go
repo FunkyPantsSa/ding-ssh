@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"regexp"
 	"strings"
@@ -18,11 +19,11 @@ const (
 )
 
 var (
-	ansiCSI = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
-	ansiOSC = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?`)
-	ansiEsc = regexp.MustCompile(`\x1b.`)
+	ansiCSI    = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+	ansiOSC    = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?`)
+	ansiEsc    = regexp.MustCompile(`\x1b.`)
 	reKeyNoise = regexp.MustCompile(`^(\[[A-D]|O[A-D]|~)+$`)
-	reGlueOut = regexp.MustCompile(`[a-z0-9](warning|NAME|STATUS|Ready|error:)`)
+	reGlueOut  = regexp.MustCompile(`[a-z0-9](warning|NAME|STATUS|Ready|error:)`)
 	reUserHost = regexp.MustCompile(`[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+:`)
 )
 
@@ -104,7 +105,7 @@ func (s *SQLiteHistoryStore) Add(serverID, command string) error {
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("开启事务失败: %w", err)
+		return fmt.Errorf(i18n.T("开启事务失败: %w"), err)
 	}
 	defer tx.Rollback()
 
@@ -118,18 +119,18 @@ func (s *SQLiteHistoryStore) Add(serverID, command string) error {
 	now := time.Now().UnixMilli()
 	if err == nil && lastCmd == command {
 		if _, err := tx.Exec(`UPDATE command_history SET executed_at = ? WHERE id = ?`, now, lastID); err != nil {
-			return fmt.Errorf("更新命令历史失败: %w", err)
+			return fmt.Errorf(i18n.T("更新命令历史失败: %w"), err)
 		}
 		return tx.Commit()
 	}
 	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("查询最近命令失败: %w", err)
+		return fmt.Errorf(i18n.T("查询最近命令失败: %w"), err)
 	}
 
 	if _, err := tx.Exec(`
 		INSERT INTO command_history (server_id, command, executed_at) VALUES (?, ?, ?)`,
 		serverID, command, now); err != nil {
-		return fmt.Errorf("写入命令历史失败: %w", err)
+		return fmt.Errorf(i18n.T("写入命令历史失败: %w"), err)
 	}
 
 	// 滚动删除：保留最近 historyMaxPerServer 条
@@ -138,7 +139,7 @@ func (s *SQLiteHistoryStore) Add(serverID, command string) error {
 			SELECT id FROM command_history WHERE server_id = ?
 			ORDER BY executed_at DESC, id DESC LIMIT ?
 		)`, serverID, serverID, historyMaxPerServer); err != nil {
-		return fmt.Errorf("滚动清理命令历史失败: %w", err)
+		return fmt.Errorf(i18n.T("滚动清理命令历史失败: %w"), err)
 	}
 
 	return tx.Commit()
@@ -281,7 +282,7 @@ func (s *SQLiteHistoryStore) Clear(serverID string) error {
 		_, err = s.db.Exec(`DELETE FROM command_history WHERE server_id = ?`, serverID)
 	}
 	if err != nil {
-		return fmt.Errorf("清理命令历史失败: %w", err)
+		return fmt.Errorf(i18n.T("清理命令历史失败: %w"), err)
 	}
 	return nil
 }

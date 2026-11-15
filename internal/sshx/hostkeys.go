@@ -1,6 +1,7 @@
 package sshx
 
 import (
+	"ding-ssh/internal/i18n"
 	"errors"
 	"fmt"
 	"net"
@@ -22,13 +23,13 @@ func loadHostKeyVerifier(paths []string) (ssh.HostKeyCallback, error) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("读取主机信任库 %s: %w", path, err)
+			return nil, fmt.Errorf(i18n.T("读取主机信任库 %s: %w"), path, err)
 		}
 		files = append(files, path)
 	}
 	verify, err := knownhosts.New(files...)
 	if err != nil {
-		return nil, fmt.Errorf("解析主机信任库: %w", err)
+		return nil, fmt.Errorf(i18n.T("解析主机信任库: %w"), err)
 	}
 	return func(host string, remote net.Addr, key ssh.PublicKey) error {
 		if err := verify(host, remote, key); err != nil {
@@ -38,9 +39,9 @@ func loadHostKeyVerifier(paths []string) (ssh.HostKeyCallback, error) {
 				for _, want := range mismatch.Want {
 					old = append(old, ssh.FingerprintSHA256(want.Key))
 				}
-				return fmt.Errorf("主机密钥发生变化，拒绝连接 %s；旧指纹：%s；新指纹：%s（可能存在中间人攻击）: %w", host, strings.Join(old, ", "), ssh.FingerprintSHA256(key), err)
+				return fmt.Errorf(i18n.T("主机密钥发生变化，拒绝连接 %s；旧指纹：%s；新指纹：%s（可能存在中间人攻击）: %w"), host, strings.Join(old, ", "), ssh.FingerprintSHA256(key), err)
 			}
-			return fmt.Errorf("主机身份验证失败 %s (%s %s): %w", host, key.Type(), ssh.FingerprintSHA256(key), err)
+			return fmt.Errorf(i18n.T("主机身份验证失败 %s (%s %s): %w"), host, key.Type(), ssh.FingerprintSHA256(key), err)
 		}
 		return nil
 	}, nil

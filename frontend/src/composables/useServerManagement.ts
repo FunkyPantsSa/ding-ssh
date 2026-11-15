@@ -1,3 +1,4 @@
+import {t} from '../i18n'
 import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {useGroupsStore} from '../stores/groups'
@@ -121,12 +122,12 @@ async function copyText(text: string, markId: string, what: string) {
       copiedHostId.value = ''
     }, 1600)
   } catch (e) {
-    console.warn(`[servers] 复制${what}失败`, e)
+    console.warn(t("[servers] 复制{0}失败", [what]), e)
   }
 }
 
 async function copyHost(node: ServerNode) {
-  await copyText(node.host.trim(), node.id, '主机地址')
+  await copyText(node.host.trim(), node.id, t("主机地址"))
 }
 
 // ---- 服务器右键菜单 ----
@@ -178,7 +179,7 @@ async function menuDuplicate() {
     // 直接跳到新配置继续修改（跳转 = 打开它的编辑弹窗）
     openEdit(clone)
   } catch (e) {
-    console.warn('[servers] 复制配置失败', e)
+    console.warn(t("[servers] 复制配置失败"), e)
   } finally {
     cloning.value = false
   }
@@ -259,7 +260,7 @@ async function moveToGroup(node: ServerNode, target: string) {
     // 拖到某个分组后，顺手把左栏切到该分组，方便确认结果
     if (group) activeGroup.value = group
   } catch (err) {
-    console.warn('[servers] 移动分组失败', err)
+    console.warn(t("[servers] 移动分组失败"), err)
   }
 }
 
@@ -279,14 +280,14 @@ function nodeStatus(node: ServerNode): 'on' | 'err' | 'connecting' | '' {
 // ---- 在线状态测试 ----
 function testBadge(node: ServerNode): {dot: string; text: string; textClass: string; tip?: string} | null {
   if (servers.isTesting(node)) {
-    return {dot: 'bg-[var(--warning)] animate-pulse', text: '测试中', textClass: 'text-mist'}
+    return {dot: 'bg-[var(--warning)] animate-pulse', text: t("测试中"), textClass: 'text-mist'}
   }
   const r = servers.testResults[node.id]
   if (!r) return null
   if (r.reachable) {
-    return {dot: 'bg-[var(--success)]', text: `${r.latencyMs}ms`, textClass: 'text-[var(--success)]', tip: 'SSH 端口畅通'}
+    return {dot: 'bg-[var(--success)]', text: `${r.latencyMs}ms`, textClass: 'text-[var(--success)]', tip: t("SSH 端口畅通")}
   }
-  return {dot: 'bg-[var(--destructive)]', text: '不通', textClass: 'text-[var(--destructive)]', tip: r.error || 'SSH 端口不通'}
+  return {dot: 'bg-[var(--destructive)]', text: t("不通"), textClass: 'text-[var(--destructive)]', tip: r.error || t("SSH 端口不通")}
 }
 
 function isActiveNode(node: ServerNode): boolean {
@@ -313,7 +314,7 @@ function openGroupManager() {
 async function addGroup() {
   const name = newGroupName.value.trim()
   if (!name) {
-    groupError.value = '请输入分组名称'
+    groupError.value = t("请输入分组名称")
     return
   }
   groupError.value = ''

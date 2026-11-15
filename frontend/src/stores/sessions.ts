@@ -1,3 +1,4 @@
+import {t} from '../i18n'
 import {defineStore} from 'pinia'
 import type {PaneDirection, PaneNode, ServerNode, SessionTab, SplitDirection} from '../types'
 
@@ -135,7 +136,7 @@ export const useSessionsStore = defineStore('sessions', {
       this.activateTab(tab.clientId)
       return tab
     },
-    openLocalTab(shellLabel = '本机'): SessionTab {
+    openLocalTab(shellLabel = t("本机")): SessionTab {
       const node: ServerNode = {
         id: '__local__',
         name: shellLabel,

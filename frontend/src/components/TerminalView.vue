@@ -1,4 +1,8 @@
 <script lang="ts" setup>
+import {errorText} from '../i18n'
+
+import {t} from '../i18n'
+
 import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
 import {Terminal} from '@xterm/xterm'
@@ -181,9 +185,9 @@ const terminalStyle = computed(() => ({
 }))
 
 const sourceLabel: Record<string, string> = {
-  history: '历史',
-  dict: '字典',
-  screen: '屏幕',
+  history: t("历史"),
+  dict: t("字典"),
+  screen: t("屏幕"),
 }
 
 function applyTheme() {
@@ -231,7 +235,7 @@ function applyFontSettings() {
   fit()
   void Promise.all([
     loadTerminalFonts(settings.fonts.terminalFont, effectiveFontSize(), terminalFontWeight()),
-    document.fonts.load(`${effectiveFontSize()}px "Noto Sans SC"`, '终端中文'),
+    document.fonts.load(`${effectiveFontSize()}px "Noto Sans SC"`, "终端中文"),
   ]).then(() => {
     if (!term) return
     term.clearTextureAtlas()
@@ -239,7 +243,7 @@ function applyFontSettings() {
     // 图集是多终端共享的：清空后必须让兄弟终端也重建顶点模型，否则切回其它标签会整屏乱码。
     resetSharedAtlasTerminals()
   }).catch((error: unknown) => {
-    logClient('warn', `[fonts] 终端字体加载失败，使用回退字体：${String(error)}`)
+    logClient('warn', t("[fonts] 终端字体加载失败，使用回退字体：{0}", [errorText(error)]))
   })
 }
 
@@ -286,8 +290,8 @@ function tryEnableWebGL() {
   if (!term || !settings.webGLEnabled) return
   if (!webglUsable()) {
     disableWebGL()
-    console.info('[webgl] 界面缩放 ≠ 100% 且无法修正画布位图，已使用 DOM 渲染')
-    logClient('info', `[webgl] uiScale=${settings.uiScale} → DOM 渲染（画布位图补丁不可用）`)
+    console.info(t("[webgl] 界面缩放 ≠ 100% 且无法修正画布位图，已使用 DOM 渲染"))
+    logClient('info', t("[webgl] uiScale={0} → DOM 渲染（画布位图补丁不可用）", [settings.uiScale]))
     return
   }
   try {
@@ -295,8 +299,8 @@ function tryEnableWebGL() {
     webglAddon = new WebglAddon()
     webglAddon.onContextLoss(() => {
       disableWebGL()
-      logClient('warn', '[webgl] 上下文丢失，已回退 DOM 渲染')
-      webglFallbackToast.value = 'WebGL 上下文丢失，已降级 DOM 渲染'
+      logClient('warn', t("[webgl] 上下文丢失，已回退 DOM 渲染"))
+      webglFallbackToast.value = t("WebGL 上下文丢失，已降级 DOM 渲染")
       setTimeout(() => {
         webglFallbackToast.value = ''
       }, 4000)
@@ -310,19 +314,19 @@ function tryEnableWebGL() {
     if (!patched && uiZoom() !== 1) {
       // 私有 API 变了 → 老策略兜底：缩放 ≠ 100% 时宁可用 DOM，也不画错位
       disableWebGL()
-      webglFallbackToast.value = 'WebGL 在界面缩放下不可用，已降级 DOM 渲染'
+      webglFallbackToast.value = t("WebGL 在界面缩放下不可用，已降级 DOM 渲染")
       setTimeout(() => {
         webglFallbackToast.value = ''
       }, 4000)
-      logClient('warn', `[webgl] 画布位图补丁不可用（uiScale=${settings.uiScale}）→ DOM 渲染`)
+      logClient('warn', t("[webgl] 画布位图补丁不可用（uiScale={0}）→ DOM 渲染", [settings.uiScale]))
       return
     }
     syncWebglCanvas(webglAddon)
     logClient('debug', `[webgl] enabled ${renderDiag()}`)
   } catch {
     disableWebGL()
-    logClient('warn', '[webgl] 初始化失败，已回退 DOM 渲染')
-    webglFallbackToast.value = '当前环境不支持 WebGL，已降级 DOM 渲染'
+    logClient('warn', t("[webgl] 初始化失败，已回退 DOM 渲染"))
+    webglFallbackToast.value = t("当前环境不支持 WebGL，已降级 DOM 渲染")
     setTimeout(() => {
       webglFallbackToast.value = ''
     }, 4000)
@@ -720,7 +724,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
   const sid = props.tab.clientId
   props.tab.sessionId = sid
   if (keepBuffer) {
-    term?.write('\r\n\x1b[33m── 重新连接 ──\x1b[0m\r\n')
+    term?.write(t("\r\n\u001b[33m── 重新连接 ──\u001b[0m\r\n"))
   } else {
     term?.reset()
   }
@@ -754,18 +758,18 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
   disposers.push(
     onSftpSyncPath(sid, (newPath) => {
       if (!settings.terminalToSftpSync) {
-        console.info('[sftp-sync] 开关已关，忽略', newPath)
+        console.info(t("[sftp-sync] 开关已关，忽略"), newPath)
         return
       }
       if (!newPath) {
-        console.info('[sftp-sync] 空路径，忽略')
+        console.info(t("[sftp-sync] 空路径，忽略"))
         return
       }
       if (newPath === props.tab.sftpPath) {
-        console.info('[sftp-sync] 已在该目录，忽略', newPath)
+        console.info(t("[sftp-sync] 已在该目录，忽略"), newPath)
         return
       }
-      console.info('[sftp-sync] 写入 sftpPath', props.tab.sftpPath, '→', newPath)
+      console.info(t("[sftp-sync] 写入 sftpPath"), props.tab.sftpPath, '→', newPath)
       sessions.setSftpPath(props.tab.clientId, newPath)
     }),
   )
@@ -812,7 +816,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
     }
     fit()
   } catch (e) {
-    sessions.setStatus(props.tab.clientId, 'error', String(e))
+    sessions.setStatus(props.tab.clientId, 'error', errorText(e))
     return false
   }
   return true
@@ -858,7 +862,7 @@ function scheduleAutoReconnect() {
     autoReconnectCountdown.value = 0
     if (disposed || !settings.autoReconnect) return
     if (props.tab.status !== 'disconnected') return
-    term?.write(`\r\n\x1b[33m[自动重连] 第 ${autoReconnectAttempt} 次尝试…\x1b[0m\r\n`)
+    term?.write(t("\r\n\u001b[33m[自动重连] 第 {0} 次尝试…\u001b[0m\r\n", [autoReconnectAttempt]))
     const ok = await reconnectSession(false)
     if (ok) {
       autoReconnectAttempt = 0
@@ -885,7 +889,7 @@ async function reconnectSession(countLogin = true): Promise<boolean> {
       fit()
       return true
     } catch (e) {
-      sessions.setStatus(props.tab.clientId, 'disconnected', String(e))
+      sessions.setStatus(props.tab.clientId, 'disconnected', errorText(e))
       return false
     }
   }
@@ -894,11 +898,11 @@ async function reconnectSession(countLogin = true): Promise<boolean> {
 }
 
 const CONNECT_STEPS: {key: string; label: string}[] = [
-  {key: 'dns', label: 'DNS / 直连'},
-  {key: 'tcp', label: 'TCP 握手'},
-  {key: 'auth', label: 'SSH 鉴权'},
-  {key: 'pty', label: '分配 PTY'},
-  {key: 'ready', label: '会话就绪'},
+  {key: 'dns', label: t("DNS / 直连")},
+  {key: 'tcp', label: t("TCP 握手")},
+  {key: 'auth', label: t("SSH 鉴权")},
+  {key: 'pty', label: t("分配 PTY")},
+  {key: 'ready', label: t("会话就绪")},
 ]
 
 type StepStatus = 'pending' | 'running' | 'done' | 'error'

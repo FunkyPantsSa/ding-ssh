@@ -29,6 +29,7 @@
 package debugsrv
 
 import (
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"sort"
 	"strings"
@@ -119,14 +120,14 @@ var capabilityDescriptions = map[Capability]string{
 
 // CapabilityDescription 返回能力的中文说明；未知能力返回空串。
 func CapabilityDescription(cap Capability) string {
-	return capabilityDescriptions[cap]
+	return i18n.T(capabilityDescriptions[cap])
 }
 
 // CapabilityDescriptions 返回「能力 → 中文说明」的副本，供 app.permissions / GetCapabilities 直接序列化。
 func CapabilityDescriptions() map[string]string {
 	out := make(map[string]string, len(capabilityDescriptions))
 	for c, d := range capabilityDescriptions {
-		out[string(c)] = d
+		out[string(c)] = i18n.T(d)
 	}
 	return out
 }
@@ -144,25 +145,25 @@ func KnownCapability(name string) (Capability, bool) {
 func CapabilityLabel(c Capability) string {
 	switch c {
 	case CapRead:
-		return "读取"
+		return i18n.T("读取")
 	case CapTerminalInput:
-		return "终端输入"
+		return i18n.T("终端输入")
 	case CapUIWrite:
-		return "界面写入"
+		return i18n.T("界面写入")
 	case CapConfigWrite:
-		return "配置写入"
+		return i18n.T("配置写入")
 	case CapSecretsRead:
-		return "读取敏感数据"
+		return i18n.T("读取敏感数据")
 	case CapSecretsWrite:
-		return "凭据写入"
+		return i18n.T("凭据写入")
 	case CapRemoteFSWrite:
-		return "远端文件写入"
+		return i18n.T("远端文件写入")
 	case CapSudoCredential:
-		return "sudo 凭证提权"
+		return i18n.T("sudo 凭证提权")
 	case CapLifecycle:
-		return "应用生命周期"
+		return i18n.T("应用生命周期")
 	case CapEval:
-		return "执行 JS"
+		return i18n.T("执行 JS")
 	}
 	return string(c)
 }

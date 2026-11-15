@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"ding-ssh/internal/i18n"
 	"fmt"
 
 	"ding-ssh/internal/cryptox"
@@ -111,7 +112,7 @@ func MigratePlaintextSecrets(db *sql.DB, cipher cryptox.FieldCipher) (int, error
 // ReencryptAllSecrets 在主密钥轮换时用 oldKey→newKey 重加密全部敏感字段。
 func ReencryptAllSecrets(db *sql.DB, oldKey, newKey []byte) error {
 	if db == nil || len(oldKey) == 0 || len(newKey) == 0 {
-		return fmt.Errorf("重加密参数无效")
+		return fmt.Errorf("%s", i18n.T("重加密参数无效"))
 	}
 	rows, err := db.Query(`SELECT id, password, key_content FROM servers`)
 	if err != nil {

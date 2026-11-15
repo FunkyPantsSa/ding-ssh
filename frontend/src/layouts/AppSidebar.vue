@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import {t as $t} from '../i18n'
+
+import {t} from '../i18n'
+
 import {computed, onBeforeUnmount, ref, watch} from 'vue'
 import Icon from '@/components/Icon.vue'
 import TabBar from '@/components/TabBar.vue'
@@ -69,7 +73,7 @@ function onBrandClick() {
 </script>
 
 <template>
-  <aside ref="sidebar" class="nav" :class="{'nav-collapsed': visuallyCollapsed, 'nav-preview': collapsed && preview}" @pointerdown="keyboardFocus = false" @keydown.tab="keyboardFocus = true" @pointerenter="enterSidebar" @pointerleave="leaveSidebar" @focusout="leaveFocus" @dragstart="dragging = true" @dragend="finishDrag" @drop="finishDrag" @keydown.esc="preview = false" aria-label="主导航" data-ui="sidebar">
+  <aside ref="sidebar" class="nav" :class="{'nav-collapsed': visuallyCollapsed, 'nav-preview': collapsed && preview}" @pointerdown="keyboardFocus = false" @keydown.tab="keyboardFocus = true" @pointerenter="enterSidebar" @pointerleave="leaveSidebar" @focusout="leaveFocus" @dragstart="dragging = true" @dragend="finishDrag" @drop="finishDrag" @keydown.esc="preview = false" :aria-label="$t('主导航')" data-ui="sidebar">
     <div class="nav-brand">
       <button
         class="nav-mark"
@@ -77,8 +81,8 @@ function onBrandClick() {
         @pointerleave="cancelOpen"
         @focus="focusTrigger"
         :aria-expanded="!visuallyCollapsed"
-        :title="collapsed ? '展开导航' : '返回工作区'"
-        :aria-label="collapsed ? '展开导航' : '返回工作区'"
+        :title="collapsed ? t('展开导航') : t('返回工作区')"
+        :aria-label="collapsed ? t('展开导航') : t('返回工作区')"
         @click="onBrandClick"
       >
         <img :src="appLogo" alt="" class="brand-logo nav-logo" />
@@ -89,8 +93,8 @@ function onBrandClick() {
         variant="ghost"
         size="icon"
         class="ml-auto"
-        :title="collapsed ? '固定展开导航' : '收起导航'"
-        :aria-label="collapsed ? '固定展开导航' : '收起导航'"
+        :title="collapsed ? t('固定展开导航') : t('收起导航')"
+        :aria-label="collapsed ? t('固定展开导航') : t('收起导航')"
         @click="toggleCollapsed"
       >
         <Icon name="chevrons-left" :size="14" />
@@ -101,38 +105,38 @@ function onBrandClick() {
     <nav class="nav-body">
       <section v-for="sec in navSections" :key="sec" class="nav-sec">
         <template v-if="sec === 'nav'">
-          <div class="nav-label">导航</div>
+          <div class="nav-label">{{ $t('导航') }}</div>
           <button
             class="nav-item"
             data-ui="nav-item-workspace"
             :class="ui.view === 'home' ? 'active' : ''"
             :aria-current="ui.view === 'home' ? 'page' : undefined"
-            title="首页"
+            :title="$t('首页')"
             @click="ui.showHome()"
           >
             <Icon name="terminal" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">首页</span>
+            <span class="nav-text">{{ $t('首页') }}</span>
             <span v-if="onlineCount" class="nav-count">{{ onlineCount }}</span>
           </button>
           <button
             class="nav-item"
             data-ui="nav-item-local"
-            title="本地终端"
+            :title="$t('本地终端')"
             @click="ui.showWorkspace(); sessions.openLocalTab()"
           >
             <Icon name="monitor" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">本地终端</span>
+            <span class="nav-text">{{ $t('本地终端') }}</span>
           </button>
           <button
             class="nav-item"
             data-ui="nav-item-servers"
             :class="ui.view === 'servers' ? 'active' : ''"
             :aria-current="ui.view === 'servers' ? 'page' : undefined"
-            title="服务器管理"
+            :title="$t('服务器管理')"
             @click="ui.showServers()"
           >
             <Icon name="server" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">服务器</span>
+            <span class="nav-text">{{ $t('服务器') }}</span>
             <span v-if="servers.servers.length" class="nav-count">{{ servers.servers.length }}</span>
           </button>
           <button
@@ -140,37 +144,37 @@ function onBrandClick() {
             data-ui="nav-item-tunnel"
             :class="ui.view === 'tunnel' ? 'active' : ''"
             :aria-current="ui.view === 'tunnel' ? 'page' : undefined"
-            title="SSH 隧道"
+            :title="$t('SSH 隧道')"
             @click="ui.showTunnel()"
           >
             <Icon name="tunnel" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">隧道</span>
+            <span class="nav-text">{{ $t('隧道') }}</span>
           </button>
           <button
             class="nav-item"
             data-ui="nav-item-settings"
             :class="ui.view === 'settings' ? 'active' : ''"
             :aria-current="ui.view === 'settings' ? 'page' : undefined"
-            title="设置"
+            :title="$t('设置')"
             @click="ui.showSettings()"
           >
             <Icon name="settings" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">设置</span>
+            <span class="nav-text">{{ $t('设置') }}</span>
           </button>
         </template>
 
         <template v-else-if="sec === 'sessions'">
-          <div class="nav-label">会话</div>
+          <div class="nav-label">{{ $t('会话') }}</div>
           <button
             class="nav-item"
             data-ui="nav-item-quick-connect"
-            title="快速连接"
+            :title="$t('快速连接')"
             :class="ui.terminalSidebarOpen && ui.view === 'workspace' ? 'active' : ''"
             :aria-expanded="ui.terminalSidebarOpen && ui.view === 'workspace'"
             @click="ui.toggleQuickConnect()"
           >
             <Icon name="panel-left" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">快速连接</span>
+            <span class="nav-text">{{ $t('快速连接') }}</span>
           </button>
         </template>
 
@@ -182,9 +186,9 @@ function onBrandClick() {
     </nav>
 
     <div class="nav-foot">
-      <button class="nav-item" data-ui="nav-item-command" title="命令面板 ⌘K" @click="ui.openCommandPalette()">
+      <button class="nav-item" data-ui="nav-item-command" :title="$t('命令面板 ⌘K')" @click="ui.openCommandPalette()">
         <Icon name="command" :size="15" extra-class="nav-ico" />
-        <span class="nav-text">命令面板</span>
+        <span class="nav-text">{{ $t('命令面板') }}</span>
         <span class="kbd nav-kbd">⌘K</span>
       </button>
     </div>

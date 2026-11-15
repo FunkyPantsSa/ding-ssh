@@ -1,6 +1,7 @@
 package apphost
 
 import (
+	"ding-ssh/internal/i18n"
 	"ding-ssh/internal/models"
 	"ding-ssh/internal/sshx"
 	"fmt"
@@ -9,7 +10,7 @@ import (
 func (a *App) resolveSSHNode(node models.ServerNode) (models.ServerNode, error) {
 	if a.store == nil {
 		if len(node.JumpServerIDs) > 0 {
-			return node, fmt.Errorf("服务器存储尚未就绪")
+			return node, fmt.Errorf("%s", i18n.T("服务器存储尚未就绪"))
 		}
 		return node, nil
 	}

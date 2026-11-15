@@ -2,6 +2,7 @@ package sshx
 
 import (
 	"bufio"
+	"ding-ssh/internal/i18n"
 	"errors"
 	"fmt"
 	"net"
@@ -40,7 +41,7 @@ func VerifyHostKey(host string, remote net.Addr, key ssh.PublicKey, extra []stri
 	defer trustMu.Unlock()
 	for _, source := range extra {
 		if _, err := os.Stat(expandSSHPath(source)); err != nil {
-			return fmt.Errorf("读取指定信任源失败: %w", err)
+			return fmt.Errorf(i18n.T("读取指定信任源失败: %w"), err)
 		}
 	}
 	paths := trustPaths(nil)
@@ -79,7 +80,7 @@ func ListHostTrust() ([]HostTrustRecord, error) {
 				fields = fields[1:]
 			}
 			if len(fields) < 3 {
-				return nil, fmt.Errorf("无效信任记录 %s:%d", file, line)
+				return nil, fmt.Errorf(i18n.T("无效信任记录 %s:%d"), file, line)
 			}
 			key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(strings.Join(fields[1:], " ")))
 			if err != nil {
@@ -137,18 +138,18 @@ func DeleteHostTrust(line int, fingerprint string) error {
 	}
 	lines := strings.Split(string(data), "\n")
 	if line < 1 || line > len(lines) {
-		return fmt.Errorf("记录已变化，请刷新")
+		return fmt.Errorf("%s", i18n.T("记录已变化，请刷新"))
 	}
 	fields := strings.Fields(lines[line-1])
 	if len(fields) < 3 {
-		return fmt.Errorf("无效记录")
+		return fmt.Errorf("%s", i18n.T("无效记录"))
 	}
 	if strings.HasPrefix(fields[0], "@") {
-		return fmt.Errorf("撤销记录不能从此界面删除")
+		return fmt.Errorf("%s", i18n.T("撤销记录不能从此界面删除"))
 	}
 	key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(strings.Join(fields[1:], " ")))
 	if err != nil || ssh.FingerprintSHA256(key) != fingerprint {
-		return fmt.Errorf("记录已变化，请刷新")
+		return fmt.Errorf("%s", i18n.T("记录已变化，请刷新"))
 	}
 	lines = append(lines[:line-1], lines[line:]...)
 	return writeTrustFile(file, []byte(strings.Join(lines, "\n")))

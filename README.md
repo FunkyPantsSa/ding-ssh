@@ -1,3 +1,5 @@
+简体中文 | [English](README.en.md)
+
 <div align="center">
   <img src="frontend/icon/ding.png" width="280" alt="ding-ssh：猫咪终端应用图标">
   <h1>ding-ssh</h1>
@@ -6,7 +8,7 @@
 
 [![CI](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml)
 
-一个把 **SSH 终端 / SFTP / 端口转发 / 本机 shell** 装进同一窗口的桌面工作台，并额外内置一套**只监听本机**的控制面（HTTP + SSE + MCP），让脚本与 AI 客户端可以直接读写应用状态、驱动终端。
+一个把 **SSH 终端 / SFTP / 端口转发 / 本机 shell** 装进同一窗口的桌面工作台，并额外内置一套**默认监听本机**的控制面（HTTP + SSE + MCP），让脚本与 AI 客户端可以直接读写应用状态、驱动终端。
 
 | | |
 | --- | --- |
@@ -17,6 +19,8 @@
 | 变更记录 | [`CHANGELOG.md`](CHANGELOG.md) · [`docs/2.0设计规范.md`](docs/2.0设计规范.md) · [`docs/refactor-2.0/`](docs/refactor-2.0/) |
 
 ---
+
+设置 → 通用 → 语言支持简体中文和 English，默认中文，选择保存在本机。切换语言会重新加载界面。应用界面、说明、连接与传输提示及原生文件选择标题均提供英文；用户内容和远端终端输出保持原样。
 
 ## 目录
 
@@ -273,8 +277,8 @@ UI 快照、`debug.json` 和本地测试密钥全部落入隔离目录。该模�
 
 **边界说明**
 
-- 应用不做统计上报与更新检查；除你主动连接的 SSH 主机外，只有调试模式会监听端口，且默认仅 `127.0.0.1`。
-- **主机密钥未强制校验**：连接进度日志里会展示服务端主机密钥类型与 `sha256` 指纹，但 `known_hosts` 校验在代码中标注为待办——请勿把它当作中间人防护。
+- 应用不做统计上报与自动更新检查；在线字体首次使用可能连接字体源。调试端口仅在开启调试模式时监听，默认仅 `127.0.0.1`。
+- **SSH 主机信任校验**：首次连接需明确确认指纹，主机密钥变化会中止连接，撤销记录始终拒绝；应用独立信任记录与只读 OpenSSH 来源的处理方式见下方说明。
 - 日志与审计在写入前自动脱敏 token / 密码 / 私钥（覆盖 `key=value`、`?token=`、JSON 敏感字段、`Authorization: Bearer`、整段 PEM），固定开启、无法关闭；诊断包同样只含脱敏内容。
 - 调试模式的能力位**就地生效**：只有影响监听地址的字段（`enabled` / `port` / `bindLan`）变化才会重启服务，因此勾选能力位不会换端口 / token，也不会踢掉已连接的客户端。
 
@@ -476,7 +480,7 @@ go build -o ding-ssh-mcp ./cmd/ding-ssh-mcp
 
 **其他**
 
-- **主机密钥未强制校验**：只展示指纹，`known_hosts` 校验仍是待办。
+- **SSH 主机信任校验**：首次连接需确认指纹，密钥变化会中止连接；详情见下方主机信任说明。
 - **CDP 不可用**：WebView2 远程调试端口在 Wails v2.13 下无法从应用侧注入（框架会覆盖 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`），因此页面级能力由 `/v1/eval` 承担，截图走原生窗口捕获（受窗口遮挡影响）。
 - **`/v1/terminals/{id}/resize` 只改模拟器尺寸**，不改远端 PTY，仅用于复现布局 / 渲染问题。
 - **事件通道满会丢事件**：`/v1/stream`、`GET /mcp`（SSE）与终端自动化共用同一个 Hub 通道，订阅者消费不及时时该订阅者丢事件（Hub 不排队、不阻塞发布方）。`terminal.run` / `terminal.expect` 因此可能漏掉部分输出（看 `outputBytes` / `droppedOutput` 自查），需要完整历史时用 `read_terminal` 读缓冲。

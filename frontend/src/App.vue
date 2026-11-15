@@ -1,4 +1,10 @@
 <script lang="ts" setup>
+import {errorText} from './i18n'
+
+import {t as $t} from './i18n'
+
+import {t} from './i18n'
+
 import {WindowToggleMaximise, WindowMinimise, Quit} from '../wailsjs/runtime/runtime'
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './components/Icon.vue'
@@ -83,14 +89,14 @@ const unlocking = ref(false)
 watch(() => sessions.activeId, id => { if (id) ui.showWorkspace() })
 
 const pageMeta: Record<string, [string, string]> = {
-  home: ['首页', '连接 · 会话 · 概览'],
-  workspace: ['终端', '终端 · 会话 · 文件'],
-  servers: ['服务器管理', '节点 · 分组 · 在线状态'],
-  tunnel: ['SSH 隧道', '本地 / 远程 / 动态转发'],
-  settings: ['设置', '通用 · 连接说明 · 外观 · 安全 · 迁移'],
+  home: [t("首页"), t("连接 · 会话 · 概览")],
+  workspace: [t("终端"), t("终端 · 会话 · 文件")],
+  servers: [t("服务器管理"), t("节点 · 分组 · 在线状态")],
+  tunnel: [t("SSH 隧道"), t("本地 / 远程 / 动态转发")],
+  settings: [t("设置"), t("通用 · 连接说明 · 外观 · 安全 · 迁移")],
 }
 
-const pageTitle = computed(() => pageMeta[ui.view]?.[0] ?? '工作区')
+const pageTitle = computed(() => pageMeta[ui.view]?.[0] ?? t("工作区"))
 const pageSub = computed(() => pageMeta[ui.view]?.[1] ?? '')
 
 const onlineCount = computed(() => sessions.tabs.filter((t) => t.status === 'connected').length)
@@ -255,7 +261,7 @@ async function runCmd(command: AppCommand) {
     commandStore.record(command.id)
   } catch (error) {
     console.error(`[command] ${command.id} failed`, error)
-    toast.error('命令执行失败', error instanceof Error ? error.message : String(error), `command:${command.id}`)
+    toast.error(t("命令执行失败"), error instanceof Error ? error.message : errorText(error), `command:${command.id}`)
   }
 }
 
@@ -397,7 +403,7 @@ async function doUnlock() {
     await servers.load()
     await maybeRestoreLastServers()
   } catch (e) {
-    unlockError.value = String(e)
+    unlockError.value = errorText(e)
   } finally {
     unlocking.value = false
   }
@@ -411,7 +417,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="app-shell" :class="{'platform-macos': isMacOS, 'platform-windows': isWindows}" :style="{zoom: (settings.uiScale || 100) / 100}" data-ui="app" :data-view="ui.view">
     <div v-if="isMacOS || isWindows" class="window-drag-region" @dblclick="WindowToggleMaximise">
-      <div v-if="isWindows" class="window-controls"><button aria-label="最小化" @dblclick.stop @click="WindowMinimise">−</button><button aria-label="最大化或还原" @dblclick.stop @click="WindowToggleMaximise">□</button><button aria-label="关闭窗口" @dblclick.stop @click="Quit">×</button></div>
+      <div v-if="isWindows" class="window-controls"><button :aria-label="$t('最小化')" @dblclick.stop @click="WindowMinimise">−</button><button :aria-label="$t('最大化或还原')" @dblclick.stop @click="WindowToggleMaximise">□</button><button :aria-label="$t('关闭窗口')" @dblclick.stop @click="Quit">×</button></div>
     </div>
     <!-- 解锁页 -->
     <AppUnlock v-if="needsUnlock" v-model="unlockPassword" :unlocking="unlocking" :error="unlockError" @submit="doUnlock" />
@@ -437,7 +443,7 @@ onBeforeUnmount(() => {
         :width="effectiveNavW"
         :min="NAV_W_MIN"
         :max="navMaxW"
-        label="导航栏"
+        :label="$t('导航栏')"
         @resize="onNavResize"
         @drag="onNavDrag"
         @reset="resetNavWidth"
@@ -519,7 +525,7 @@ onBeforeUnmount(() => {
                   :width="effectiveToolW"
                   :min="TOOL_W_MIN"
                   :max="toolMaxW"
-                  label="右侧面板"
+                  :label="$t('右侧面板')"
                   @resize="onToolResize"
                   @drag="onToolDrag"
                   @reset="resetToolWidth"
@@ -537,13 +543,11 @@ onBeforeUnmount(() => {
     <QuickConnectPanel v-if="!needsUnlock" />
 
     <!-- 启动恢复确认框 -->
-    <Dialog v-model="restorePromptVisible" title="恢复上次的会话" :width="460" @close="cancelRestore">
-      <p class="text-[12.5px] text-mist leading-relaxed">
-        检测到上次关闭应用时有 {{ restorePromptCount }} 台服务器仍在连接，是否自动重新连接？
-      </p>
+    <Dialog v-model="restorePromptVisible" :title="$t('恢复上次的会话')" :width="460" @close="cancelRestore">
+      <p class="text-[12.5px] text-mist leading-relaxed">{{ $t('检测到上次关闭应用时有') }} {{ restorePromptCount }} {{ $t('台服务器仍在连接，是否自动重新连接？') }}</p>
       <template #footer>
-        <Button variant="ghost" size="sm" @click="cancelRestore">取消</Button>
-        <Button variant="primary" size="sm" @click="confirmRestore">自动连接</Button>
+        <Button variant="ghost" size="sm" @click="cancelRestore">{{ $t('取消') }}</Button>
+        <Button variant="primary" size="sm" @click="confirmRestore">{{ $t('自动连接') }}</Button>
       </template>
     </Dialog>
 

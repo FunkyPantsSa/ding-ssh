@@ -1,6 +1,7 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {createPinia, setActivePinia} from 'pinia'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
+import {language} from '../../i18n'
 import SettingsGeneralSection from './SettingsGeneralSection.vue'
 import {useSettingsStore} from '../../stores/settings'
 
@@ -28,6 +29,25 @@ beforeEach(() => {
 })
 
 describe('settings save flow', () => {
+  it('uses the shared select style and renders the English settings page', async () => {
+    language.value = 'en'
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useSettingsStore().loaded = true
+    const wrapper = mount(SettingsGeneralSection, {global: {plugins: [pinia]}})
+    try {
+      await flushPromises()
+      expect(wrapper.get('#app-language').classes()).toContain('ui-select')
+      expect(wrapper.get('#app-language').element.parentElement?.classList.contains('w-44')).toBe(true)
+      expect(wrapper.get('#app-language').element.tagName).toBe('SELECT')
+      expect(wrapper.get('h3').text()).toBe('General')
+      expect(wrapper.text()).toContain('Copy selection automatically')
+      expect(wrapper.text()).toContain('SSH keepalive')
+    } finally {
+      wrapper.unmount()
+      language.value = 'zh-CN'
+    }
+  })
   it('persists a toggle change through the settings store', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)

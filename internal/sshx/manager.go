@@ -2,6 +2,7 @@ package sshx
 
 import (
 	"context"
+	"ding-ssh/internal/i18n"
 	"errors"
 	"fmt"
 	"io"
@@ -23,10 +24,10 @@ import (
 )
 
 // ErrSessionNotFound 会话不存在。
-var ErrSessionNotFound = errors.New("会话不存在")
+var ErrSessionNotFound = errors.New(i18n.T("会话不存在"))
 
 // ErrTransferCancelled SFTP 传输被用户取消。
-var ErrTransferCancelled = errors.New("传输已取消")
+var ErrTransferCancelled = errors.New(i18n.T("传输已取消"))
 
 // Notifier 事件通知回调，由上层（App）注入，实现与 Wails runtime 解耦。
 type Notifier func(eventName string, payload interface{})
@@ -94,11 +95,11 @@ func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows i
 	m.mu.Lock()
 	if _, ok := m.pending[sessionID]; ok {
 		m.mu.Unlock()
-		return fmt.Errorf("会话正在连接")
+		return fmt.Errorf("%s", i18n.T("会话正在连接"))
 	}
 	if _, ok := m.sessions[sessionID]; ok {
 		m.mu.Unlock()
-		return fmt.Errorf("会话已存在")
+		return fmt.Errorf("%s", i18n.T("会话已存在"))
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.pending[sessionID] = cancel
@@ -154,7 +155,7 @@ func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows i
 	m.mu.Lock()
 	if err := ctx.Err(); err != nil {
 		m.mu.Unlock()
-		s.close(models.StatusClosed, "连接已取消")
+		s.close(models.StatusClosed, i18n.T("连接已取消"))
 		return err
 	}
 	delete(m.pending, sessionID)
@@ -202,7 +203,7 @@ func (m *Manager) Disconnect(sessionID string) error {
 		return err
 	}
 	logx.Debugf("用户断开会话: session=%s", sessionID)
-	s.close(models.StatusClosed, "用户主动断开")
+	s.close(models.StatusClosed, i18n.T("用户主动断开"))
 	return nil
 }
 
@@ -280,7 +281,7 @@ func (m *Manager) SftpClient(sessionID string) (*sftp.Client, error) {
 	}
 	client, err := s.SftpClient()
 	if err != nil {
-		return nil, fmt.Errorf("建立 SFTP 连接失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
 	return client, nil
 }
@@ -298,7 +299,7 @@ func (m *Manager) SftpList(sessionID, path string) ([]models.SFTPEntry, error) {
 	}
 	client, err := s.SftpClient()
 	if err != nil {
-		return nil, fmt.Errorf("建立 SFTP 连接失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
 
 	readDir := func(p string) ([]models.SFTPEntry, error) {
@@ -357,10 +358,10 @@ func (m *Manager) SftpRename(sessionID, oldPath, newPath string) error {
 	}
 	client, err := s.SftpClient()
 	if err != nil {
-		return fmt.Errorf("建立 SFTP 连接失败: %w", err)
+		return fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
 	if err := client.Rename(oldPath, newPath); err != nil {
-		return fmt.Errorf("重命名失败: %w", err)
+		return fmt.Errorf(i18n.T("重命名失败: %w"), err)
 	}
 	m.cache.Invalidate(parentDir(oldPath))
 	m.cache.Invalidate(parentDir(newPath))
@@ -375,10 +376,10 @@ func (m *Manager) SftpMkdir(sessionID, path string) error {
 	}
 	client, err := s.SftpClient()
 	if err != nil {
-		return fmt.Errorf("建立 SFTP 连接失败: %w", err)
+		return fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
 	if err := client.Mkdir(path); err != nil {
-		return fmt.Errorf("创建目录失败: %w", err)
+		return fmt.Errorf(i18n.T("创建目录失败: %w"), err)
 	}
 	m.cache.Invalidate(parentDir(path))
 	return nil
@@ -392,10 +393,10 @@ func (m *Manager) SftpRemove(sessionID, path string) error {
 	}
 	client, err := s.SftpClient()
 	if err != nil {
-		return fmt.Errorf("建立 SFTP 连接失败: %w", err)
+		return fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
 	if err := removeRemote(client, path); err != nil {
-		return fmt.Errorf("删除失败: %w", err)
+		return fmt.Errorf(i18n.T("删除失败: %w"), err)
 	}
 	m.cache.Invalidate(parentDir(path))
 	return nil
@@ -439,20 +440,20 @@ func (m *Manager) SftpUpload(sessionID, localPath, remotePath string) error {
 	}
 	client, err := s.SftpClient()
 	if err != nil {
-		return fmt.Errorf("建立 SFTP 连接失败: %w", err)
+		return fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
 	src, err := os.Open(localPath)
 	if err != nil {
-		return fmt.Errorf("打开本地文件失败: %w", err)
+		return fmt.Errorf(i18n.T("打开本地文件失败: %w"), err)
 	}
 	defer src.Close()
 	fi, err := src.Stat()
 	if err != nil {
-		return fmt.Errorf("读取本地文件信息失败: %w", err)
+		return fmt.Errorf(i18n.T("读取本地文件信息失败: %w"), err)
 	}
 	dst, err := client.Create(remotePath)
 	if err != nil {
-		return fmt.Errorf("创建远程文件失败: %w", err)
+		return fmt.Errorf(i18n.T("创建远程文件失败: %w"), err)
 	}
 	defer dst.Close()
 	name := filepath.Base(localPath)
@@ -466,7 +467,7 @@ func (m *Manager) SftpUpload(sessionID, localPath, remotePath string) error {
 			return ErrTransferCancelled // 调用方也必须收到取消结果，避免晚到事件被记作成功
 		}
 		_ = client.Remove(remotePath) // 清理不完整的上传文件
-		return fmt.Errorf("上传失败: %w", err)
+		return fmt.Errorf(i18n.T("上传失败: %w"), err)
 	}
 	m.cache.Invalidate(parentDir(remotePath))
 	return nil
@@ -481,20 +482,20 @@ func (m *Manager) SftpDownload(sessionID, remotePath, localPath string) error {
 	}
 	client, err := s.SftpClient()
 	if err != nil {
-		return fmt.Errorf("建立 SFTP 连接失败: %w", err)
+		return fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
 	src, err := client.Open(remotePath)
 	if err != nil {
-		return fmt.Errorf("打开远程文件失败: %w", err)
+		return fmt.Errorf(i18n.T("打开远程文件失败: %w"), err)
 	}
 	defer src.Close()
 	fi, err := src.Stat()
 	if err != nil {
-		return fmt.Errorf("读取远程文件信息失败: %w", err)
+		return fmt.Errorf(i18n.T("读取远程文件信息失败: %w"), err)
 	}
 	dst, err := os.Create(localPath)
 	if err != nil {
-		return fmt.Errorf("创建本地文件失败: %w", err)
+		return fmt.Errorf(i18n.T("创建本地文件失败: %w"), err)
 	}
 	defer dst.Close()
 	name := filepath.Base(remotePath)
@@ -509,7 +510,7 @@ func (m *Manager) SftpDownload(sessionID, remotePath, localPath string) error {
 			return ErrTransferCancelled // 调用方也必须收到取消结果
 		}
 		_ = os.Remove(localPath) // 清理不完整的下载文件
-		return fmt.Errorf("下载失败: %w", err)
+		return fmt.Errorf(i18n.T("下载失败: %w"), err)
 	}
 	m.cache.Invalidate(parentDir(remotePath))
 	return nil
@@ -529,27 +530,27 @@ func (m *Manager) SftpUploadFolder(sessionID, localDir, remoteDir string) error 
 	}
 	client, err := s.SftpClient()
 	if err != nil {
-		return fmt.Errorf("建立 SFTP 连接失败: %w", err)
+		return fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
 	localDir = filepath.Clean(localDir)
 	fi, err := os.Stat(localDir)
 	if err != nil {
-		return fmt.Errorf("读取本地文件夹失败: %w", err)
+		return fmt.Errorf(i18n.T("读取本地文件夹失败: %w"), err)
 	}
 	if !fi.IsDir() {
-		return fmt.Errorf("本地路径不是文件夹: %s", localDir)
+		return fmt.Errorf(i18n.T("本地路径不是文件夹: %s"), localDir)
 	}
 	// 第一遍统计总字节数，让进度条一开始就有确定的总数。
 	total, err := dirBytes(localDir)
 	if err != nil {
-		return fmt.Errorf("统计文件夹字节数失败: %w", err)
+		return fmt.Errorf(i18n.T("统计文件夹字节数失败: %w"), err)
 	}
 
 	name := filepath.Base(localDir)
 	root := joinRemote(remoteDir, name)
 	// 远端目标目录整体创建（已存在时 MkdirAll 不报错）。
 	if err := client.MkdirAll(root); err != nil {
-		return fmt.Errorf("创建远端目录失败: %w", err)
+		return fmt.Errorf(i18n.T("创建远端目录失败: %w"), err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -605,11 +606,11 @@ func (m *Manager) SftpUploadFolder(sessionID, localDir, remoteDir string) error 
 	uploadErr := m.uploadFolderTree(ctx, client, localDir, root, &transferred)
 	if uploadErr != nil {
 		if errors.Is(uploadErr, ErrTransferCancelled) {
-			finish("已取消")
+			finish(i18n.T("已取消"))
 			return ErrTransferCancelled // 调用方也必须收到取消结果，避免晚到事件被记作成功
 		}
 		finish(uploadErr.Error())
-		return fmt.Errorf("上传文件夹失败: %w", uploadErr)
+		return fmt.Errorf(i18n.T("上传文件夹失败: %w"), uploadErr)
 	}
 	finish("")
 	m.cache.Invalidate(parentDir(root))
@@ -630,28 +631,28 @@ func (m *Manager) SftpDownloadFolder(sessionID, remoteDir, localDir string) erro
 	}
 	client, err := s.SftpClient()
 	if err != nil {
-		return fmt.Errorf("建立 SFTP 连接失败: %w", err)
+		return fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
 	remoteDir = strings.TrimRight(remoteDir, "/")
 	fi, err := client.Stat(remoteDir)
 	if err != nil {
-		return fmt.Errorf("读取远端文件夹失败: %w", err)
+		return fmt.Errorf(i18n.T("读取远端文件夹失败: %w"), err)
 	}
 	if !fi.IsDir() {
-		return fmt.Errorf("远端路径不是文件夹: %s", remoteDir)
+		return fmt.Errorf(i18n.T("远端路径不是文件夹: %s"), remoteDir)
 	}
 	name := filepath.Base(remoteDir)
 	if name == "" || name == "." || name == "/" {
-		return fmt.Errorf("不支持下载根目录: %s", remoteDir)
+		return fmt.Errorf(i18n.T("不支持下载根目录: %s"), remoteDir)
 	}
 	localRoot := filepath.Join(localDir, name)
 	if err := os.MkdirAll(localRoot, 0o755); err != nil {
-		return fmt.Errorf("创建本地目录失败: %w", err)
+		return fmt.Errorf(i18n.T("创建本地目录失败: %w"), err)
 	}
 	// 第一遍统计总字节数，让进度条一开始就有确定的总数。
 	total, err := remoteDirBytes(client, remoteDir)
 	if err != nil {
-		return fmt.Errorf("统计远端文件夹字节数失败: %w", err)
+		return fmt.Errorf(i18n.T("统计远端文件夹字节数失败: %w"), err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -707,11 +708,11 @@ func (m *Manager) SftpDownloadFolder(sessionID, remoteDir, localDir string) erro
 	downloadErr := m.downloadFolderTree(ctx, client, remoteDir, localRoot, &transferred)
 	if downloadErr != nil {
 		if errors.Is(downloadErr, ErrTransferCancelled) {
-			finish("已取消")
+			finish(i18n.T("已取消"))
 			return ErrTransferCancelled // 调用方也必须收到取消结果，避免晚到事件被记作成功
 		}
 		finish(downloadErr.Error())
-		return fmt.Errorf("下载文件夹失败: %w", downloadErr)
+		return fmt.Errorf(i18n.T("下载文件夹失败: %w"), downloadErr)
 	}
 	finish("")
 	return nil
@@ -791,12 +792,12 @@ func (m *Manager) downloadFolderTree(ctx context.Context, client *sftp.Client, r
 		}
 		src, err := client.Open(path)
 		if err != nil {
-			return fmt.Errorf("打开远端文件失败: %w", err)
+			return fmt.Errorf(i18n.T("打开远端文件失败: %w"), err)
 		}
 		dst, err := os.Create(localPath)
 		if err != nil {
 			src.Close()
-			return fmt.Errorf("创建本地文件失败: %w", err)
+			return fmt.Errorf(i18n.T("创建本地文件失败: %w"), err)
 		}
 		copyErr := copyFolderChunk(ctx, src, dst, transferred)
 		closeSrcErr := src.Close()
@@ -810,11 +811,11 @@ func (m *Manager) downloadFolderTree(ctx context.Context, client *sftp.Client, r
 		}
 		if closeSrcErr != nil {
 			_ = os.Remove(localPath)
-			return fmt.Errorf("关闭远端文件失败: %w", closeSrcErr)
+			return fmt.Errorf(i18n.T("关闭远端文件失败: %w"), closeSrcErr)
 		}
 		if closeDstErr != nil {
 			_ = os.Remove(localPath)
-			return fmt.Errorf("关闭本地文件失败: %w", closeDstErr)
+			return fmt.Errorf(i18n.T("关闭本地文件失败: %w"), closeDstErr)
 		}
 		return nil
 	})
@@ -870,12 +871,12 @@ func (m *Manager) uploadFolderTree(ctx context.Context, client *sftp.Client, loc
 		remotePath := joinRemote(remoteRoot, rel)
 		src, err := os.Open(p)
 		if err != nil {
-			return fmt.Errorf("打开本地文件失败: %w", err)
+			return fmt.Errorf(i18n.T("打开本地文件失败: %w"), err)
 		}
 		dst, err := client.Create(remotePath)
 		if err != nil {
 			src.Close()
-			return fmt.Errorf("创建远程文件失败: %w", err)
+			return fmt.Errorf(i18n.T("创建远程文件失败: %w"), err)
 		}
 		copyErr := copyFolderChunk(ctx, src, dst, transferred)
 		closeSrcErr := src.Close()
@@ -889,11 +890,11 @@ func (m *Manager) uploadFolderTree(ctx context.Context, client *sftp.Client, loc
 		}
 		if closeSrcErr != nil {
 			_ = client.Remove(remotePath)
-			return fmt.Errorf("关闭本地文件失败: %w", closeSrcErr)
+			return fmt.Errorf(i18n.T("关闭本地文件失败: %w"), closeSrcErr)
 		}
 		if closeDstErr != nil {
 			_ = client.Remove(remotePath)
-			return fmt.Errorf("关闭远程文件失败: %w", closeDstErr)
+			return fmt.Errorf(i18n.T("关闭远程文件失败: %w"), closeDstErr)
 		}
 		return nil
 	})
@@ -1000,14 +1001,14 @@ func (m *Manager) streamTransfer(
 	buf := make([]byte, 64*1024)
 	for {
 		if err := ctx.Err(); err != nil {
-			finish("已取消")
+			finish(i18n.T("已取消"))
 			return ErrTransferCancelled
 		}
 		n, rerr := read(buf)
 		if n > 0 {
 			if err := DefaultTransferPool.Limiter().Wait(ctx, n); err != nil {
 				if err == context.Canceled {
-					finish("已取消")
+					finish(i18n.T("已取消"))
 					return ErrTransferCancelled
 				}
 				finish(err.Error())
@@ -1077,10 +1078,10 @@ func (m *Manager) SftpCancelTransfer(sessionID, direction, name string) error {
 		}
 	}
 	if len(matches) == 0 {
-		return fmt.Errorf("没有进行中的传输: direction=%s name=%s", direction, name)
+		return fmt.Errorf(i18n.T("没有进行中的传输: direction=%s name=%s"), direction, name)
 	}
 	if len(matches) > 1 {
-		return fmt.Errorf("存在同名并发传输，请按任务 ID 精确取消")
+		return fmt.Errorf("%s", i18n.T("存在同名并发传输，请按任务 ID 精确取消"))
 	}
 	matches[0].cancel()
 	return nil
@@ -1109,7 +1110,7 @@ func (m *Manager) CloseAll() {
 		c.Stop()
 	}
 	for _, s := range sessions {
-		s.close(models.StatusClosed, "应用退出")
+		s.close(models.StatusClosed, i18n.T("应用退出"))
 	}
 	for _, t := range tunnels {
 		t.Stop()
@@ -1127,14 +1128,14 @@ func normalizeTunnelConfig(node models.ServerNode, name, mode string, localPort 
 	switch tm {
 	case TunnelLocal, TunnelRemote, TunnelDynamic, TunnelReverseDynamic:
 	default:
-		return "", "", "", fmt.Errorf("不支持的隧道模式: %s", mode)
+		return "", "", "", fmt.Errorf(i18n.T("不支持的隧道模式: %s"), mode)
 	}
 	if tm != TunnelReverseDynamic && (localPort < 1 || localPort > 65535) {
-		return "", "", "", fmt.Errorf("本地端口无效: %d", localPort)
+		return "", "", "", fmt.Errorf(i18n.T("本地端口无效: %d"), localPort)
 	}
 	if tm != TunnelDynamic {
 		if remotePort < 1 || remotePort > 65535 {
-			return "", "", "", fmt.Errorf("远程端口无效: %d", remotePort)
+			return "", "", "", fmt.Errorf(i18n.T("远程端口无效: %d"), remotePort)
 		}
 		if tm == TunnelReverseDynamic || remoteHost == "" {
 			remoteHost = "127.0.0.1"
@@ -1145,7 +1146,7 @@ func normalizeTunnelConfig(node models.ServerNode, name, mode string, localPort 
 		case TunnelDynamic:
 			name = fmt.Sprintf("SOCKS5:%d", localPort)
 		case TunnelReverseDynamic:
-			name = fmt.Sprintf("反向 SOCKS5:%d", remotePort)
+			name = fmt.Sprintf(i18n.T("反向 SOCKS5:%d"), remotePort)
 		case TunnelRemote:
 			name = fmt.Sprintf("R:%d→%d", remotePort, localPort)
 		default:
@@ -1161,7 +1162,7 @@ func tunnelListenHost(mode TunnelMode, hosts []string) (string, error) {
 	}
 	ip, err := netip.ParseAddr(strings.TrimSpace(hosts[0]))
 	if err != nil || ip.IsMulticast() || (ip.Is6() && ip.Unmap().IsUnspecified()) {
-		return "", fmt.Errorf("请输入本机网卡的 IP 地址，或选择所有 IPv4 网卡")
+		return "", fmt.Errorf("%s", i18n.T("请输入本机网卡的 IP 地址，或选择所有 IPv4 网卡"))
 	}
 	return ip.Unmap().String(), nil
 }
@@ -1259,7 +1260,7 @@ func (m *Manager) RemoveTunnel(id string) error {
 	delete(m.tunnels, id)
 	m.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("隧道不存在: %s", id)
+		return fmt.Errorf(i18n.T("隧道不存在: %s"), id)
 	}
 	t.Stop()
 	return nil
@@ -1282,7 +1283,7 @@ func (m *Manager) getTunnel(id string) (*Tunnel, error) {
 	defer m.mu.RUnlock()
 	t, ok := m.tunnels[id]
 	if !ok {
-		return nil, fmt.Errorf("隧道不存在: %s", id)
+		return nil, fmt.Errorf(i18n.T("隧道不存在: %s"), id)
 	}
 	return t, nil
 }

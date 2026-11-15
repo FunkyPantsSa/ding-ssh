@@ -1,4 +1,10 @@
 <script lang="ts" setup>
+import {errorText} from '../../i18n'
+
+import {t as $t} from '../../i18n'
+
+import {language, setLanguage, t} from '../../i18n'
+
 import {onBeforeUnmount, onMounted, ref} from 'vue'
 import Icon from '../Icon.vue'
 import ToggleSwitch from '../ToggleSwitch.vue'
@@ -18,25 +24,25 @@ const saving = ref(false)
 const localShellOptions = ref<LocalShellOption[]>([])
 
 const TAB_PLACEMENT_OPTIONS = [
-  {key: 'side', label: '左侧导航'},
-  {key: 'top', label: '顶栏'},
+  {key: 'side', label: t("左侧导航")},
+  {key: 'top', label: t("顶栏")},
 ] as const
 const RIGHT_CLICK_OPTIONS = [
-  {key: 'menu', label: '打开选项栏'},
-  {key: 'paste', label: '直接粘贴'},
+  {key: 'menu', label: t("打开选项栏")},
+  {key: 'paste', label: t("直接粘贴")},
 ] as const
 const TERMINAL_COLOR_OPTIONS = [
-  {key: 'off', label: '关'},
-  {key: 'auto', label: '语义'},
-  {key: 'vivid', label: '强调'},
+  {key: 'off', label: t("关")},
+  {key: 'auto', label: t("语义")},
+  {key: 'vivid', label: t("强调")},
 ] as const
 const NAV_SECTION_ORDER_OPTIONS = [
-  {value: 'nav,sessions,tabs', label: '导航 · 会话 · 标签页'},
-  {value: 'nav,tabs,sessions', label: '导航 · 标签页 · 会话'},
-  {value: 'sessions,nav,tabs', label: '会话 · 导航 · 标签页'},
-  {value: 'sessions,tabs,nav', label: '会话 · 标签页 · 导航'},
-  {value: 'tabs,nav,sessions', label: '标签页 · 导航 · 会话'},
-  {value: 'tabs,sessions,nav', label: '标签页 · 会话 · 导航'},
+  {value: 'nav,sessions,tabs', label: t("导航 · 会话 · 标签页")},
+  {value: 'nav,tabs,sessions', label: t("导航 · 标签页 · 会话")},
+  {value: 'sessions,nav,tabs', label: t("会话 · 导航 · 标签页")},
+  {value: 'sessions,tabs,nav', label: t("会话 · 标签页 · 导航")},
+  {value: 'tabs,nav,sessions', label: t("标签页 · 导航 · 会话")},
+  {value: 'tabs,sessions,nav', label: t("标签页 · 会话 · 导航")},
 ] as const
 
 async function set(fn: () => Promise<void>) {
@@ -104,7 +110,7 @@ async function onHotkeyCapture(e: KeyboardEvent) {
   if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return
   const hk = hotkeyFromEvent(e)
   if (!hk) {
-    hotkeyCaptureError.value = '请使用修饰键组合（如 Alt+↓），或方向键 / F 键'
+    hotkeyCaptureError.value = t("请使用修饰键组合（如 Alt+↓），或方向键 / F 键")
     return
   }
   capturingHotkey.value = false
@@ -126,9 +132,9 @@ async function clearAllHistory() {
   try {
     await historyService.clear('')
     confirmClearHistory.value = false
-    historyMsg.value = '已清空全部命令历史'
+    historyMsg.value = t("已清空全部命令历史")
   } catch (e) {
-    historyError.value = String(e)
+    historyError.value = errorText(e)
   } finally {
     clearingHistory.value = false
   }
@@ -148,30 +154,36 @@ onBeforeUnmount(() => {
 <template>
   <section class="max-w-2xl space-y-6 fade-rise" data-section-content="general" aria-labelledby="settings-general-title">
     <div>
-      <h3 id="settings-general-title" class="text-[18px] font-semibold text-white tracking-tight">通用</h3>
-      <p class="text-[13px] text-mist mt-1.5 leading-relaxed">控制选中复制、鼠标右键行为、终端输出语义着色、导航区段顺序、补全热键与命令历史。</p>
+      <h3 id="settings-general-title" class="text-[18px] font-semibold text-white tracking-tight">{{ $t('通用') }}</h3>
+      <p class="text-[13px] text-mist mt-1.5 leading-relaxed">{{ $t('控制选中复制、鼠标右键行为、终端输出语义着色、导航区段顺序、补全热键与命令历史。') }}</p>
     </div>
 
+    <div class="neo px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+      <label for="app-language" class="shrink-0">{{ $t('语言') }}</label>
+      <div class="w-44 max-w-full min-w-0">
+        <Select id="app-language" :model-value="language" @update:model-value="value => setLanguage(value === 'en' ? 'en' : 'zh-CN')">
+          <option value="zh-CN">简体中文</option>
+          <option value="en">English</option>
+        </Select>
+      </div>
+    </div>
     <div class="neo">
-      <div class="flex items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">选中内容自动复制</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">开启后在终端中选中文本，内容将自动复制到剪贴板。</p>
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('选中内容自动复制') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('开启后在终端中选中文本，内容将自动复制到剪贴板。') }}</p>
         </div>
         <ToggleSwitch :model-value="settings.copyOnSelect" :disabled="saving" @update:model-value="toggleCopy" />
       </div>
     </div>
 
     <div class="neo">
-      <div class="flex items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">鼠标右键行为</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            在终端中单击鼠标右键时：「打开选项栏」弹出复制 / 粘贴 / 全屏等菜单；「直接粘贴」把剪贴板内容写入终端。
-            键盘粘贴始终可用（Ctrl+V / Ctrl+Shift+V / Shift+Insert）。
-          </p>
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('鼠标右键行为') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('在终端中单击鼠标右键时：「打开选项栏」弹出复制 / 粘贴 / 全屏等菜单；「直接粘贴」把剪贴板内容写入终端。\n            键盘粘贴始终可用（Ctrl+V / Ctrl+Shift+V / Shift+Insert）。') }}</p>
         </div>
-        <div class="seg shrink-0">
+        <div class="seg shrink-0 max-w-full flex-wrap">
           <button
             v-for="opt in RIGHT_CLICK_OPTIONS"
             :key="opt.key"
@@ -188,15 +200,12 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="neo">
-      <div class="flex items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">终端输出语义着色</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            按输出含义着色：错误红、警告黄、成功绿、信息青。「强调」额外高亮数值、路径与键名。
-            只补充颜色，远端自带颜色（如 ls --color）与 vim / top 等全屏程序的画面始终原样显示。
-          </p>
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('终端输出语义着色') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('按输出含义着色：错误红、警告黄、成功绿、信息青。「强调」额外高亮数值、路径与键名。\n            只补充颜色，远端自带颜色（如 ls --color）与 vim / top 等全屏程序的画面始终原样显示。') }}</p>
         </div>
-        <div class="seg shrink-0">
+        <div class="seg shrink-0 max-w-full flex-wrap">
           <button
             v-for="opt in TERMINAL_COLOR_OPTIONS"
             :key="opt.key"
@@ -213,24 +222,20 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="neo">
-      <div class="flex items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">WebGL 硬件加速</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            优先使用 GPU 渲染终端；不可用或上下文丢失时自动降级 DOM。关闭后强制使用 DOM。
-          </p>
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('WebGL 硬件加速') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('优先使用 GPU 渲染终端；不可用或上下文丢失时自动降级 DOM。关闭后强制使用 DOM。') }}</p>
         </div>
         <ToggleSwitch :model-value="settings.webGLEnabled" :disabled="saving" @update:model-value="toggleWebGL" />
       </div>
     </div>
 
     <div class="neo">
-      <div class="flex items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">智能命令补全</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            输入时展示历史 / 屏幕上下文 / 静态字典建议；热键或悬停进入导航后，↑↓ 切换、Tab/Enter 插入；未导航时 Tab/↑↓ 交给终端。密码场景可关闭本开关。
-          </p>
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('智能命令补全') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('输入时展示历史 / 屏幕上下文 / 静态字典建议；热键或悬停进入导航后，↑↓ 切换、Tab/Enter 插入；未导航时 Tab/↑↓ 交给终端。密码场景可关闭本开关。') }}</p>
         </div>
         <ToggleSwitch
           :model-value="settings.completionEnabled"
@@ -243,11 +248,9 @@ onBeforeUnmount(() => {
         class="px-5 py-4 border-t border-slate-800/60 space-y-3"
       >
         <div class="flex items-start justify-between gap-4">
-          <div class="min-w-0">
-            <p class="text-sm text-slate-300">补全导航热键</p>
-            <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-              面板打开时用于开启 / 关闭导航；默认 Alt+↓。点击右侧后按下新组合键。
-            </p>
+          <div class="min-w-0 flex-1 basis-64">
+            <p class="text-sm text-slate-300">{{ $t('补全导航热键') }}</p>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('面板打开时用于开启 / 关闭导航；默认 Alt+↓。点击右侧后按下新组合键。') }}</p>
           </div>
           <div class="shrink-0 flex items-center gap-2">
             <Button
@@ -260,21 +263,19 @@ onBeforeUnmount(() => {
             >
               {{
                 capturingHotkey
-                  ? '按下组合键…'
+                  ? t('按下组合键…')
                   : formatHotkeyLabel(settings.completionNavHotkey || DEFAULT_COMPLETION_NAV_HOTKEY)
               }}
             </Button>
-            <Button variant="secondary" size="sm" :disabled="saving || capturingHotkey" @click="resetNavHotkey">默认</Button>
+            <Button variant="secondary" size="sm" :disabled="saving || capturingHotkey" @click="resetNavHotkey">{{ $t('默认') }}</Button>
           </div>
         </div>
         <p v-if="hotkeyCaptureError" class="text-xs text-rose-400" role="alert">{{ hotkeyCaptureError }}</p>
-        <p v-else-if="capturingHotkey" class="text-[12px] text-slate-500">Esc 取消录制</p>
+        <p v-else-if="capturingHotkey" class="text-[12px] text-slate-500">{{ $t('Esc 取消录制') }}</p>
         <div class="flex items-start justify-between gap-4 pt-1">
-          <div class="min-w-0">
-            <p class="text-sm text-slate-300">补全面板条数</p>
-            <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-              历史 / 屏幕 / 字典合计最多展示条数（3–30，默认 8）。
-            </p>
+          <div class="min-w-0 flex-1 basis-64">
+            <p class="text-sm text-slate-300">{{ $t('补全面板条数') }}</p>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('历史 / 屏幕 / 字典合计最多展示条数（3–30，默认 8）。') }}</p>
           </div>
           <div class="w-16 shrink-0">
             <Input
@@ -283,7 +284,7 @@ onBeforeUnmount(() => {
               max="30"
               step="1"
               class="font-mono"
-              aria-label="补全面板条数"
+              :aria-label="$t('补全面板条数')"
               :model-value="settings.completionPanelLimit || 8"
               :disabled="saving"
               @update:model-value="onPanelLimitChange"
@@ -294,12 +295,10 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="neo">
-      <div class="flex items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">终端→SFTP 目录同步</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            终端执行 cd 或提示符路径变化时，SFTP 面板跟随跳转到同一目录。
-          </p>
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('终端→SFTP 目录同步') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('终端执行 cd 或提示符路径变化时，SFTP 面板跟随跳转到同一目录。') }}</p>
         </div>
         <ToggleSwitch
           :model-value="settings.terminalToSftpSync"
@@ -310,12 +309,10 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="neo">
-      <div class="flex items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">SFTP→终端目录同步</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            在 SFTP 面板进入目录时，自动向终端发送 cd 命令同步当前路径。
-          </p>
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('SFTP→终端目录同步') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('在 SFTP 面板进入目录时，自动向终端发送 cd 命令同步当前路径。') }}</p>
         </div>
         <ToggleSwitch
           :model-value="settings.sftpToTerminalSync"
@@ -326,31 +323,27 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="neo">
-      <div class="flex items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">界面缩放</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            整体等比缩放界面（含布局与字号），适配不同屏幕尺寸；范围 80%–150%，默认 100%。
-          </p>
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('界面缩放') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('整体等比缩放界面（含布局与字号），适配不同屏幕尺寸；范围 80%–150%，默认 100%。') }}</p>
         </div>
         <div class="shrink-0 flex items-center gap-2">
           <Button variant="secondary" size="sm" :disabled="saving || settings.uiScale <= 80" @click="setUIScale(settings.uiScale - 10)">−</Button>
           <span class="w-14 text-center text-xs font-mono text-slate-200">{{ settings.uiScale }}%</span>
           <Button variant="secondary" size="sm" :disabled="saving || settings.uiScale >= 150" @click="setUIScale(settings.uiScale + 10)">+</Button>
-          <Button variant="secondary" size="sm" :disabled="saving || settings.uiScale === 100" @click="setUIScale(100)">默认</Button>
+          <Button variant="secondary" size="sm" :disabled="saving || settings.uiScale === 100" @click="setUIScale(100)">{{ $t('默认') }}</Button>
         </div>
       </div>
     </div>
 
     <div class="neo">
-      <div class="flex items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">会话标签页位置</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            默认「左侧导航」：标签并入左侧栏的纵向列表，可留出更多终端高度；「顶栏」为终端上方的横向标签栏。
-          </p>
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('会话标签页位置') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('默认「左侧导航」：标签并入左侧栏的纵向列表，可留出更多终端高度；「顶栏」为终端上方的横向标签栏。') }}</p>
         </div>
-        <div class="seg shrink-0">
+        <div class="seg shrink-0 max-w-full flex-wrap">
           <button
             v-for="opt in TAB_PLACEMENT_OPTIONS"
             :key="opt.key"
@@ -368,15 +361,13 @@ onBeforeUnmount(() => {
 
     <div class="neo">
       <div class="grid grid-cols-[minmax(0,1fr)_11rem] items-center gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">左侧导航区段顺序</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            自定义左侧导航中「导航 / 会话 / 标签页」三块的排列顺序（「标签页」仅在设为侧栏时显示）。
-          </p>
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('左侧导航区段顺序') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('自定义左侧导航中「导航 / 会话 / 标签页」三块的排列顺序（「标签页」仅在设为侧栏时显示）。') }}</p>
         </div>
         <Select
           :model-value="settings.navSectionOrder"
-          aria-label="左侧导航区段顺序"
+          :aria-label="$t('左侧导航区段顺序')"
           :disabled="saving"
           @update:model-value="onNavSectionOrderChange"
         >
@@ -388,12 +379,10 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="neo">
-      <div class="flex items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">自动重连</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            检测到 SSH 连接断开后自动重新连接（网络抖动、NAT 超时等情况）。
-          </p>
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('自动重连') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('检测到 SSH 连接断开后自动重新连接（网络抖动、NAT 超时等情况）。') }}</p>
         </div>
         <ToggleSwitch
           :model-value="settings.autoReconnect"
@@ -404,12 +393,10 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="neo">
-      <div class="flex items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">启动时自动连接上次的服务器</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            开启后，重启应用（解锁完成）会自动重新打开上次关闭时仍在连接的服务器会话，并先弹确认框供你取消。
-          </p>
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('启动时自动连接上次的服务器') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('开启后，重启应用（解锁完成）会自动重新打开上次关闭时仍在连接的服务器会话，并先弹确认框供你取消。') }}</p>
         </div>
         <ToggleSwitch
           :model-value="settings.autoLoginLastServer"
@@ -420,12 +407,10 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="neo">
-      <div class="flex items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">终端保活心跳</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            每 15 秒向服务器发送心跳包，防止 NAT / 防火墙或服务端 ClientAliveInterval 超时断开终端。
-          </p>
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('终端保活心跳') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('每 15 秒向服务器发送心跳包，防止 NAT / 防火墙或服务端 ClientAliveInterval 超时断开终端。') }}</p>
         </div>
         <ToggleSwitch
           :model-value="settings.keepAliveEnabled"
@@ -437,15 +422,13 @@ onBeforeUnmount(() => {
 
     <div class="neo">
       <div class="grid grid-cols-[minmax(0,1fr)_11rem] items-center gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">本机终端 Shell</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            工作区「本地终端」使用的本机 Shell。macOS 可选 zsh / bash，Windows 可选 PowerShell / cmd，Linux 使用系统 $SHELL。
-          </p>
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('本机终端 Shell') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('工作区「本地终端」使用的本机 Shell。macOS 可选 zsh / bash，Windows 可选 PowerShell / cmd，Linux 使用系统 $SHELL。') }}</p>
         </div>
         <Select
           :model-value="settings.localShell"
-          aria-label="本机终端 Shell"
+          :aria-label="$t('本机终端 Shell')"
           :disabled="saving || localShellOptions.length <= 1"
           @update:model-value="onLocalShellChange"
         >
@@ -457,22 +440,20 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="neo">
-      <div class="flex items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-200">清理命令历史</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-            删除本地 SQLite 中记录的命令历史（不影响远程服务器 ~/.bash_history）。用于清除误记的控制字符、缺字命令或隐私命令。
-          </p>
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('清理命令历史') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('删除本地 SQLite 中记录的命令历史（不影响远程服务器 ~/.bash_history）。用于清除误记的控制字符、缺字命令或隐私命令。') }}</p>
         </div>
         <div class="shrink-0 flex items-center gap-2">
           <template v-if="!confirmClearHistory">
-            <Button variant="ghost" size="sm" :disabled="clearingHistory" @click="confirmClearHistory = true">清空全部</Button>
+            <Button variant="ghost" size="sm" :disabled="clearingHistory" @click="confirmClearHistory = true">{{ $t('清空全部') }}</Button>
           </template>
           <template v-else>
             <Button variant="danger" size="sm" :loading="clearingHistory" @click="clearAllHistory">
-              {{ clearingHistory ? '清理中…' : '确认清空' }}
+              {{ clearingHistory ? t('清理中…') : t('确认清空') }}
             </Button>
-            <Button variant="ghost" size="sm" :disabled="clearingHistory" @click="confirmClearHistory = false">取消</Button>
+            <Button variant="ghost" size="sm" :disabled="clearingHistory" @click="confirmClearHistory = false">{{ $t('取消') }}</Button>
           </template>
         </div>
       </div>

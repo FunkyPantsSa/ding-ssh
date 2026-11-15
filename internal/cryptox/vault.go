@@ -1,6 +1,7 @@
 package cryptox
 
 import (
+	"ding-ssh/internal/i18n"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -120,7 +121,7 @@ func (v *Vault) loadOrCreateKeyringKey() ([]byte, error) {
 	if err == nil && secret != "" {
 		key, err := base64.StdEncoding.DecodeString(secret)
 		if err != nil || len(key) != 32 {
-			return nil, fmt.Errorf("Keyring 中的主密钥无效")
+			return nil, fmt.Errorf("%s", i18n.T("Keyring 中的主密钥无效"))
 		}
 		return key, nil
 	}
@@ -175,14 +176,14 @@ func (v *Vault) Unlock(password string) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if !v.meta.MasterPasswordEnabled {
-		return errors.New("未启用主密码")
+		return errors.New(i18n.T("未启用主密码"))
 	}
 	if password == "" {
 		return ErrBadPassword
 	}
 	salt, err := base64.StdEncoding.DecodeString(v.meta.SaltB64)
 	if err != nil || len(salt) == 0 {
-		return errors.New("安全元数据损坏")
+		return errors.New(i18n.T("安全元数据损坏"))
 	}
 	key := DeriveKey(password, salt)
 	if v.meta.VerifierB64 != "" {
@@ -203,10 +204,10 @@ func (v *Vault) EnableMasterPassword(password string) (oldKey, newKey []byte, er
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if password == "" {
-		return nil, nil, errors.New("主密码不能为空")
+		return nil, nil, errors.New(i18n.T("主密码不能为空"))
 	}
 	if v.meta.MasterPasswordEnabled {
-		return nil, nil, errors.New("主密码已启用")
+		return nil, nil, errors.New(i18n.T("主密码已启用"))
 	}
 	if v.key == nil {
 		return nil, nil, ErrLocked
@@ -239,11 +240,11 @@ func (v *Vault) DisableMasterPassword(password string) (oldKey, newKey []byte, e
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if !v.meta.MasterPasswordEnabled {
-		return nil, nil, errors.New("主密码未启用")
+		return nil, nil, errors.New(i18n.T("主密码未启用"))
 	}
 	salt, err := base64.StdEncoding.DecodeString(v.meta.SaltB64)
 	if err != nil {
-		return nil, nil, errors.New("安全元数据损坏")
+		return nil, nil, errors.New(i18n.T("安全元数据损坏"))
 	}
 	derived := DeriveKey(password, salt)
 	if v.meta.VerifierB64 != "" {
@@ -262,7 +263,7 @@ func (v *Vault) DisableMasterPassword(password string) (oldKey, newKey []byte, e
 	}
 	if err := keyring.Set(keyringService, keyringUser, base64.StdEncoding.EncodeToString(newKey)); err != nil {
 		if err2 := os.WriteFile(v.fileKeyPath(), []byte(base64.StdEncoding.EncodeToString(newKey)), 0o600); err2 != nil {
-			return nil, nil, fmt.Errorf("保存主密钥失败: %v / %v", err, err2)
+			return nil, nil, fmt.Errorf(i18n.T("保存主密钥失败: %v / %v"), err, err2)
 		}
 	}
 	v.meta.MasterPasswordEnabled = false
@@ -281,14 +282,14 @@ func (v *Vault) ChangeMasterPassword(oldPass, newPass string) (oldKey, newKey []
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if !v.meta.MasterPasswordEnabled {
-		return nil, nil, errors.New("主密码未启用")
+		return nil, nil, errors.New(i18n.T("主密码未启用"))
 	}
 	if newPass == "" {
-		return nil, nil, errors.New("新主密码不能为空")
+		return nil, nil, errors.New(i18n.T("新主密码不能为空"))
 	}
 	salt, err := base64.StdEncoding.DecodeString(v.meta.SaltB64)
 	if err != nil {
-		return nil, nil, errors.New("安全元数据损坏")
+		return nil, nil, errors.New(i18n.T("安全元数据损坏"))
 	}
 	oldKey = DeriveKey(oldPass, salt)
 	if v.meta.VerifierB64 != "" {

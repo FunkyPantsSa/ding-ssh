@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import {t as $t} from '../../i18n'
+
+import {t} from '../../i18n'
+
 import {computed, ref} from 'vue'
 import {useSessionsStore} from '../../stores/sessions'
 import {sysInfoService} from '../../services/sysinfo'
@@ -13,8 +17,8 @@ async function refresh() {
  const sessions = useSessionsStore()
  const settings = useSettingsStore()
  const tab = sessions.tabs.find(t => t.node.id === props.node.id && t.node.host === props.node.host && t.node.port === props.node.port && t.status === 'connected')
- if (!tab || !settings.sysInfoCollectEnabled) { refreshMessage.value = '请先连接此服务器并开启自动采集'; return }
- try { await sysInfoService.stop(tab.sessionId); await sysInfoService.start(tab.sessionId); refreshMessage.value = '已请求刷新' } catch { refreshMessage.value = '刷新失败' }
+ if (!tab || !settings.sysInfoCollectEnabled) { refreshMessage.value = t("请先连接此服务器并开启自动采集"); return }
+ try { await sysInfoService.stop(tab.sessionId); await sysInfoService.start(tab.sessionId); refreshMessage.value = t("已请求刷新") } catch { refreshMessage.value = t("刷新失败") }
 }
 const disks = computed(() => [...(snap.value?.diskUsage || [])].sort((a,b) => b.usagePct-a.usagePct))
 const worst = computed(() => disks.value[0])
@@ -25,32 +29,32 @@ const size = (gb: number) => `${Number((gb >= 1024 ? gb/1024 : gb).toFixed(1))} 
 </script>
 <template>
  <div class="summary" :class="{stale: status !== 'connected'}">
-  <span v-if="!snap" class="pending">配置待采集</span>
+  <span v-if="!snap" class="pending">{{ $t('配置待采集') }}</span>
   <template v-else>
    <span class="tag secondary" :title="`${snap.osName || ''} ${snap.architecture || ''}`">{{ snap.osName || 'Linux' }}</span>
-   <span v-if="snap.cpuCount" class="tag secondary">{{ snap.cpuCount }} 核</span>
-   <span class="tag secondary">{{ size(snap.memTotalMb / 1024) }} 内存</span>
+   <span v-if="snap.cpuCount" class="tag secondary">{{ snap.cpuCount }} {{ $t('核') }}</span>
+   <span class="tag secondary">{{ size(snap.memTotalMb / 1024) }} {{ $t('内存') }}</span>
    <div class="disk" :class="{pinned}">
-    <button class="tag config-trigger" aria-label="查看服务器配置信息" :aria-expanded="pinned" @click.stop="pinned = !pinned" @keydown.esc="pinned = false"> <span v-if="worst?.usagePct >= 85" :style="{color: worst.usagePct >= 95 ? 'var(--destructive)' : 'var(--warning)'}">●</span> <span class="expanded-label">磁盘 {{ size(used) }} / {{ size(total) }}</span><span class="collapsed-label">配置信息 ▾</span> <span v-if="worst?.usagePct >= 95">{{ worst.mountPoint }} {{ worst.usagePct }}%</span></button>
+    <button class="tag config-trigger" :aria-label="$t('查看服务器配置信息')" :aria-expanded="pinned" @click.stop="pinned = !pinned" @keydown.esc="pinned = false"> <span v-if="worst?.usagePct >= 85" :style="{color: worst.usagePct >= 95 ? 'var(--destructive)' : 'var(--warning)'}">●</span> <span class="expanded-label">{{ $t('磁盘') }} {{ size(used) }} / {{ size(total) }}</span><span class="collapsed-label">{{ $t('配置信息 ▾') }}</span> <span v-if="worst?.usagePct >= 95">{{ worst.mountPoint }} {{ worst.usagePct }}%</span></button>
     <div class="details" @keydown.esc="pinned = false">
-     <strong class="details-title">服务器配置信息</strong>
+     <strong class="details-title">{{ $t('服务器配置信息') }}</strong>
      <dl class="config-grid">
-      <dt>系统</dt><dd>{{ snap.osName || '未采集' }}</dd>
-      <dt>架构</dt><dd>{{ snap.architecture || '未采集' }}</dd>
-      <dt>CPU</dt><dd>{{ snap.cpuCount ? `${snap.cpuCount} 核（逻辑 CPU）` : '未采集' }}</dd>
-      <dt>内存</dt><dd>{{ snap.memTotalMb ? size(snap.memTotalMb / 1024) : '未采集' }}</dd>
+      <dt>{{ $t('系统') }}</dt><dd>{{ snap.osName || t('未采集') }}</dd>
+      <dt>{{ $t('架构') }}</dt><dd>{{ snap.architecture || t('未采集') }}</dd>
+      <dt>CPU</dt><dd>{{ snap.cpuCount ? t('{0} 核（逻辑 CPU）', [snap.cpuCount]) : t('未采集') }}</dd>
+      <dt>{{ $t('内存') }}</dt><dd>{{ snap.memTotalMb ? size(snap.memTotalMb / 1024) : t('未采集') }}</dd>
      </dl>
-     <strong>本地文件系统：已用 {{ size(used) }} / 总量 {{ size(total) }}</strong>
-     <div v-for="d in disks" :key="d.mountPoint" class="partition" :title="`${d.device} ${d.fsType}`"><div>{{ d.mountPoint }} {{ d.network ? "（网络存储）" : d.uncertain ? "（共享池或特殊文件系统，不计入合计）" : "" }}　{{ size(d.usedBytes === undefined ? d.usedGb : d.usedBytes / 1073741824) }} / {{ size(d.totalBytes === undefined ? d.totalGb : d.totalBytes / 1073741824) }}　{{ d.usagePct }}%</div><progress :value="d.usagePct" max="100" /></div>
-     <small>更新于 {{ new Date(snap.collectedAt).toLocaleString() }}<br>{{ snap.error ? '数据暂未更新' : '' }}</small><div v-if="snap.diskIncomplete">统计不完整</div><button class="tag" @click.stop="refresh">刷新配置</button><span role="status">{{ refreshMessage }}</span>
+     <strong>{{ $t('本地文件系统：已用') }} {{ size(used) }} {{ $t('/ 总量') }} {{ size(total) }}</strong>
+     <div v-for="d in disks" :key="d.mountPoint" class="partition" :title="`${d.device} ${d.fsType}`"><div>{{ d.mountPoint }} {{ d.network ? t('（网络存储）') : d.uncertain ? t('（共享池或特殊文件系统，不计入合计）') : "" }}　{{ size(d.usedBytes === undefined ? d.usedGb : d.usedBytes / 1073741824) }} / {{ size(d.totalBytes === undefined ? d.totalGb : d.totalBytes / 1073741824) }}　{{ d.usagePct }}%</div><progress :value="d.usagePct" max="100" /></div>
+     <small>{{ $t('更新于') }} {{ new Date(snap.collectedAt).toLocaleString() }}<br>{{ snap.error ? t('数据暂未更新') : '' }}</small><div v-if="snap.diskIncomplete">{{ $t('统计不完整') }}</div><button class="tag" @click.stop="refresh">{{ $t('刷新配置') }}</button><span role="status">{{ refreshMessage }}</span>
     </div>
    </div>
   </template>
  </div>
 </template>
 <style scoped>
-.collapsed-label{display:none}.details-title{display:block;margin-bottom:var(--space-3)}.config-grid{display:grid;grid-template-columns:48px minmax(0,1fr);gap:var(--space-2);margin:0 0 16px;padding-bottom:14px;border-bottom:1px solid var(--border)}.config-grid dt{color:var(--muted-foreground)}.config-grid dd{margin:0;overflow-wrap:anywhere}
-.summary{flex:0 1 auto;display:flex;align-items:center;gap:6px;min-width:0;margin:0 16px}.stale{opacity:.65}.pending{font-size:var(--text-2xs);color:var(--muted-foreground)}.tag{font-size:var(--text-2xs);white-space:nowrap;border:1px solid var(--border);background:var(--hover);color:var(--foreground);border-radius:var(--radius-small);padding:3px 7px;max-width:180px;overflow:hidden;text-overflow:ellipsis}.disk{position:relative;flex-shrink:0}.details{display:none;position:fixed;top:30%;left:30%;z-index:50;width:420px;max-height:360px;overflow:auto;background:var(--background);color:var(--foreground);border:1px solid var(--border);border-radius:var(--radius-control);padding:var(--space-4);box-shadow:var(--shadow-overlay);font-size:var(--text-xs)}.disk:hover .details,.disk:focus-within .details,.pinned .details{display:block}.partition{margin:var(--space-3) 0}progress{width:100%;height:4px;accent-color:var(--border-focus)}small{color:var(--muted-foreground)}@container(max-width:1100px){.secondary:first-child{display:none}.expanded-label{display:none}.collapsed-label{display:inline}}@container(max-width:950px){.secondary{display:none}}@media(max-width:750px){.summary{margin:0 4px}.tag{max-width:120px}.details{position:fixed;top:20%;left:5%;right:5%;width:auto}}
+.collapsed-label{display:none}.details-title{display:block;margin-bottom:var(--space-3)}.config-grid{display:grid;grid-template-columns:fit-content(40%) minmax(0,1fr);gap:var(--space-2);margin:0 0 16px;padding-bottom:14px;border-bottom:1px solid var(--border)}.config-grid dt{min-width:0;overflow-wrap:anywhere;color:var(--muted-foreground)}.config-grid dd{min-width:0;margin:0;overflow-wrap:anywhere}
+.summary{flex:0 1 auto;display:flex;align-items:center;gap:6px;min-width:0;margin:0 16px}.stale{opacity:.65}.pending{font-size:var(--text-2xs);color:var(--muted-foreground)}.tag{font-size:var(--text-2xs);white-space:nowrap;border:1px solid var(--border);background:var(--hover);color:var(--foreground);border-radius:var(--radius-small);padding:3px 7px;max-width:180px;overflow:hidden;text-overflow:ellipsis}.disk{position:relative;flex-shrink:0}.details{display:none;position:fixed;top:30%;left:clamp(16px,30%,max(16px,calc(100vw - 436px)));z-index:50;width:min(420px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:min(360px,calc(70vh - 16px));overflow-wrap:anywhere;overflow:auto;background:var(--background);color:var(--foreground);border:1px solid var(--border);border-radius:var(--radius-control);padding:var(--space-4);box-shadow:var(--shadow-overlay);font-size:var(--text-xs)}.disk:hover .details,.disk:focus-within .details,.pinned .details{display:block}.partition{margin:var(--space-3) 0}progress{width:100%;height:4px;accent-color:var(--border-focus)}small{color:var(--muted-foreground)}@container(max-width:1100px){.secondary:first-child{display:none}.expanded-label{display:none}.collapsed-label{display:inline}}@container(max-width:950px){.secondary{display:none}}@media(max-width:750px){.summary{margin:0 4px}.tag{max-width:120px}.details{position:fixed;top:20%;left:5%;right:5%;width:auto}}
 @container(max-width:750px){.summary{max-width:120px}.disk .tag{max-width:120px}}
 @container(max-width:650px){.summary{margin:0 4px;flex-shrink:0}}
 </style>

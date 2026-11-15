@@ -1,4 +1,8 @@
 <script lang="ts" setup>
+import {t as $t} from '../i18n'
+
+import {t} from '../i18n'
+
 import Icon from './Icon.vue'
 import ServerDialog from './ServerDialog.vue'
 import SSHConfigImportDialog from './SSHConfigImportDialog.vue'
@@ -17,14 +21,11 @@ const {servers, groups, keyword, activeGroup, showDialog, showSSHImport, editing
     <div class="page-pad flex flex-col gap-4 min-h-0">
       <!-- 页面头：说明 + 在线统计（标题已在顶栏呈现，此处不重复） -->
       <div class="page-hero flex items-center justify-between gap-6 shrink-0">
-        <p class="text-[12.5px] text-mist leading-relaxed max-w-[560px]">
-          添加、编辑与删除 SSH 节点，按分组组织并测试在线状态。
-        </p>
+        <p class="text-[12.5px] text-mist leading-relaxed max-w-[560px]">{{ $t('添加、编辑与删除 SSH 节点，按分组组织并测试在线状态。') }}</p>
         <div class="flex items-center gap-2 shrink-0">
           <span class="chip">
             <span class="dot"></span>
-            {{ onlineServers }}/{{ servers.servers.length }} 台在线
-          </span>
+            {{ onlineServers }}/{{ servers.servers.length }} {{ $t('台在线') }}</span>
         </div>
       </div>
 
@@ -39,7 +40,7 @@ const {servers, groups, keyword, activeGroup, showDialog, showSSHImport, editing
 
           <!-- 列表 -->
           <div class="flex-1 min-h-0 overflow-y-auto server-list-panel">
-            <div v-if="servers.loading" class="flex flex-col" aria-busy="true" aria-label="正在加载服务器">
+            <div v-if="servers.loading" class="flex flex-col" aria-busy="true" :aria-label="$t('正在加载服务器')">
               <div v-for="i in 6" :key="i" class="flex items-center gap-3 px-4 py-3">
                 <div class="skel w-2 h-2 rounded-full shrink-0"></div>
                 <div class="skel h-3 w-1/3"></div>
@@ -48,21 +49,19 @@ const {servers, groups, keyword, activeGroup, showDialog, showSSHImport, editing
             </div>
             <ErrorState
               v-else-if="servers.error"
-              title="服务器列表加载失败"
+              :title="$t('服务器列表加载失败')"
               :description="servers.error"
               @retry="servers.load()"
             />
             <EmptyState
               v-else-if="filtered.length === 0"
-              :title="servers.servers.length ? '没有匹配的服务器' : '暂无服务器'"
-              :description="servers.servers.length ? '换个关键词，或切换左侧分组试试。' : '点击「新建服务器」添加节点，之后即可在终端页快速连接。'"
+              :title="servers.servers.length ? t('没有匹配的服务器') : t('暂无服务器')"
+              :description="servers.servers.length ? t('换个关键词，或切换左侧分组试试。') : t('点击「新建服务器」添加节点，之后即可在终端页快速连接。')"
             >
               <template #icon><Icon name="server" :size="32" extra-class="text-mist/40" /></template>
               <template v-if="!servers.servers.length" #actions>
                 <Button variant="primary" size="sm" data-testid="server-create-empty" @click="openNew">
-                  <Icon name="plus" :size="14" />
-                  新建服务器
-                </Button>
+                  <Icon name="plus" :size="14" />{{ $t('新建服务器') }}</Button>
               </template>
             </EmptyState>
 
@@ -77,45 +76,43 @@ const {servers, groups, keyword, activeGroup, showDialog, showSSHImport, editing
 
     <ServerContextMenu v-if="serverMenu" :node="serverMenu.node" :position="serverMenu" :copied="copiedHostId === serverMenu.node.id" :cloning="cloning" @edit="menuEdit" @copy="menuCopyHost" @duplicate="menuDuplicate" @test="menuTest" @remove="confirmNode = serverMenu!.node; closeRowMenu()" @close="closeRowMenu" />
 
-    <Dialog :model-value="!!confirmNode" title="删除服务器" :width="420" @update:model-value="(v) => { if (!v) confirmNode = null }">
-      <p class="text-[13px] text-mist leading-relaxed">确认删除服务器「{{ confirmNode?.name }}」？此操作不可恢复。</p>
+    <Dialog :model-value="!!confirmNode" :title="$t('删除服务器')" :width="420" @update:model-value="(v) => { if (!v) confirmNode = null }">
+      <p class="text-[13px] text-mist leading-relaxed">{{ $t('确认删除服务器「') }} {{ confirmNode?.name }} {{ $t('」？此操作不可恢复。') }}</p>
       <template #footer>
-        <Button variant="ghost" @click="confirmNode = null">取消</Button>
-        <Button variant="danger" data-testid="server-delete-confirm" @click="remove">删除</Button>
+        <Button variant="ghost" @click="confirmNode = null">{{ $t('取消') }}</Button>
+        <Button variant="danger" data-testid="server-delete-confirm" @click="remove">{{ $t('删除') }}</Button>
       </template>
     </Dialog>
 
-    <Dialog v-model="showGroupManager" title="分组管理" :width="420">
+    <Dialog v-model="showGroupManager" :title="$t('分组管理')" :width="420">
       <div class="space-y-3">
         <div class="flex gap-2">
-          <Input v-model="newGroupName" aria-label="新分组名称" placeholder="新分组名称" class="flex-1" @keyup.enter="addGroup" />
-          <Button variant="primary" size="sm" @click="addGroup">添加</Button>
+          <Input v-model="newGroupName" :aria-label="$t('新分组名称')" :placeholder="$t('新分组名称')" class="flex-1" @keyup.enter="addGroup" />
+          <Button variant="primary" size="sm" @click="addGroup">{{ $t('添加') }}</Button>
         </div>
         <p v-if="groupError" class="text-xs text-danger" role="alert">{{ groupError }}</p>
-        <div v-if="!groups.list.length" class="text-xs text-mist py-2 text-center">
-          暂无手动分组，服务器节点使用的分组会自动出现。
-        </div>
+        <div v-if="!groups.list.length" class="text-xs text-mist py-2 text-center">{{ $t('暂无手动分组，服务器节点使用的分组会自动出现。') }}</div>
         <div
           v-for="g in groups.list"
           :key="g"
           class="neo-flat flex items-center justify-between gap-2 px-3 py-2"
         >
           <template v-if="renameTarget === g">
-            <Input v-model="renameInput" :aria-label="`重命名分组 ${g}`" class="flex-1" @keyup.enter="doRename" />
-            <Button variant="primary" size="sm" @click="doRename">确定</Button>
-            <Button variant="ghost" size="sm" @click="renameTarget = ''">取消</Button>
+            <Input v-model="renameInput" :aria-label="t('重命名分组 {0}', [g])" class="flex-1" @keyup.enter="doRename" />
+            <Button variant="primary" size="sm" @click="doRename">{{ $t('确定') }}</Button>
+            <Button variant="ghost" size="sm" @click="renameTarget = ''">{{ $t('取消') }}</Button>
           </template>
           <template v-else>
             <span class="min-w-0 truncate text-[13px] text-[var(--foreground)]">{{ g }}</span>
             <div class="flex items-center gap-1 shrink-0">
               <template v-if="confirmGroupDelete !== g">
-                <Button variant="ghost" size="sm" @click="startRename(g)">重命名</Button>
-                <Button variant="ghost" size="sm" @click="confirmGroupDelete = g">删除</Button>
+                <Button variant="ghost" size="sm" @click="startRename(g)">{{ $t('重命名') }}</Button>
+                <Button variant="ghost" size="sm" @click="confirmGroupDelete = g">{{ $t('删除') }}</Button>
               </template>
               <template v-else>
-                <span class="text-[12px] text-mist">删除后其中服务器将变为未分组</span>
-                <Button variant="danger" size="sm" @click="removeGroup(g)">确认</Button>
-                <Button variant="ghost" size="sm" @click="confirmGroupDelete = ''">取消</Button>
+                <span class="text-[12px] text-mist">{{ $t('删除后其中服务器将变为未分组') }}</span>
+                <Button variant="danger" size="sm" @click="removeGroup(g)">{{ $t('确认') }}</Button>
+                <Button variant="ghost" size="sm" @click="confirmGroupDelete = ''">{{ $t('取消') }}</Button>
               </template>
             </div>
           </template>

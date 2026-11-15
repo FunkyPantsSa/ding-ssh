@@ -1,4 +1,8 @@
 <script lang="ts" setup>
+import {t as $t} from '../i18n'
+
+import {t} from '../i18n'
+
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {copyText} from '../utils/clipboard'
@@ -111,7 +115,7 @@ const menuItems = computed(() => {
   if (openMenu.value === 'net') {
     return nets.value.map((n) => ({
       value: n.name,
-      label: n.name, detail: n.ip || '无 IP',
+      label: n.name, detail: n.ip || t("无 IP"),
     }))
   }
   return []
@@ -244,7 +248,7 @@ function fmtMbps(v: number): string {
       <div class="metric" :class="(selectedDisk?.usagePct ?? 0) > 75 ? 'warn' : ''">
         <span>DISK</span>
         <template v-if="disks.length">
-          <button type="button" data-statusbar-trigger class="statusbar-pick" aria-label="选择分区" :aria-expanded="openMenu === 'disk'" @click="toggleMenu('disk', $event)">
+          <button type="button" data-statusbar-trigger class="statusbar-pick" :aria-label="$t('选择分区')" :aria-expanded="openMenu === 'disk'" @click="toggleMenu('disk', $event)">
             <span class="truncate max-w-16">{{ selectedDisk?.mountPoint }}</span>
             <Icon name="chevron-down" :size="10" />
           </button>
@@ -256,11 +260,11 @@ function fmtMbps(v: number): string {
       <div class="metric">
         <span>NET</span>
         <template v-if="nets.length">
-          <button type="button" data-statusbar-trigger class="statusbar-pick" aria-label="选择网卡" :aria-expanded="openMenu === 'net'" @click="toggleMenu('net', $event)">
+          <button type="button" data-statusbar-trigger class="statusbar-pick" :aria-label="$t('选择网卡')" :aria-expanded="openMenu === 'net'" @click="toggleMenu('net', $event)">
             <span class="truncate max-w-16">{{ selectedNet?.name }}</span>
             <Icon name="chevron-down" :size="10" />
           </button>
-          <button v-if="selectedNet?.ip" type="button" class="statusbar-pick" title="点击复制 IP 地址" @click="copyText(selectedNet.ip).catch(() => {})">{{ selectedNet.ip }}</button>
+          <button v-if="selectedNet?.ip" type="button" class="statusbar-pick" :title="$t('点击复制 IP 地址')" @click="copyText(selectedNet.ip).catch(() => {})">{{ selectedNet.ip }}</button>
           <span class="text-signal">↓{{ fmtMbps(selectedNet?.rxMbps ?? 0) }}Mb/s</span>
           <span class="text-copper">↑{{ fmtMbps(selectedNet?.txMbps ?? 0) }}Mb/s</span>
         </template>
@@ -270,8 +274,8 @@ function fmtMbps(v: number): string {
       <span v-if="snap?.error" class="text-warn truncate max-w-[14rem]" :title="snap.error">{{ snap.error }}</span>
     </template>
     <template v-else>
-      <span v-if="settings.sysInfoCollectEnabled">连接服务器后显示 CPU / 内存 / 磁盘 / 网卡状态</span>
-      <span v-else class="text-warn">「登录后自动采集」已关闭：登录服务器不执行任何采集命令</span>
+      <span v-if="settings.sysInfoCollectEnabled">{{ $t('连接服务器后显示 CPU / 内存 / 磁盘 / 网卡状态') }}</span>
+      <span v-else class="text-warn">{{ $t('「登录后自动采集」已关闭：登录服务器不执行任何采集命令') }}</span>
     </template>
   </footer>
 
@@ -280,7 +284,7 @@ function fmtMbps(v: number): string {
       <button
         v-for="item in menuItems"
         :key="item.value"
-        :title="openMenu === 'net' && item.detail !== '无 IP' ? '点击选择并复制 IP 地址' : item.label"
+        :title="openMenu === 'net' && item.detail !== t('无 IP') ? t('点击选择并复制 IP 地址') : item.label"
         type="button"
         :class="item.value === menuActive ? 'is-active' : ''"
         @click="pickItem(item.value)"

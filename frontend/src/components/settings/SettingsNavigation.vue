@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import {t as $t} from '../../i18n'
+
 import Icon from '@/components/Icon.vue'
 
 export type SettingsNavItem = {
@@ -18,7 +20,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <nav class="set-nav" data-ui="settings-nav" aria-label="设置分类">
+  <nav class="set-nav" data-ui="settings-nav" :aria-label="$t('设置分类')">
     <button
       v-for="item in items"
       :key="item.key"

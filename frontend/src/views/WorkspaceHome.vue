@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import {t as $t} from '../i18n'
+
+import {t} from '../i18n'
+
 import {computed, onMounted} from 'vue'
 import {serverUsage} from '@/services/recent'
 import {useUIStore} from '@/stores/ui'
@@ -31,12 +35,12 @@ const recentServers = computed(() => [...usage.value]
 const groupCount = computed(() => new Set(servers.servers.map((server) => server.group).filter(Boolean)).size)
 const onlineTabs = computed(() => sessions.tabs.filter(t => t.status === 'connected'))
 const shortcuts = [
-  {label: '命令面板', description: '搜索并执行应用命令', icon: 'command', open: () => ui.openCommandPalette()},
-  {label: '新建服务器', description: '保存新的 SSH 连接', icon: 'plus', open: () => ui.requestNewServer()},
-  {label: 'SSH 隧道', description: '管理端口转发', icon: 'terminal', open: () => ui.showTunnel()},
-  {label: '运行状态', description: '查看资源占用和渲染方式', icon: 'activity', open: () => ui.showSettings('about')},
-  {label: '应用日志', description: '查看连接和诊断日志', icon: 'file', open: () => ui.showSettings('logs')},
-  {label: '导入导出', description: '迁移服务器与配置', icon: 'package', open: () => ui.showSettings('migrate')},
+  {label: t("命令面板"), description: t("搜索并执行应用命令"), icon: 'command', open: () => ui.openCommandPalette()},
+  {label: t("新建服务器"), description: t("保存新的 SSH 连接"), icon: 'plus', open: () => ui.requestNewServer()},
+  {label: t("SSH 隧道"), description: t("管理端口转发"), icon: 'terminal', open: () => ui.showTunnel()},
+  {label: t("运行状态"), description: t("查看资源占用和渲染方式"), icon: 'activity', open: () => ui.showSettings('about')},
+  {label: t("应用日志"), description: t("查看连接和诊断日志"), icon: 'file', open: () => ui.showSettings('logs')},
+  {label: t("导入导出"), description: t("迁移服务器与配置"), icon: 'package', open: () => ui.showSettings('migrate')},
 ]
 
 onMounted(() => {
@@ -50,23 +54,19 @@ function connect(server: (typeof servers.servers)[number]) {
 </script>
 
 <template>
-  <section class="workspace-home" aria-label="工作区首页">
+  <section class="workspace-home" :aria-label="$t('工作区首页')">
     <div class="home-content">
       <header class="home-hero">
         <div>
           <span class="home-eyebrow"><span class="home-live-dot"></span> SSH workspace</span>
-          <h2>准备连接到哪里？</h2>
-          <p>在一个安静、专注的工作区里管理服务器、终端与文件传输。</p>
+          <h2>{{ $t('准备连接到哪里？') }}</h2>
+          <p>{{ $t('在一个安静、专注的工作区里管理服务器、终端与文件传输。') }}</p>
         </div>
         <div class="home-hero-actions">
           <Button variant="primary" @click="emit('quickConnect')">
-            <Icon name="zap" :size="14" />
-            快速连接
-          </Button>
+            <Icon name="zap" :size="14" />{{ $t('快速连接') }}</Button>
           <Button variant="ghost" @click="ui.showWorkspace(); sessions.openLocalTab()">
-            <Icon name="monitor" :size="14" />
-            本地终端
-          </Button>
+            <Icon name="monitor" :size="14" />{{ $t('本地终端') }}</Button>
         </div>
       </header>
 
@@ -75,15 +75,14 @@ function connect(server: (typeof servers.servers)[number]) {
           <div class="home-panel-head">
             <div>
               <span class="home-kicker">SERVERS</span>
-              <h3>常用服务器</h3>
-              <p class="home-panel-hint">按成功登录次数排序</p>
+              <h3>{{ $t('常用服务器') }}</h3>
+              <p class="home-panel-hint">{{ $t('按成功登录次数排序') }}</p>
             </div>
-            <button class="home-link" type="button" @click="emit('manageServers')">
-              管理全部 <Icon name="arrow-right" :size="13" />
+            <button class="home-link" type="button" @click="emit('manageServers')">{{ $t('管理全部') }}<Icon name="arrow-right" :size="13" />
             </button>
           </div>
 
-          <div v-if="servers.loading && !servers.servers.length" class="home-server-list" aria-label="正在加载服务器">
+          <div v-if="servers.loading && !servers.servers.length" class="home-server-list" :aria-label="$t('正在加载服务器')">
             <div v-for="i in 3" :key="i" class="home-server-row skeleton-row"></div>
           </div>
           <div v-else-if="featuredServers.length" class="home-server-list">
@@ -99,51 +98,51 @@ function connect(server: (typeof servers.servers)[number]) {
                 <strong>{{ server.name }}</strong>
                 <small>{{ server.user }}@{{ server.host }}:{{ server.port }}</small>
               </span>
-              <span class="home-server-group">{{ count }} 次</span>
+              <span class="home-server-group">{{ count }} {{ $t('次') }}</span>
               <span v-if="server.group" class="home-server-group">{{ server.group }}</span>
               <Icon name="chevron-right" :size="14" extra-class="home-row-arrow" />
             </button>
           </div>
           <div v-else class="home-empty">
             <span class="home-empty-icon"><Icon name="plus" :size="18" /></span>
-            <div v-if="servers.servers.length"><strong>还没有常用服务器</strong><p>成功连接已保存的服务器后，这里会按登录次数更新。</p></div>
-            <div v-else><strong>添加第一台服务器</strong><p>保存连接信息，下次一键进入终端。</p></div>
-            <Button v-if="servers.servers.length" variant="ghost" size="sm" @click="emit('quickConnect')">快速连接</Button>
-            <Button v-else variant="ghost" size="sm" @click="ui.requestNewServer()">新建服务器</Button>
+            <div v-if="servers.servers.length"><strong>{{ $t('还没有常用服务器') }}</strong><p>{{ $t('成功连接已保存的服务器后，这里会按登录次数更新。') }}</p></div>
+            <div v-else><strong>{{ $t('添加第一台服务器') }}</strong><p>{{ $t('保存连接信息，下次一键进入终端。') }}</p></div>
+            <Button v-if="servers.servers.length" variant="ghost" size="sm" @click="emit('quickConnect')">{{ $t('快速连接') }}</Button>
+            <Button v-else variant="ghost" size="sm" @click="ui.requestNewServer()">{{ $t('新建服务器') }}</Button>
           </div>
         </section>
 
         <aside class="home-side">
           <section class="home-panel home-status">
             <span class="home-kicker">OVERVIEW</span>
-            <h3>首页概览</h3>
+            <h3>{{ $t('首页概览') }}</h3>
             <div class="home-stats">
-              <div><strong>{{ servers.servers.length }}</strong><span>服务器</span></div>
-              <div><strong>{{ groupCount }}</strong><span>分组</span></div>
-              <div><strong>{{ sessions.tabs.length }}</strong><span>会话</span></div>
+              <div><strong>{{ servers.servers.length }}</strong><span>{{ $t('服务器') }}</span></div>
+              <div><strong>{{ groupCount }}</strong><span>{{ $t('分组') }}</span></div>
+              <div><strong>{{ sessions.tabs.length }}</strong><span>{{ $t('会话') }}</span></div>
             </div>
           </section>
 
           <section class="home-panel home-status">
-            <h3>在线会话 · {{ onlineTabs.length }}</h3>
-            <button v-for="tab in onlineTabs" :key="tab.clientId" class="home-server-row" @click="ui.showWorkspace(); sessions.activateTab(tab.clientId)">{{ tab.node?.name || '本机终端' }} <Icon name="arrow-right" :size="14" /></button>
-            <p v-if="!onlineTabs.length">暂无在线会话</p>
+            <h3>{{ $t('在线会话 ·') }} {{ onlineTabs.length }}</h3>
+            <button v-for="tab in onlineTabs" :key="tab.clientId" class="home-server-row" @click="ui.showWorkspace(); sessions.activateTab(tab.clientId)">{{ tab.node?.name || t('本机终端') }} <Icon name="arrow-right" :size="14" /></button>
+            <p v-if="!onlineTabs.length">{{ $t('暂无在线会话') }}</p>
           </section>
           <section class="home-panel home-status">
-            <h3>最近连接</h3>
+            <h3>{{ $t('最近连接') }}</h3>
             <button v-for="{server} in recentServers" :key="server.id" class="home-server-row" @click="connect(server)">{{ server.name }} <Icon name="arrow-right" :size="14" /></button>
-            <p v-if="!recentServers.length">连接服务器后将在这里显示</p>
+            <p v-if="!recentServers.length">{{ $t('连接服务器后将在这里显示') }}</p>
           </section>
           <button type="button" class="home-panel home-theme" @click="ui.showSettings('theme')">
             <span class="home-theme-icon"><Icon name="palette" :size="17" /></span>
-            <span><strong>让工作区更像你</strong><small>调整颜色、明暗与终端主题</small></span>
+            <span><strong>{{ $t('让工作区更像你') }}</strong><small>{{ $t('调整颜色、明暗与终端主题') }}</small></span>
             <Icon name="arrow-right" :size="14" extra-class="home-row-arrow" />
           </button>
         </aside>
       </div>
 
       <section class="home-panel home-tools" aria-labelledby="home-tools-title">
-        <h3 id="home-tools-title">快捷入口</h3>
+        <h3 id="home-tools-title">{{ $t('快捷入口') }}</h3>
         <div class="home-tool-grid">
           <button v-for="shortcut in shortcuts" :key="shortcut.label" type="button" class="home-server-row" @click="shortcut.open()">
             <span class="home-server-icon"><Icon :name="shortcut.icon" :size="16" /></span>
@@ -154,9 +153,9 @@ function connect(server: (typeof servers.servers)[number]) {
       </section>
 
       <footer class="home-shortcuts">
-        <span><kbd>⌘ K</kbd> 命令面板</span>
-        <span><kbd>⌘ T</kbd> 本地终端</span>
-        <span><kbd>⌘ ,</kbd> 偏好设置</span>
+        <span><kbd>⌘ K</kbd>{{ $t('命令面板') }}</span>
+        <span><kbd>⌘ T</kbd>{{ $t('本地终端') }}</span>
+        <span><kbd>⌘ ,</kbd>{{ $t('偏好设置') }}</span>
       </footer>
     </div>
   </section>

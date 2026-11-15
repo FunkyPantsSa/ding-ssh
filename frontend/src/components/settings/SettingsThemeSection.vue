@@ -1,4 +1,8 @@
 <script lang="ts" setup>
+import {t as $t} from '../../i18n'
+
+import {t} from '../../i18n'
+
 import {computed, onMounted, ref, watch} from 'vue'
 import Icon from '../Icon.vue'
 import SearchSelect from '../ui/select/SearchSelect.vue'
@@ -17,15 +21,15 @@ const importError = ref('')
 const showImportError = ref(false)
 const importMessage = ref('')
 const importing = ref(false)
-void restoreCustomFonts().catch(() => { importMessage.value = '无法读取已导入字体' })
+void restoreCustomFonts().catch(() => { importMessage.value = t("无法读取已导入字体") })
 async function importFont(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
   importing.value = true
-  try { await importCustomFont(file); importMessage.value = '字体已导入并保存' }
+  try { await importCustomFont(file); importMessage.value = t("字体已导入并保存") }
   catch (error) {
-    importError.value = error instanceof Error ? error.message : '字体导入失败，请重试。'
+    importError.value = error instanceof Error ? error.message : t("字体导入失败，请重试。")
     importMessage.value = importError.value
     showImportError.value = true
   }
@@ -40,8 +44,8 @@ const materialCapabilities = detectCapabilities()
 const materialFallback = computed(() => (appearanceForm.materialMode ?? 'solid') !== 'solid' && !materialCapabilities.nativeBackdrop)
 const currentMaterial = computed(() => appearanceForm.materialMode ?? (appearanceForm.glassEnabled ? 'soft' : 'solid'))
 const terminalPresetOptions = PRESETS.flatMap(preset => [
-  {value: preset.id + ':dark', label: preset.name + ' · 深色', keywords: preset.id + ' dark'},
-  {value: preset.id + ':light', label: preset.name + ' · 浅色', keywords: preset.id + ' light'},
+  {value: preset.id + ':dark', label: preset.name + t(" · 深色"), keywords: preset.id + ' dark'},
+  {value: preset.id + ':light', label: preset.name + t(" · 浅色"), keywords: preset.id + ' light'},
 ])
 function chooseTerminal(value: string) {
   const [id, tone] = value.split(':')
@@ -49,12 +53,12 @@ function chooseTerminal(value: string) {
   if (preset) Object.assign(themeForm, paletteToTheme(tone === 'light' ? preset.light : preset.dark))
 }
 const PRESET_COLORS = [
-  {name: '黑白', color: '#A3A3A3'},
-  {name: '暖灰', color: '#E8E4DF'}, {name: '玫瑰粉', color: '#F19BC0'},
-  {name: '薰衣草紫', color: '#9E709F'}, {name: '珊瑚红', color: '#F15E6A'},
-  {name: '暖橙', color: '#FF805C'}, {name: '明黄', color: '#F4D258'},
-  {name: '薄荷绿', color: '#35DBA4'}, {name: '天空蓝', color: '#71B5D2'},
-  {name: '岩灰蓝', color: '#64698C'},
+  {name: t("黑白"), color: '#A3A3A3'},
+  {name: t("暖灰"), color: '#E8E4DF'}, {name: t("玫瑰粉"), color: '#F19BC0'},
+  {name: t("薰衣草紫"), color: '#9E709F'}, {name: t("珊瑚红"), color: '#F15E6A'},
+  {name: t("暖橙"), color: '#FF805C'}, {name: t("明黄"), color: '#F4D258'},
+  {name: t("薄荷绿"), color: '#35DBA4'}, {name: t("天空蓝"), color: '#71B5D2'},
+  {name: t("岩灰蓝"), color: '#64698C'},
 ]
 const rememberedHue = ref(0)
 const hsv = computed(() => {
@@ -78,27 +82,27 @@ const englishFont = computed({get: () => fontPair(fontsForm.terminalFont)[0], se
 const chineseFont = computed({get: () => fontPair(fontsForm.terminalFont)[1], set: value => { fontsForm.terminalFont = encodeFontPair(englishFont.value, value) }})
 const fontOptions = computed(() => [...new Set(['Geist Mono', 'JetBrains Mono', 'Fira Code', 'Maple Mono NF CN', 'Sarasa Mono SC', 'Noto Sans SC', 'system', ...customFonts.value])])
 const chineseFontOptions = computed(() => fontOptions.value.filter(font => ['Maple Mono NF CN', 'Sarasa Mono SC', 'Noto Sans SC', 'system'].includes(font) || customFontChinese.value[font]))
-function fontLabel(font: string) { return font === 'system' ? '系统默认' : font.replace('DingCustom-', '').replace(/-[a-f0-9]{12}$/, '') }
+function fontLabel(font: string) { return font === 'system' ? t("系统默认") : font.replace('DingCustom-', '').replace(/-[a-f0-9]{12}$/, '') }
 async function deleteFont(font: string) {
   try {
     await removeCustomFont(font)
     fontsForm.terminalFont = encodeFontPair(englishFont.value === font ? 'Geist Mono' : englishFont.value, chineseFont.value === font ? 'Noto Sans SC' : chineseFont.value)
-    importMessage.value = '字体已删除'
-  } catch { importMessage.value = '删除失败，请重试' }
+    importMessage.value = t("字体已删除")
+  } catch { importMessage.value = t("删除失败，请重试") }
 }
-const systemPlatform = navigator.platform || '未知系统'
+const systemPlatform = navigator.platform || t("未知系统")
 const systemLanguage = navigator.language
 const systemCores = navigator.hardwareConcurrency
 const fontDownloadMessage = computed(() => {
   const states = Object.entries(remoteFontStatus).filter(([key]) => fontPair(fontsForm.terminalFont).some(f => key.startsWith(`${f}:`))).map(([, state]) => state)
-  if (states.includes('error')) return '字体下载失败，暂用回退字体；重新选择此方案可重试。'
+  if (states.includes('error')) return t("字体下载失败，暂用回退字体；重新选择此方案可重试。")
   if (states.includes('loading')) {
     const entries = Object.entries(remoteFontProgress).filter(([key]) => fontPair(fontsForm.terminalFont).some(f => key.startsWith(`${f}:`)))
     const done = entries.reduce((sum, [, p]) => sum + p.done, 0)
     const total = entries.reduce((sum, [, p]) => sum + p.total, 0)
-    return `正在加载字体资源 ${done}/${total}，期间使用回退字体…`
+    return t("正在加载字体资源 {0}/{1}，期间使用回退字体…", [done, total])
   }
-  return states.length ? '字体已就绪，已缓存的资源可离线复用。' : '首次使用在线下载字体，之后复用本地缓存。'
+  return states.length ? t("字体已就绪，已缓存的资源可离线复用。") : t("首次使用在线下载字体，之后复用本地缓存。")
 })
 watch(() => [fontsForm.terminalFont, fontsForm.terminalFontSize] as const, ([name, size]) => {
   void loadTerminalFonts(name, size, 400).catch(() => { /* CSS fallback keeps the preview readable. */ })
@@ -150,121 +154,121 @@ function chooseColor(color: string) {
 <template>
   <section class="theme-page fade-rise" data-section-content="theme" aria-labelledby="settings-theme-title">
     <header class="theme-header">
-      <div><span class="theme-kicker">APPEARANCE</span><h3 id="settings-theme-title">主题</h3><p>选择一个颜色，ding-ssh 会自动生成协调、清晰的完整界面。</p></div>
-      <span class="save-state"><span :class="{saving}"></span>{{ saving ? '正在保存' : '已自动保存' }}</span>
+      <div><span class="theme-kicker">APPEARANCE</span><h3 id="settings-theme-title">{{ $t('主题') }}</h3><p>{{ $t('选择一个颜色，ding-ssh 会自动生成协调、清晰的完整界面。') }}</p></div>
+      <span class="save-state"><span :class="{saving}"></span> {{ saving ? t('正在保存') : t('已自动保存') }}</span>
     </header>
     <div class="theme-layout">
       <section class="theme-editor">
-        <div class="tone-switch" aria-label="界面明暗模式">
+        <div class="tone-switch" :aria-label="$t('界面明暗模式')">
           <button v-for="opt in TONE_OPTIONS" :key="opt.key" type="button" :class="{active: appearanceForm.baseTone === opt.key}" :aria-label="opt.label" :aria-pressed="appearanceForm.baseTone === opt.key" @click="setTone(opt.key)">
             <Icon :name="opt.key === 'auto' ? 'sparkles' : opt.key === 'light' ? 'sun' : 'moon'" :size="18" />
           </button>
         </div>
-        <div ref="picker" class="color-field" :style="pickerStyle" role="slider" tabindex="0" aria-label="主题颜色二维选择器" @pointerdown="startPicker" @pointermove="dragging && updateFromPointer($event)" @pointerup="dragging = false" @pointercancel="dragging = false">
+        <div ref="picker" class="color-field" :style="pickerStyle" role="slider" tabindex="0" :aria-label="$t('主题颜色二维选择器')" @pointerdown="startPicker" @pointermove="dragging && updateFromPointer($event)" @pointerup="dragging = false" @pointercancel="dragging = false">
           <span class="field-white"></span><span class="field-black"></span>
           <span class="color-marker" :style="markerStyle"><span :style="{background: appearanceForm.primary}"></span></span>
         </div>
-        <div class="color-spectrum" aria-label="完整颜色选择">
-          <div class="spectrum-heading"><strong>自定义颜色</strong><span>彩色 · 黑白 · 明暗</span></div>
-          <label class="hue-control"><span>彩色色相</span><input type="range" min="0" max="359" :value="hsv.h" aria-label="自定义色相" @input="setHue(Number(($event.target as HTMLInputElement).value))" /><output>{{ Math.round(hsv.h) }}°</output></label>
-          <label class="spectrum-control"><span>黑白灰阶</span><input class="grayscale-range" type="range" min="0" max="255" :value="Math.round(hsv.v * 255)" aria-label="黑白灰阶" @input="setSeedColor(hsvToHex(hsv.h, 0, Number(($event.target as HTMLInputElement).value) / 255))" /><output>{{ hsv.s === 0 ? Math.round(hsv.v * 100) + '%' : '灰阶' }}</output></label>
-          <label class="spectrum-control"><span>饱和度</span><input :style="saturationGradient" type="range" min="0" max="100" :value="Math.round(hsv.s * 100)" aria-label="颜色饱和度" @input="setSeedColor(hsvToHex(hsv.h, Number(($event.target as HTMLInputElement).value) / 100, hsv.v))" /><output>{{ Math.round(hsv.s * 100) }}%</output></label>
-          <label class="spectrum-control"><span>明度</span><input :style="brightnessGradient" type="range" min="0" max="100" :value="Math.round(hsv.v * 100)" aria-label="颜色明度" @input="setSeedColor(hsvToHex(hsv.h, hsv.s, Number(($event.target as HTMLInputElement).value) / 100))" /><output>{{ Math.round(hsv.v * 100) }}%</output></label>
-          <p class="spectrum-help">灰阶从纯黑到纯白；提高饱和度可恢复彩色，调整明度可选择更亮或更暗的颜色。也可直接输入 HEX。</p>
+        <div class="color-spectrum" :aria-label="$t('完整颜色选择')">
+          <div class="spectrum-heading"><strong>{{ $t('自定义颜色') }}</strong><span>{{ $t('彩色 · 黑白 · 明暗') }}</span></div>
+          <label class="hue-control"><span>{{ $t('彩色色相') }}</span><input type="range" min="0" max="359" :value="hsv.h" :aria-label="$t('自定义色相')" @input="setHue(Number(($event.target as HTMLInputElement).value))" /><output>{{ Math.round(hsv.h) }}°</output></label>
+          <label class="spectrum-control"><span>{{ $t('黑白灰阶') }}</span><input class="grayscale-range" type="range" min="0" max="255" :value="Math.round(hsv.v * 255)" :aria-label="$t('黑白灰阶')" @input="setSeedColor(hsvToHex(hsv.h, 0, Number(($event.target as HTMLInputElement).value) / 255))" /><output>{{ hsv.s === 0 ? Math.round(hsv.v * 100) + '%' : t('灰阶') }}</output></label>
+          <label class="spectrum-control"><span>{{ $t('饱和度') }}</span><input :style="saturationGradient" type="range" min="0" max="100" :value="Math.round(hsv.s * 100)" :aria-label="$t('颜色饱和度')" @input="setSeedColor(hsvToHex(hsv.h, Number(($event.target as HTMLInputElement).value) / 100, hsv.v))" /><output>{{ Math.round(hsv.s * 100) }}%</output></label>
+          <label class="spectrum-control"><span>{{ $t('明度') }}</span><input :style="brightnessGradient" type="range" min="0" max="100" :value="Math.round(hsv.v * 100)" :aria-label="$t('颜色明度')" @input="setSeedColor(hsvToHex(hsv.h, hsv.s, Number(($event.target as HTMLInputElement).value) / 100))" /><output>{{ Math.round(hsv.v * 100) }}%</output></label>
+          <p class="spectrum-help">{{ $t('灰阶从纯黑到纯白；提高饱和度可恢复彩色，调整明度可选择更亮或更暗的颜色。也可直接输入 HEX。') }}</p>
         </div>
-        <label class="native-color"><span>取色盘 · 任意主色</span><input type="color" :value="appearanceForm.primary" aria-label="自定义主色取色盘" @input="chooseColor(($event.target as HTMLInputElement).value)" /></label>
+        <label class="native-color"><span>{{ $t('取色盘 · 任意主色') }}</span><input type="color" :value="appearanceForm.primary" :aria-label="$t('自定义主色取色盘')" @input="chooseColor(($event.target as HTMLInputElement).value)" /></label>
         <div class="color-meta">
-          <div class="preset-row" aria-label="预设主题色">
+          <div class="preset-row" :aria-label="$t('预设主题色')">
             <span v-for="(preset, index) in PRESET_COLORS" :key="preset.name" class="preset-color-item">
               <button type="button" class="preset-dot" :class="{active: appearanceForm.primary.toUpperCase() === preset.color}" :style="{background: preset.color}" :aria-label="preset.name" :aria-describedby="`preset-color-name-${index}`" @click="chooseColor(preset.color)"></button>
               <span :id="`preset-color-name-${index}`" class="preset-color-name" role="tooltip">{{ preset.name }}</span>
             </span>
           </div>
-          <label class="hex-field"><span>HEX</span><Input v-model="appearanceForm.primary" aria-label="主题颜色 HEX" @change="chooseColor(appearanceForm.primary)" /></label>
+          <label class="hex-field"><span>HEX</span><Input v-model="appearanceForm.primary" :aria-label="$t('主题颜色 HEX')" @change="chooseColor(appearanceForm.primary)" /></label>
         </div>
         <div class="slider-list">
-          <label><span><strong>主题氛围强度</strong><output>{{ appearanceForm.atmosphere ?? appearanceForm.colorIntensity ?? 75 }}%</output></span><input :value="appearanceForm.atmosphere ?? appearanceForm.colorIntensity ?? 75" @input="setAtmosphere(Number(($event.target as HTMLInputElement).value))" type="range" min="0" max="100" aria-label="主题氛围强度" /></label>
-          <label><span><strong>区域层级差异</strong><output>{{ appearanceForm.surfaceSeparation ?? 65 }}%</output></span><input :value="appearanceForm.surfaceSeparation ?? 65" @input="setSeparation(Number(($event.target as HTMLInputElement).value))" type="range" min="0" max="100" aria-label="区域层级差异" /></label>
+          <label><span><strong>{{ $t('主题氛围强度') }}</strong><output>{{ appearanceForm.atmosphere ?? appearanceForm.colorIntensity ?? 75 }}%</output></span><input :value="appearanceForm.atmosphere ?? appearanceForm.colorIntensity ?? 75" @input="setAtmosphere(Number(($event.target as HTMLInputElement).value))" type="range" min="0" max="100" :aria-label="$t('主题氛围强度')" /></label>
+          <label><span><strong>{{ $t('区域层级差异') }}</strong><output>{{ appearanceForm.surfaceSeparation ?? 65 }}%</output></span><input :value="appearanceForm.surfaceSeparation ?? 65" @input="setSeparation(Number(($event.target as HTMLInputElement).value))" type="range" min="0" max="100" :aria-label="$t('区域层级差异')" /></label>
           <div class="material-block">
-            <span class="material-label"><strong>界面材质</strong><small>{{ MATERIAL_OPTIONS.find(option => option.key === currentMaterial)?.desc }}</small></span>
-            <div class="material-modes" role="radiogroup" aria-label="界面材质模式">
+            <span class="material-label"><strong>{{ $t('界面材质') }}</strong><small>{{ MATERIAL_OPTIONS.find(option => option.key === currentMaterial)?.desc }}</small></span>
+            <div class="material-modes" role="radiogroup" :aria-label="$t('界面材质模式')">
               <button v-for="option in MATERIAL_OPTIONS" :key="option.key" type="button" :class="{active: currentMaterial === option.key}" :aria-checked="currentMaterial === option.key" role="radio" @click="setMaterialMode(option.key)">{{ option.label }}</button>
             </div>
           </div>
-          <label><span><strong>表面不透明度</strong><output>{{ appearanceForm.glassOpacity }}%</output></span><input :value="appearanceForm.glassOpacity" @input="appearanceForm.glassOpacity = Number(($event.target as HTMLInputElement).value)" :disabled="currentMaterial === 'solid'" type="range" min="60" max="100" aria-label="表面不透明度" /></label>
-          <label><span><strong>浮层模糊</strong><output>{{ appearanceForm.glassBlur }}px</output></span><input v-model.number="appearanceForm.glassBlur" :disabled="currentMaterial === 'solid'" type="range" min="0" max="60" aria-label="浮层模糊" /></label>
-          <p class="glass-help">氛围强度控制大面积背景偏离中性的程度；层级差异控制导航、工作区与卡片的区别。桌面模糊由系统原生材质提供，前端不会重复模拟全窗口模糊。</p>
-          <p v-if="materialFallback" class="glass-help material-fallback" role="status">当前平台未提供系统背景模糊，已自动回退为实色表面。</p>
-          <label><span><strong>终端跟随应用主题</strong></span><ToggleSwitch :model-value="appearanceForm.terminalBackgroundMode !== 'independent'" @update:model-value="appearanceForm.terminalBackgroundMode = $event ? 'follow' : 'independent'" /></label>
-          <p class="glass-help">开启后终端背景、光标与选区跟随应用主题的明暗与种子色；ANSI 16 色和独立配色方案保持原样。关闭后完整使用终端方案自身的背景、光标与选区。</p>
+          <label><span><strong>{{ $t('表面不透明度') }}</strong><output>{{ appearanceForm.glassOpacity }}%</output></span><input :value="appearanceForm.glassOpacity" @input="appearanceForm.glassOpacity = Number(($event.target as HTMLInputElement).value)" :disabled="currentMaterial === 'solid'" type="range" min="60" max="100" :aria-label="$t('表面不透明度')" /></label>
+          <label><span><strong>{{ $t('浮层模糊') }}</strong><output>{{ appearanceForm.glassBlur }}px</output></span><input v-model.number="appearanceForm.glassBlur" :disabled="currentMaterial === 'solid'" type="range" min="0" max="60" :aria-label="$t('浮层模糊')" /></label>
+          <p class="glass-help">{{ $t('氛围强度控制大面积背景偏离中性的程度；层级差异控制导航、工作区与卡片的区别。桌面模糊由系统原生材质提供，前端不会重复模拟全窗口模糊。') }}</p>
+          <p v-if="materialFallback" class="glass-help material-fallback" role="status">{{ $t('当前平台未提供系统背景模糊，已自动回退为实色表面。') }}</p>
+          <label><span><strong>{{ $t('终端跟随应用主题') }}</strong></span><ToggleSwitch :model-value="appearanceForm.terminalBackgroundMode !== 'independent'" @update:model-value="appearanceForm.terminalBackgroundMode = $event ? 'follow' : 'independent'" /></label>
+          <p class="glass-help">{{ $t('开启后终端背景、光标与选区跟随应用主题的明暗与种子色；ANSI 16 色和独立配色方案保持原样。关闭后完整使用终端方案自身的背景、光标与选区。') }}</p>
           <div class="terminal-preset-field">
-            <label for="terminal-preset"><strong>终端配色方案</strong></label>
-            <SearchSelect id="terminal-preset" model-value="" placeholder="选择配色方案" :options="terminalPresetOptions" @update:model-value="chooseTerminal" />
+            <label for="terminal-preset"><strong>{{ $t('终端配色方案') }}</strong></label>
+            <SearchSelect id="terminal-preset" model-value="" :placeholder="$t('选择配色方案')" :options="terminalPresetOptions" @update:model-value="chooseTerminal" />
           </div>
         </div>
       </section>
       <aside class="theme-preview">
-        <div class="preview-head"><div><span class="theme-kicker">LIVE PREVIEW</span><h4>界面预览</h4></div><span><Icon :name="modeIcon" :size="13" /> {{ appearanceForm.baseTone === 'auto' ? '自动' : appearanceForm.baseTone === 'light' ? '浅色' : '深色' }}</span></div>
+        <div class="preview-head"><div><span class="theme-kicker">LIVE PREVIEW</span><h4>{{ $t('界面预览') }}</h4></div><span><Icon :name="modeIcon" :size="13" /> {{ appearanceForm.baseTone === 'auto' ? t('自动') : appearanceForm.baseTone === 'light' ? t('浅色') : t('深色') }}</span></div>
         <div class="preview-window">
           <div class="preview-sidebar"><i></i><b></b><b></b><b></b></div>
           <div class="preview-main"><div class="preview-toolbar"></div><div class="preview-card"><span></span><span></span><span></span></div><div class="preview-terminal" :style="{background: themeForm.background}"><i :style="{background: themeForm.blue}"></i><i :style="{background: themeForm.green}"></i><i :style="{background: themeForm.yellow}"></i></div></div>
         </div>
-        <div class="preview-note"><Icon name="terminal" :size="15" /><span><strong>终端保持清晰</strong>各区域使用独立主题染色；终端始终使用可读实色层，独立终端配色优先。</span></div>
+        <div class="preview-note"><Icon name="terminal" :size="15" /><span><strong>{{ $t('终端保持清晰') }}</strong> {{ $t('各区域使用独立主题染色；终端始终使用可读实色层，独立终端配色优先。') }}</span></div>
       </aside>
     </div>
     <section class="font-section" aria-labelledby="font-title">
-      <div class="section-heading"><span class="theme-kicker">TYPOGRAPHY</span><h4 id="font-title">终端字体</h4><p>分别选择中英文字体，在右侧查看混排效果。</p></div>
+      <div class="section-heading"><span class="theme-kicker">TYPOGRAPHY</span><h4 id="font-title">{{ $t('终端字体') }}</h4><p>{{ $t('分别选择中英文字体，在右侧查看混排效果。') }}</p></div>
       <div class="font-layout">
         <div class="font-editor">
-          <div class="recommended-fonts"><div class="library-heading"><div><h5>默认推荐</h5><small>一键套用中英文字体组合</small></div></div><div class="recommendation-list"><button v-for="scheme in TERMINAL_FONT_SCHEMES" :key="scheme.value" type="button" :class="{active: fontsForm.terminalFont === scheme.value}" :aria-pressed="fontsForm.terminalFont === scheme.value" @click="fontsForm.terminalFont = scheme.value"><strong>{{ scheme.label }}</strong><small>{{ scheme.description }}</small></button></div></div>
+          <div class="recommended-fonts"><div class="library-heading"><div><h5>{{ $t('默认推荐') }}</h5><small>{{ $t('一键套用中英文字体组合') }}</small></div></div><div class="recommendation-list"><button v-for="scheme in TERMINAL_FONT_SCHEMES" :key="scheme.value" type="button" :class="{active: fontsForm.terminalFont === scheme.value}" :aria-pressed="fontsForm.terminalFont === scheme.value" @click="fontsForm.terminalFont = scheme.value"><strong>{{ scheme.label }}</strong><small>{{ scheme.description }}</small></button></div></div>
           <div class="font-fields">
             <div class="font-select-field">
-              <label for="terminal-english-font">英文与数字</label>
+              <label for="terminal-english-font">{{ $t('英文与数字') }}</label>
               <SearchSelect id="terminal-english-font" v-model="englishFont" :options="fontOptions.map(font => ({value: font, label: fontLabel(font), keywords: font}))" />
-              <small>建议使用等宽字体，保持命令和表格对齐。</small>
+              <small>{{ $t('建议使用等宽字体，保持命令和表格对齐。') }}</small>
             </div>
             <div class="font-select-field">
-              <label for="terminal-chinese-font">中文字体</label>
+              <label for="terminal-chinese-font">{{ $t('中文字体') }}</label>
               <SearchSelect id="terminal-chinese-font" v-model="chineseFont" :options="chineseFontOptions.map(font => ({value: font, label: fontLabel(font), keywords: font}))" />
-              <small>仅显示支持中文的字体；自定义字体按常用汉字检测。</small>
+              <small>{{ $t('仅显示支持中文的字体；自定义字体按常用汉字检测。') }}</small>
             </div>
-            <label>字号 <span class="size-control"><input v-model.number="fontsForm.terminalFontSize" type="number" min="10" max="32" aria-label="终端字号" /><span>px</span></span></label>
+            <label>{{ $t('字号') }} <span class="size-control"><input v-model.number="fontsForm.terminalFontSize" type="number" min="10" max="32" :aria-label="$t('终端字号')" /><span>px</span></span></label>
           </div>
           <p class="font-status" role="status">{{ fontDownloadMessage }}</p>
           <div class="font-library">
-            <div class="library-heading"><div><h5>我的字体</h5><small>TTF · OTF · WOFF · WOFF2 · 不限文件大小</small></div><Button variant="ghost" size="sm" :disabled="importing" @click="fontInput?.click()">{{ importing ? '正在导入…' : '导入字体' }}</Button></div>
+            <div class="library-heading"><div><h5>{{ $t('我的字体') }}</h5><small>{{ $t('TTF · OTF · WOFF · WOFF2 · 不限文件大小') }}</small></div><Button variant="ghost" size="sm" :disabled="importing" @click="fontInput?.click()">{{ importing ? t('正在导入…') : t('导入字体') }}</Button></div>
             <input ref="fontInput" hidden type="file" accept=".ttf,.otf,.woff,.woff2" @change="importFont" />
-            <p v-if="!customFonts.length" class="empty-fonts">暂无自定义字体。导入后可在上方选择使用。</p>
-            <div v-for="font in customFonts" :key="font" class="font-library-row"><span>{{ fontLabel(font) }}<small class="font-storage-size">{{ formatFontSize(customFontSizes[font] ?? 0) }}</small></span><button type="button" :aria-label="`删除 ${fontLabel(font)}`" @click="deleteFont(font)">删除</button></div>
+            <p v-if="!customFonts.length" class="empty-fonts">{{ $t('暂无自定义字体。导入后可在上方选择使用。') }}</p>
+            <div v-for="font in customFonts" :key="font" class="font-library-row"><span>{{ fontLabel(font) }}<small class="font-storage-size">{{ formatFontSize(customFontSizes[font] ?? 0) }}</small></span><button type="button" :aria-label="t('删除 {0}', [fontLabel(font)])" @click="deleteFont(font)">{{ $t('删除') }}</button></div>
             <p v-if="importMessage" role="status">{{ importMessage }}</p>
           </div>
         </div>
         <aside class="font-preview">
-          <div class="preview-head"><div><span class="theme-kicker">LIVE PREVIEW</span><h4>终端预览</h4></div><span>{{ fontsForm.terminalFontSize }} px</span></div>
+          <div class="preview-head"><div><span class="theme-kicker">LIVE PREVIEW</span><h4>{{ $t('终端预览') }}</h4></div><span>{{ fontsForm.terminalFontSize }} px</span></div>
           <div class="mini-terminal" :style="{background: themeForm.background, color: themeForm.foreground}">
-            <div class="terminal-titlebar"><span class="window-dots">● ● ●</span><span>ding-ssh · 本机</span></div>
+            <div class="terminal-titlebar"><span class="window-dots">● ● ●</span><span>{{ $t('ding-ssh · 本机') }}</span></div>
             <div class="terminal-content" :style="{fontFamily: monoFontStack(fontsForm.terminalFont), fontSize: `${fontsForm.terminalFontSize}px`}">
               <div><span :style="{color: themeForm.green}">❯</span> system info</div>
-              <div class="system-banner" :style="{color: themeForm.blue}">ding-ssh / 系统信息</div>
-              <div>系统　 {{ systemPlatform }}</div><div>处理器 {{ systemCores || '未知' }} 逻辑核心</div><div>语言　 {{ systemLanguage }}</div>
+              <div class="system-banner" :style="{color: themeForm.blue}">{{ $t('ding-ssh / 系统信息') }}</div>
+              <div>{{ $t('系统') }} {{ systemPlatform }}</div><div>{{ $t('处理器') }} {{ systemCores || t('未知') }} {{ $t('逻辑核心') }}</div><div>{{ $t('语言') }} {{ systemLanguage }}</div>
               <div class="terminal-divider">────────────────────────</div>
-              <div :style="{color: themeForm.green}">✓ 字体预览已就绪 / Ready</div><div>中文测试：你好，世界。</div><div>English: Aa Bb 0O 1Il 0123456789</div><div :style="{color: themeForm.yellow}">~ / % → [终端混排效果]</div>
+              <div :style="{color: themeForm.green}">{{ $t('✓ 字体预览已就绪 / Ready') }}</div><div>{{ $t('中文测试：你好，世界。') }}</div><div>English: Aa Bb 0O 1Il 0123456789</div><div :style="{color: themeForm.yellow}">{{ $t('~ / % → [终端混排效果]') }}</div>
               <div class="terminal-prompt"><span :style="{color: themeForm.green}">❯</span> <span class="terminal-cursor"> </span></div>
             </div>
           </div>
-          <p class="preview-caption">当前设备信息 · 字体、字号和主题实时更新</p>
+          <p class="preview-caption">{{ $t('当前设备信息 · 字体、字号和主题实时更新') }}</p>
         </aside>
       </div>
     </section>
-    <Dialog v-model="showImportError" title="字体导入失败" :width="420"><p class="import-error-message">{{ importError }}</p><Button variant="primary" size="sm" @click="showImportError = false">知道了</Button></Dialog>
-    <footer class="theme-footer"><p>更改会实时应用到整个应用。</p><Button variant="ghost" size="sm" @click="resetAppearance">恢复默认</Button></footer>
+    <Dialog v-model="showImportError" :title="$t('字体导入失败')" :width="420"><p class="import-error-message">{{ importError }}</p><Button variant="primary" size="sm" @click="showImportError = false">{{ $t('知道了') }}</Button></Dialog>
+    <footer class="theme-footer"><p>{{ $t('更改会实时应用到整个应用。') }}</p><Button variant="ghost" size="sm" @click="resetAppearance">{{ $t('恢复默认') }}</Button></footer>
   </section>
 </template>
 
 <style scoped>
 .preset-color-item{position:relative;display:inline-flex}.preset-color-name{position:absolute;z-index:10;bottom:calc(100% + 9px);left:50%;transform:translate(-50%,3px);padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius-small);background:var(--surface-2);color:var(--foreground);box-shadow:var(--shadow-pop);white-space:nowrap;font-size:11px;line-height:1.4;pointer-events:none;opacity:0;visibility:hidden;transition:opacity 100ms,transform 100ms,visibility 0s 100ms}.preset-color-item:hover .preset-color-name,.preset-color-item:focus-within .preset-color-name{opacity:1;visibility:visible;transform:translate(-50%,0);transition-delay:100ms}
 
-.color-spectrum{margin-top:18px;padding-top:16px;border-top:1px solid var(--border-subtle)}.spectrum-heading{display:flex;justify-content:space-between;gap:12px;font-size:12px}.spectrum-heading span{color:var(--muted-foreground);font-size:11px}.color-spectrum .hue-control,.spectrum-control{display:flex;align-items:center;gap:12px;margin-top:16px;font-size:12px;color:var(--foreground-secondary)}.color-spectrum label>span{width:64px;flex-shrink:0}.color-spectrum input{flex:1;min-width:0;appearance:none;height:12px;border:1px solid var(--border-subtle);border-radius:var(--radius-pill);cursor:pointer}.color-spectrum output{width:36px;text-align:right;font-size:11px;color:var(--muted-foreground);font-variant-numeric:tabular-nums}.color-spectrum .grayscale-range{background:linear-gradient(90deg,#000,#fff)}.color-spectrum input::-webkit-slider-thumb{appearance:none;width:18px;height:18px;background:var(--foreground);border:3px solid var(--surface-2);border-radius:50%;box-shadow:0 0 0 1px var(--border-strong)}.color-spectrum input::-moz-range-thumb{width:12px;height:12px;background:var(--foreground);border:3px solid var(--surface-2);border-radius:50%}.spectrum-help{margin:14px 0 0;font-size:11px;line-height:1.6;color:var(--muted-foreground)}
+.color-spectrum{margin-top:18px;padding-top:16px;border-top:1px solid var(--border-subtle)}.spectrum-heading{display:flex;justify-content:space-between;gap:12px;font-size:12px}.spectrum-heading span{color:var(--muted-foreground);font-size:11px}.color-spectrum .hue-control,.spectrum-control{display:flex;align-items:center;gap:12px;margin-top:16px;font-size:12px;color:var(--foreground-secondary)}.color-spectrum label>span{flex:0 1 8rem;min-width:0;overflow-wrap:anywhere}.color-spectrum input{flex:1;min-width:0;appearance:none;height:12px;border:1px solid var(--border-subtle);border-radius:var(--radius-pill);cursor:pointer}.color-spectrum output{width:36px;text-align:right;font-size:11px;color:var(--muted-foreground);font-variant-numeric:tabular-nums}.color-spectrum .grayscale-range{background:linear-gradient(90deg,#000,#fff)}.color-spectrum input::-webkit-slider-thumb{appearance:none;width:18px;height:18px;background:var(--foreground);border:3px solid var(--surface-2);border-radius:50%;box-shadow:0 0 0 1px var(--border-strong)}.color-spectrum input::-moz-range-thumb{width:12px;height:12px;background:var(--foreground);border:3px solid var(--surface-2);border-radius:50%}.spectrum-help{margin:14px 0 0;font-size:11px;line-height:1.6;color:var(--muted-foreground)}
 
 .font-storage-size{display:block;margin-top:4px;font-size:11px;color:var(--muted-foreground)}.import-error-message{font-size:13px;line-height:1.7;margin:12px 0 20px;overflow-wrap:anywhere}
 
@@ -280,5 +284,5 @@ function chooseColor(color: string) {
 .theme-preview{align-self:start;padding:22px}.preview-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}.preview-head h4{margin:7px 0 0;font-size:14px}.preview-head>span{display:flex;align-items:center;gap:5px;padding:5px 8px;border-radius:var(--radius-pill);background:var(--hover);color:var(--muted-foreground);font-size:10px}.preview-window{height:270px;display:grid;grid-template-columns:34% 1fr;overflow:hidden;border:1px solid var(--border-subtle);border-radius:var(--radius-card);background:var(--workspace-gradient,var(--workspace-bg));box-shadow:0 10px 24px rgb(0 0 0 / 10%)}.preview-sidebar{padding:14px 10px;background:var(--sidebar-primary-gradient,var(--sidebar-primary-bg))}.preview-sidebar i{display:block;width:55%;height:7px;margin-bottom:17px;border-radius:var(--radius-control);background:var(--primary);opacity:.65}.preview-sidebar b{display:block;height:27px;margin-bottom:7px;border-radius:var(--radius-control);background:var(--hover-strong)}.preview-main{padding:12px;background:var(--workspace-gradient,var(--workspace-bg))}.preview-toolbar{height:28px;margin-bottom:10px;border-radius:var(--radius-control);background:var(--toolbar-bg)}.preview-card{height:70px;padding:12px;margin-bottom:10px;border-radius:var(--radius-card);background:var(--surface-bg)}.preview-card span{display:block;width:75%;height:6px;margin-bottom:8px;border-radius:var(--radius-small);background:var(--border-strong);opacity:.55}.preview-card span:nth-child(2){width:52%}.preview-card span:nth-child(3){width:63%}.preview-terminal{height:125px;padding:16px;border-radius:var(--radius-card);background:var(--terminal-bg,#11151b)}.preview-terminal i{display:block;width:60%;height:5px;margin-bottom:9px;border-radius:var(--radius-small);background:#8fb0f2;opacity:.7}.preview-terminal i:nth-child(2){width:78%;background:#7ad8a3}.preview-terminal i:nth-child(3){width:42%;background:#d4a04a}.preview-note{display:flex;gap:10px;margin-top:16px;padding:13px;border-radius:var(--radius-card);background:var(--hover);color:var(--primary-hover)}.preview-note span{color:var(--muted-foreground);font-size:10.5px;line-height:1.45}.preview-note strong{display:block;margin-bottom:2px;color:var(--foreground-secondary);font-size:11px}.theme-footer{display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:0 4px}.theme-footer p{margin:0;color:var(--muted-foreground);font-size:11px}
 @keyframes pulse{50%{opacity:.35}}@media(max-width:900px){.theme-layout{grid-template-columns:1fr}.theme-preview{width:100%}}@media(max-width:600px){.theme-header{align-items:flex-start;flex-direction:column}.theme-layout{display:block}.theme-preview{margin-top:14px}.color-field{height:240px}.color-meta{align-items:flex-start;flex-direction:column}}
 
-.material-block{display:grid;gap:10px}.material-label{display:flex;justify-content:space-between;gap:12px;align-items:baseline}.material-label small{font-size:11px;color:var(--text-muted);text-align:right}.material-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.material-modes button{height:32px;padding:0 8px;border:1px solid var(--border-subtle);border-radius:var(--radius-control);background:var(--field-bg);color:var(--text-secondary);font-size:12px;transition:background var(--dur),border-color var(--dur),color var(--dur)}.material-modes button:hover{background:var(--interactive-hover-bg);color:var(--text-primary)}.material-modes button.active{background:var(--interactive-active-bg);border-color:var(--accent-border);color:var(--text-primary)}.material-fallback{color:var(--status-warning)}.slider-list input:disabled{opacity:.45;cursor:not-allowed}
+.material-block{display:grid;gap:10px}.material-label{display:flex;justify-content:space-between;gap:12px;align-items:baseline}.material-label small{font-size:11px;color:var(--text-muted);text-align:right}.material-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.material-modes button{min-height:32px;height:auto;overflow-wrap:anywhere;padding:0 8px;border:1px solid var(--border-subtle);border-radius:var(--radius-control);background:var(--field-bg);color:var(--text-secondary);font-size:12px;transition:background var(--dur),border-color var(--dur),color var(--dur)}.material-modes button:hover{background:var(--interactive-hover-bg);color:var(--text-primary)}.material-modes button.active{background:var(--interactive-active-bg);border-color:var(--accent-border);color:var(--text-primary)}.material-fallback{color:var(--status-warning)}.slider-list input:disabled{opacity:.45;cursor:not-allowed}
 </style>
