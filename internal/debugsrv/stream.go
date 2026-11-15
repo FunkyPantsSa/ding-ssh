@@ -19,10 +19,11 @@ type Event struct {
 // Hub 后端事件总线：把会话输出 / 状态 / 进度等广播给 SSE 订阅者。
 // 用于 M2 的实时流（GET /v1/stream），并保留最近事件供 MCP 的 recent_events 工具查询。
 type Hub struct {
-	mu     sync.Mutex
-	seq    int
-	subs   map[int]*hubSub
-	recent []Event // 环形缓冲（最多 hubRecentLimit 条）
+	mu             sync.Mutex
+	seq            int
+	subs           map[int]*hubSub
+	recent         []Event // 环形缓冲（最多 hubRecentLimit 条）
+	transferRecent []Event // 传输事件单独保留，避免被终端输出挤掉
 }
 
 // hubRecentLimit 环形缓冲容量。
@@ -73,6 +74,12 @@ func (h *Hub) Publish(ev Event) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if ev.Topic == TransferTopic {
+		h.transferRecent = append(h.transferRecent, ev)
+		if len(h.transferRecent) > hubRecentLimit {
+			h.transferRecent = h.transferRecent[len(h.transferRecent)-hubRecentLimit:]
+		}
+	}
 	h.recent = append(h.recent, ev)
 	if len(h.recent) > hubRecentLimit {
 		h.recent = h.recent[len(h.recent)-hubRecentLimit:]
@@ -101,9 +108,13 @@ func (h *Hub) Recent(limit int, topics ...string) []Event {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	source := h.recent
+	if len(filter) == 1 && filter[TransferTopic] {
+		source = h.transferRecent
+	}
 	var out []Event
-	for i := len(h.recent) - 1; i >= 0 && len(out) < limit; i-- {
-		ev := h.recent[i]
+	for i := len(source) - 1; i >= 0 && len(out) < limit; i-- {
+		ev := source[i]
 		if len(filter) > 0 && !filter[ev.Topic] {
 			continue
 		}

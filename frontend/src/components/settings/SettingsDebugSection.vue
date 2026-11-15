@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import {computed, onMounted, ref} from 'vue'
 import ToggleSwitch from '../ToggleSwitch.vue'
+import {copyText} from '../../utils/clipboard'
+import {useToast} from '../../composables/useToast'
 import {Button, Input, Textarea} from '../ui'
 import {DebugInfo, GetCapabilities, SetCapability} from '../../../wailsjs/go/main/App'
 import {useSettingsStore} from '../../stores/settings'
@@ -10,11 +12,30 @@ const settings = useSettingsStore()
 const saving = ref(false)
 const debugInfo = ref<Record<string, any> | null>(null)
 
+const refreshing = ref(false)
+const copying = ref(false)
+
+async function copyDebugInfo() {
+  if (!debugInfo.value) return
+  copying.value = true
+  try {
+    await copyText(JSON.stringify(debugInfo.value, null, 2))
+  } catch {
+    // 复制工具统一显示失败提示。
+  } finally {
+    copying.value = false
+  }
+}
+
 async function refreshDebugInfo() {
+  if (refreshing.value) return
+  refreshing.value = true
   try {
     debugInfo.value = await DebugInfo()
   } catch {
-    debugInfo.value = null
+    useToast().error('刷新运行状态失败', '请重试')
+  } finally {
+    refreshing.value = false
   }
 }
 
@@ -296,7 +317,10 @@ onMounted(() => {
     <div class="neo">
       <div class="px-5 py-3 border-b border-slate-800/60 flex items-center justify-between">
         <span class="field-label">运行状态</span>
-        <Button variant="ghost" size="sm" :disabled="saving" @click="refreshDebugInfo">刷新</Button>
+        <div class="flex items-center gap-2">
+          <Button size="sm" :loading="refreshing" :disabled="saving" @click="refreshDebugInfo">{{ refreshing ? '刷新中…' : '刷新' }}</Button>
+          <Button size="sm" :loading="copying" :disabled="!debugInfo || refreshing" @click="copyDebugInfo">复制</Button>
+        </div>
       </div>
       <div class="px-5 py-4 text-xs space-y-2">
         <div class="flex items-center gap-2">

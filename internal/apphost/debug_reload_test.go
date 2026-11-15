@@ -147,3 +147,26 @@ func TestReloadDebugListenerChangeRestarts(t *testing.T) {
 		t.Fatal("重启后调试服务未运行")
 	}
 }
+
+func TestSessionBindingDiagnosticsDoesNotTreatMissingFrontendAsOrphans(t *testing.T) {
+	sessions := []models.SessionInfo{
+		{SessionID: "bound", Status: models.StatusConnected},
+		{SessionID: "pending", Status: models.StatusConnecting},
+		{SessionID: "detached", Status: models.StatusConnected},
+		{SessionID: "closed", Status: models.StatusClosed},
+	}
+	for _, frontend := range []any{nil, map[string]any{}, map[string]any{"tabs": "invalid"}} {
+		if sessionBindingDiagnostics(sessions, frontend)["checked"] != false {
+			t.Fatal("unknown frontend was classified")
+		}
+	}
+	frontend := map[string]any{"tabs": []any{map[string]any{"sessionId": "bound", "clientId": "tab-a"}, map[string]any{"clientId": "pending"}}}
+	result := sessionBindingDiagnostics(sessions, frontend)
+	if result["checked"] != true || result["unboundCount"] != 1 {
+		t.Fatalf("unexpected bindings: %v", result)
+	}
+	unbound := result["unboundSessions"].([]models.SessionInfo)
+	if unbound[0].SessionID != "detached" {
+		t.Fatalf("wrong detached session: %v", unbound)
+	}
+}

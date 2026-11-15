@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -41,7 +42,7 @@ import {useUIStore} from '../stores/ui'
 import {useTerminalCompletion} from '../composables/useTerminalCompletion'
 import {loadTerminalFonts} from '../theme/terminal-fonts'
 import {systemTone} from '../composables/useSystemTone'
-import {ClipboardGetText, ClipboardSetText} from '../../wailsjs/runtime/runtime'
+import {ClipboardGetText} from '../../wailsjs/runtime/runtime'
 import {LogClient, SetLogTrace} from '../../wailsjs/go/main/App'
 import {terminalAccentColor, resolveTerminalForeground, resolveTerminalSurface, effectiveBrand, monoFontStack, readableOn, rgba} from '../theme/engine'
 import {recordRecentServer} from '../services/recent'
@@ -504,7 +505,7 @@ function isCopyCombo(e: KeyboardEvent): boolean {
 
 function doCopySelection() {
   const sel = term?.getSelection()
-  if (sel) void ClipboardSetText(sel)
+  if (sel) void ClipboardSetText(sel).catch(() => {})
 }
 
 /**
@@ -1054,7 +1055,7 @@ onMounted(() => {
   term.onSelectionChange(() => {
     if (!settings.copyOnSelect) return
     const selection = term?.getSelection()
-    if (selection) void ClipboardSetText(selection)
+    if (selection) void ClipboardSetText(selection).catch(() => {})
   })
 
   resizeObserver = new ResizeObserver(() => fit())

@@ -1,10 +1,11 @@
 <script lang="ts" setup>
+import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, onBeforeUnmount, ref} from 'vue'
 import Icon from './Icon.vue'
 import {sshService} from '../services/ssh'
 import {useTransfersStore} from '../stores/transfers'
 import {useSessionsStore} from '../stores/sessions'
-import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
+
 import type {TransferRecord} from '../types'
 import {Button} from './ui'
 

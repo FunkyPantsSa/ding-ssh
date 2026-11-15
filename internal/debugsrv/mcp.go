@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -331,6 +332,7 @@ func builtinToolEntries() []mcpTool {
 			"调用本工具登记它们会被拒绝。可确认的 action 见 initialize.instructions。",
 			InputSchema: obj(map[string]any{
 				"action":  strProp("动作名，如 servers.delete / sftp.remove / settings.update / logs.clear / app.quit / capability.enable"),
+				"tool":    strProp("精确工具名；建议提供，confirm.commit 将执行该工具并重新校验权限"),
 				"args":    map[string]any{"type": "object", "description": "该动作的参数（与真正调用写工具时传入的参数完全一致）"},
 				"summary": strProp("给用户看的中文摘要（可选，缺省自动生成）"),
 			}, "action")},
@@ -841,6 +843,12 @@ func (s *Server) mcpCallToolAudited(ctx context.Context, name string, args map[s
 			err := errors.New(confirmRequiredMessage(action))
 			return nil, rec.finish(err, false, ""), err
 		}
+		if s.opts.Confirms != nil {
+			if p, ok := s.opts.Confirms.Peek(token); ok && p.Tool != "" && p.Tool != name {
+				err := fmt.Errorf("token 绑定工具 %s，不能用于 %s", p.Tool, name)
+				return nil, rec.finish(err, false, ""), err
+			}
+		}
 		// token 必须绑定「除 token 外的参数」，与 prepare 时登记的一致。
 		if _, err := s.takeConfirm(token, action, withoutToken(args)); err != nil {
 			return nil, rec.finish(err, false, ""), err
@@ -1145,6 +1153,14 @@ func toolCatalogEntry(t mcpTool) map[string]any {
 	if needToken {
 		entry["confirmAction"] = action
 	}
+	entry["platformSupported"] = true
+	switch t.Name {
+	case "screenshot", OpUIScreenshot, OpUIElementShot, OpUISnapshot:
+		entry["platformSupported"] = runtime.GOOS == "windows"
+		if runtime.GOOS != "windows" {
+			entry["unavailableReason"] = "当前平台尚未实现窗口截图"
+		}
+	}
 	if hasStructured {
 		entry["outputSchema"] = t.OutputSchema
 	}
@@ -1211,13 +1227,21 @@ func (s *Server) confirmPrepare(args map[string]any) ([]any, error) {
 	if s.opts.Confirms == nil {
 		return nil, errors.New("确认管理器未启用：请先在应用内开启调试模式")
 	}
+	tool, _ := args["tool"].(string)
+	tool = strings.TrimSpace(tool)
+	if tool != "" {
+		if a, need := ToolConfirmAction(tool); !need || a != action {
+			return nil, fmt.Errorf("tool %q 与 action %q 不匹配", tool, action)
+		}
+	}
 	inner, _ := args["args"].(map[string]any)
 	summary, _ := args["summary"].(string)
-	token, expiresAt := s.opts.Confirms.Prepare(action, inner, summary)
+	token, expiresAt := s.opts.Confirms.PrepareTool(action, tool, inner, summary)
 	pending, _ := s.opts.Confirms.Peek(token)
 	return text(map[string]any{
 		"token":     token,
 		"expiresAt": expiresAt,
+		"tool":      tool,
 		"action":    action,
 		"args":      pending.Args,
 		"summary":   pending.Summary,
@@ -1243,6 +1267,26 @@ func (s *Server) confirmCommit(ctx context.Context, args map[string]any) ([]any,
 	pending, ok := s.opts.Confirms.Peek(token)
 	if !ok {
 		return nil, errors.New("token 无效或已过期：请重新调用 confirm.prepare")
+	}
+	if pending.Tool != "" {
+		callArgs := make(map[string]any, len(pending.Args)+1)
+		for k, v := range pending.Args {
+			callArgs[k] = v
+		}
+		callArgs["token"] = token
+		result, _, err := s.mcpCallToolAudited(ctx, pending.Tool, callArgs)
+		return result, err
+	}
+	// These actions are shared by multiple tools or lack a generic executor.
+	// Reject before consuming the token; callers can still invoke the exact tool.
+	switch pending.Action {
+	case "servers.create", "servers.update", "sftp.write", "terminal.sudo", "app.reload", "sftp.upload":
+		return nil, fmt.Errorf("动作 %s 需要精确工具：请直接调用原工具并携带 token，或重新 prepare 时提供 tool", pending.Action)
+	}
+	if cap, ok := CapabilityOfAction(pending.Action); ok {
+		if err := s.allowCap(cap, pending.Action); err != nil {
+			return nil, err
+		}
 	}
 	if s.opts.Executor == nil {
 		return nil, errors.New("宿主未实现动作执行器（Executor）：该动作暂时只能通过应用界面执行")

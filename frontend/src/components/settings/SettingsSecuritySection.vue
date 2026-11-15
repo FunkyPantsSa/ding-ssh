@@ -3,7 +3,7 @@ import {Button, Field, Input} from '../ui'
 import HostTrustSection from './HostTrustSection.vue'
 import {useSettingsSecurity} from '../../composables/useSettingsSecurity'
 
-const {security, form: secForm, error: secError, message: secMsg, busy: secBusy, enableMaster, disableMaster, changeMaster} = useSettingsSecurity()
+const {security, loading, statusError, refresh, form: secForm, error: secError, message: secMsg, busy: secBusy, enableMaster, disableMaster, changeMaster} = useSettingsSecurity()
 </script>
 
 <template>
@@ -15,11 +15,16 @@ const {security, form: secForm, error: secError, message: secMsg, busy: secBusy,
       </p>
     </div>
 
-    <div class="rounded-lg border border-slate-700/60 bg-surface px-5 py-4 text-xs space-y-2">
+    <p v-if="loading" class="text-sm text-mist" role="status">正在读取安全状态…</p>
+    <div v-else-if="statusError" role="alert" class="text-sm space-y-2">
+      <p>无法读取安全状态：{{ statusError }}</p>
+      <Button variant="ghost" size="sm" @click="refresh">重试</Button>
+    </div>
+    <div v-else-if="security" class="rounded-lg border border-slate-700/60 bg-surface px-5 py-4 text-xs space-y-2">
       <p class="text-slate-300">
         状态：
         <span :class="security?.unlocked ? 'text-emerald-400' : 'text-amber-400'">
-          {{ security?.unlocked ? '已解锁' : '未解锁' }}
+          {{ security.unlocked ? '保险库已解锁' : security.needsUnlock ? '等待主密码解锁' : '保险库不可用' }}
         </span>
       </p>
       <p class="text-slate-500">
@@ -28,7 +33,7 @@ const {security, form: secForm, error: secError, message: secMsg, busy: secBusy,
       </p>
     </div>
 
-    <div v-if="!security?.masterPasswordEnabled" class="neo">
+    <div v-if="security && !loading && !security.masterPasswordEnabled" class="neo">
       <div class="px-5 py-4 border-b border-slate-800/60">
         <p class="text-sm font-medium text-slate-200">启用启动主密码</p>
         <p class="text-xs text-slate-500 mt-1">开启后每次启动需输入密码才能访问服务器与凭证。</p>
@@ -48,7 +53,7 @@ const {security, form: secForm, error: secError, message: secMsg, busy: secBusy,
       </div>
     </div>
 
-    <template v-else>
+    <template v-else-if="security && !loading">
       <div class="neo">
         <div class="px-5 py-4 border-b border-slate-800/60">
           <p class="text-sm font-medium text-slate-200">更换主密码</p>

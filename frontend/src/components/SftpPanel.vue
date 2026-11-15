@@ -1,11 +1,12 @@
 <script lang="ts" setup>
+import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {onSftpTransfer, onSftpDirUpdated, sshService} from '../services/ssh'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
 import {useTransfersStore} from '../stores/transfers'
-import {ClipboardSetText, OnFileDrop, OnFileDropOff} from '../../wailsjs/runtime/runtime'
+import {OnFileDrop, OnFileDropOff} from '../../wailsjs/runtime/runtime'
 import type {SFTPEntry, SessionTab, TransferRecord} from '../types'
 import {Button, Input} from './ui'
 
@@ -35,6 +36,7 @@ const newFolderInputEl = ref<FocusableInput | null>(null)
 const pathInputEl = ref<FocusableInput | null>(null)
 
 interface TransferItem {
+  transferId?: string
   key: string
   direction: 'upload' | 'download'
   name: string
@@ -56,6 +58,8 @@ interface TransferItem {
 }
 const transfers = ref<TransferItem[]>([])
 const disposers: Array<() => void> = []
+const transferTimers = new Set<ReturnType<typeof setTimeout>>()
+let disposed = false
 
 const path = computed({
   get: () => props.tab.sftpPath || '/',
@@ -314,14 +318,17 @@ function percent(t: TransferItem): number {
  * 速度用「相邻事件差分 + 指数平滑」估算：事件本身按 100ms 节流，
  * 直接用瞬时差分抖动很大，平滑后读数稳定且能反映实时速率变化。
  */
-function onTransfer(evt: {direction: 'upload' | 'download'; name: string; transferred: number; total: number; done: boolean; error?: string}) {
-  const key = `${evt.direction}:${evt.name}`
-  let t = transfers.value.find((x) => x.key === key)
+function onTransfer(evt: {transferId?: string; direction: 'upload' | 'download'; name: string; transferred: number; total: number; done: boolean; error?: string}) {
+  let t = evt.transferId
+    ? transfers.value.find(x => x.transferId === evt.transferId)
+      ?? transfers.value.find(x => x.direction === evt.direction && x.name === evt.name && !x.done && !x.transferId)
+    : transfers.value.find(x => x.direction === evt.direction && x.name === evt.name && !x.done)
   if (!t) {
     if (evt.done && !evt.error) return
     t = newTransferItem(evt.direction, evt.name)
     transfers.value.push(t)
   }
+  if (evt.transferId) t.transferId = evt.transferId
   if (!evt.done && evt.transferred < t.transferred) return // 乱序的旧事件，丢弃
   const now = Date.now()
   if (t.startedAt < 0) t.startedAt = now
@@ -341,7 +348,7 @@ function onTransfer(evt: {direction: 'upload' | 'download'; name: string; transf
   if (evt.done) {
     t.done = true
     t.finishedAt = now
-    if (t.total > 0) t.transferred = Math.max(t.transferred, t.total)
+    if (!evt.error && t.total > 0) t.transferred = Math.max(t.transferred, t.total)
     if (evt.error) t.error = evt.error
   }
 }
@@ -349,7 +356,7 @@ function onTransfer(evt: {direction: 'upload' | 'download'; name: string; transf
 /** 新建一条进行中的传输项。 */
 function newTransferItem(direction: 'upload' | 'download', name: string): TransferItem {
   return {
-    key: `${direction}:${name}`,
+    key: `${direction}:${name}:${crypto.randomUUID()}`,
     direction,
     name,
     transferred: 0,
@@ -396,8 +403,7 @@ async function runTransfer(
   paths: {remotePath: string; localPath: string},
   task: () => Promise<void>,
 ) {
-  const key = `${direction}:${name}`
-  if (transfers.value.some((t) => t.key === key && !t.done)) return
+  if (transfers.value.some((t) => t.direction === direction && t.name === name && !t.done)) return
   const t = newTransferItem(direction, name)
   t.remotePath = paths.remotePath
   t.localPath = paths.localPath
@@ -421,13 +427,16 @@ async function runTransfer(
   // 取消的判定：错误文案由后端在取消时给出「已取消」
   if (t.error && t.error.includes('已取消')) cancelled = true
   recordHistory(t, cancelled)
+  if (disposed) return
   // 完成的行保留一小会儿再移除，让用户看到「完成 / 失败」状态；
   // 记录本身已经进入「传输记录」页签，不会丢。
-  setTimeout(() => {
-    const idx = transfers.value.findIndex((x) => x.key === key)
+  const timer = setTimeout(() => {
+    transferTimers.delete(timer)
+    const idx = transfers.value.findIndex((x) => x.key === t.key)
     if (idx >= 0 && !transfers.value[idx].error) transfers.value.splice(idx, 1)
     void refresh()
   }, 1200)
+  transferTimers.add(timer)
 }
 
 async function upload() {
@@ -506,7 +515,7 @@ function dismissTransfer(key: string) {
 async function cancelTransfer(t: TransferItem) {
   if (t.done) return
   try {
-    await sshService.sftpCancelTransfer(props.tab.sessionId, t.direction, t.name)
+    await sshService.sftpCancelTransfer(props.tab.sessionId, t.direction, t.transferId ? `@id:${t.transferId}` : t.name)
   } catch {
     // 传输可能已结束，忽略取消失败
   }
@@ -573,6 +582,9 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  disposed = true
+  transferTimers.forEach(clearTimeout)
+  transferTimers.clear()
   disposers.forEach((d) => d())
   window.removeEventListener('click', closeMenu)
   window.removeEventListener('keydown', onKeydown)

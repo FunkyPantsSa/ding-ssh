@@ -129,7 +129,7 @@ func TestConfirmableActionsList(t *testing.T) {
 		"servers.create", "servers.update", "servers.delete",
 		"credentials.create", "credentials.update", "credentials.delete",
 		"tunnels.create", "tunnels.update", "tunnels.delete", "tunnels.start", "tunnels.stop",
-		"sftp.write", "sftp.remove", "sftp.mkdir", "sftp.rename", "sftp.upload",
+		"sftp.write", "sftp.remove", "sftp.mkdir", "sftp.rename",
 		"settings.update", "settings.reset", "logs.clear",
 		"app.quit", "capability.enable",
 	}

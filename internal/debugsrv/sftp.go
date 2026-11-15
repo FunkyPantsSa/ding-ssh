@@ -444,15 +444,18 @@ func sftpToolEntries() []mcpTool {
 		// ---- A. 读 ----
 		{Name: OpSftpList, Description: "列出远端目录（走会话已有的 SFTP 连接，不新建连接）。" +
 			"返回 {path, count, entries[{name, path, isDir, isSymlink, size, mode, modTime}], truncated}；" +
-			"最多 500 条（超出时 truncated=true）。path 省略 = 远端 home（用 SFTP 的当前目录解析）。",
+			"每页最多 500 条（超出时 truncated=true，传 nextOffset 继续）。目录变化时应重新分页。path 省略 = 远端 home（用 SFTP 的当前目录解析）。",
 			InputSchema: obj(map[string]any{
 				"sessionId": strProp("SSH 会话 id（见 list_terminals 的 clientId / sessions）"),
 				"path":      strProp("远端目录路径（默认 . = home）"),
+				"offset":    intProp("起始条目偏移（默认 0）"),
+				"limit":     intProp("每页条目数（默认 500，范围 1–500）"),
 			}, "sessionId"),
 			// M9 结构化输出：形状见 sftpList 的返回。
 			OutputSchema: outputObj(map[string]any{
 				"sessionId": outProp("string"), "path": outProp("string"), "count": outProp("number"),
 				"entries": outProp("array"), "truncated": outProp("boolean"), "limit": outProp("number"),
+				"offset": outProp("number"), "nextOffset": outProp("number"),
 			}, "path", "count", "entries"),
 			structured: structuredIdentity},
 		{Name: OpSftpStat, Description: "读取远端单个路径的属性（Lstat 语义）：{path, isDir, size, mode, modTime, isSymlink, target?}。" +
@@ -523,7 +526,7 @@ func sftpToolEntries() []mcpTool {
 				"confirm":    tokenProp,
 			}, "sessionId")},
 		{Name: OpSftpCancel, Description: "取消一条正在进行的 SFTP 传输（transferId 见 sftp.transfers 的 id，" +
-			"形如 <sessionId>|<upload|download>|<文件名>）。需要 fs.remote.write 能力位与两段式确认。",
+			"形如 <sessionId>|<upload|download>|@id:<任务ID>（兼容旧文件名格式））。需要 fs.remote.write 能力位与两段式确认。",
 			InputSchema: obj(map[string]any{
 				"transferId": strProp("传输 id（sftp.transfers 返回）"),
 				"confirm":    tokenProp,
@@ -741,10 +744,18 @@ func (s *Server) sftpList(ctx context.Context, args map[string]any) (any, error)
 	if path == "" {
 		path = "."
 	}
-	// 多要一条用于判断 truncated。
-	limit := sftpMaxListEntries + 1
+	offset, err := sftpIntArg(args, "offset", 0, 0, 1<<30)
+	if err != nil {
+		return nil, err
+	}
+	pageSize, err := sftpIntArg(args, "limit", sftpMaxListEntries, 1, sftpMaxListEntries)
+	if err != nil {
+		return nil, err
+	}
+	// Host sorts the full directory before slicing, so pages have stable order.
+	limit := pageSize + 1
 	raw, err := s.callSFTPHost(ctx, OpSftpList, map[string]any{
-		"sessionId": sess, "path": path, "limit": limit,
+		"sessionId": sess, "path": path, "limit": limit, "offset": offset,
 	})
 	if err != nil {
 		return nil, err
@@ -774,21 +785,23 @@ func (s *Server) sftpList(ctx context.Context, args map[string]any) (any, error)
 		}
 		return entries[i]["name"].(string) < entries[j]["name"].(string)
 	})
-	truncated := len(entries) > sftpMaxListEntries
+	truncated := len(entries) > pageSize
 	if truncated {
-		entries = entries[:sftpMaxListEntries]
+		entries = entries[:pageSize]
 	}
 	resolved := hostStr(raw, "path")
 	if resolved == "" {
 		resolved = path
 	}
 	return map[string]any{
-		"sessionId": sess,
-		"path":      resolved,
-		"count":     len(entries),
-		"entries":   entries,
-		"truncated": truncated,
-		"limit":     sftpMaxListEntries,
+		"sessionId":  sess,
+		"path":       resolved,
+		"count":      len(entries),
+		"entries":    entries,
+		"truncated":  truncated,
+		"limit":      pageSize,
+		"offset":     offset,
+		"nextOffset": offset + len(entries),
 	}, nil
 }
 
@@ -913,7 +926,7 @@ func (s *Server) sftpTransfers(args map[string]any) any {
 		"transfers": items,
 		"limit":     limit,
 		"note": "数据来自既有的 sftp:transfer 进度事件环形缓冲（最近 300 条事件），" +
-			"因此只能看到「近期」传输；id 形如 <sessionId>|<direction>|<文件名>，可直接传给 sftp.cancel。",
+			"因此只能看到「近期」传输；id 形如 <sessionId>|<direction>|@id:<任务ID>（旧事件使用文件名），可直接传给 sftp.cancel。",
 	}
 }
 
@@ -941,6 +954,7 @@ func (s *Server) transferSnapshots(sessionID string) []transferSnapshot {
 	order := make([]string, 0, len(events))
 	for _, ev := range events {
 		var p struct {
+			TransferID  string `json:"transferId"`
 			SessionID   string `json:"sessionId"`
 			Direction   string `json:"direction"`
 			Name        string `json:"name"`
@@ -958,7 +972,11 @@ func (s *Server) transferSnapshots(sessionID string) []transferSnapshot {
 		if sessionID != "" && p.SessionID != sessionID {
 			continue
 		}
-		id := transferID(p.SessionID, p.Direction, p.Name)
+		name := p.Name
+		if p.TransferID != "" {
+			name = "@id:" + p.TransferID
+		}
+		id := transferID(p.SessionID, p.Direction, name)
 		item, ok := byID[id]
 		if !ok {
 			item = &transferSnapshot{
@@ -971,6 +989,7 @@ func (s *Server) transferSnapshots(sessionID string) []transferSnapshot {
 		item.Bytes = p.Transferred
 		item.Total = p.Total
 		item.UpdatedAt = ev.TS
+		item.Error = ""
 		switch {
 		case !p.Done:
 			item.State = "running"

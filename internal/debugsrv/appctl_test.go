@@ -872,3 +872,142 @@ func TestAppctlWriteToolsDeniedWithoutCapability(t *testing.T) {
 		t.Fatalf("能力被拒时不得落到宿主 op")
 	}
 }
+
+// New management tools must stay on the established capability/confirmation path.
+func TestManagementToolsValidationAndReadDispatch(t *testing.T) {
+	ensureAllRegistrations(t)
+	ts, h := newAppctlTestServer(t, &fakeGate{}, map[string]any{
+		OpGroupsList:    map[string]any{"groups": []string{"prod"}, "count": 1},
+		OpHostTrustList: map[string]any{"records": []any{}, "count": 0},
+		OpServersTest:   map[string]any{"result": map[string]any{"reachable": true}, "mode": "tcp"},
+	}, nil)
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{OpGroupsList, nil}, {OpHostTrustList, nil}, {OpServersTest, map[string]any{"id": "saved-server", "mode": "tcp"}},
+	} {
+		if _, _, err := ts.srv.mcpCallToolAudited(context.Background(), tc.name, tc.args); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !h.called(tc.name) {
+			t.Fatalf("%s did not reach host", tc.name)
+		}
+	}
+	for _, args := range []map[string]any{{}, {"id": "s", "mode": "invalid"}} {
+		if _, err := ts.srv.appctlDispatch(context.Background(), OpServersTest, args); err == nil {
+			t.Fatalf("invalid test args accepted: %v", args)
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{OpGroupsCreate, map[string]any{"name": " "}},
+		{OpGroupsRename, map[string]any{"oldName": "prod"}},
+		{OpGroupsDelete, map[string]any{}},
+	} {
+		if _, err := ts.srv.appctlDispatch(context.Background(), tc.name, tc.args); err == nil {
+			t.Fatalf("%s accepted missing name", tc.name)
+		}
+	}
+}
+
+func TestGroupWritesRequireConfirmationAndRetestPermission(t *testing.T) {
+	ensureAllRegistrations(t)
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{OpGroupsCreate, map[string]any{"name": "prod"}},
+		{OpGroupsRename, map[string]any{"oldName": "prod", "newName": "production"}},
+		{OpGroupsDelete, map[string]any{"name": "prod"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gate := &fakeGate{}
+			ts, h := newAppctlTestServer(t, gate, nil, nil)
+			if _, _, err := ts.srv.mcpCallToolAudited(context.Background(), tc.name, tc.args); err == nil {
+				t.Fatal("write without confirmation")
+			}
+			if h.called(tc.name) {
+				t.Fatal("unconfirmed write reached host")
+			}
+			token, _ := ts.srv.opts.Confirms.PrepareTool(tc.name, tc.name, tc.args, "test")
+			gate.denied = map[Capability]string{CapConfigWrite: "disabled"}
+			if _, err := ts.srv.confirmCommit(context.Background(), map[string]any{"token": token}); err == nil {
+				t.Fatal("commit ignored revoked permission")
+			}
+			if _, ok := ts.srv.opts.Confirms.Peek(token); !ok {
+				t.Fatal("permission failure consumed token")
+			}
+			gate.denied = nil
+			if _, err := ts.srv.confirmCommit(context.Background(), map[string]any{"token": token}); err != nil {
+				t.Fatal(err)
+			}
+			if !h.called(tc.name) {
+				t.Fatal("confirmed tool did not reach host")
+			}
+			if _, err := ts.srv.confirmCommit(context.Background(), map[string]any{"token": token}); err == nil {
+				t.Fatal("replay accepted")
+			}
+		})
+	}
+}
+
+func TestLegacyGroupCommitChecksPermissionBeforeConsumption(t *testing.T) {
+	ensureAllRegistrations(t)
+	ts, _ := newAppctlTestServer(t, &fakeGate{denied: map[Capability]string{CapConfigWrite: "disabled"}}, nil, nil)
+	token, _ := ts.srv.opts.Confirms.Prepare(OpGroupsDelete, map[string]any{"name": "prod"}, "test")
+	if _, err := ts.srv.confirmCommit(context.Background(), map[string]any{"token": token}); err == nil {
+		t.Fatal("legacy commit ignored permission")
+	}
+	if _, ok := ts.srv.opts.Confirms.Peek(token); !ok {
+		t.Fatal("permission failure consumed token")
+	}
+}
+
+func TestWorkspaceToolsRequireUIWrite(t *testing.T) {
+	ensureAllRegistrations(t)
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{OpTabsActivate, map[string]any{"id": "tab"}},
+		{OpPanelsSet, map[string]any{"panel": "hidden"}},
+		{OpWorkspaceSplit, map[string]any{"enabled": false}},
+	} {
+		ts, h := newAppctlTestServer(t, &fakeGate{denied: map[Capability]string{CapUIWrite: "disabled"}}, nil, nil)
+		if _, _, err := ts.srv.mcpCallToolAudited(context.Background(), tc.name, tc.args); err == nil {
+			t.Fatalf("%s ignored UI permission", tc.name)
+		}
+		if h.called(tc.name) {
+			t.Fatal("denied operation reached host")
+		}
+		ts, h = newAppctlTestServer(t, &fakeGate{}, nil, nil)
+		if _, _, err := ts.srv.mcpCallToolAudited(context.Background(), tc.name, tc.args); err != nil {
+			t.Fatal(err)
+		}
+		if !h.called(tc.name) {
+			t.Fatal("valid UI operation did not reach host")
+		}
+	}
+	ts, h := newAppctlTestServer(t, &fakeGate{}, nil, nil)
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{OpTabsActivate, map[string]any{}},
+		{OpPanelsSet, map[string]any{"panel": "unknown"}},
+		{OpWorkspaceSplit, map[string]any{"enabled": "false"}},
+		{OpWorkspaceSplit, map[string]any{"sourceId": "a", "targetId": "a"}},
+		{OpWorkspaceSplit, map[string]any{"sourceId": "a", "targetId": "b", "direction": "unknown"}},
+	} {
+		before := len(h.calls)
+		if _, _, err := ts.srv.mcpCallToolAudited(context.Background(), tc.name, tc.args); err == nil {
+			t.Fatalf("invalid args accepted: %s %v", tc.name, tc.args)
+		}
+		if len(h.calls) != before {
+			t.Fatal("invalid args reached host")
+		}
+	}
+}

@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import {copyText as ClipboardSetText} from '../../utils/clipboard'
 import {computed, onMounted, ref, watch} from 'vue'
 import {Button, Input} from '../ui'
-import {ClipboardSetText} from '../../../wailsjs/runtime/runtime'
+
 interface TrustRecord {line: number; hosts: string; keyType: string; fingerprint: string; source: string; readOnly: boolean}
 const records = ref<TrustRecord[]>([])
 const error = ref('')

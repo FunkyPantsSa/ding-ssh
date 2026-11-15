@@ -1067,6 +1067,9 @@ async function navigateOp(args: Args): Promise<unknown> {
   const ui = useUIStore()
   const sessions = useSessionsStore()
   switch (view) {
+    case 'home':
+      ui.showHome()
+      break
     // 兼容旧自动化：概览 / 传输记录不再是顶级视图，分别落到工作区与右侧传输面板。
     case 'overview':
       ui.showWorkspace()
@@ -1088,7 +1091,7 @@ async function navigateOp(args: Args): Promise<unknown> {
       ui.showSettings()
       break
     default:
-      throw new Error(`view 必须是 workspace | servers | tunnel | settings（兼容 overview / transfers，收到 ${view || '(空)'}）`)
+      throw new Error(`view 必须是 home | workspace | servers | tunnel | settings（兼容 overview / transfers，收到 ${view || '(空)'}）`)
   }
   ui.closeCommandPalette()
   await nextTick()

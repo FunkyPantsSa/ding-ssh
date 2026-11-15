@@ -363,6 +363,61 @@ func (s *Server) handleAppctl(ctx context.Context, name string, args map[string]
 func (s *Server) appctlDispatch(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
 	h := s.opts.Handler
 	switch name {
+	case OpTabsActivate, OpPanelsSet, OpWorkspaceSplit:
+		switch name {
+		case OpTabsActivate:
+			if appctlString(args, "id") == "" {
+				return nil, fmt.Errorf("%w: 缺少 id", ErrBadInput)
+			}
+		case OpPanelsSet:
+			switch appctlString(args, "panel") {
+			case "sftp", "sysinfo", "transfers", "hidden":
+			default:
+				return nil, fmt.Errorf("%w: panel 必须为 sftp | sysinfo | transfers | hidden", ErrBadInput)
+			}
+		case OpWorkspaceSplit:
+			enabled, has := args["enabled"]
+			if has {
+				if _, ok := enabled.(bool); !ok {
+					return nil, fmt.Errorf("%w: enabled 必须为布尔值", ErrBadInput)
+				}
+			}
+			if enabled != false {
+				a, b := appctlString(args, "sourceId"), appctlString(args, "targetId")
+				if a == "" || b == "" || a == b {
+					return nil, fmt.Errorf("%w: 需要两个不同的标签 sourceId/targetId", ErrBadInput)
+				}
+				switch appctlString(args, "direction") {
+				case "", "left", "right", "up", "down":
+				default:
+					return nil, fmt.Errorf("%w: direction 必须为 left | right | up | down", ErrBadInput)
+				}
+			}
+		}
+		raw, err := appctlCall(ctx, h, name, args)
+		if err != nil {
+			return nil, err
+		}
+		return appctlObj(raw), nil
+	case OpGroupsList, OpGroupsCreate, OpGroupsRename, OpGroupsDelete, OpServersTest, OpHostTrustList:
+		for _, key := range map[string][]string{
+			OpGroupsCreate: {"name"}, OpGroupsRename: {"oldName", "newName"}, OpGroupsDelete: {"name"}, OpServersTest: {"id"},
+		}[name] {
+			if appctlString(args, key) == "" {
+				return nil, fmt.Errorf("%w: 缺少 %s", ErrBadInput, key)
+			}
+		}
+		if name == OpServersTest {
+			mode := appctlString(args, "mode")
+			if mode != "" && mode != "tcp" && mode != "login" {
+				return nil, fmt.Errorf("%w: mode 必须为 tcp 或 login", ErrBadInput)
+			}
+		}
+		raw, err := appctlCall(ctx, h, name, withoutToken(args))
+		if err != nil {
+			return nil, err
+		}
+		return appctlObj(raw), nil
 	// ---- A. 服务器 ----
 	case OpServersList:
 		return s.appctlServersList(ctx, h, args)

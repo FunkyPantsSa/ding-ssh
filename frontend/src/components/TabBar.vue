@@ -1,10 +1,11 @@
 <script lang="ts" setup>
+import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import {getElementRect} from '../utils/dom'
-import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
+
 import type {SessionTab, SplitDirection} from '../types'
 
 const sessions = useSessionsStore()

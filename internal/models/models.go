@@ -693,6 +693,7 @@ type SFTPEntry struct {
 
 // SFTPTransferEvent SFTP 传输进度事件。
 type SFTPTransferEvent struct {
+	TransferID  string `json:"transferId,omitempty"`
 	SessionID   string `json:"sessionId"`
 	Direction   string `json:"direction"` // upload | download
 	Name        string `json:"name"`

@@ -3,6 +3,7 @@ import {createPinia, setActivePinia} from 'pinia'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import SftpPanel from './SftpPanel.vue'
 import {useSettingsStore} from '../stores/settings'
+import {useTransfersStore} from '../stores/transfers'
 import type {ServerNode, SessionTab} from '../types'
 
 vi.mock('../services/ssh', () => ({
@@ -10,6 +11,9 @@ vi.mock('../services/ssh', () => ({
   onSftpDirUpdated: vi.fn(() => () => {}),
   sshService: {
     sftpList: vi.fn(),
+    sftpCancelTransfer: vi.fn().mockResolvedValue(undefined),
+    selectLocalFiles: vi.fn(),
+    sftpUpload: vi.fn(),
     syncSftpToTerminal: vi.fn(),
   },
 }))
@@ -19,7 +23,7 @@ vi.mock('../../wailsjs/runtime/runtime', () => ({
   ClipboardSetText: vi.fn(),
 }))
 
-const {sshService} = await import('../services/ssh')
+const {sshService,onSftpTransfer} = await import('../services/ssh')
 
 const node: ServerNode = {
   id: 's1', name: '测试服务器', group: '', host: '10.0.0.1', port: 22, user: 'root',
@@ -110,5 +114,41 @@ it('does not sync directory navigation to the terminal when synchronization is d
  await wrapper.get('[data-path="/home/logs"]').trigger('dblclick');await flushPromises()
  expect(sshService.sftpList).toHaveBeenLastCalledWith('sess-1','/home/logs')
  expect(sshService.syncSftpToTerminal).not.toHaveBeenCalled()
+ wrapper.unmount()
+})
+
+
+it('separates same-name tasks and preserves partial bytes on cancellation', async () => {
+ const pinia=createPinia();setActivePinia(pinia)
+ const wrapper=mount(SftpPanel,{props:{tab:{...tab,sftpPath:'/home'}},global:{plugins:[pinia]}})
+ await flushPromises()
+ const receive=vi.mocked(onSftpTransfer).mock.calls.at(-1)![1]
+ receive({sessionId:'sess-1',transferId:'first',direction:'upload',name:'same.txt',transferred:100,total:1000,done:false})
+ receive({sessionId:'sess-1',transferId:'second',direction:'upload',name:'same.txt',transferred:200,total:1000,done:false})
+ await flushPromises()
+ expect(wrapper.findAll('.prog')).toHaveLength(2)
+ const cancel=wrapper.findAll('button').filter(b=>b.text()==='取消')
+ await cancel[0].trigger('click')
+ expect(sshService.sftpCancelTransfer).toHaveBeenCalledWith('sess-1','upload','@id:first')
+ receive({sessionId:'sess-1',transferId:'first',direction:'upload',name:'same.txt',transferred:100,total:1000,done:true,error:'已取消'})
+ await flushPromises()
+ expect(wrapper.text()).toContain('100 B / 1000 B')
+ expect(wrapper.text()).toContain('已取消')
+ expect(wrapper.findAll('button').filter(b=>b.text()==='取消')).toHaveLength(1)
+ wrapper.unmount()
+})
+
+
+it('records cancellation even when the final progress event has not arrived',async()=>{
+ const pinia=createPinia();setActivePinia(pinia)
+ const history=useTransfersStore();history.records=[]
+ vi.mocked(sshService.selectLocalFiles).mockResolvedValue(['/test/data.txt'])
+ vi.mocked(sshService.sftpUpload).mockRejectedValue(new Error('传输已取消'))
+ const wrapper=mount(SftpPanel,{props:{tab:{...tab,sftpPath:'/home'}},global:{plugins:[pinia]}})
+ await flushPromises()
+ await wrapper.get('[data-testid="sftp-upload"]').trigger('click');await flushPromises()
+ expect(history.records).toHaveLength(1)
+ expect(history.records[0].status).toBe('cancelled')
+ expect(history.records[0].transferred).toBe(0)
  wrapper.unmount()
 })

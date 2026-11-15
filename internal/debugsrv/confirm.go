@@ -67,10 +67,10 @@ func confirmActionNeedsConfirm(action string) bool {
 		"servers.create", "servers.update", "servers.delete",
 		"credentials.create", "credentials.update", "credentials.delete",
 		"tunnels.create", "tunnels.update", "tunnels.delete", "tunnels.start", "tunnels.stop",
-		"sftp.write", "sftp.remove", "sftp.mkdir", "sftp.rename", "sftp.upload",
+		"sftp.write", "sftp.remove", "sftp.mkdir", "sftp.rename",
 		"settings.update", "settings.reset",
 		"logs.clear",
-		"app.quit", "app.reload",
+		"app.quit",
 		"capability.enable":
 		return true
 	}
@@ -81,10 +81,10 @@ func confirmActionNeedsConfirm(action string) bool {
 // switch 一一对应）。单独列出来是为了让 ConfirmableActions() 能输出完整清单
 // （注册表里的动作会合并进来）。
 var builtinConfirmActions = []string{
-	"app.quit", "app.reload",
+	"app.quit",
 	"capability.enable",
 	"credentials.create", "credentials.delete", "credentials.update",
-	"sftp.mkdir", "sftp.remove", "sftp.rename", "sftp.upload", "sftp.write",
+	"sftp.mkdir", "sftp.remove", "sftp.rename", "sftp.write",
 	"servers.create", "servers.delete", "servers.update",
 	"settings.reset", "settings.update",
 	"tunnels.create", "tunnels.delete", "tunnels.start", "tunnels.stop", "tunnels.update",
@@ -168,6 +168,7 @@ var ErrConfirmRequired = errors.New("需要两段式确认")
 // PendingConfirm 一次已登记、等待 commit 的确认操作。
 type PendingConfirm struct {
 	Token     string         `json:"token"`
+	Tool      string         `json:"tool,omitempty"`
 	Action    string         `json:"action"`
 	Args      map[string]any `json:"args"`
 	Summary   string         `json:"summary"`
@@ -213,6 +214,11 @@ func (m *ConfirmManager) TTL() time.Duration {
 // summary 是给用户 / AI 展示的中文摘要（可为空，调用方会补一个默认摘要）；
 // args 为已规范化的参数（排序键），Commit 时会重新规范化后比对哈希。
 func (m *ConfirmManager) Prepare(action string, args map[string]any, summary string) (string, int64) {
+	return m.PrepareTool(action, "", args, summary)
+}
+
+// PrepareTool preserves the exact tool for generic commit dispatch.
+func (m *ConfirmManager) PrepareTool(action, tool string, args map[string]any, summary string) (string, int64) {
 	action = strings.TrimSpace(action)
 	norm := NormalizeConfirmArgs(args)
 	token := newConfirmToken()
@@ -224,6 +230,7 @@ func (m *ConfirmManager) Prepare(action string, args map[string]any, summary str
 	entry := confirmEntry{
 		pending: PendingConfirm{
 			Token:     token,
+			Tool:      tool,
 			Action:    action,
 			Args:      norm,
 			Summary:   summary,

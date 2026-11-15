@@ -18,6 +18,7 @@ import (
 	"ding-ssh/internal/logx"
 	"ding-ssh/internal/models"
 
+	"github.com/google/uuid"
 	"github.com/pkg/sftp"
 )
 
@@ -31,7 +32,10 @@ var ErrTransferCancelled = errors.New("传输已取消")
 type Notifier func(eventName string, payload interface{})
 
 // activeTransfer 一条进行中的 SFTP 传输，cancel 用于通知传输协程停止。
+type transferContextKey struct{}
+
 type activeTransfer struct {
+	id        string
 	sessionID string
 	direction string
 	name      string
@@ -455,10 +459,11 @@ func (m *Manager) SftpUpload(sessionID, localPath, remotePath string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	tr := m.registerTransfer(sessionID, "upload", name, cancel)
 	defer m.unregisterTransfer(tr)
+	ctx = context.WithValue(ctx, transferContextKey{}, tr.id)
 	err = m.streamTransfer(ctx, sessionID, "upload", name, fi.Size(), src.Read, dst.Write)
 	if err != nil {
 		if errors.Is(err, ErrTransferCancelled) {
-			return nil // 已取消，进度事件已上报
+			return ErrTransferCancelled // 调用方也必须收到取消结果，避免晚到事件被记作成功
 		}
 		_ = client.Remove(remotePath) // 清理不完整的上传文件
 		return fmt.Errorf("上传失败: %w", err)
@@ -496,11 +501,12 @@ func (m *Manager) SftpDownload(sessionID, remotePath, localPath string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	tr := m.registerTransfer(sessionID, "download", name, cancel)
 	defer m.unregisterTransfer(tr)
+	ctx = context.WithValue(ctx, transferContextKey{}, tr.id)
 	err = m.streamTransfer(ctx, sessionID, "download", name, fi.Size(), src.Read, dst.Write)
 	if err != nil {
 		if errors.Is(err, ErrTransferCancelled) {
-			_ = os.Remove(localPath) // 清理不完整的下载文件
-			return nil               // 已取消，进度事件已上报
+			_ = os.Remove(localPath)    // 清理不完整的下载文件
+			return ErrTransferCancelled // 调用方也必须收到取消结果
 		}
 		_ = os.Remove(localPath) // 清理不完整的下载文件
 		return fmt.Errorf("下载失败: %w", err)
@@ -549,6 +555,7 @@ func (m *Manager) SftpUploadFolder(sessionID, localDir, remoteDir string) error 
 	ctx, cancel := context.WithCancel(context.Background())
 	tr := m.registerTransfer(sessionID, "upload", name, cancel)
 	defer m.unregisterTransfer(tr)
+	ctx = context.WithValue(ctx, transferContextKey{}, tr.id)
 
 	var transferred atomic.Int64
 	stop := make(chan struct{})
@@ -558,6 +565,7 @@ func (m *Manager) SftpUploadFolder(sessionID, localDir, remoteDir string) error 
 		defer wg.Done()
 		emit := func() {
 			m.notify("sftp:transfer:"+sessionID, models.SFTPTransferEvent{
+				TransferID:  tr.id,
 				SessionID:   sessionID,
 				Direction:   "upload",
 				Name:        name,
@@ -583,6 +591,7 @@ func (m *Manager) SftpUploadFolder(sessionID, localDir, remoteDir string) error 
 		close(stop)
 		wg.Wait()
 		m.notify("sftp:transfer:"+sessionID, models.SFTPTransferEvent{
+			TransferID:  tr.id,
 			SessionID:   sessionID,
 			Direction:   "upload",
 			Name:        name,
@@ -597,7 +606,7 @@ func (m *Manager) SftpUploadFolder(sessionID, localDir, remoteDir string) error 
 	if uploadErr != nil {
 		if errors.Is(uploadErr, ErrTransferCancelled) {
 			finish("已取消")
-			return nil // 已取消，进度事件已上报
+			return ErrTransferCancelled // 调用方也必须收到取消结果，避免晚到事件被记作成功
 		}
 		finish(uploadErr.Error())
 		return fmt.Errorf("上传文件夹失败: %w", uploadErr)
@@ -648,6 +657,7 @@ func (m *Manager) SftpDownloadFolder(sessionID, remoteDir, localDir string) erro
 	ctx, cancel := context.WithCancel(context.Background())
 	tr := m.registerTransfer(sessionID, "download", name, cancel)
 	defer m.unregisterTransfer(tr)
+	ctx = context.WithValue(ctx, transferContextKey{}, tr.id)
 
 	var transferred atomic.Int64
 	stop := make(chan struct{})
@@ -657,6 +667,7 @@ func (m *Manager) SftpDownloadFolder(sessionID, remoteDir, localDir string) erro
 		defer wg.Done()
 		emit := func() {
 			m.notify("sftp:transfer:"+sessionID, models.SFTPTransferEvent{
+				TransferID:  tr.id,
 				SessionID:   sessionID,
 				Direction:   "download",
 				Name:        name,
@@ -682,6 +693,7 @@ func (m *Manager) SftpDownloadFolder(sessionID, remoteDir, localDir string) erro
 		close(stop)
 		wg.Wait()
 		m.notify("sftp:transfer:"+sessionID, models.SFTPTransferEvent{
+			TransferID:  tr.id,
 			SessionID:   sessionID,
 			Direction:   "download",
 			Name:        name,
@@ -696,7 +708,7 @@ func (m *Manager) SftpDownloadFolder(sessionID, remoteDir, localDir string) erro
 	if downloadErr != nil {
 		if errors.Is(downloadErr, ErrTransferCancelled) {
 			finish("已取消")
-			return nil // 已取消，进度事件已上报
+			return ErrTransferCancelled // 调用方也必须收到取消结果，避免晚到事件被记作成功
 		}
 		finish(downloadErr.Error())
 		return fmt.Errorf("下载文件夹失败: %w", downloadErr)
@@ -936,6 +948,10 @@ func (m *Manager) streamTransfer(
 	read func([]byte) (int, error),
 	write func([]byte) (int, error),
 ) error {
+	id, _ := ctx.Value(transferContextKey{}).(string)
+	if id == "" {
+		id = uuid.NewString()
+	}
 	var transferred atomic.Int64
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
@@ -944,6 +960,7 @@ func (m *Manager) streamTransfer(
 		defer wg.Done()
 		emit := func() {
 			m.notify("sftp:transfer:"+sessionID, models.SFTPTransferEvent{
+				TransferID:  id,
 				SessionID:   sessionID,
 				Direction:   direction,
 				Name:        name,
@@ -969,6 +986,7 @@ func (m *Manager) streamTransfer(
 		close(stop)
 		wg.Wait()
 		m.notify("sftp:transfer:"+sessionID, models.SFTPTransferEvent{
+			TransferID:  id,
 			SessionID:   sessionID,
 			Direction:   direction,
 			Name:        name,
@@ -1015,7 +1033,7 @@ func (m *Manager) streamTransfer(
 
 // registerTransfer 将一条传输登记到取消表。
 func (m *Manager) registerTransfer(sessionID, direction, name string, cancel context.CancelFunc) *activeTransfer {
-	tr := &activeTransfer{sessionID: sessionID, direction: direction, name: name, cancel: cancel}
+	tr := &activeTransfer{id: uuid.NewString(), sessionID: sessionID, direction: direction, name: name, cancel: cancel}
 	m.transfersMu.Lock()
 	m.transfers[sessionID] = append(m.transfers[sessionID], tr)
 	m.transfersMu.Unlock()
@@ -1045,16 +1063,26 @@ func (m *Manager) SftpCancelTransfer(sessionID, direction, name string) error {
 	m.transfersMu.Lock()
 	defer m.transfersMu.Unlock()
 	list := m.transfers[sessionID]
-	cancelled := 0
+	var matches []*activeTransfer
 	for _, tr := range list {
-		if tr.direction == direction && tr.name == name {
-			tr.cancel()
-			cancelled++
+		if tr.direction != direction {
+			continue
+		}
+		if strings.HasPrefix(name, "@id:") {
+			if tr.id == strings.TrimPrefix(name, "@id:") {
+				matches = append(matches, tr)
+			}
+		} else if tr.name == name {
+			matches = append(matches, tr)
 		}
 	}
-	if cancelled == 0 {
+	if len(matches) == 0 {
 		return fmt.Errorf("没有进行中的传输: direction=%s name=%s", direction, name)
 	}
+	if len(matches) > 1 {
+		return fmt.Errorf("存在同名并发传输，请按任务 ID 精确取消")
+	}
+	matches[0].cancel()
 	return nil
 }
 

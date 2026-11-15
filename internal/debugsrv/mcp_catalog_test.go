@@ -17,7 +17,7 @@ import (
 	"testing"
 )
 
-// structuredExpect 规格表：应当声明 outputSchema / 返回 structuredContent 的工具（13 个）。
+// structuredExpect 规格表：应当声明 outputSchema / 返回 structuredContent 的工具（由下方清单约定）。
 //
 // 这是**规格清单**（任务要求逐个点名），不是「总数」——总数仍由注册表 / mcpToolEntries 推导。
 var structuredExpect = []string{
@@ -25,7 +25,7 @@ var structuredExpect = []string{
 	"list_terminals", "read_terminal",
 	OpUILayout, OpUIDiff, OpUIQuery,
 	OpSftpList,
-	OpServersList, OpServersGet,
+	OpServersList, OpServersGet, OpGroupsList, OpServersTest, OpHostTrustList,
 	OpSettingsSchema,
 	"app.recent_calls",
 }
@@ -156,7 +156,7 @@ func TestToolsCatalogHTTP(t *testing.T) {
 		}
 	}
 
-	// 5) 结构化输出清单与规格一致（13 个）
+	// 5) 结构化输出清单与规格一致（由下方清单约定）
 	var got []string
 	for _, tool := range catalog.Tools {
 		if ok, _ := tool["hasStructuredOutput"].(bool); ok {

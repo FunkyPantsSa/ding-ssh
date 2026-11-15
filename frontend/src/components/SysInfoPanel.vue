@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
+import ToggleSwitch from './ToggleSwitch.vue'
 import {useSettingsStore} from '../stores/settings'
 import {Button} from './ui'
 import {onSysInfoSnapshot, sysInfoService} from '../services/sysinfo'
@@ -182,20 +183,23 @@ onBeforeUnmount(() => {
       <template v-else>
         <div class="status-summary neo-flat p-4 text-xs">
           <div class="flex flex-wrap gap-3 mb-3">
-            <button :disabled="refreshing || tab.status !== 'connected' || !settings.sysInfoCollectEnabled" @click="refresh">{{ refreshing ? '正在采集…' : '立即刷新' }}</button>
-            <button :aria-expanded="arranging" @click="arranging = !arranging">调整卡片顺序</button>
+            <Button size="sm" :loading="refreshing" :disabled="refreshing || tab.status !== 'connected' || !settings.sysInfoCollectEnabled" @click="refresh">{{ refreshing ? '正在采集…' : '立即刷新' }}</Button>
+            <Button size="sm" :variant="arranging ? 'primary' : 'secondary'" :aria-expanded="arranging" @click="arranging = !arranging">调整卡片顺序</Button>
           </div>
           <div v-if="arranging" class="card-order mb-3">
             <div v-for="(card,i) in order" :key="card" class="flex items-center gap-3 py-1">
               <span class="flex-1">{{ cardLabels[card] }}</span>
-              <button :disabled="i===0" :aria-label="`上移${cardLabels[card]}`" @click="moveCard(card,-1)">上移</button>
-              <button :disabled="i===order.length-1" :aria-label="`下移${cardLabels[card]}`" @click="moveCard(card,1)">下移</button>
+              <Button size="sm" :disabled="i===0" :aria-label="`上移${cardLabels[card]}`" @click="moveCard(card,-1)">上移</Button>
+              <Button size="sm" :disabled="i===order.length-1" :aria-label="`下移${cardLabels[card]}`" @click="moveCard(card,1)">下移</Button>
             </div>
           </div>
           <p class="font-semibold">{{ summary }}</p>
           <p class="text-mist mt-2">来源：top · 磁盘：df · {{ snap?.collectedAt ? new Date(snap.collectedAt).toLocaleTimeString() : '等待采集' }}</p>
           <p class="text-mist mt-1">{{ settings.sysInfoRealtimeEnabled ? '前台约 3 秒刷新，后台约 10 秒' : '当前为单次快照' }}</p>
-          <button class="mt-2 underline" @click="settings.setSysInfoRealtimeEnabled(!settings.sysInfoRealtimeEnabled)">{{ settings.sysInfoRealtimeEnabled ? '暂停自动刷新' : '开启自动刷新' }}</button>
+          <label class="mt-3 flex items-center justify-between gap-3 cursor-pointer">
+            <span>自动刷新</span>
+            <ToggleSwitch :model-value="settings.sysInfoRealtimeEnabled" aria-label="自动刷新" @update:model-value="settings.setSysInfoRealtimeEnabled" />
+          </label>
           <p v-if="!settings.sysInfoCollectEnabled" class="text-warn mt-2">系统信息采集已关闭，请在设置中开启。</p>
           <p v-if="tab.status !== 'connected'" class="text-warn mt-2">连接已断开，当前为最后一次快照。</p>
         </div>

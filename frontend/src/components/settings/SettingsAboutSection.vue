@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import {copyText as ClipboardSetText} from '../../utils/clipboard'
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from '../Icon.vue'
 import ToggleSwitch from '../ToggleSwitch.vue'
@@ -7,7 +8,7 @@ import {frontendRuntimeStatus} from '../../utils/runtime-status'
 import {sshService} from '../../services/ssh'
 import {APP_COMMIT, APP_VERSION, buildDateLabel, buildTimeLabel, detectPlatform, platformLabel} from '../../version'
 import {GetRuntimeStatus} from '../../../wailsjs/go/main/App'
-import {ClipboardSetText} from '../../../wailsjs/runtime/runtime'
+
 import appLogo from '../../assets/images/ding-logo.png'
 
 const props = withDefaults(defineProps<{active?: boolean}>(), {active: true})

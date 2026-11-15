@@ -1,7 +1,8 @@
+import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
 import {onTunnelStatus, sshService} from '../services/ssh'
 import {useServersStore} from '../stores/servers'
-import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
+
 import type {TunnelInfo, TunnelStatusEvent} from '../types'
 
 import type {TunnelMode} from '../components/tunnels/TunnelModePicker.vue'

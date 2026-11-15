@@ -1,9 +1,10 @@
+import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {useGroupsStore} from '../stores/groups'
 import {useServersStore} from '../stores/servers'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
-import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
+
 import type {ServerNode} from '../types'
 
 export function useServerManagement() {

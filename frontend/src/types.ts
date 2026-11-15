@@ -280,6 +280,7 @@ export interface SFTPEntry {
 
 // SFTP 传输进度事件（对应 Go 端 models.SFTPTransferEvent）。
 export interface SFTPTransferEvent {
+  transferId?: string
   sessionId: string
   direction: 'upload' | 'download'
   name: string

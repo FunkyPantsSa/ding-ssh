@@ -1,6 +1,7 @@
+import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {createApp, defineComponent, h, ref} from 'vue'
 import {Button, Dialog} from '../components/ui'
-import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
+
 export interface HostTrustChallenge {id: string; host: string; fingerprint: string; keyType: string; changed: boolean; oldFingerprints: string[]; canReplace: boolean}
 export function requestHostTrust(challenge: HostTrustChallenge): Promise<boolean> {
  return new Promise(resolve => {

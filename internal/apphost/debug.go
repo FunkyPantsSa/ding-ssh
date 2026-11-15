@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -582,10 +583,45 @@ func (c *debugController) state(ctx context.Context) (any, error) {
 	}
 	if fe, err := c.callFrontend(ctx, "state", nil); err == nil {
 		out["frontend"] = fe
+		out["sessionBindings"] = sessionBindingDiagnostics(c.app.manager.List(), fe)
 	} else {
 		out["frontendError"] = err.Error()
 	}
 	return out, nil
+}
+
+// sessionBindingDiagnostics reports detached sessions without closing user connections.
+// Missing frontend data is unknown, never proof that every connection is orphaned.
+func sessionBindingDiagnostics(sessions []models.SessionInfo, frontend any) map[string]any {
+	root, ok := frontend.(map[string]any)
+	if !ok {
+		return map[string]any{"checked": false}
+	}
+	tabs, ok := root["tabs"].([]any)
+	if !ok {
+		return map[string]any{"checked": false}
+	}
+	bound := map[string]bool{}
+	for _, raw := range tabs {
+		tab, ok := raw.(map[string]any)
+		if !ok {
+			return map[string]any{"checked": false}
+		}
+		if id, ok := tab["sessionId"].(string); ok && id != "" {
+			bound[id] = true
+		}
+		// During connection setup the client ID precedes bindSession.
+		if id, ok := tab["clientId"].(string); ok && id != "" {
+			bound[id] = true
+		}
+	}
+	unbound := []models.SessionInfo{}
+	for _, session := range sessions {
+		if !bound[session.SessionID] && (session.Status == models.StatusConnected || session.Status == models.StatusConnecting) {
+			unbound = append(unbound, session)
+		}
+	}
+	return map[string]any{"checked": true, "unboundCount": len(unbound), "unboundSessions": unbound, "note": "未关联标签的连接仅供诊断，未自动断开"}
 }
 
 // settingsView 返回设置快照；未开启 allowSecrets 时抹掉潜在敏感字段。
@@ -1646,6 +1682,7 @@ func (e debugExecutor) ExecuteAction(ctx context.Context, action string, args ma
 // 因此这里不能靠 action 反推 op —— AI 用 confirm.commit 时应改用对应的写工具本身
 // （写工具会把 token 与自己的参数一起提交，语义更精确）。
 var ctlActionOps = map[string]string{
+	debugsrv.OpGroupsCreate: debugsrv.OpGroupsCreate, debugsrv.OpGroupsRename: debugsrv.OpGroupsRename, debugsrv.OpGroupsDelete: debugsrv.OpGroupsDelete,
 	"servers.create":     debugsrv.OpServersCreate,
 	"servers.update":     debugsrv.OpServersUpdate,
 	"servers.delete":     debugsrv.OpServersDelete,
@@ -2216,6 +2253,56 @@ func ctlCredentialMeta(c models.Credential) map[string]any {
 // handleAppctlOp 执行一个应用控制面 op（op 集合见 debugsrv.IsAppctlOp）。
 func (c *debugController) handleAppctlOp(ctx context.Context, op string, args map[string]any) (any, error) {
 	switch op {
+	case debugsrv.OpTabsActivate, debugsrv.OpPanelsSet, debugsrv.OpWorkspaceSplit:
+		return c.callFrontend(ctx, op, args)
+	case debugsrv.OpGroupsList:
+		groups := c.app.GetGroups()
+		return map[string]any{"groups": groups, "count": len(groups)}, nil
+	case debugsrv.OpGroupsCreate, debugsrv.OpGroupsRename, debugsrv.OpGroupsDelete:
+		var err error
+		switch op {
+		case debugsrv.OpGroupsCreate:
+			err = c.app.AddGroup(ctlArgStr(args, "name"))
+		case debugsrv.OpGroupsRename:
+			if ctlArgStr(args, "oldName") == "" {
+				return nil, fmt.Errorf("%w: 缺少 oldName", debugsrv.ErrBadInput)
+			}
+			err = c.app.RenameGroup(ctlArgStr(args, "oldName"), ctlArgStr(args, "newName"))
+		case debugsrv.OpGroupsDelete:
+			err = c.app.RemoveGroup(ctlArgStr(args, "name"))
+		}
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true}, nil
+	case debugsrv.OpServersTest:
+		node, err := c.findServer(ctlArgStr(args, "id"))
+		if err != nil {
+			return nil, err
+		}
+		mode := ctlArgStr(args, "mode")
+		if mode == "" {
+			mode = "tcp"
+		}
+		var result models.ServerTestResult
+		switch mode {
+		case "tcp":
+			if len(node.JumpServerIDs) > 0 {
+				return nil, fmt.Errorf("%w: 跳板机节点请使用 mode=login", debugsrv.ErrBadInput)
+			}
+			result = c.app.TestServer(node)
+		case "login":
+			result = c.app.TestServerLogin(node)
+		default:
+			return nil, fmt.Errorf("%w: mode 必须为 tcp 或 login", debugsrv.ErrBadInput)
+		}
+		return map[string]any{"result": result, "mode": mode}, nil
+	case debugsrv.OpHostTrustList:
+		records, err := c.app.GetHostTrust()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"records": records, "count": len(records)}, nil
 	// ---- A. 服务器 ----
 	case debugsrv.OpServersList:
 		nodes := c.app.GetServers()
@@ -3131,16 +3218,31 @@ func (c *debugController) sftpHostList(args map[string]any) (any, error) {
 	}
 	resolved := path
 	if !strings.HasPrefix(path, "/") {
-		if wd, werr := client.Getwd(); werr == nil && strings.HasPrefix(wd, "/") {
-			resolved = wd
+		if absolute, resolveErr := client.RealPath(path); resolveErr == nil {
+			resolved = absolute
+		} else if wd, werr := client.Getwd(); werr == nil && strings.HasPrefix(wd, "/") {
+			resolved = filepath.ToSlash(filepath.Join(wd, path))
 		}
 	}
 	base := resolved
 	if !strings.HasSuffix(base, "/") {
 		base += "/"
 	}
-	entries := make([]debugsrv.SFTPEntryInfo, 0, len(infos))
-	for _, fi := range infos {
+	sort.SliceStable(infos, func(i, j int) bool {
+		if infos[i].IsDir() != infos[j].IsDir() {
+			return infos[i].IsDir()
+		}
+		return infos[i].Name() < infos[j].Name()
+	})
+	offset := ctlArgInt(args, "offset")
+	if offset < 0 {
+		return nil, fmt.Errorf("offset 不能为负数")
+	}
+	if offset > len(infos) {
+		offset = len(infos)
+	}
+	entries := make([]debugsrv.SFTPEntryInfo, 0, len(infos)-offset)
+	for _, fi := range infos[offset:] {
 		if len(entries) >= limit {
 			break
 		}
