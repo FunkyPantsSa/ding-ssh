@@ -27,8 +27,6 @@ export async function setLanguage(value: Language) {
   language.value = value
   document.documentElement.lang = value
   try { localStorage.setItem(key, value) } catch { /* Session preference still applies. */ }
-  // Recreate setup-time option labels while retaining the saved preference.
-  window.location.reload()
 }
 export function installI18n(app: App) {
   document.documentElement.lang = language.value

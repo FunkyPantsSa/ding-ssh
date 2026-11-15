@@ -18,7 +18,7 @@ A desktop workspace combining **SSH / SFTP / port forwarding / local shells**, w
 | Branches | `dev` for development; `main` for integration |
 | Change history | [CHANGELOG](CHANGELOG.md) · [UI design](docs/2.0设计规范.md) · [Architecture](docs/refactor-2.0/) |
 
-Choose **Settings → General → Language** for Simplified Chinese or English. Chinese is the default and the selection is saved locally. Switching reloads the interface. Pages, help text, connection and transfer messages, and native file dialog titles support both languages. User content and remote terminal output retain their original language.
+Choose **Settings → General → Language** for Simplified Chinese or English. Chinese is the default and the selection is saved locally. Switching updates the interface in place without reloading the page or closing terminal sessions. Pages, help text, connection and transfer messages, and native file dialog titles support both languages. User content and remote terminal output retain their original language.
 
 ## Contents
 
@@ -125,6 +125,14 @@ For AI clients, enable Settings → Debug mode and the capabilities needed. The 
 - Quick connect opens a session when you choose a server.
 - The command palette is a global entry point; Esc closes it.
 
+### Startup, close confirmations and motion
+
+Settings → General includes Launch at login (off by default), Confirm before closing tabs (on), Confirm before quitting (on), and Smooth transitions (off, respects reduced motion). Batch tab closure prompts once; canceling preserves the sessions.
+
+Login startup uses a per-user macOS LaunchAgent, Windows Run registry entry or Linux XDG autostart entry without administrator privileges. Enable it from a stable installation path; toggle it off/on after moving the application to update that path.
+
+Press ⌘F on macOS or Ctrl+F on Windows/Linux to search the current terminal buffer, including retained scrollback. Match case, previous and next are supported. In the search input, Enter / Shift+Enter navigate; Esc closes and restores terminal focus. Search keystrokes are not sent remotely. Output already evicted by the scrollback limit cannot be searched.
+
 ## 5. Keyboard shortcuts
 
 | Shortcut | Action | Scope |
@@ -140,6 +148,7 @@ For AI clients, enable Settings → Debug mode and the capabilities needed. The 
 | Ctrl+Shift+C / Cmd+C | Copy selection; no action without selection | Terminal |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Increase / decrease / reset font size to 13 | Terminal |
 | F11 | Fullscreen | Terminal |
+| Cmd+F / Ctrl+F | Search terminal output; Enter / Shift+Enter navigate, Esc closes | Terminal |
 | Alt+↓, configurable | Enter completion navigation | Terminal |
 | ↑ / ↓ / Tab / Enter | Select / insert suggestion | Completion panel |
 

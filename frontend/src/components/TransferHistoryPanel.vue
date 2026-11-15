@@ -65,9 +65,9 @@ function fmtTime(ts: number): string {
 }
 
 function statusMeta(r: TransferRecord): {text: string; cls: string} {
-  if (r.status === 'error') return {text: t("失败"), cls: 'text-[var(--destructive)]'}
-  if (r.status === 'cancelled') return {text: t("已取消"), cls: 'text-[var(--warning)]'}
-  return {text: t("完成"), cls: 'text-[var(--success)]'}
+  if (r.status === 'error') return {get text() { return t("失败") }, cls: 'text-[var(--destructive)]'}
+  if (r.status === 'cancelled') return {get text() { return t("已取消") }, cls: 'text-[var(--warning)]'}
+  return {get text() { return t("完成") }, cls: 'text-[var(--success)]'}
 }
 
 /** 下载完成后在系统文件管理器中打开本地文件所在文件夹（Windows 会同时选中该文件）。 */

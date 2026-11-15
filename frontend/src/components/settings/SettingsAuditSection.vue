@@ -33,7 +33,7 @@ const formatAuditTime = (ts: number): string => {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
-const AUDIT_SOURCE_LABEL: Record<string, string> = {mcp: 'MCP', http: 'HTTP', ui: t("界面")}
+const AUDIT_SOURCE_LABEL: Record<string, string> = {mcp: 'MCP', http: 'HTTP', get ui() { return t("界面") }}
 const auditSourceLabel = (source: string): string => AUDIT_SOURCE_LABEL[source] ?? source
 
 onMounted(async () => {

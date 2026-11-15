@@ -1,3 +1,4 @@
+import {confirmTabs, needsTabConfirmation} from '../services/closeConfirmation'
 import {t} from '../i18n'
 import {defineStore} from 'pinia'
 import type {PaneDirection, PaneNode, ServerNode, SessionTab, SplitDirection} from '../types'
@@ -217,7 +218,12 @@ export const useSessionsStore = defineStore('sessions', {
         tab.user = node.user
       }
     },
-    closeTab(clientId: string) {
+    closeTab(clientId: string, confirmed = false): void {
+      if (!this.tabs.some(tab => tab.clientId === clientId)) return
+      if (!confirmed && needsTabConfirmation()) {
+        void confirmTabs(1).then(ok => { if (ok) this.closeTab(clientId, true) })
+        return
+      }
       const idx = this.tabs.findIndex((t) => t.clientId === clientId)
       if (idx < 0) return
       this.tabs.splice(idx, 1)
@@ -257,7 +263,21 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
-    closeAll() {
+    closeTabs(ids: string[], confirmed = false): void {
+      const targets = ids.filter(id => this.tabs.some(tab => tab.clientId === id))
+      if (!targets.length) return
+      if (!confirmed && needsTabConfirmation()) {
+        void confirmTabs(targets.length).then(ok => { if (ok) this.closeTabs(targets, true) })
+        return
+      }
+      for (const id of targets) this.closeTab(id, true)
+    },
+    closeAll(confirmed = false): void {
+      if (!confirmed && this.tabs.length && needsTabConfirmation()) {
+        const ids = this.tabs.map(tab => tab.clientId)
+        void confirmTabs(ids.length).then(ok => { if (ok) this.closeTabs(ids, true) })
+        return
+      }
       this.tabs = []
       this.activeId = ''
       this.panes = null
@@ -584,7 +604,17 @@ export const useSessionsStore = defineStore('sessions', {
     },
 
     /** 关闭整个分屏组（合并标签的关闭按钮）。 */
-    closeSplitGroup() {
+    closeSplitGroup(confirmed = false): void {
+      if (!confirmed && this.panes && needsTabConfirmation()) {
+        const ids = this.collectLeaves(this.panes).map(leaf => leaf.paneActiveId).filter((id): id is string => !!id)
+        void confirmTabs(ids.length).then(ok => {
+          if (!ok) return
+          this.closeTabs(ids, true)
+          this.panes = null; this.splitVisible = false; this.focusedPaneId = ''
+          this.sftpVisible = this.sftpVisibleBeforeSplit
+        })
+        return
+      }
       if (!this.panes) return
       const ids = new Set<string>()
       for (const leaf of this.collectLeaves(this.panes)) {

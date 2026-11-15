@@ -280,14 +280,14 @@ function nodeStatus(node: ServerNode): 'on' | 'err' | 'connecting' | '' {
 // ---- 在线状态测试 ----
 function testBadge(node: ServerNode): {dot: string; text: string; textClass: string; tip?: string} | null {
   if (servers.isTesting(node)) {
-    return {dot: 'bg-[var(--warning)] animate-pulse', text: t("测试中"), textClass: 'text-mist'}
+    return {dot: 'bg-[var(--warning)] animate-pulse', get text() { return t("测试中") }, textClass: 'text-mist'}
   }
   const r = servers.testResults[node.id]
   if (!r) return null
   if (r.reachable) {
-    return {dot: 'bg-[var(--success)]', text: `${r.latencyMs}ms`, textClass: 'text-[var(--success)]', tip: t("SSH 端口畅通")}
+    return {dot: 'bg-[var(--success)]', text: `${r.latencyMs}ms`, textClass: 'text-[var(--success)]', get tip() { return t("SSH 端口畅通") }}
   }
-  return {dot: 'bg-[var(--destructive)]', text: t("不通"), textClass: 'text-[var(--destructive)]', tip: r.error || t("SSH 端口不通")}
+  return {dot: 'bg-[var(--destructive)]', get text() { return t("不通") }, textClass: 'text-[var(--destructive)]', tip: r.error || t("SSH 端口不通")}
 }
 
 function isActiveNode(node: ServerNode): boolean {

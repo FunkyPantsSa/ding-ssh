@@ -5,7 +5,8 @@ import {t as $t} from './i18n'
 
 import {t} from './i18n'
 
-import {WindowToggleMaximise, WindowMinimise, Quit} from '../wailsjs/runtime/runtime'
+import {confirmAppClose} from './services/closeConfirmation'
+import {EventsOn, WindowToggleMaximise, WindowMinimise, Quit} from '../wailsjs/runtime/runtime'
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './components/Icon.vue'
 import {useWorkspaceLayout} from './composables/useWorkspaceLayout'
@@ -48,6 +49,16 @@ import WorkspaceHome from './views/WorkspaceHome.vue'
 const sessions = useSessionsStore()
 const ui = useUIStore()
 const settings = useSettingsStore()
+let disposeCloseRequest: (() => void) | undefined
+onMounted(() => {
+  disposeCloseRequest = EventsOn('app:confirm-close', async () => {
+    const confirmed = await confirmAppClose()
+    await (window as any).go.main.App.ResolveAppClose(confirmed)
+  })
+})
+onBeforeUnmount(() => disposeCloseRequest?.())
+
+watch(() => settings.smoothAnimations, value => document.documentElement.toggleAttribute('data-smooth-animations', value), {immediate: true})
 const servers = useServersStore()
 const commandStore = useCommandStore()
 const toast = useToast()
@@ -415,7 +426,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-shell" :class="{'platform-macos': isMacOS, 'platform-windows': isWindows}" :style="{zoom: (settings.uiScale || 100) / 100}" data-ui="app" :data-view="ui.view">
+  <div class="app-shell" :class="{'smooth-animations': settings.smoothAnimations, 'platform-macos': isMacOS, 'platform-windows': isWindows}" :style="{zoom: (settings.uiScale || 100) / 100}" data-ui="app" :data-view="ui.view">
     <div v-if="isMacOS || isWindows" class="window-drag-region" @dblclick="WindowToggleMaximise">
       <div v-if="isWindows" class="window-controls"><button :aria-label="$t('最小化')" @dblclick.stop @click="WindowMinimise">−</button><button :aria-label="$t('最大化或还原')" @dblclick.stop @click="WindowToggleMaximise">□</button><button :aria-label="$t('关闭窗口')" @dblclick.stop @click="Quit">×</button></div>
     </div>

@@ -35,12 +35,12 @@ const recentServers = computed(() => [...usage.value]
 const groupCount = computed(() => new Set(servers.servers.map((server) => server.group).filter(Boolean)).size)
 const onlineTabs = computed(() => sessions.tabs.filter(t => t.status === 'connected'))
 const shortcuts = [
-  {label: t("命令面板"), description: t("搜索并执行应用命令"), icon: 'command', open: () => ui.openCommandPalette()},
-  {label: t("新建服务器"), description: t("保存新的 SSH 连接"), icon: 'plus', open: () => ui.requestNewServer()},
-  {label: t("SSH 隧道"), description: t("管理端口转发"), icon: 'terminal', open: () => ui.showTunnel()},
-  {label: t("运行状态"), description: t("查看资源占用和渲染方式"), icon: 'activity', open: () => ui.showSettings('about')},
-  {label: t("应用日志"), description: t("查看连接和诊断日志"), icon: 'file', open: () => ui.showSettings('logs')},
-  {label: t("导入导出"), description: t("迁移服务器与配置"), icon: 'package', open: () => ui.showSettings('migrate')},
+  {get label() { return t("命令面板") }, get description() { return t("搜索并执行应用命令") }, icon: 'command', open: () => ui.openCommandPalette()},
+  {get label() { return t("新建服务器") }, get description() { return t("保存新的 SSH 连接") }, icon: 'plus', open: () => ui.requestNewServer()},
+  {get label() { return t("SSH 隧道") }, get description() { return t("管理端口转发") }, icon: 'terminal', open: () => ui.showTunnel()},
+  {get label() { return t("运行状态") }, get description() { return t("查看资源占用和渲染方式") }, icon: 'activity', open: () => ui.showSettings('about')},
+  {get label() { return t("应用日志") }, get description() { return t("查看连接和诊断日志") }, icon: 'file', open: () => ui.showSettings('logs')},
+  {get label() { return t("导入导出") }, get description() { return t("迁移服务器与配置") }, icon: 'package', open: () => ui.showSettings('migrate')},
 ]
 
 onMounted(() => {

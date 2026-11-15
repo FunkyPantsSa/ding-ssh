@@ -58,7 +58,7 @@ const groups = computed<CommandGroup[]>(() => {
     .filter((command): command is AppCommand => !!command)
     .slice(0, 10)
   if (recent.length) {
-    result.push({name: t("最近"), items: recent})
+    result.push({get name() { return t("最近") }, items: recent})
     recent.forEach((command) => used.add(command.id))
   }
   for (const name of [t("服务器"), t("操作"), t("导航")] as const) {

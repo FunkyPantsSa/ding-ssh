@@ -277,6 +277,8 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	}
 	st := models.Settings{
 		UISchema:             2,
+		ConfirmCloseTab:      true,
+		ConfirmCloseApp:      true,
 		Theme:                models.DefaultTheme(),
 		Appearance:           models.DefaultAppearance(),
 		Fonts:                models.DefaultFonts(),
@@ -337,6 +339,18 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
 			st.UIScale = n
 		}
+	}
+	if v, ok := values["autoStart"]; ok {
+		st.AutoStart = v == "true"
+	}
+	if v, ok := values["confirmCloseTab"]; ok {
+		st.ConfirmCloseTab = v == "true"
+	}
+	if v, ok := values["confirmCloseApp"]; ok {
+		st.ConfirmCloseApp = v == "true"
+	}
+	if v, ok := values["smoothAnimations"]; ok {
+		st.SmoothAnimations = v == "true"
 	}
 	if v, ok := values["autoReconnect"]; ok {
 		st.AutoReconnect = v == "true"
@@ -516,6 +530,11 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"appearance", string(appearance)},
 		{"fonts", string(fonts)},
 		{"autoReconnect", boolStr(st.AutoReconnect)},
+		{"autoStart", boolStr(st.AutoStart)},
+		{"confirmCloseTab", boolStr(st.ConfirmCloseTab)},
+		{"confirmCloseApp", boolStr(st.ConfirmCloseApp)},
+		{"smoothAnimations", boolStr(st.SmoothAnimations)},
+
 		{"keepAliveEnabled", boolStr(st.KeepAliveEnabled)},
 		{"sysInfoCollectEnabled", boolStr(st.SysInfoCollectEnabled)},
 		{"sysInfoRealtimeEnabled", boolStr(st.SysInfoRealtimeEnabled)},

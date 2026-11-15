@@ -6,6 +6,10 @@ import {t} from '../i18n'
 import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
 import {Terminal} from '@xterm/xterm'
+import {guardProgrammaticSelection} from '../utils/selection-copy-guard'
+import {isTerminalSearchShortcut} from '../utils/terminal-search'
+import {SearchAddon} from '@xterm/addon-search'
+import {Button, Input} from './ui'
 import {FitAddon} from '@xterm/addon-fit'
 import {WebglAddon} from '@xterm/addon-webgl'
 import {
@@ -72,6 +76,45 @@ const webglFallbackToast = ref('')
 
 let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
+let searchAddon: SearchAddon | null = null
+let selectionCopyGuard: ReturnType<typeof guardProgrammaticSelection> | null = null
+function onUserSelection(event: PointerEvent) {
+  if ((event.target as HTMLElement | null)?.closest('.xterm-screen')) selectionCopyGuard?.beginUserSelection()
+}
+const searchOpen = ref(false)
+const searchQuery = ref('')
+const searchCase = ref(false)
+const searchCount = ref(0)
+const searchIndex = ref(-1)
+const searchRoot = ref<HTMLElement>()
+function findOutput(previous = false, incremental = false) {
+  if (!searchAddon || !searchQuery.value) {
+    searchAddon?.clearDecorations(); term?.clearSelection()
+    searchCount.value = 0; searchIndex.value = -1
+    return
+  }
+  const options = {caseSensitive: searchCase.value, incremental, decorations: {
+    matchBackground: '#73551a', matchBorder: '#efbf52', matchOverviewRuler: '#efbf52',
+    activeMatchBackground: '#175a88', activeMatchBorder: '#70c8ff', activeMatchColorOverviewRuler: '#70c8ff',
+  }}
+  if (previous) searchAddon.findPrevious(searchQuery.value, options)
+  else searchAddon.findNext(searchQuery.value, options)
+}
+watch([searchQuery, searchCase], () => findOutput(false, true))
+function closeSearch() {
+  searchOpen.value = false
+  searchAddon?.clearDecorations()
+  term?.clearSelection()
+  term?.focus()
+}
+function onSearchShortcut(event: KeyboardEvent) {
+  if (!isTerminalSearchShortcut(event, isActiveTab.value, searchRoot.value)) return
+  event.preventDefault(); event.stopImmediatePropagation()
+  searchOpen.value = true
+  void nextTick(() => { const input = searchRoot.value?.querySelector('input'); input?.focus(); input?.select() })
+}
+onMounted(() => window.addEventListener('keydown', onSearchShortcut, true))
+
 let pendingOutputBytes = 0
 let peakOutputBytes = 0
 let webglAddon: WebglAddon | null = null
@@ -80,6 +123,8 @@ let webglZoomPatched: boolean | null = null
 let zmodem: ZmodemController | null = null
 let resizeObserver: ResizeObserver | null = null
 const disposers: Array<() => void> = []
+// Terminal-lifetime hooks must survive session reconnect cleanup.
+const terminalDisposers: Array<() => void> = []
 // 本实例在调试注册表里的那一份登记（注销时按身份匹配，见 onBeforeUnmount 的说明）
 let debugEntry: DebugTerminalEntry | null = null
 let disposed = false
@@ -185,9 +230,9 @@ const terminalStyle = computed(() => ({
 }))
 
 const sourceLabel: Record<string, string> = {
-  history: t("历史"),
-  dict: t("字典"),
-  screen: t("屏幕"),
+  get history() { return t("历史") },
+  get dict() { return t("字典") },
+  get screen() { return t("屏幕") },
 }
 
 function applyTheme() {
@@ -561,6 +606,7 @@ function doClear() {
 }
 
 function doSelectAll() {
+  selectionCopyGuard?.beginUserSelection()
   term?.selectAll()
   closeMenu()
   focusTerminal()
@@ -898,11 +944,11 @@ async function reconnectSession(countLogin = true): Promise<boolean> {
 }
 
 const CONNECT_STEPS: {key: string; label: string}[] = [
-  {key: 'dns', label: t("DNS / 直连")},
-  {key: 'tcp', label: t("TCP 握手")},
-  {key: 'auth', label: t("SSH 鉴权")},
-  {key: 'pty', label: t("分配 PTY")},
-  {key: 'ready', label: t("会话就绪")},
+  {key: 'dns', get label() { return t("DNS / 直连") }},
+  {key: 'tcp', get label() { return t("TCP 握手") }},
+  {key: 'auth', get label() { return t("SSH 鉴权") }},
+  {key: 'pty', get label() { return t("分配 PTY") }},
+  {key: 'ready', get label() { return t("会话就绪") }},
 ]
 
 type StepStatus = 'pending' | 'running' | 'done' | 'error'
@@ -996,6 +1042,13 @@ onMounted(() => {
   fitAddon = new FitAddon()
   term.loadAddon(fitAddon)
   term.open(container.value!)
+  searchAddon = new SearchAddon({highlightLimit: 1000})
+  term.loadAddon(searchAddon)
+  const searchResults = searchAddon.onDidChangeResults(result => {
+    searchCount.value = result.resultCount
+    searchIndex.value = result.resultIndex
+  })
+  terminalDisposers.push(() => searchResults.dispose())
   registerSharedAtlasTerminal(atlasEntry)
   // 调试模式：把自己注册进终端注册表，供调试 API 读取 xterm 内部状态 / 输入 / 滚动。
   // 放在 WebGL / 字号 / 事件接线之前：后面任何一步抛错都不该造成「终端已挂载、注册表却为空」
@@ -1056,8 +1109,11 @@ onMounted(() => {
     if (settings.completionEnabled) scheduleSuggest()
   })
 
+  selectionCopyGuard = guardProgrammaticSelection(term)
+  container.value?.addEventListener('pointerdown', onUserSelection, true)
+  terminalDisposers.push(() => selectionCopyGuard?.dispose())
   term.onSelectionChange(() => {
-    if (!settings.copyOnSelect) return
+    if (!settings.copyOnSelect || selectionCopyGuard?.isProgrammatic()) return
     const selection = term?.getSelection()
     if (selection) void ClipboardSetText(selection).catch(() => {})
   })
@@ -1168,6 +1224,9 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  container.value?.removeEventListener('pointerdown', onUserSelection, true)
+  window.removeEventListener('keydown', onSearchShortcut, true)
+  searchAddon = null
   disposed = true
   // 带上自己那一份登记的引用：只有它还是注册表里的当前项才注销，
   // 避免 HMR「先挂新的、后卸旧的」时把新实例的登记顺手删掉（那会让注册表重新变空）。
@@ -1176,6 +1235,7 @@ onBeforeUnmount(() => {
   if (focusTimer) clearTimeout(focusTimer)
   cancelAutoReconnect()
   disposeCompletion()
+  terminalDisposers.forEach(dispose => dispose())
   disposers.forEach((d) => d())
   resizeObserver?.disconnect()
   container.value?.removeEventListener('paste', onPasteEvent, true)
@@ -1198,6 +1258,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="relative h-full overflow-hidden terminal-theme" :style="terminalStyle">
+    <div v-if="searchOpen" ref="searchRoot" class="terminal-search" role="search" :aria-label="t('搜索终端输出')" @keydown.esc.stop.prevent="closeSearch">
+      <Input v-model="searchQuery" @keydown.enter.stop.prevent="findOutput($event.shiftKey)" class="min-w-0 flex-1" :placeholder="t('搜索终端输出')" :aria-label="t('搜索终端输出')" />
+      <span class="text-xs shrink-0" role="status">{{ searchQuery ? (searchCount ? `${searchIndex + 1}/${searchCount}` : t('无匹配结果')) : '' }}</span>
+      <Button size="icon" variant="ghost" :aria-pressed="searchCase" :title="t('区分大小写')" :aria-label="t('区分大小写')" @click="searchCase = !searchCase">Aa</Button>
+      <Button size="icon" variant="ghost" :aria-label="t('上一个匹配')" @click="findOutput(true)">↑</Button>
+      <Button size="icon" variant="ghost" :aria-label="t('下一个匹配')" @click="findOutput()">↓</Button>
+      <Button size="icon" variant="ghost" :aria-label="t('关闭搜索')" @click="closeSearch">×</Button>
+    </div>
     <div
       v-if="settings.theme.bgImage"
       class="absolute inset-0 bg-cover bg-center pointer-events-none"
@@ -1275,4 +1343,9 @@ onBeforeUnmount(() => {
 .completion-panel {
   animation: fadeRise 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+</style>
+
+<style scoped>
+.terminal-search{position:absolute;z-index:35;top:8px;right:8px;display:flex;align-items:center;gap:4px;padding:6px;width:min(400px,calc(100% - 16px));flex-wrap:wrap;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-2);color:var(--foreground);box-shadow:var(--shadow-overlay)}
+.terminal-search input{flex-basis:120px}
 </style>

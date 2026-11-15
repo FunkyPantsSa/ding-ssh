@@ -19,7 +19,7 @@ const sessions = useSessionsStore()
 const settings = useSettingsStore()
 const cards = ['cpu', 'memory', 'disk', 'load', 'processes'] as const
 type Card = typeof cards[number]
-const cardLabels: Record<Card, string> = {cpu:'CPU', memory:t("内存"), disk:t("分区与挂载点"), load:t("系统负载"), processes:t("进程")}
+const cardLabels: Record<Card, string> = {cpu:'CPU', get memory() { return t("内存") }, get disk() { return t("分区与挂载点") }, get load() { return t("系统负载") }, get processes() { return t("进程") }}
 const order = ref<Card[]>(loadOrder())
 const arranging = ref(false)
 function loadOrder(): Card[] {
@@ -49,14 +49,14 @@ const processes = computed(() => [...(snap.value?.processes ?? [])]
   .filter(p => `${p.pid} ${p.user} ${p.command}`.toLowerCase().includes(search.value.toLowerCase()))
   .sort((a,b) => b[sort.value] - a[sort.value]))
 const cpuSegments = computed(() => [
-  {key:'us', label:t("应用计算"), color:'var(--chart-compute)'},
-  {key:'sy', label:t("系统开销"), color:'var(--chart-system)'},
-  {key:'wa', label:t("I/O 等待"), color:'var(--chart-io)'},
-  {key:'st', label:t("虚拟化等待"), color:'var(--chart-steal)'},
-  {key:'ni', label:t("低优先级"), color:'var(--chart-nice)'},
-  {key:'hi', label:t("硬中断"), color:'var(--chart-hardirq)'},
-  {key:'si', label:t("软中断"), color:'var(--chart-softirq)'},
-  {key:'id', label:t("空闲"), color:'var(--chart-idle)'},
+  {key:'us', get label() { return t("应用计算") }, color:'var(--chart-compute)'},
+  {key:'sy', get label() { return t("系统开销") }, color:'var(--chart-system)'},
+  {key:'wa', get label() { return t("I/O 等待") }, color:'var(--chart-io)'},
+  {key:'st', get label() { return t("虚拟化等待") }, color:'var(--chart-steal)'},
+  {key:'ni', get label() { return t("低优先级") }, color:'var(--chart-nice)'},
+  {key:'hi', get label() { return t("硬中断") }, color:'var(--chart-hardirq)'},
+  {key:'si', get label() { return t("软中断") }, color:'var(--chart-softirq)'},
+  {key:'id', get label() { return t("空闲") }, color:'var(--chart-idle)'},
 ].map(s => ({...s, value:snap.value?.cpuDetail?.[s.key] ?? 0})))
 const summary = computed(() => {
   if (error.value) return t("采集异常，以下可能为最后一次有效数据")

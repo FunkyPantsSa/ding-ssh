@@ -50,9 +50,10 @@ func main() {
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop: true,
 		},
-		Logger:     logfilter.New(),
-		OnStartup:  app.Startup,
-		OnShutdown: app.Shutdown,
+		Logger:        logfilter.New(),
+		OnStartup:     app.Startup,
+		OnShutdown:    app.Shutdown,
+		OnBeforeClose: app.BeforeClose,
 		Bind: []interface{}{
 			app,
 		},

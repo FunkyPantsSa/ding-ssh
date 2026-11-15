@@ -48,7 +48,7 @@ const emit = defineEmits<{
       >
         <Icon name="activity" :size="14" :extra-class="testing ? 'animate-spin' : ''" />{{ $t('测试全部') }}</Button>
       <Button variant="ghost" size="sm" :title="$t('刷新')" :aria-label="$t('刷新')" data-testid="server-refresh" @click="emit('refresh')"><Icon name="refresh" :size="14" />{{ $t('刷新') }}</Button>
-      <Button variant="ghost" size="sm" @click="emit('importConfig')">{{ $t('导入 SSH Config') }}</Button>
+      <Button variant="secondary" size="sm" @click="emit('importConfig')">{{ $t('导入 SSH Config') }}</Button>
       <Button variant="primary" size="sm" data-testid="server-create" @click="emit('create')"><Icon name="plus" :size="14" />{{ $t('新建服务器') }}</Button>
     </div>
   </div>

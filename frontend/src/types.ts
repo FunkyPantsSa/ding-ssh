@@ -139,6 +139,11 @@ export interface Fonts {
 
 // 应用设置（对应 Go 端 models.Settings）。
 export interface Settings {
+  autoStart?: boolean
+  confirmCloseTab?: boolean
+  confirmCloseApp?: boolean
+  smoothAnimations?: boolean
+
   uiSchema?: number // UI presentation schema; 2 = Geist design system
   logEnabled: boolean
   copyOnSelect: boolean // 终端选中内容自动复制到剪贴板

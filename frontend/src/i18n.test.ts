@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
-import {errorText, language, syncBackendLanguage, t} from './i18n'
+import {errorText, language, syncBackendLanguage, setLanguage, t} from './i18n'
 import en from './locales/en.json'
 
 afterEach(() => { language.value = 'zh-CN'; delete (window as any).go })
@@ -36,4 +36,26 @@ describe('application translations', () => {
     await syncBackendLanguage('en')
     expect(SetUILanguage).toHaveBeenCalledWith('en')
   })
+})
+
+it('switches languages in place without reloading the window', async () => {
+ const realWindow = window
+ const reload = vi.fn()
+ const SetUILanguage = vi.fn().mockResolvedValue(undefined)
+ const proxy = new Proxy(realWindow, {get(target, key) {
+   if (key === 'location') return {reload}
+   if (key === 'go') return {main:{App:{SetUILanguage}}}
+   return Reflect.get(target, key)
+ }})
+ vi.stubGlobal('window', proxy)
+ try {
+   language.value = 'zh-CN'
+   await setLanguage('en')
+   expect(language.value).toBe('en')
+   expect(document.documentElement.lang).toBe('en')
+   expect(localStorage.getItem('ding-ssh.language')).toBe('en')
+   await setLanguage('zh-CN')
+   expect(reload).not.toHaveBeenCalled()
+   expect(SetUILanguage.mock.calls).toEqual([['en'],['zh-CN']])
+ } finally { vi.unstubAllGlobals(); localStorage.removeItem('ding-ssh.language') }
 })

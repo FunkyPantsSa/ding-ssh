@@ -152,3 +152,32 @@ it('records cancellation even when the final progress event has not arrived',asy
  expect(history.records[0].transferred).toBe(0)
  wrapper.unmount()
 })
+
+it('renders a single root slash and clearly styled file actions', async () => {
+  const pinia = createPinia(); setActivePinia(pinia)
+  const wrapper = mount(SftpPanel, {props: {tab: {...tab, sftpPath:'/home/logs'}}, global: {plugins:[pinia]}})
+  await flushPromises()
+  const crumbs=wrapper.get('[data-testid="sftp-breadcrumbs"]')
+  expect(crumbs.findAll('button').map(button=>button.text())).toEqual(['/','home','logs'])
+  expect(crumbs.findAll('span').map(span=>span.text())).toEqual(['/'])
+  for (const action of ['sftp-create-folder','sftp-upload','sftp-upload-folder']) {
+    expect(wrapper.get(`[data-testid="${action}"]`).classes()).toContain('ui-button-secondary')
+  }
+  expect(wrapper.get('[data-testid="sftp-create-folder"]').text()).toBe('新建文件夹')
+  expect(wrapper.get('[data-testid="sftp-upload"]').text()).toBe('上传文件')
+  wrapper.unmount()
+})
+
+it('separates directory navigation from actions and shows the complete path on hover', async () => {
+  const pinia=createPinia();setActivePinia(pinia)
+  const fullPath='/home/root/very-long-directory/logs'
+  const wrapper=mount(SftpPanel,{props:{tab:{...tab,sftpPath:fullPath}},global:{plugins:[pinia]}})
+  await flushPromises()
+  const navigation=wrapper.get('[data-testid="sftp-navigation"]')
+  expect(navigation.get('[data-testid="sftp-breadcrumbs"]').attributes('title')).toBe(fullPath)
+  expect(navigation.find('[data-testid="sftp-create-folder"]').exists()).toBe(false)
+  const actions=wrapper.get('[data-testid="sftp-actions"]')
+  expect(actions.findAll('button')).toHaveLength(3)
+  expect(actions.find('[data-testid="sftp-breadcrumbs"]').exists()).toBe(false)
+  wrapper.unmount()
+})

@@ -87,3 +87,24 @@ it('propagates save failures so the caller can report them and permits retry', a
  await expect(store.setCopyOnSelect(true)).resolves.toBeUndefined()
  expect(settingsService.saveSettings).toHaveBeenCalledTimes(2)
 })
+
+describe('startup, close confirmation and motion preferences', () => {
+  it('migrates missing preferences to safe defaults and persists explicit choices', async () => {
+    vi.mocked(settingsService.getSettings).mockResolvedValue({uiSchema: 4} as never)
+    vi.mocked(settingsService.saveSettings).mockResolvedValue(undefined)
+    const store = useSettingsStore()
+    await store.load()
+    expect(store.autoStart).toBe(false)
+    expect(store.confirmCloseTab).toBe(true)
+    expect(store.confirmCloseApp).toBe(true)
+    expect(store.smoothAnimations).toBe(false)
+    await store.setBehavior('confirmCloseTab', false)
+    expect(settingsService.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({confirmCloseTab: false, confirmCloseApp: true, autoStart: false}))
+  })
+  it('restores the previous value when native registration or saving fails', async () => {
+    const store = useSettingsStore()
+    vi.mocked(settingsService.saveSettings).mockRejectedValueOnce(new Error('permission denied'))
+    await expect(store.setBehavior('autoStart', true)).rejects.toThrow('permission denied')
+    expect(store.autoStart).toBe(false)
+  })
+})

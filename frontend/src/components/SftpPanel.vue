@@ -621,8 +621,8 @@ onBeforeUnmount(() => {
       </Button>
     </div>
 
-    <!-- 工具条：面板宽度可拖动（最窄 260px），窄的时候让按钮换行而不是溢出到终端上 -->
-    <div class="flex flex-wrap items-center gap-1.5 p-3 inset-line-b">
+    <!-- 导航独占一行，操作区单独排列，避免按钮挤压路径。 -->
+    <div data-testid="sftp-navigation" class="flex items-center gap-1.5 px-3 pt-2 pb-1">
       <Button variant="ghost" size="icon" :title="$t('上级')" :aria-label="$t('返回上级目录')" @click="up">
         <Icon name="up" :size="14" />
       </Button>
@@ -642,18 +642,21 @@ onBeforeUnmount(() => {
       />
       <div
         v-else
-        class="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar text-[12px] font-mono text-mist cursor-text"
-        :title="$t('点击编辑完整路径')"
+        data-testid="sftp-breadcrumbs" class="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar text-[12px] font-mono text-mist cursor-text"
+        :title="path"
+        :aria-label="`${translate('远程路径')}: ${path}`"
         @click="startPathEdit"
       >
         <template v-for="(c, i) in crumbs" :key="c.path">
           <button class="shrink-0 hover:text-signal" @click.stop="go(c.path)">{{ c.label }}</button>
-          <span v-if="i < crumbs.length - 1" class="shrink-0 opacity-40">/</span>
+          <span v-if="i > 0 && i < crumbs.length - 1" class="shrink-0 opacity-40">/</span>
         </template>
       </div>
-      <Button variant="ghost" size="sm" data-testid="sftp-create-folder" @click="startNewFolder">{{ $t('新建') }}</Button>
-      <Button variant="ghost" size="sm" data-testid="sftp-upload" @click="upload">{{ $t('上传') }}</Button>
-      <Button variant="ghost" size="sm" :title="$t('选择本地文件夹，整体递归上传到当前目录（保留文件夹名）')" data-testid="sftp-upload-folder" @click="uploadFolder">{{ $t('上传文件夹') }}</Button>
+    </div>
+    <div data-testid="sftp-actions" class="sftp-actions grid grid-cols-3 gap-1.5 px-3 pt-1 pb-2 inset-line-b">
+      <Button variant="secondary" size="sm" data-testid="sftp-create-folder" @click="startNewFolder">{{ $t('新建文件夹') }}</Button>
+      <Button variant="secondary" size="sm" data-testid="sftp-upload" @click="upload">{{ $t('上传文件') }}</Button>
+      <Button variant="secondary" size="sm" :title="$t('选择本地文件夹，整体递归上传到当前目录（保留文件夹名）')" data-testid="sftp-upload-folder" @click="uploadFolder">{{ $t('上传文件夹') }}</Button>
     </div>
 
     <div v-if="newFolderActive" class="flex items-center gap-2 px-3 py-2 inset-line-b">
@@ -752,7 +755,7 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="t.error" class="col-span-2 flex justify-between text-danger">
           <span class="break-all">{{ t.error }}</span>
-          <button @click="dismissTransfer(t.key)"><Icon name="close" :size="12" /></button>
+          <Button variant="ghost" size="icon" :aria-label="$t('关闭')" @click="dismissTransfer(t.key)"><Icon name="close" :size="12" /></Button>
         </div>
       </div>
     </div>
@@ -787,3 +790,7 @@ onBeforeUnmount(() => {
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.sftp-actions :deep(.ui-button){width:100%;min-width:0;min-height:30px;height:auto;padding:5px 4px;white-space:normal;line-height:1.35;text-align:center}
+</style>

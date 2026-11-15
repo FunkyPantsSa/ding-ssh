@@ -22,17 +22,17 @@ const settings = useSettingsStore()
 
 // 一级菜单：通用 / 快捷键 / 连接说明 / 外观 / 凭证 / 安全 / 调试 / 日志 / AI 记录 / 导入导出 / 关于
 const menuItems = [
-  {key: 'general', label: t("通用"), icon: 'clock'},
-  {key: 'hotkeys', label: t("快捷键"), icon: 'command'},
-  {key: 'connectionInfo', label: t("连接说明"), icon: 'info'},
-  {key: 'theme', label: t("外观"), icon: 'palette'},
-  {key: 'credentials', label: t("保存的凭证"), icon: 'key'},
-  {key: 'security', label: t("安全"), icon: 'lock'},
-  {key: 'debug', label: t("调试模式"), icon: 'terminal'},
-  {key: 'logs', label: t("日志"), icon: 'file'},
-  {key: 'audit', label: t("AI 记录"), icon: 'activity'},
-  {key: 'migrate', label: t("导入导出"), icon: 'package'},
-  {key: 'about', label: t("关于"), icon: 'info'},
+  {key: 'general', get label() { return t("通用") }, icon: 'clock'},
+  {key: 'hotkeys', get label() { return t("快捷键") }, icon: 'command'},
+  {key: 'connectionInfo', get label() { return t("连接说明") }, icon: 'info'},
+  {key: 'theme', get label() { return t("外观") }, icon: 'palette'},
+  {key: 'credentials', get label() { return t("保存的凭证") }, icon: 'key'},
+  {key: 'security', get label() { return t("安全") }, icon: 'lock'},
+  {key: 'debug', get label() { return t("调试模式") }, icon: 'terminal'},
+  {key: 'logs', get label() { return t("日志") }, icon: 'file'},
+  {key: 'audit', get label() { return t("AI 记录") }, icon: 'activity'},
+  {key: 'migrate', get label() { return t("导入导出") }, icon: 'package'},
+  {key: 'about', get label() { return t("关于") }, icon: 'info'},
 ] as const
 const {settingsSection: section, view} = storeToRefs(useUIStore())
 

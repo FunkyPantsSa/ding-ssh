@@ -1,10 +1,11 @@
 <script lang="ts" setup>
-import {errorText} from '../../i18n'
 
 import {t as $t} from '../../i18n'
 
 import {language, setLanguage, t} from '../../i18n'
 
+import {useToast} from '../../composables/useToast'
+import {errorText} from '../../i18n'
 import {onBeforeUnmount, onMounted, ref} from 'vue'
 import Icon from '../Icon.vue'
 import ToggleSwitch from '../ToggleSwitch.vue'
@@ -24,31 +25,33 @@ const saving = ref(false)
 const localShellOptions = ref<LocalShellOption[]>([])
 
 const TAB_PLACEMENT_OPTIONS = [
-  {key: 'side', label: t("左侧导航")},
-  {key: 'top', label: t("顶栏")},
+  {key: 'side', get label() { return t("左侧导航") }},
+  {key: 'top', get label() { return t("顶栏") }},
 ] as const
 const RIGHT_CLICK_OPTIONS = [
-  {key: 'menu', label: t("打开选项栏")},
-  {key: 'paste', label: t("直接粘贴")},
+  {key: 'menu', get label() { return t("打开选项栏") }},
+  {key: 'paste', get label() { return t("直接粘贴") }},
 ] as const
 const TERMINAL_COLOR_OPTIONS = [
-  {key: 'off', label: t("关")},
-  {key: 'auto', label: t("语义")},
-  {key: 'vivid', label: t("强调")},
+  {key: 'off', get label() { return t("关") }},
+  {key: 'auto', get label() { return t("语义") }},
+  {key: 'vivid', get label() { return t("强调") }},
 ] as const
 const NAV_SECTION_ORDER_OPTIONS = [
-  {value: 'nav,sessions,tabs', label: t("导航 · 会话 · 标签页")},
-  {value: 'nav,tabs,sessions', label: t("导航 · 标签页 · 会话")},
-  {value: 'sessions,nav,tabs', label: t("会话 · 导航 · 标签页")},
-  {value: 'sessions,tabs,nav', label: t("会话 · 标签页 · 导航")},
-  {value: 'tabs,nav,sessions', label: t("标签页 · 导航 · 会话")},
-  {value: 'tabs,sessions,nav', label: t("标签页 · 会话 · 导航")},
+  {value: 'nav,sessions,tabs', get label() { return t("导航 · 会话 · 标签页") }},
+  {value: 'nav,tabs,sessions', get label() { return t("导航 · 标签页 · 会话") }},
+  {value: 'sessions,nav,tabs', get label() { return t("会话 · 导航 · 标签页") }},
+  {value: 'sessions,tabs,nav', get label() { return t("会话 · 标签页 · 导航") }},
+  {value: 'tabs,nav,sessions', get label() { return t("标签页 · 导航 · 会话") }},
+  {value: 'tabs,sessions,nav', get label() { return t("标签页 · 会话 · 导航") }},
 ] as const
 
 async function set(fn: () => Promise<void>) {
   saving.value = true
   try {
     await fn()
+  } catch (error) {
+    useToast().error(t('保存设置失败'), errorText(error))
   } finally {
     saving.value = false
   }
@@ -165,6 +168,20 @@ onBeforeUnmount(() => {
           <option value="zh-CN">简体中文</option>
           <option value="en">English</option>
         </Select>
+      </div>
+    </div>
+    <div class="neo">
+      <div v-for="option in [
+        {key: 'autoStart', title: '开机自启', description: '登录系统后自动启动应用，默认关闭。'},
+        {key: 'confirmCloseTab', title: '关闭标签页前确认', description: '关闭单个或多个标签页时确认，默认开启。'},
+        {key: 'confirmCloseApp', title: '退出应用前确认', description: '关闭窗口或退出应用时确认，默认开启。'},
+        {key: 'smoothAnimations', title: '平滑过渡动画', description: '延长界面过渡并使用平滑缓动；遵循系统减少动态效果设置。'},
+      ] as const" :key="option.key" class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t(option.title) }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t(option.description) }}</p>
+        </div>
+        <ToggleSwitch :model-value="settings[option.key]" :disabled="saving" @update:model-value="value => set(() => settings.setBehavior(option.key, value))" />
       </div>
     </div>
     <div class="neo">

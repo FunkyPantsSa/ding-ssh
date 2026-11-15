@@ -403,6 +403,10 @@ export namespace models {
 	    }
 	}
 	export class Settings {
+	    autoStart: boolean;
+	    confirmCloseTab: boolean;
+	    confirmCloseApp: boolean;
+	    smoothAnimations: boolean;
 	    uiSchema: number;
 	    logEnabled: boolean;
 	    logToFile: boolean;
@@ -439,6 +443,10 @@ export namespace models {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.autoStart = source["autoStart"];
+	        this.confirmCloseTab = source["confirmCloseTab"];
+	        this.confirmCloseApp = source["confirmCloseApp"];
+	        this.smoothAnimations = source["smoothAnimations"];
 	        this.uiSchema = source["uiSchema"];
 	        this.logEnabled = source["logEnabled"];
 	        this.logToFile = source["logToFile"];

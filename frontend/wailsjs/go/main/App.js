@@ -10,6 +10,10 @@ export function AddGroup(arg1) {
   return window['go']['main']['App']['AddGroup'](arg1);
 }
 
+export function BeforeClose(arg1) {
+  return window['go']['main']['App']['BeforeClose'](arg1);
+}
+
 export function ChangeMasterPassword(arg1, arg2) {
   return window['go']['main']['App']['ChangeMasterPassword'](arg1, arg2);
 }
@@ -192,6 +196,10 @@ export function RenameGroup(arg1, arg2) {
 
 export function Resize(arg1, arg2, arg3) {
   return window['go']['main']['App']['Resize'](arg1, arg2, arg3);
+}
+
+export function ResolveAppClose(arg1) {
+  return window['go']['main']['App']['ResolveAppClose'](arg1);
 }
 
 export function ResolveHostTrust(arg1, arg2, arg3) {

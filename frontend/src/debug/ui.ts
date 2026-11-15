@@ -1051,17 +1051,17 @@ async function storePatchOp(args: Args): Promise<unknown> {
 }
 
 const SETTINGS_SECTIONS: Record<string, string> = {
-  general: t("通用"),
+  get general() { return t("通用") },
   hotkeys: '快捷键',
   connectionInfo: '连接说明',
-  theme: t("外观"),
+  get theme() { return t("外观") },
   credentials: '保存的凭证',
-  security: t("安全"),
+  get security() { return t("安全") },
   debug: '调试模式',
-  logs: t("日志"),
+  get logs() { return t("日志") },
   audit: 'AI 记录',
   migrate: '导入导出',
-  about: t("关于"),
+  get about() { return t("关于") },
 }
 
 async function navigateOp(args: Args): Promise<unknown> {

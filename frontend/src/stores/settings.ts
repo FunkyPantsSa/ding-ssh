@@ -75,6 +75,10 @@ export const useSettingsStore = defineStore('settings', {
     theme: defaultTheme() as Theme,
     appearance: defaultAppearance() as UIAppearance,
     fonts: defaultFonts() as Fonts,
+    autoStart: false,
+    confirmCloseTab: true,
+    confirmCloseApp: true,
+    smoothAnimations: false,
     autoReconnect: true,
     keepAliveEnabled: true,
     // 登录 SSH 服务器后自动采集系统指标（默认开启）。关闭后连接服务器不执行任何采集命令。
@@ -130,6 +134,10 @@ export const useSettingsStore = defineStore('settings', {
           (loadedAppearance.glassEnabled ? 'soft' : defaultAppearance().materialMode),
       })
       this.fonts = {...defaultFonts(), ...(settings.fonts ?? {})}
+      this.autoStart = settings.autoStart ?? false
+      this.confirmCloseTab = settings.confirmCloseTab ?? true
+      this.confirmCloseApp = settings.confirmCloseApp ?? true
+      this.smoothAnimations = settings.smoothAnimations ?? false
       this.autoReconnect = settings.autoReconnect ?? true
       this.keepAliveEnabled = settings.keepAliveEnabled ?? true
       // 登录后自动采集：缺省 / 非法值一律回落「开启」（与 Go 端默认一致）
@@ -272,6 +280,11 @@ export const useSettingsStore = defineStore('settings', {
       if (patch.logTraceTabs !== undefined) this.logTraceTabs = normalizeLogTraceTabs(patch.logTraceTabs)
       await this.save()
     },
+    async setBehavior(key: 'autoStart' | 'confirmCloseTab' | 'confirmCloseApp' | 'smoothAnimations', value: boolean) {
+      const previous = this[key]
+      this[key] = value
+      try { await this.save() } catch (error) { this[key] = previous; throw error }
+    },
     async save() {
       await settingsService.saveSettings({
         uiSchema: UI_SCHEMA,
@@ -287,6 +300,10 @@ export const useSettingsStore = defineStore('settings', {
         theme: this.theme,
         appearance: normalizeAppearance(this.appearance),
         fonts: this.fonts,
+        autoStart: this.autoStart,
+        confirmCloseTab: this.confirmCloseTab,
+        confirmCloseApp: this.confirmCloseApp,
+        smoothAnimations: this.smoothAnimations,
         autoReconnect: this.autoReconnect,
         keepAliveEnabled: this.keepAliveEnabled,
         sysInfoRealtimeEnabled: this.sysInfoRealtimeEnabled,

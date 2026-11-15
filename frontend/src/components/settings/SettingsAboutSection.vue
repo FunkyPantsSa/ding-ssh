@@ -36,20 +36,20 @@ function formatBytes(bytes: number | undefined) {
 }
 
 const runtimeRows = computed(() => [
-  {label: t("应用桥接"), value: bridge.value},
-  {label: t("采样时间"), value: sampledAt.value || '—'},
-  {label: t("已运行"), value: status.value ? t("{0} 秒", [status.value.uptimeSec]) : '—'},
-  {label: t("Go 协程"), value: status.value?.goroutines ?? '—'},
-  {label: t("主进程 CPU（单核为 100%）"), value: cpuPercent.value === undefined ? (status.value?.processCPUms === undefined ? t("不可用") : t("再次刷新计算")) : `${cpuPercent.value.toFixed(1)}%`},
-  {label: t("主进程当前常驻内存"), value: formatBytes(status.value?.processRSSBytes)},
-  {label: t("主进程峰值常驻内存"), value: formatBytes(status.value?.processPeakRSSBytes)},
-  {label: t("Go 运行时内存（估算）"), value: formatBytes(status.value?.goMemoryBytes)},
-  {label: t("Go 堆内存"), value: formatBytes(status.value?.heapBytes)},
-  {label: t("WebView JS 堆内存"), value: formatBytes(frontend.value?.jsHeapBytes)},
-  {label: t("前端定时器延迟（最近 / 峰值）"), value: frontend.value ? `${frontend.value.lastDelayMs} / ${frontend.value.maxDelayMs} ms` : '—'},
-  {label: t("终端渲染（实际）"), value: frontend.value ? t("{0} 个终端 · WebGL {1} · DOM {2}", [frontend.value.terminalCount, frontend.value.webglCount, frontend.value.domCount]) : '—'},
-  {label: t("单终端待解析输出峰值"), value: frontend.value ? `${frontend.value.peakOutputBytes.toLocaleString()} B` : '—'},
-  {label: t("终端待解析输出"), value: frontend.value ? `${frontend.value.pendingOutputBytes.toLocaleString()} B` : '—'},
+  {get label() { return t("应用桥接") }, value: bridge.value},
+  {get label() { return t("采样时间") }, value: sampledAt.value || '—'},
+  {get label() { return t("已运行") }, value: status.value ? t("{0} 秒", [status.value.uptimeSec]) : '—'},
+  {get label() { return t("Go 协程") }, value: status.value?.goroutines ?? '—'},
+  {get label() { return t("主进程 CPU（单核为 100%）") }, value: cpuPercent.value === undefined ? (status.value?.processCPUms === undefined ? t("不可用") : t("再次刷新计算")) : `${cpuPercent.value.toFixed(1)}%`},
+  {get label() { return t("主进程当前常驻内存") }, value: formatBytes(status.value?.processRSSBytes)},
+  {get label() { return t("主进程峰值常驻内存") }, value: formatBytes(status.value?.processPeakRSSBytes)},
+  {get label() { return t("Go 运行时内存（估算）") }, value: formatBytes(status.value?.goMemoryBytes)},
+  {get label() { return t("Go 堆内存") }, value: formatBytes(status.value?.heapBytes)},
+  {get label() { return t("WebView JS 堆内存") }, value: formatBytes(frontend.value?.jsHeapBytes)},
+  {get label() { return t("前端定时器延迟（最近 / 峰值）") }, value: frontend.value ? `${frontend.value.lastDelayMs} / ${frontend.value.maxDelayMs} ms` : '—'},
+  {get label() { return t("终端渲染（实际）") }, value: frontend.value ? t("{0} 个终端 · WebGL {1} · DOM {2}", [frontend.value.terminalCount, frontend.value.webglCount, frontend.value.domCount]) : '—'},
+  {get label() { return t("单终端待解析输出峰值") }, value: frontend.value ? `${frontend.value.peakOutputBytes.toLocaleString()} B` : '—'},
+  {get label() { return t("终端待解析输出") }, value: frontend.value ? `${frontend.value.pendingOutputBytes.toLocaleString()} B` : '—'},
 ])
 
 async function refreshStatus() {
@@ -81,11 +81,11 @@ async function refreshStatus() {
 }
 
 const rows = computed(() => [
-  {label: t("版本标签"), value: APP_VERSION || 'dev'},
-  {label: t("构建日期"), value: buildDateLabel()},
-  {label: t("构建时间"), value: buildTimeLabel()},
-  {label: t("代码提交"), value: APP_COMMIT || t("未知")},
-  {label: t("运行平台"), value: platformLabel(platform.value || detectPlatform())},
+  {get label() { return t("版本标签") }, value: APP_VERSION || 'dev'},
+  {get label() { return t("构建日期") }, value: buildDateLabel()},
+  {get label() { return t("构建时间") }, value: buildTimeLabel()},
+  {get label() { return t("代码提交") }, value: APP_COMMIT || t("未知")},
+  {get label() { return t("运行平台") }, value: platformLabel(platform.value || detectPlatform())},
 ])
 
 async function copyAbout() {

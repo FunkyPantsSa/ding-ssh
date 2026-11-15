@@ -71,7 +71,7 @@ const grouped = computed(() => {
   const keys = new Set<string>(groups.list)
   for (const k of map.keys()) keys.add(k)
   const sorted = [...keys].filter((k) => k !== '').sort((a, b) => a.localeCompare(b))
-  if (map.has('')) buckets.push({name: t("未分组"), items: map.get('')!})
+  if (map.has('')) buckets.push({get name() { return t("未分组") }, items: map.get('')!})
   for (const key of sorted) {
     buckets.push({name: key, items: map.get(key) ?? []})
   }

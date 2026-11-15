@@ -53,12 +53,12 @@ function chooseTerminal(value: string) {
   if (preset) Object.assign(themeForm, paletteToTheme(tone === 'light' ? preset.light : preset.dark))
 }
 const PRESET_COLORS = [
-  {name: t("黑白"), color: '#A3A3A3'},
-  {name: t("暖灰"), color: '#E8E4DF'}, {name: t("玫瑰粉"), color: '#F19BC0'},
-  {name: t("薰衣草紫"), color: '#9E709F'}, {name: t("珊瑚红"), color: '#F15E6A'},
-  {name: t("暖橙"), color: '#FF805C'}, {name: t("明黄"), color: '#F4D258'},
-  {name: t("薄荷绿"), color: '#35DBA4'}, {name: t("天空蓝"), color: '#71B5D2'},
-  {name: t("岩灰蓝"), color: '#64698C'},
+  {get name() { return t("黑白") }, color: '#A3A3A3'},
+  {get name() { return t("暖灰") }, color: '#E8E4DF'}, {get name() { return t("玫瑰粉") }, color: '#F19BC0'},
+  {get name() { return t("薰衣草紫") }, color: '#9E709F'}, {get name() { return t("珊瑚红") }, color: '#F15E6A'},
+  {get name() { return t("暖橙") }, color: '#FF805C'}, {get name() { return t("明黄") }, color: '#F4D258'},
+  {get name() { return t("薄荷绿") }, color: '#35DBA4'}, {get name() { return t("天空蓝") }, color: '#71B5D2'},
+  {get name() { return t("岩灰蓝") }, color: '#64698C'},
 ]
 const rememberedHue = ref(0)
 const hsv = computed(() => {

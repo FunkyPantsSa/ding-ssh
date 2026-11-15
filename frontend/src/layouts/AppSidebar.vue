@@ -87,7 +87,7 @@ function onBrandClick() {
       >
         <img :src="appLogo" alt="" class="brand-logo nav-logo" />
       </button>
-      <span class="nav-word">Ding<span>-ssh</span></span>
+      <span class="nav-word"><span>DING</span>-SSH</span>
       <Button
         v-if="!visuallyCollapsed"
         variant="ghost"

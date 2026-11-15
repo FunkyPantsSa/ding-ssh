@@ -3,6 +3,7 @@ package apphost
 import (
 	"context"
 	"database/sql"
+	"ding-ssh/internal/autostart"
 	"ding-ssh/internal/i18n"
 	"encoding/base64"
 	"errors"
@@ -366,7 +367,20 @@ func (a *App) GetSettings() models.Settings {
 
 // SaveSettings 保存应用设置并立即生效（无需重启）。
 func (a *App) SaveSettings(settings models.Settings) error {
+	previous, err := a.settings.Get()
+	if err != nil {
+		return err
+	}
+	if settings.AutoStart != previous.AutoStart {
+		if err := autostart.Set(settings.AutoStart); err != nil {
+			return err
+		}
+	}
+
 	if err := a.settings.Save(settings); err != nil {
+		if settings.AutoStart != previous.AutoStart {
+			_ = autostart.Set(previous.AutoStart)
+		}
 		return fmt.Errorf(i18n.T("保存设置失败: %w"), err)
 	}
 	syncNativeAppearance(settings.Appearance.BaseTone)

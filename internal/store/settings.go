@@ -50,6 +50,8 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return models.Settings{
 			UISchema:             2,
+			ConfirmCloseTab:      true,
+			ConfirmCloseApp:      true,
 			WebGLEnabled:         true,
 			CompletionEnabled:    false,
 			CompletionNavHotkey:  "Alt+ArrowDown",
@@ -110,6 +112,12 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	}
 	if settings.UIScale <= 0 {
 		settings.UIScale = 100
+	}
+	if !bytesContains(data, []byte(`"confirmCloseTab"`)) {
+		settings.ConfirmCloseTab = true
+	}
+	if !bytesContains(data, []byte(`"confirmCloseApp"`)) {
+		settings.ConfirmCloseApp = true
 	}
 	if !bytesContains(data, []byte(`"autoReconnect"`)) {
 		settings.AutoReconnect = true

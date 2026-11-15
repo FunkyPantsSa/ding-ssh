@@ -43,7 +43,7 @@ const listenIPOptions = computed(() => {
   const options = localIPv4.value.map(ip => ({value: ip, label: ip}))
   const saved = editing.value?.listenHost
   if (saved && form.listenIP === saved && !localIPv4.value.includes(saved)) {
-    options.unshift({value: saved, label: translate("{0}（原配置）", [saved])})
+    options.unshift({value: saved, get label() { return translate("{0}（原配置）", [saved]) }})
   }
   return options
 })
@@ -63,28 +63,28 @@ function hostPort(host: string, port: number | string) {
 
 const modeDetails = {
   local: {
-    title: translate("本地转发 -L"),
-    summary: translate("从本机访问远端网络中的服务"),
-    description: translate("在本机开放一个端口，经 SSH 服务器连接只有远端网络才能访问的目标。"),
-    example: translate("例如：数据库 10.0.0.8:3306 仅内网可见。创建后访问本机 127.0.0.1:13306，即可连接该数据库。"),
+    get title() { return translate("本地转发 -L") },
+    get summary() { return translate("从本机访问远端网络中的服务") },
+    get description() { return translate("在本机开放一个端口，经 SSH 服务器连接只有远端网络才能访问的目标。") },
+    get example() { return translate("例如：数据库 10.0.0.8:3306 仅内网可见。创建后访问本机 127.0.0.1:13306，即可连接该数据库。") },
   },
   remote: {
-    title: translate("远程转发 -R"),
-    summary: translate("让远端访问本机上的服务"),
-    description: translate("在 SSH 服务器上开放一个端口，收到的连接会通过隧道转发到本机服务。"),
-    example: translate("例如：本机在 3000 端口运行开发站点。远端监听 127.0.0.1:13000 后，服务器访问该地址即可打开本机站点。"),
+    get title() { return translate("远程转发 -R") },
+    get summary() { return translate("让远端访问本机上的服务") },
+    get description() { return translate("在 SSH 服务器上开放一个端口，收到的连接会通过隧道转发到本机服务。") },
+    get example() { return translate("例如：本机在 3000 端口运行开发站点。远端监听 127.0.0.1:13000 后，服务器访问该地址即可打开本机站点。") },
   },
   'reverse-dynamic': {
-    title: translate("反向 SOCKS5 -R"),
-    summary: translate("让服务器应用通过本机访问网络"),
-    description: translate("通过现有 SSH 连接，在服务器的 127.0.0.1 上开 SOCKS5 入口，目标连接由本机发起。服务器须允许远程 TCP 转发。"),
-    example: translate("例如：在服务器上运行 curl --proxy socks5h://127.0.0.1:1080 https://example.com。"),
+    get title() { return translate("反向 SOCKS5 -R") },
+    get summary() { return translate("让服务器应用通过本机访问网络") },
+    get description() { return translate("通过现有 SSH 连接，在服务器的 127.0.0.1 上开 SOCKS5 入口，目标连接由本机发起。服务器须允许远程 TCP 转发。") },
+    get example() { return translate("例如：在服务器上运行 curl --proxy socks5h://127.0.0.1:1080 https://example.com。") },
   },
   dynamic: {
-    title: translate("动态 SOCKS5 -D"),
-    summary: translate("让应用通过 SSH 服务器访问网络"),
-    description: translate("在本机创建 SOCKS5 代理，应用发出的不同目标请求都会经 SSH 服务器转发。"),
-    example: translate("例如：在浏览器中将 SOCKS5 代理设为 127.0.0.1:1080，浏览器流量就会从 SSH 服务器出口访问网络。"),
+    get title() { return translate("动态 SOCKS5 -D") },
+    get summary() { return translate("让应用通过 SSH 服务器访问网络") },
+    get description() { return translate("在本机创建 SOCKS5 代理，应用发出的不同目标请求都会经 SSH 服务器转发。") },
+    get example() { return translate("例如：在浏览器中将 SOCKS5 代理设为 127.0.0.1:1080，浏览器流量就会从 SSH 服务器出口访问网络。") },
   },
 } as const
 

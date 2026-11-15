@@ -1421,3 +1421,20 @@ html[data-material="solid"] :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-back
 
 /* Tool panels share the shell material, including SFTP, history and system info. */
 .tool{background:var(--surface-bg)}
+
+/* Opt-in timing uses existing transition properties, avoiding layout/terminal animation. */
+:root[data-smooth-animations], .app-shell.smooth-animations {
+  --dur: var(--duration-base);
+  --dur-slow: var(--duration-slow);
+  --ease: var(--ease-out);
+  --duration-fast: 140ms;
+  --duration-base: 220ms;
+  --duration-slow: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+.app-shell.smooth-animations :where(button, .nav-item, .neo, .seg, .tag) {
+  transition-timing-function: var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-smooth-animations], .app-shell.smooth-animations { --duration-fast: 0ms; --duration-base: 0ms; --duration-slow: 0ms; }
+}

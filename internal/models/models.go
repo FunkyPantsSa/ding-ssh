@@ -104,6 +104,11 @@ type ProgressEvent struct {
 
 // Settings 应用设置（持久化到 settings.json / SQLite settings 表）。
 type Settings struct {
+	AutoStart        bool `json:"autoStart"`
+	ConfirmCloseTab  bool `json:"confirmCloseTab"`
+	ConfirmCloseApp  bool `json:"confirmCloseApp"`
+	SmoothAnimations bool `json:"smoothAnimations"`
+
 	UISchema             int          `json:"uiSchema"`             // UI 外观配置版本；2 为 Geist 设计系统
 	LogEnabled           bool         `json:"logEnabled"`           // 是否输出调试日志（默认关闭）
 	LogToFile            bool         `json:"logToFile"`            // 是否把日志写入文件（默认关闭）

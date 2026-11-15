@@ -27,8 +27,8 @@ export interface ThemePreset {
 export const PRESETS: ThemePreset[] = [
   {
     id: 'sky',
-    name: t("天空蓝"),
-    desc: t("默认 · 清朗天空蓝"),
+    get name() { return t("天空蓝") },
+    get desc() { return t("默认 · 清朗天空蓝") },
     primary: '#71B5D2',
     secondary: '#71B5D2',
     dark: {
@@ -45,7 +45,7 @@ export const PRESETS: ThemePreset[] = [
   {
     id: 'geist',
     name: 'Geist',
-    desc: t("默认 · 中性深色"),
+    get desc() { return t("默认 · 中性深色") },
     primary: '#3b82f6',
     secondary: '#a1a1aa',
     dark: {
@@ -60,7 +60,7 @@ export const PRESETS: ThemePreset[] = [
     },
   },
   {
-    id: 'monochrome', name: t("黑白"), desc: t("黑白灰 · 简洁清晰"),
+    id: 'monochrome', get name() { return t("黑白") }, get desc() { return t("黑白灰 · 简洁清晰") },
     primary: '#A3A3A3', secondary: '#737373',
     dark: {
       background: '#171717', foreground: '#f5f5f5', cursor: '#ffffff', selection: 'rgba(255, 255, 255, 0.22)',
@@ -75,8 +75,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'signal',
-    name: t("信号青绿"),
-    desc: t("经典默认 · 连接即锁合"),
+    get name() { return t("信号青绿") },
+    get desc() { return t("经典默认 · 连接即锁合") },
     primary: '#3ec4b4',
     secondary: '#c97a4a',
     dark: {
@@ -98,8 +98,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'copper',
-    name: t("日落铜橙"),
-    desc: t("暖色系 · 运维如坐席"),
+    get name() { return t("日落铜橙") },
+    get desc() { return t("暖色系 · 运维如坐席") },
     primary: '#d97b3f',
     secondary: '#c9a24a',
     dark: {
@@ -121,8 +121,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'ocean',
-    name: t("深海蓝"),
-    desc: t("沉稳冷静 · 深蓝之海"),
+    get name() { return t("深海蓝") },
+    get desc() { return t("沉稳冷静 · 深蓝之海") },
     primary: '#4a8fe0',
     secondary: '#3ec4b4',
     dark: {
@@ -144,8 +144,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'violet',
-    name: t("紫罗兰"),
-    desc: t("神秘优雅 · 电子紫调"),
+    get name() { return t("紫罗兰") },
+    get desc() { return t("神秘优雅 · 电子紫调") },
     primary: '#9b7ce0',
     secondary: '#e08ab8',
     dark: {
@@ -167,8 +167,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'rose',
-    name: t("玫瑰红"),
-    desc: t("热情醒目 · 玫瑰之光"),
+    get name() { return t("玫瑰红") },
+    get desc() { return t("热情醒目 · 玫瑰之光") },
     primary: '#e05a7a',
     secondary: '#d4a04a',
     dark: {
@@ -190,8 +190,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'forest',
-    name: t("森林绿"),
-    desc: t("清爽自然 · 松林之息"),
+    get name() { return t("森林绿") },
+    get desc() { return t("清爽自然 · 松林之息") },
     primary: '#4ab07a',
     secondary: '#d4a04a',
     dark: {
@@ -213,8 +213,8 @@ export const PRESETS: ThemePreset[] = [
   },
   {
     id: 'graphite',
-    name: t("石墨黑白"),
-    desc: t("极简克制 · 工业灰调"),
+    get name() { return t("石墨黑白") },
+    get desc() { return t("极简克制 · 工业灰调") },
     primary: '#9aa8b8',
     secondary: '#7a8ba0',
     dark: {

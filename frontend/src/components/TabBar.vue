@@ -204,9 +204,7 @@ async function copyTabHost(clientId: string) {
 
 function closeOthers(clientId: string) {
   if (sessions.tabs.length <= 1) { closeTabMenu(); return }
-  for (const t of sessions.tabs) {
-    if (t.clientId !== clientId) sessions.closeTab(t.clientId)
-  }
+  sessions.closeTabs(sessions.tabs.filter(tab => tab.clientId !== clientId).map(tab => tab.clientId))
   closeTabMenu()
 }
 

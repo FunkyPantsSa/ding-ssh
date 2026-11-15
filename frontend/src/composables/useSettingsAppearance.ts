@@ -11,19 +11,19 @@ import {clamp} from '../theme/material'
 
 export const UI_FONT_OPTIONS = ['Geist Sans', 'system'] as const
 export const TERMINAL_FONT_OPTIONS = [...TERMINAL_FONT_SCHEMES.map(scheme => scheme.value), 'Geist Mono', 'JetBrains Mono', 'Fira Code', 'system'] as const
-export const TONE_OPTIONS = [{key: 'auto', label: t("跟随系统")}, {key: 'light', label: t("浅色")}, {key: 'dark', label: t("深色")}] as const
-export const MODE_OPTIONS = [{key: 'preset', label: t("预设主题")}, {key: 'custom', label: t("自定义")}] as const
+export const TONE_OPTIONS = [{key: 'auto', get label() { return t("跟随系统") }}, {key: 'light', get label() { return t("浅色") }}, {key: 'dark', get label() { return t("深色") }}] as const
+export const MODE_OPTIONS = [{key: 'preset', get label() { return t("预设主题") }}, {key: 'custom', get label() { return t("自定义") }}] as const
 export const MATERIAL_OPTIONS = [
-  {key: 'solid', label: t("实色"), desc: t("不透明动态配色，最稳定")},
-  {key: 'soft', label: t("柔和毛玻璃"), desc: t("保留主题染色与区域层级")},
-  {key: 'clear', label: t("通透毛玻璃"), desc: t("更通透，文字仍由实色层保护")},
+  {key: 'solid', get label() { return t("实色") }, get desc() { return t("不透明动态配色，最稳定") }},
+  {key: 'soft', get label() { return t("柔和毛玻璃") }, get desc() { return t("保留主题染色与区域层级") }},
+  {key: 'clear', get label() { return t("通透毛玻璃") }, get desc() { return t("更通透，文字仍由实色层保护") }},
 ] as const
 type AnsiColorKey = 'black' | 'red' | 'green' | 'yellow' | 'blue' | 'magenta' | 'cyan' | 'white' | 'brightBlack' | 'brightRed' | 'brightGreen' | 'brightYellow' | 'brightBlue' | 'brightMagenta' | 'brightCyan' | 'brightWhite'
 export const ANSI_FIELDS: {key: AnsiColorKey; label: string}[] = [
   {key: 'black', label: 'Black'}, {key: 'red', label: 'Red'}, {key: 'green', label: 'Green'}, {key: 'yellow', label: 'Yellow'},
   {key: 'blue', label: 'Blue'}, {key: 'magenta', label: 'Magenta'}, {key: 'cyan', label: 'Cyan'}, {key: 'white', label: 'White'},
-  {key: 'brightBlack', label: t("亮黑")}, {key: 'brightRed', label: t("亮红")}, {key: 'brightGreen', label: t("亮绿")}, {key: 'brightYellow', label: t("亮黄")},
-  {key: 'brightBlue', label: t("亮蓝")}, {key: 'brightMagenta', label: t("亮紫")}, {key: 'brightCyan', label: t("亮青")}, {key: 'brightWhite', label: t("亮白")},
+  {key: 'brightBlack', get label() { return t("亮黑") }}, {key: 'brightRed', get label() { return t("亮红") }}, {key: 'brightGreen', get label() { return t("亮绿") }}, {key: 'brightYellow', get label() { return t("亮黄") }},
+  {key: 'brightBlue', get label() { return t("亮蓝") }}, {key: 'brightMagenta', get label() { return t("亮紫") }}, {key: 'brightCyan', get label() { return t("亮青") }}, {key: 'brightWhite', get label() { return t("亮白") }},
 ]
 
 /** 外观设置的表单状态与持久化边界；页面只负责组合各 section。 */

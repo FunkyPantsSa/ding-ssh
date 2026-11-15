@@ -1,7 +1,7 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {createPinia, setActivePinia} from 'pinia'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
-import {language} from '../../i18n'
+import {language, setLanguage} from '../../i18n'
 import SettingsGeneralSection from './SettingsGeneralSection.vue'
 import {useSettingsStore} from '../../stores/settings'
 
@@ -69,4 +69,23 @@ describe('settings save flow', () => {
     expect(saved.webGLEnabled).toBe(false)
     wrapper.unmount()
   })
+})
+
+it('updates existing option labels when switching languages without remounting', async () => {
+ const pinia=createPinia();setActivePinia(pinia)
+ useSettingsStore().loaded=true
+ language.value='zh-CN'
+ const wrapper=mount(SettingsGeneralSection,{global:{plugins:[pinia]}})
+ await flushPromises()
+ const element=wrapper.element
+ try {
+  expect(wrapper.text()).toContain('左侧导航')
+  await setLanguage('en');await flushPromises()
+  expect(wrapper.element).toBe(element)
+  expect(wrapper.text()).toContain('Sidebar')
+  expect(wrapper.text()).not.toContain('左侧导航')
+  await setLanguage('zh-CN');await flushPromises()
+  expect(wrapper.element).toBe(element)
+  expect(wrapper.text()).toContain('左侧导航')
+ } finally {wrapper.unmount();language.value='zh-CN';localStorage.removeItem('ding-ssh.language')}
 })

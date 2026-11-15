@@ -33,9 +33,9 @@ async function loadLatin(family: string, weight: number) {
 }
 /** Stored values remain strings so existing font preferences stay compatible. */
 export const TERMINAL_FONT_SCHEMES = [
-  {value: 'Maple Mono NF CN', label: 'Maple Mono NF CN', description: t("中英文、终端图标一体化"), families: ['Maple Mono NF CN']},
-  {value: 'JetBrains Mono + Sarasa Mono SC', label: 'JetBrains Mono + Sarasa Mono SC', description: t("清晰易读，适合长期运维"), families: ['JetBrains Mono', 'Sarasa Mono SC']},
-  {value: 'Geist Mono + Sarasa Mono SC', label: 'Geist Mono + Sarasa Mono SC', description: t("简洁现代，适合开发者工具"), families: ['Geist Mono', 'Sarasa Mono SC']},
+  {value: 'Maple Mono NF CN', label: 'Maple Mono NF CN', get description() { return t("中英文、终端图标一体化") }, families: ['Maple Mono NF CN']},
+  {value: 'JetBrains Mono + Sarasa Mono SC', label: 'JetBrains Mono + Sarasa Mono SC', get description() { return t("清晰易读，适合长期运维") }, families: ['JetBrains Mono', 'Sarasa Mono SC']},
+  {value: 'Geist Mono + Sarasa Mono SC', label: 'Geist Mono + Sarasa Mono SC', get description() { return t("简洁现代，适合开发者工具") }, families: ['Geist Mono', 'Sarasa Mono SC']},
 ] as const
 
 export function terminalFontFamilies(name: string): readonly string[] {
