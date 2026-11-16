@@ -6,6 +6,7 @@ import (
 
 	"ding-ssh/internal/apphost"
 	"ding-ssh/internal/logfilter"
+	"ding-ssh/internal/updater"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -24,6 +25,9 @@ type App struct {
 }
 
 func main() {
+	if updater.Helper() {
+		return
+	}
 	// 调试模式配置要在 wails.Run 之前读取：WebView2 的远程调试端口必须在启动时确定。
 	boot := apphost.ReadDebugBoot()
 	app := &App{App: apphost.NewApp(boot)}

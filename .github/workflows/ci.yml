@@ -41,7 +41,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
 
   # 可下载的编译产物：仅在 main / dev 分支 push 时构建，供测试同学直接取包。
-  # 只做「构建 + 上传 artifact」，不涉及 Release / 发布（发布仍由 release.yml 在 tag 上执行）。
+  # 分支构建同时发布独立的更新通道；正式版本仍由 release.yml 在 tag 上发布。
   build-artifacts:
     name: Build ${{ matrix.artifact }}
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
@@ -111,16 +111,41 @@ jobs:
 
       - name: Wails build (Linux)
         if: runner.os == 'Linux'
-        run: wails build -clean -platform ${{ matrix.platform }} -tags webkit2_41
+        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildChannel=${{ github.ref_name }}" -clean -platform ${{ matrix.platform }} -tags webkit2_41
 
       - name: Wails build (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: wails build -clean -platform ${{ matrix.platform }} -webview2 embed
+        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildChannel=${{ github.ref_name }}" -clean -platform ${{ matrix.platform }} -webview2 embed
 
       - name: Wails build (macOS)
         if: runner.os == 'macOS'
-        run: wails build -clean -platform ${{ matrix.platform }}
+        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildChannel=${{ github.ref_name }}" -clean -platform ${{ matrix.platform }}
+
+      - name: Package Linux AppImage
+        if: runner.os == 'Linux'
+        env:
+          APP_VERSION: ${{ github.sha }}
+        run: |
+          curl -fsSL -o /tmp/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool
+          APPIMAGE_TOOL=/tmp/appimagetool APPIMAGE_EXTRACT_AND_RUN=1 bash scripts/package-linux.sh
+
+      - name: Package update archive
+        shell: bash
+        run: |
+          mkdir -p dist
+          case "${{ runner.os }}" in
+            macOS) ditto -c -k --keepParent build/bin/ding-ssh.app "dist/ding-ssh-${GITHUB_SHA}-macos-${{ matrix.macos_arch }}.app.zip" ;;
+            Windows) powershell.exe -NoProfile -Command "Compress-Archive -Path build/bin/ding-ssh.exe -DestinationPath dist/ding-ssh-${GITHUB_SHA}-windows-amd64.zip" ;;
+            Linux) tar -C build/bin -czf "dist/ding-ssh-${GITHUB_SHA}-linux-amd64.tar.gz" ding-ssh ;;
+          esac
+
+      - name: Upload update archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-${{ matrix.artifact }}
+          path: dist/*
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -131,3 +156,31 @@ jobs:
             build/bin/*
             dist/*
           if-no-files-found: error
+
+  publish-update:
+    name: Publish branch update
+    needs: build-artifacts
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: update-*
+          path: dist
+          merge-multiple: true
+      - name: Generate manifest
+        env:
+          UPDATE_CHANNEL: ${{ github.ref_name }}
+        run: python3 scripts/update-manifest.py
+      - name: Publish branch release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_CHANNEL: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          tag="${UPDATE_CHANNEL}-latest"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --title "${UPDATE_CHANNEL} builds" --target "$GITHUB_SHA" --notes "Automatic branch builds."
+          gh release upload "$tag" dist/* --clobber

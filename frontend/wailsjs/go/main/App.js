@@ -18,6 +18,10 @@ export function ChangeMasterPassword(arg1, arg2) {
   return window['go']['main']['App']['ChangeMasterPassword'](arg1, arg2);
 }
 
+export function CheckUpdate(arg1) {
+  return window['go']['main']['App']['CheckUpdate'](arg1);
+}
+
 export function ClearCommandHistory(arg1) {
   return window['go']['main']['App']['ClearCommandHistory'](arg1);
 }
@@ -64,6 +68,10 @@ export function DisableMasterPassword(arg1) {
 
 export function Disconnect(arg1) {
   return window['go']['main']['App']['Disconnect'](arg1);
+}
+
+export function DownloadUpdate(arg1) {
+  return window['go']['main']['App']['DownloadUpdate'](arg1);
 }
 
 export function EnableMasterPassword(arg1) {
@@ -130,12 +138,20 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
+export function GetUpdateChannel() {
+  return window['go']['main']['App']['GetUpdateChannel']();
+}
+
 export function ImportConfig(arg1, arg2) {
   return window['go']['main']['App']['ImportConfig'](arg1, arg2);
 }
 
 export function ImportSSHConfig(arg1, arg2) {
   return window['go']['main']['App']['ImportSSHConfig'](arg1, arg2);
+}
+
+export function InstallUpdateNow() {
+  return window['go']['main']['App']['InstallUpdateNow']();
 }
 
 export function ListLocalIPv4() {

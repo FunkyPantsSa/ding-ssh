@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import UpdatePanel from './components/UpdatePanel.vue'
 import {errorText} from './i18n'
 
 import {t as $t} from './i18n'
@@ -426,6 +427,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <UpdatePanel />
   <div class="app-shell" :class="{'smooth-animations': settings.smoothAnimations, 'platform-macos': isMacOS, 'platform-windows': isWindows}" :style="{zoom: (settings.uiScale || 100) / 100}" data-ui="app" :data-view="ui.view">
     <div v-if="isMacOS || isWindows" class="window-drag-region" @dblclick="WindowToggleMaximise">
       <div v-if="isWindows" class="window-controls"><button :aria-label="$t('最小化')" @dblclick.stop @click="WindowMinimise">−</button><button :aria-label="$t('最大化或还原')" @dblclick.stop @click="WindowToggleMaximise">□</button><button :aria-label="$t('关闭窗口')" @dblclick.stop @click="Quit">×</button></div>

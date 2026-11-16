@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/aymanbagabas/go-pty v0.2.2
 	github.com/google/uuid v1.6.0
+	github.com/oomol-lab/sysproxy v0.0.0-20250609040630-bacc3356fc00
 	github.com/pkg/sftp v1.13.11
 	github.com/wailsapp/wails/v2 v2.13.0
 	github.com/zalando/go-keyring v0.2.6

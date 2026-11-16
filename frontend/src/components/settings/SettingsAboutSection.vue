@@ -17,6 +17,7 @@ import appLogo from '../../assets/images/ding-logo.png'
 
 const props = withDefaults(defineProps<{active?: boolean}>(), {active: true})
 const autoRefresh = ref(false)
+function openUpdates() { window.dispatchEvent(new Event('open-updates')) }
 
 const platform = ref('')
 const copied = ref(false)
@@ -135,6 +136,7 @@ onBeforeUnmount(() => {
       <p class="text-[13px] text-mist mt-1.5">{{ $t('版本信息与构建详情，反馈问题时请一并附上。') }}</p>
     </div>
 
+    <Button variant="ghost" size="sm" @click="openUpdates">{{ $t('检查更新') }}</Button>
     <div class="neo">
       <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-800/60">
         <div class="brand-mark">

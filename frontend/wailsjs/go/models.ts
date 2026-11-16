@@ -28,6 +28,40 @@ export namespace apphost {
 	        this.strategy = source["strategy"];
 	    }
 	}
+	export class UpdateInfo {
+	    manifest: updater.Manifest;
+	    available: boolean;
+	    current: string;
+
+	    static createFrom(source: any = {}) {
+	        return new UpdateInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.manifest = this.convertValues(source["manifest"], updater.Manifest);
+	        this.available = source["available"];
+	        this.current = source["current"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 
@@ -600,6 +634,61 @@ export namespace sshx {
 	        this.source = source["source"];
 	        this.readOnly = source["readOnly"];
 	    }
+	}
+
+}
+
+export namespace updater {
+
+	export class Asset {
+	    name: string;
+	    sha256: string;
+
+	    static createFrom(source: any = {}) {
+	        return new Asset(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.sha256 = source["sha256"];
+	    }
+	}
+	export class Manifest {
+	    commit: string;
+	    channel: string;
+	    builtAt: string;
+	    assets: Record<string, Asset>;
+
+	    static createFrom(source: any = {}) {
+	        return new Manifest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.commit = source["commit"];
+	        this.channel = source["channel"];
+	        this.builtAt = source["builtAt"];
+	        this.assets = this.convertValues(source["assets"], Asset, true);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

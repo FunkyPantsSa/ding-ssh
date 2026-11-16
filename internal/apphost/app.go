@@ -31,6 +31,8 @@ import (
 
 // App 是 Wails 绑定到前端的应用对象。
 type App struct {
+	updates updateState
+
 	ctx         context.Context
 	manager     *sshx.Manager
 	local       *localterm.Manager
@@ -224,6 +226,7 @@ func (a *App) initJSONStores() {
 
 // shutdown 在应用退出时清理资源。
 func (a *App) Shutdown(ctx context.Context) {
+	defer a.installPendingUpdate()
 	a.stopDebug()
 	if a.local != nil {
 		a.local.CloseAll()
