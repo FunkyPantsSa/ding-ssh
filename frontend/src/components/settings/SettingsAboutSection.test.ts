@@ -20,7 +20,7 @@ it('refreshes only when enabled and switches off when the settings view is hidde
   const wrapper = mount(SettingsAboutSection, {props: {active: true}})
   try {
     await flushPromises()
-    const toggle = wrapper.get('button[role="switch"]')
+    const toggle = wrapper.get('button[aria-labelledby="runtime-auto-refresh-label"]')
     expect(toggle.attributes('aria-checked')).toBe('false')
     await vi.advanceTimersByTimeAsync(5000)
     expect(GetRuntimeStatus).toHaveBeenCalledTimes(1)

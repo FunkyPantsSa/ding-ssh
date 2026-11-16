@@ -31,13 +31,9 @@ func (a *App) CheckUpdate(channel string) (UpdateInfo, error) {
 	if e != nil {
 		return UpdateInfo{}, e
 	}
-	current := ""
-	if b, ok := debug.ReadBuildInfo(); ok {
-		for _, s := range b.Settings {
-			if s.Key == "vcs.revision" {
-				current = s.Value
-			}
-		}
+	current := currentUpdateCommit()
+	if current == "" {
+		return UpdateInfo{}, fmt.Errorf("无法识别当前构建提交，请安装带版本信息的构建")
 	}
 	a.updates.Lock()
 	defer a.updates.Unlock()
@@ -107,3 +103,15 @@ func (a *App) installPendingUpdate() {
 }
 
 func (a *App) GetUpdateChannel() string { return updater.BuildChannel }
+
+func currentUpdateCommit() string {
+	current := updater.BuildCommit
+	if b, ok := debug.ReadBuildInfo(); ok && current == "" {
+		for _, s := range b.Settings {
+			if s.Key == "vcs.revision" {
+				current = s.Value
+			}
+		}
+	}
+	return current
+}

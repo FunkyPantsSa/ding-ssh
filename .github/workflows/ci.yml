@@ -68,6 +68,7 @@ jobs:
     env:
       NODE_OPTIONS: --max-old-space-size=4096
       WAILS_CLI_VERSION: v2.13.0
+      APP_VERSION: 0.0.0-${{ github.ref_name }}.${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
 
@@ -111,16 +112,16 @@ jobs:
 
       - name: Wails build (Linux)
         if: runner.os == 'Linux'
-        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildChannel=${{ github.ref_name }}" -clean -platform ${{ matrix.platform }} -tags webkit2_41
+        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildChannel=${{ github.ref_name }} -X ding-ssh/internal/updater.BuildCommit=${{ github.sha }}" -clean -platform ${{ matrix.platform }} -tags webkit2_41
 
       - name: Wails build (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildChannel=${{ github.ref_name }}" -clean -platform ${{ matrix.platform }} -webview2 embed
+        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildChannel=${{ github.ref_name }} -X ding-ssh/internal/updater.BuildCommit=${{ github.sha }}" -clean -platform ${{ matrix.platform }} -webview2 embed
 
       - name: Wails build (macOS)
         if: runner.os == 'macOS'
-        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildChannel=${{ github.ref_name }}" -clean -platform ${{ matrix.platform }}
+        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildChannel=${{ github.ref_name }} -X ding-ssh/internal/updater.BuildCommit=${{ github.sha }}" -clean -platform ${{ matrix.platform }}
 
       - name: Package Linux AppImage
         if: runner.os == 'Linux'

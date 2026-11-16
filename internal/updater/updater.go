@@ -19,6 +19,9 @@ import (
 
 var BuildChannel = "main"
 
+// BuildCommit is injected by CI because Wails builds may omit Go VCS metadata.
+var BuildCommit string
+
 const repository = "https://github.com/FunkyPantsSa/ding-ssh"
 
 type Manifest struct {

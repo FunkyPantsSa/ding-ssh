@@ -13,11 +13,13 @@ import {sshService} from '../../services/ssh'
 import {APP_COMMIT, APP_VERSION, buildDateLabel, buildTimeLabel, detectPlatform, platformLabel} from '../../version'
 import {GetRuntimeStatus} from '../../../wailsjs/go/main/App'
 
+import {updateChannel, checkUpdatesOnStartup, updateBusy, updateReady, updateMessage, setUpdateChannel, setStartupCheck, checkUpdates} from '../../services/updates'
+
 import appLogo from '../../assets/images/ding-logo.png'
 
 const props = withDefaults(defineProps<{active?: boolean}>(), {active: true})
 const autoRefresh = ref(false)
-function openUpdates() { window.dispatchEvent(new Event('open-updates')) }
+
 
 const platform = ref('')
 const copied = ref(false)
@@ -136,7 +138,23 @@ onBeforeUnmount(() => {
       <p class="text-[13px] text-mist mt-1.5">{{ $t('版本信息与构建详情，反馈问题时请一并附上。') }}</p>
     </div>
 
-    <Button variant="ghost" size="sm" @click="openUpdates">{{ $t('检查更新') }}</Button>
+    <div class="neo px-5 py-4 space-y-4">
+      <h4 class="text-sm font-medium text-slate-200">应用更新</h4>
+      <label class="flex items-center justify-between gap-4 text-sm text-slate-300">
+        更新渠道
+        <select :value="updateChannel" :disabled="updateBusy || updateReady" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2" @change="setUpdateChannel(($event.target as HTMLSelectElement).value)">
+          <option value="main">main（稳定版）</option><option value="dev">dev（测试版）</option>
+        </select>
+      </label>
+      <div class="flex items-center justify-between gap-4">
+        <div><p id="startup-update-label" class="text-sm text-slate-300">启动时检查更新</p><p class="mt-1 text-xs text-slate-500">发现新版本后在左下角提示，确认后才下载安装。</p></div>
+        <ToggleSwitch :model-value="checkUpdatesOnStartup" aria-labelledby="startup-update-label" @update:model-value="setStartupCheck" />
+      </div>
+      <div class="flex items-center gap-3">
+        <Button variant="ghost" size="sm" :disabled="updateBusy || updateReady" @click="checkUpdates(true)">{{ $t('检查更新') }}</Button>
+        <p class="text-xs text-slate-500" aria-live="polite">{{ updateMessage }}</p>
+      </div>
+    </div>
     <div class="neo">
       <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-800/60">
         <div class="brand-mark">
