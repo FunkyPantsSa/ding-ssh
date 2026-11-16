@@ -21,6 +21,21 @@ const sessions = useSessionsStore()
 const settings = useSettingsStore()
 const transfersStore = useTransfersStore()
 
+function sftpError(e: unknown): string {
+  const message = errorText(e)
+  return props.tab.node.jumpServerMode && message.includes('please select one of the assets')
+    ? '请先进入目标资产和账号的文件目录，再进行操作（JumpServer 尚未选中资产）。'
+    : message
+}
+
+function canWrite(): boolean {
+  if (props.tab.node.jumpServerMode && (path.value === '/' || !!error.value || loading.value)) {
+    error.value = '请先进入目标资产和账号的文件目录，再进行操作。'
+    return false
+  }
+  return true
+}
+
 const entries = ref<SFTPEntry[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -125,7 +140,7 @@ async function load(dir: string) {
       a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
     )
   } catch (e) {
-    error.value = errorText(e)
+    error.value = sftpError(e)
   } finally {
     loading.value = false
   }
@@ -140,7 +155,7 @@ function enter(entry: SFTPEntry) {
 // 切换面板目录的同时把终端 cd 到同一目录（SFTP → 终端目录同步，受配置项控制）。
 function go(dir: string) {
   path.value = dir
-  if (settings.sftpToTerminalSync && props.tab.sessionId) {
+  if (!props.tab.node.jumpServerMode && settings.sftpToTerminalSync && props.tab.sessionId) {
     sshService.syncSftpToTerminal(props.tab.sessionId, dir).catch(() => {})
   }
 }
@@ -156,7 +171,7 @@ async function loadFromSync(dir: string) {
     error.value = ''
     console.info(translate("[sftp-sync] 面板已切换"), dir, translate("条目"), list.length)
   } catch (e) {
-    error.value = errorText(e)
+    error.value = sftpError(e)
     console.warn(translate("[sftp-sync] 列出失败，保持当前列表"), dir, e)
   }
 }
@@ -183,7 +198,7 @@ async function copyMenuPath(entry = false) {
   const value = entry ? menu.value?.entry?.path : path.value
   closeMenu()
   if (!value) return
-  try { await ClipboardSetText(value) } catch (e) { error.value = translate("复制路径失败：{0}", [errorText(e)]) }
+  try { await ClipboardSetText(value) } catch (e) { error.value = translate("复制路径失败：{0}", [sftpError(e)]) }
 }
 function menuAction(action: () => unknown) {
   closeMenu()
@@ -218,6 +233,7 @@ function startRename(entry: SFTPEntry) {
 }
 
 async function doRename() {
+  if (!canWrite()) return
   const target = renaming.value
   renaming.value = null
   if (!target) return
@@ -228,7 +244,7 @@ async function doRename() {
     await sshService.sftpRename(props.tab.sessionId, target.path, newPath)
     await refresh()
   } catch (e) {
-    error.value = errorText(e)
+    error.value = sftpError(e)
   }
 }
 
@@ -239,6 +255,7 @@ function requestDelete(entry: SFTPEntry) {
 }
 
 async function doDelete() {
+  if (!canWrite()) return
   const target = confirmDeletePath.value
   confirmDeletePath.value = ''
   if (!target) return
@@ -246,7 +263,7 @@ async function doDelete() {
     await sshService.sftpRemove(props.tab.sessionId, target)
     await refresh()
   } catch (e) {
-    error.value = errorText(e)
+    error.value = sftpError(e)
   }
 }
 
@@ -258,6 +275,7 @@ function startNewFolder() {
 }
 
 async function doNewFolder() {
+  if (!canWrite()) return
   newFolderActive.value = false
   const name = newFolderName.value.trim()
   if (!name) return
@@ -265,7 +283,7 @@ async function doNewFolder() {
     await sshService.sftpMkdir(props.tab.sessionId, joinPath(path.value, name))
     await refresh()
   } catch (e) {
-    error.value = errorText(e)
+    error.value = sftpError(e)
   }
 }
 
@@ -448,7 +466,7 @@ async function runTransfer(
       if (dur > 0 && t.transferred > 0) t.speed = (t.transferred * 1000) / dur
     }
   } catch (e) {
-    t.error = errorText(e)
+    t.error = sftpError(e)
     t.done = true
     t.finishedAt = Date.now()
   }
@@ -468,6 +486,7 @@ async function runTransfer(
 }
 
 async function upload() {
+  if (!canWrite()) return
   const files = await sshService.selectLocalFiles()
   if (!files.length) return
   for (const localPath of files) {
@@ -482,6 +501,7 @@ async function upload() {
 // 上传文件夹：选择本地文件夹后整体递归上传到当前远端目录，
 // 后端保留文件夹名（当前目录/<本地文件夹名>/...），整条传输显示一个聚合进度。
 async function uploadFolder() {
+  if (!canWrite()) return
   if (!props.tab.sessionId) return
   const localDir = await sshService.selectLocalFolder()
   if (!localDir) return
@@ -496,6 +516,7 @@ async function uploadFolder() {
 const dragOver = ref(false)
 
 async function uploadPaths(localPaths: string[]) {
+  if (!canWrite()) return
   if (!props.tab.sessionId || !localPaths.length) return
   for (const localPath of localPaths) {
     let isDir = false
@@ -716,6 +737,7 @@ onBeforeUnmount(() => {
       <div v-if="dragOver" class="absolute inset-2 rounded-[10px] border-2 border-dashed border-[var(--primary-hover)] bg-[var(--primary-glow-soft)] grid place-items-center pointer-events-none z-10">
         <p class="text-xs text-[var(--primary-hover)]">{{ $t('松开以上传到当前目录') }}</p>
       </div>
+      <p v-if="props.tab.node.jumpServerMode" class="px-2 py-2 text-xs text-mist">JumpServer 模式：请逐级进入资产、账号的文件目录；终端目录不会与此处同步。</p>
       <div v-if="!entries.length && !loading && !error" class="py-6 text-center text-xs text-mist">{{ $t('空目录') }}</div>
       <div
         v-for="e in entries"

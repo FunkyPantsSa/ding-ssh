@@ -1,6 +1,7 @@
 // 与 Go 端 models 包对应的类型定义。
 
 export interface ServerNode {
+  jumpServerMode?: boolean
   identityFiles?: string[]
   identityAgent?: string
   identitiesOnly?: boolean

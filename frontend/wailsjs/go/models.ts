@@ -249,6 +249,7 @@ export namespace models {
 	    }
 	}
 	export class ServerNode {
+	    jumpServerMode?: boolean;
 	    identityFiles?: string[];
 	    identityAgent?: string;
 	    identitiesOnly?: boolean;
@@ -277,6 +278,7 @@ export namespace models {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.jumpServerMode = source["jumpServerMode"];
 	        this.identityFiles = source["identityFiles"];
 	        this.identityAgent = source["identityAgent"];
 	        this.identitiesOnly = source["identitiesOnly"];

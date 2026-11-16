@@ -5,6 +5,7 @@ import "strings"
 
 // ServerNode 服务器节点定义（与设计文档第 4 节保持一致）。
 type SSHOptions struct {
+	JumpServerMode    bool     `json:"jumpServerMode,omitempty"`
 	IdentityFiles     []string `json:"identityFiles,omitempty"`
 	IdentityAgent     string   `json:"identityAgent,omitempty"`
 	IdentitiesOnly    bool     `json:"identitiesOnly,omitempty"`

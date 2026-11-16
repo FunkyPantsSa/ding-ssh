@@ -76,6 +76,7 @@ const form = reactive<ServerNode>({
 })
 
 const configuredAdvanced = computed(() => !!(
+  form.jumpServerMode ||
   form.jumpServerIds?.length ||
   form.hostKeyAlias?.trim() ||
   form.knownHostsSources?.length
@@ -150,6 +151,7 @@ watch(
       identityFiles: [...(editing?.identityFiles ?? [])],
       identityAgent: editing?.identityAgent ?? '',
       identitiesOnly: editing?.identitiesOnly ?? false,
+      jumpServerMode: editing?.jumpServerMode ?? false,
       jumpServerIds: [...(editing?.jumpServerIds ?? [])],
       hostKeyAlias: editing?.hostKeyAlias ?? '',
       knownHostsSources: [...(editing?.knownHostsSources ?? [])],
@@ -469,6 +471,8 @@ onMounted(() => {
           <span v-if="!advancedOpen && configuredAdvanced" class="server-advanced-badge">{{ $t('已配置') }}</span>
         </button>
         <div v-show="advancedOpen" class="server-advanced-body space-y-3">
+          <label class="flex items-center gap-2 text-sm"><input v-model="form.jumpServerMode" type="checkbox" data-testid="jumpserver-mode" />JumpServer 模式</label>
+          <p class="text-xs text-mist">连接 JumpServer 堡垒机时开启：终端与 SFTP 目录独立，请在 SFTP 中选择资产和账号后上传。与 SSH 跳板机配置独立，保存后重新连接生效。</p>
           <Field :label="$t('跳板机连接路径（最多 5 级）')">
             <div v-for="(jump, index) in form.jumpServerIds" :key="index" class="flex flex-wrap items-center gap-2 mb-2">
               <SearchSelect

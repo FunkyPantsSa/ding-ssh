@@ -244,15 +244,21 @@ func (m *Manager) SyncSftpToTerminal(sessionID, path string) error {
 	if err != nil {
 		return err
 	}
+	if s.server.JumpServerMode {
+		return fmt.Errorf("JumpServer 模式不支持终端与 SFTP 目录同步")
+	}
 	cmd := "cd " + escapeShellPath(path) + "\n"
 	return s.Write([]byte(cmd))
 }
 
 // SetSftpPathFromTerminal 当 Shell 侧检测到目录变更时，向前端推送同步事件。
 func (m *Manager) SetSftpPathFromTerminal(sessionID, path string) error {
-	_, err := m.get(sessionID)
+	s, err := m.get(sessionID)
 	if err != nil {
 		return err
+	}
+	if s.server.JumpServerMode {
+		return nil
 	}
 	m.notify("sftp:sync-path:"+sessionID, models.DirSyncEvent{
 		SessionID:   sessionID,

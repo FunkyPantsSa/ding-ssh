@@ -811,6 +811,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
         console.info(t("[sftp-sync] 空路径，忽略"))
         return
       }
+      if (props.tab.node.jumpServerMode) return
       if (newPath === props.tab.sftpPath) {
         console.info(t("[sftp-sync] 已在该目录，忽略"), newPath)
         return

@@ -198,7 +198,7 @@ func (s *Session) pump(r io.Reader) {
 			if len(acc) > 64*1024 {
 				acc = acc[len(acc)-64*1024:]
 			}
-			if s.onDirSync != nil {
+			if s.onDirSync != nil && !s.server.JumpServerMode {
 				if dir, src, ok := ParseDirFromOutput(acc); ok {
 					if dir = s.expandPath(dir); dir != "" {
 						s.mu.Lock()
@@ -314,6 +314,9 @@ func (s *Session) expandPath(p string) string {
 // prefetchHomeAndSync 用 SFTP Getwd 校正 home，并在尚未同步过目录时推一次，
 // 避免登录提示符是 ~ 时 SFTP 停在 /。
 func (s *Session) prefetchHomeAndSync() {
+	if s.server.JumpServerMode {
+		return
+	}
 	c, err := s.SftpClient()
 	if err == nil && c != nil {
 		if wd, werr := c.Getwd(); werr == nil && strings.HasPrefix(wd, "/") {
