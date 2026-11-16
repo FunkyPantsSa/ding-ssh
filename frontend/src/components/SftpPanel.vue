@@ -27,6 +27,22 @@ const error = ref('')
 
 // 交互状态：选中 / 右键菜单 / 重命名 / 删除确认 / 新建文件夹 / 路径编辑
 const selected = ref('')
+const uploadMenuOpen = ref(false)
+const uploadMenuRoot = ref<HTMLElement>()
+async function toggleUploadMenu() {
+  uploadMenuOpen.value = !uploadMenuOpen.value
+  if (uploadMenuOpen.value) { await nextTick(); uploadMenuRoot.value?.querySelector<HTMLElement>('[role="menuitem"]')?.focus() }
+}
+function uploadMenuKey(event: KeyboardEvent) {
+  const buttons = Array.from(uploadMenuRoot.value?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
+  const index = buttons.indexOf(document.activeElement as HTMLElement)
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); uploadMenuOpen.value = false; uploadMenuRoot.value?.querySelector<HTMLElement>('[aria-haspopup]')?.focus() }
+  else if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) {
+    event.preventDefault()
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
+    buttons[next]?.focus()
+  } else if (event.key === 'Tab') uploadMenuOpen.value = false
+}
 const menu = ref<{x: number; y: number; entry: SFTPEntry | null} | null>(null)
 const renaming = ref<{path: string; name: string} | null>(null)
 const renameInput = ref('')
@@ -84,6 +100,10 @@ const crumbs = computed(() => {
   }
   return out
 })
+
+const visibleCrumbs = computed(() => crumbs.value.length > 4
+  ? [crumbs.value[0], {...crumbs.value[crumbs.value.length - 3], label: '…'}, ...crumbs.value.slice(-2)]
+  : crumbs.value)
 
 function parentPath(p: string): string {
   if (p === '/') return '/'
@@ -170,6 +190,7 @@ function menuAction(action: () => unknown) {
   void action()
 }
 function closeMenu() {
+  uploadMenuOpen.value = false
   menu.value = null
 }
 
@@ -264,6 +285,7 @@ function doPathEdit() {
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
+  uploadMenuOpen.value = false
   menu.value = null
   renaming.value = null
   confirmDeletePath.value = ''
@@ -600,9 +622,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="tool" data-ui="context-panel">
-    <div class="tool-head">
-      <div class="seg">
+  <div class="tool sftp-panel" data-ui="context-panel">
+    <div class="tool-head tool-head-light">
+      <div class="seg tool-tabs">
         <button class="active">SFTP</button>
         <button @click="sessions.showRightPanel('sysinfo')">{{ $t('运行状态') }}</button>
       </div>
@@ -622,7 +644,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 导航独占一行，操作区单独排列，避免按钮挤压路径。 -->
-    <div data-testid="sftp-navigation" class="flex items-center gap-1.5 px-3 pt-2 pb-1">
+    <div data-testid="sftp-navigation" class="sftp-navigation flex items-center gap-1 px-3 py-1">
       <Button variant="ghost" size="icon" :title="$t('上级')" :aria-label="$t('返回上级目录')" @click="up">
         <Icon name="up" :size="14" />
       </Button>
@@ -647,16 +669,23 @@ onBeforeUnmount(() => {
         :aria-label="`${translate('远程路径')}: ${path}`"
         @click="startPathEdit"
       >
-        <template v-for="(c, i) in crumbs" :key="c.path">
-          <button class="shrink-0 hover:text-signal" @click.stop="go(c.path)">{{ c.label }}</button>
-          <span v-if="i > 0 && i < crumbs.length - 1" class="shrink-0 opacity-40">/</span>
+        <template v-for="(c, i) in visibleCrumbs" :key="c.path">
+          <button class="sftp-crumb" :class="{'sftp-crumb-current': i === visibleCrumbs.length - 1}" :title="path" @click.stop="go(c.path)">{{ c.label }}</button>
+          <span v-if="i > 0 && i < visibleCrumbs.length - 1" class="shrink-0 opacity-40">/</span>
         </template>
       </div>
     </div>
-    <div data-testid="sftp-actions" class="sftp-actions grid grid-cols-3 gap-1.5 px-3 pt-1 pb-2 inset-line-b">
-      <Button variant="secondary" size="sm" data-testid="sftp-create-folder" @click="startNewFolder">{{ $t('新建文件夹') }}</Button>
-      <Button variant="secondary" size="sm" data-testid="sftp-upload" @click="upload">{{ $t('上传文件') }}</Button>
-      <Button variant="secondary" size="sm" :title="$t('选择本地文件夹，整体递归上传到当前目录（保留文件夹名）')" data-testid="sftp-upload-folder" @click="uploadFolder">{{ $t('上传文件夹') }}</Button>
+    <div data-testid="sftp-actions" class="sftp-actions flex items-center gap-1.5 px-3 pt-0.5 pb-2">
+      <div ref="uploadMenuRoot" class="sftp-upload-group" @click.stop @keydown="uploadMenuKey">
+        <Button class="sftp-upload-primary" variant="secondary" data-testid="sftp-upload-menu" aria-haspopup="menu" :aria-expanded="uploadMenuOpen" @click="toggleUploadMenu" @keydown.down.prevent="uploadMenuOpen || toggleUploadMenu()">
+          {{ $t('上传') }}<Icon name="chevron-down" :size="13" />
+        </Button>
+        <div v-if="uploadMenuOpen" role="menu" :aria-label="$t('上传')" class="menu-pop sftp-upload-menu">
+          <button role="menuitem" data-testid="sftp-upload" @click="menuAction(upload)">{{ $t('上传文件') }}</button>
+          <button role="menuitem" data-testid="sftp-upload-folder" @click="menuAction(uploadFolder)">{{ $t('上传文件夹') }}</button>
+        </div>
+      </div>
+      <Button class="sftp-create-folder" variant="ghost" data-testid="sftp-create-folder" @click="startNewFolder"><Icon name="folder" :size="14" />{{ $t('新建文件夹') }}</Button>
     </div>
 
     <div v-if="newFolderActive" class="flex items-center gap-2 px-3 py-2 inset-line-b">
@@ -695,12 +724,12 @@ onBeforeUnmount(() => {
         :data-path="e.path"
         :data-dir="e.isDir ? 'true' : 'false'"
         class="grid grid-cols-[20px_1fr_auto] items-center gap-2 h-9 px-2 rounded-[6px] text-xs cursor-pointer"
-        :class="selected === e.path ? 'bg-[var(--primary-weak)]' : 'hover:bg-[var(--hover)]'"
+        :class="selected === e.path ? 'sftp-entry-selected' : 'hover:bg-[var(--hover)]'"
         @click="selected = e.path"
         @dblclick="onDblClick(e)"
         @contextmenu.stop.prevent="openMenu($event, e)"
       >
-        <Icon :name="e.isDir ? 'folder' : 'file'" :size="14" :extra-class="e.isDir ? 'text-copper' : 'text-mist'" />
+        <Icon :name="e.isDir ? 'folder' : 'file'" :size="14" extra-class="text-mist" />
         <template v-if="renaming?.path === e.path">
           <Input
             ref="renameInputEl"
@@ -792,5 +821,18 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.sftp-actions :deep(.ui-button){width:100%;min-width:0;min-height:30px;height:auto;padding:5px 4px;white-space:normal;line-height:1.35;text-align:center}
+.sftp-navigation{gap:2px;padding-top:6px;padding-bottom:2px}
+.sftp-navigation :deep(.ui-button-icon){height:28px;width:28px;color:var(--muted-foreground)}
+.sftp-crumb{flex:0 1 auto;min-width:12px;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 2px;color:var(--muted-foreground)}
+.sftp-crumb:hover{background:var(--hover);border-radius:var(--radius-sm);color:var(--foreground)}
+.sftp-crumb-current{flex-shrink:1;max-width:none;color:var(--foreground-secondary)}
+.sftp-actions{padding-left:12px;padding-top:2px;padding-bottom:8px;border-bottom:1px solid var(--border-subtle)}
+.sftp-actions :deep(.ui-button){height:32px;border-radius:var(--radius-sm);padding:0 9px;font-size:13px;font-weight:500;gap:5px}
+.sftp-actions :deep(.sftp-upload-primary){background:transparent;color:var(--foreground-secondary);border-color:transparent}
+.sftp-actions :deep(.sftp-upload-primary:hover){background:color-mix(in srgb,#6897b4 8%,var(--surface-2))}
+.sftp-actions :deep(.sftp-create-folder){color:var(--foreground-secondary);border-color:transparent;background:transparent;font-size:13px}
+.sftp-actions :deep(.sftp-create-folder:hover){background:color-mix(in srgb,#6897b4 8%,var(--surface-2));color:var(--foreground-secondary)}
+.sftp-entry-selected{background:color-mix(in srgb,#6897b4 16%,var(--surface-2))}
+.sftp-upload-group{position:relative}
+.sftp-upload-menu{position:absolute;left:0;top:calc(100% + 4px);z-index:45;min-width:152px}
 </style>

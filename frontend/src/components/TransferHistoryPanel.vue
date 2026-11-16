@@ -104,8 +104,8 @@ onBeforeUnmount(() => window.clearTimeout(copiedTimer))
 
 <template>
   <div class="tool" data-ui="context-panel">
-    <div class="tool-head">
-      <div class="seg">
+    <div class="tool-head tool-head-light">
+      <div class="seg tool-tabs">
         <button @click="sessions.showRightPanel('sftp')">SFTP</button>
         <button @click="sessions.showRightPanel('sysinfo')">{{ $t('运行状态') }}</button>
       </div>

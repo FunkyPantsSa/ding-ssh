@@ -170,9 +170,9 @@ onBeforeUnmount(() => {
 
 <template>
   <aside class="tool status-panel" data-ui="context-panel">
-    <div class="tool-head">
-      <div class="seg">
-        <button @click="sessions.showRightPanel('sftp')">SFTP</Button>
+    <div class="tool-head tool-head-light">
+      <div class="seg tool-tabs">
+        <button @click="sessions.showRightPanel('sftp')">SFTP</button>
         <button class="active">{{ $t('运行状态') }}</button>
       </div>
       <Button variant="ghost" size="icon" class="ml-auto" :title="$t('收起')" :aria-label="$t('收起侧栏')" @click="sessions.sftpVisible = false">

@@ -187,15 +187,15 @@ function onBrandClick() {
 
     <div class="nav-foot">
       <button class="nav-item" data-ui="nav-item-command" :title="$t('命令面板 ⌘K')" @click="ui.openCommandPalette()">
-        <Icon name="command" :size="15" extra-class="nav-ico" />
+        <Icon name="search" :size="15" extra-class="nav-ico" />
         <span class="nav-text">{{ $t('命令面板') }}</span>
-        <span class="kbd nav-kbd">⌘K</span>
       </button>
     </div>
   </aside>
 </template>
 
 <style scoped>
+
 .nav-preview{position:absolute;inset:0 auto 0 0;width:var(--nav-expanded-w,216px);max-width:calc(100% - 48px);z-index:60;box-shadow:var(--shadow-pop);animation:sidebar-preview-in 160ms var(--ease-out)}
 @keyframes sidebar-preview-in{from{opacity:.7;transform:translateX(-6px)}to{opacity:1;transform:translateX(0)}}
 @media(prefers-reduced-motion:reduce){.nav-preview{animation:none}}

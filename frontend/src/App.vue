@@ -466,7 +466,7 @@ onBeforeUnmount(() => {
       </template>
 
       <div class="flex-1 min-h-0 flex">
-          <section class="flex-1 min-w-0 flex flex-col" data-ui="main">
+          <section class="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col" data-ui="main">
             <ServerList v-show="ui.view === 'servers'" />
             <SettingsPage v-show="ui.view === 'settings'" />
             <TunnelPage v-show="ui.view === 'tunnel'" />
