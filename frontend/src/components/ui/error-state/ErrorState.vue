@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import {t as $t} from '../../../i18n'
+
 import Button from '../button/Button.vue'
 defineProps<{title: string; description: string; detail?: string}>()
 defineEmits<{retry: []}>()
@@ -7,8 +9,8 @@ defineEmits<{retry: []}>()
   <section class="error-state" data-ui="error-state" role="alert">
     <strong>{{ title }}</strong>
     <p>{{ description }}</p>
-    <details v-if="detail"><summary>技术详情</summary><pre>{{ detail }}</pre></details>
-    <Button variant="ghost" size="sm" @click="$emit('retry')">重试</Button>
+    <details v-if="detail"><summary>{{ $t('技术详情') }}</summary><pre>{{ detail }}</pre></details>
+    <Button variant="ghost" size="sm" @click="$emit('retry')">{{ $t('重试') }}</Button>
   </section>
 </template>
 <style scoped>

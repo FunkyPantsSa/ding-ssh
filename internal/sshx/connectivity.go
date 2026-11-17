@@ -1,6 +1,7 @@
 package sshx
 
 import (
+	"ding-ssh/internal/i18n"
 	"errors"
 	"net"
 	"strconv"
@@ -58,10 +59,10 @@ func TestServerLogin(node models.ServerNode) models.ServerTestResult {
 func testDialError(err error) string {
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
-		return "连接超时"
+		return i18n.T("连接超时")
 	}
 	if msg := err.Error(); msg != "" {
 		return msg
 	}
-	return "连接失败"
+	return i18n.T("连接失败")
 }

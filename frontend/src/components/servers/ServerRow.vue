@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import {t as $t} from '../../i18n'
+
+import {t} from '../../i18n'
+
+import ServerConfigSummary from './ServerConfigSummary.vue'
 import Icon from '../Icon.vue'
 import type {ServerNode} from '../../types'
 type Badge = {dot: string; text: string; textClass: string; tip?: string} | null
@@ -33,8 +38,8 @@ function onMainKeydown(event: KeyboardEvent) {
     <button
       type="button"
       class="server-row-main"
-      :title="`连接 ${node.name}（右键更多操作，可拖到左侧分组改分组）`"
-      :aria-label="`连接 ${node.name}，${node.user}@${node.host}:${node.port}`"
+      :title="t('连接 {0}（右键更多操作，可拖到左侧分组改分组）', [node.name])"
+      :aria-label="t('连接 {0}，{1}@{2}:{3}', [node.name, node.user, node.host, node.port])"
       @click="emit('connect')"
       @keydown="onMainKeydown"
     >
@@ -44,32 +49,65 @@ function onMainKeydown(event: KeyboardEvent) {
         <span class="server-host font-mono">{{ node.user }}@{{ node.host }}:{{ node.port }}</span>
       </span>
     </button>
+    <ServerConfigSummary :node="node" :status="status" />
+    <div class="server-row-operations">
     <button
       v-if="badge"
       type="button"
       class="latency shrink-0"
-      :title="(badge.tip || '') + '（点击重新测试）'"
-      :aria-label="badge.tip ? `${badge.text}，${badge.tip}，点击重新测试` : `${badge.text}，点击重新测试`"
+      :title="(badge.tip || '') + t('（点击重新测试）')"
+      :aria-label="badge.tip ? t('{0}，{1}，点击重新测试', [badge.text, badge.tip]) : t('{0}，点击重新测试', [badge.text])"
       @click="emit('test')"
     >
       <span class="w-1.5 h-1.5 rounded-full" :class="badge.dot" aria-hidden="true"></span>
       <span class="text-[12px] leading-none" :class="badge.textClass">{{ badge.text }}</span>
     </button>
-    <span v-else class="latency shrink-0 text-mist">未测试</span>
+    <span v-else class="latency shrink-0 text-mist">{{ $t('未测试') }}</span>
     <div class="row-actions shrink-0">
-      <button class="row-act" type="button" title="连接" aria-label="连接" :data-testid="`server-connect-${node.id}`" @click="emit('connect')"><Icon name="terminal" :size="14" /><span>连接</span></button>
-      <button class="row-act" type="button" :class="copied ? 'text-[var(--success)]' : ''" :title="copied ? '已复制主机地址' : `复制主机地址 ${node.host}`" aria-label="复制主机地址" @click="emit('copy')"><Icon :name="copied ? 'check' : 'copy'" :size="14" /><span>{{ copied ? '已复制' : '复制' }}</span></button>
-      <button class="row-act" type="button" title="测试在线状态" aria-label="测试在线状态" @click="emit('test')"><Icon name="activity" :size="14" /><span>测试</span></button>
-      <button class="row-act" type="button" title="编辑" aria-label="编辑" @click="emit('edit')"><Icon name="pencil" :size="14" /><span>编辑</span></button>
-      <button class="row-act row-act-danger" type="button" title="删除" aria-label="删除" :data-testid="`server-delete-${node.id}`" @click="emit('remove')"><Icon name="trash" :size="14" /><span>删除</span></button>
+      <button class="row-act" type="button" :title="$t('连接')" :aria-label="$t('连接')" :data-testid="`server-connect-${node.id}`" @click="emit('connect')"><Icon name="terminal" :size="14" /><span>{{ $t('连接') }}</span></button>
+      <button class="row-act" type="button" :class="copied ? 'text-[var(--success)]' : ''" :title="copied ? t('已复制主机地址') : t('复制主机地址 {0}', [node.host])" :aria-label="$t('复制主机地址')" @click="emit('copy')"><Icon :name="copied ? 'check' : 'copy'" :size="14" /><span>{{ copied ? t('已复制') : t('复制') }}</span></button>
+      <button class="row-act" type="button" :title="$t('测试在线状态')" :aria-label="$t('测试在线状态')" @click="emit('test')"><Icon name="activity" :size="14" /><span>{{ $t('测试') }}</span></button>
+      <button class="row-act" type="button" :title="$t('编辑')" :aria-label="$t('编辑')" @click="emit('edit')"><Icon name="pencil" :size="14" /><span>{{ $t('编辑') }}</span></button>
+      <button class="row-act row-act-danger" type="button" :title="$t('删除')" :aria-label="$t('删除')" :data-testid="`server-delete-${node.id}`" @click="emit('remove')"><Icon name="trash" :size="14" /><span>{{ $t('删除') }}</span></button>
+    </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+.server-row {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: minmax(180px, .85fr) minmax(0, 1.4fr) max-content;
+}
+.server-row-operations {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+}
+.server-row :deep(.summary) { margin: 0; flex-wrap: wrap; row-gap: 4px; }
+.server-row :deep(.summary > .tag) { min-width: 0; }
+@container server-list (max-width: 1050px) {
+  .server-row { grid-template-columns: minmax(160px, 1fr) minmax(0, 1fr) max-content; }
+  .server-row-operations { gap: 6px; }
+  .row-act { padding-inline: 6px; }
+  .row-act span { display: none; }
+}
+@container server-list (max-width: 650px) {
+  .server-row { grid-template-columns: minmax(0, 1fr) max-content; row-gap: 6px; }
+  .server-row-main { grid-column: 1; grid-row: 1; }
+  .server-row :deep(.summary) { grid-column: 1; grid-row: 2; }
+  .server-row-operations { grid-column: 2; grid-row: 1 / 3; flex-direction: column; align-items: flex-end; gap: 4px; }
+}
+@container server-list (max-width: 380px) {
+  .server-row { grid-template-columns: minmax(0, 1fr); }
+  .server-row-operations { grid-column: 1; grid-row: 3; flex-direction: row; justify-content: flex-end; flex-wrap: wrap; }
+}
 .server-row-main {
   min-width: 0;
-  flex: 1;
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 12px;

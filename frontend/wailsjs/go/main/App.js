@@ -10,8 +10,16 @@ export function AddGroup(arg1) {
   return window['go']['main']['App']['AddGroup'](arg1);
 }
 
+export function BeforeClose(arg1) {
+  return window['go']['main']['App']['BeforeClose'](arg1);
+}
+
 export function ChangeMasterPassword(arg1, arg2) {
   return window['go']['main']['App']['ChangeMasterPassword'](arg1, arg2);
+}
+
+export function CheckUpdate(arg1) {
+  return window['go']['main']['App']['CheckUpdate'](arg1);
 }
 
 export function ClearCommandHistory(arg1) {
@@ -20,10 +28,6 @@ export function ClearCommandHistory(arg1) {
 
 export function ClearLogs() {
   return window['go']['main']['App']['ClearLogs']();
-}
-
-export function ConfirmHostTrust(arg1, arg2) {
-  return window['go']['main']['App']['ConfirmHostTrust'](arg1, arg2);
 }
 
 export function Connect(arg1, arg2, arg3, arg4) {
@@ -64,6 +68,10 @@ export function DisableMasterPassword(arg1) {
 
 export function Disconnect(arg1) {
   return window['go']['main']['App']['Disconnect'](arg1);
+}
+
+export function DownloadUpdate(arg1) {
+  return window['go']['main']['App']['DownloadUpdate'](arg1);
 }
 
 export function EnableMasterPassword(arg1) {
@@ -114,6 +122,10 @@ export function GetPlatform() {
   return window['go']['main']['App']['GetPlatform']();
 }
 
+export function GetRuntimeStatus() {
+  return window['go']['main']['App']['GetRuntimeStatus']();
+}
+
 export function GetSecurityStatus() {
   return window['go']['main']['App']['GetSecurityStatus']();
 }
@@ -126,12 +138,24 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
+export function GetUpdateChannel() {
+  return window['go']['main']['App']['GetUpdateChannel']();
+}
+
 export function ImportConfig(arg1, arg2) {
   return window['go']['main']['App']['ImportConfig'](arg1, arg2);
 }
 
 export function ImportSSHConfig(arg1, arg2) {
   return window['go']['main']['App']['ImportSSHConfig'](arg1, arg2);
+}
+
+export function InstallUpdateNow() {
+  return window['go']['main']['App']['InstallUpdateNow']();
+}
+
+export function ListLocalIPv4() {
+  return window['go']['main']['App']['ListLocalIPv4']();
 }
 
 export function ListSessions() {
@@ -188,6 +212,14 @@ export function RenameGroup(arg1, arg2) {
 
 export function Resize(arg1, arg2, arg3) {
   return window['go']['main']['App']['Resize'](arg1, arg2, arg3);
+}
+
+export function ResolveAppClose(arg1) {
+  return window['go']['main']['App']['ResolveAppClose'](arg1);
+}
+
+export function ResolveHostTrust(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ResolveHostTrust'](arg1, arg2, arg3);
 }
 
 export function RestartTunnel(arg1) {
@@ -262,6 +294,10 @@ export function SetSysInfoIdle(arg1, arg2) {
   return window['go']['main']['App']['SetSysInfoIdle'](arg1, arg2);
 }
 
+export function SetUILanguage(arg1) {
+  return window['go']['main']['App']['SetUILanguage'](arg1);
+}
+
 export function SftpCancelTransfer(arg1, arg2, arg3) {
   return window['go']['main']['App']['SftpCancelTransfer'](arg1, arg2, arg3);
 }
@@ -314,6 +350,10 @@ export function StartTunnelAuthenticated(arg1, arg2, arg3, arg4, arg5, arg6, arg
   return window['go']['main']['App']['StartTunnelAuthenticated'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
+export function StartTunnelWithListenHost(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  return window['go']['main']['App']['StartTunnelWithListenHost'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+}
+
 export function Startup(arg1) {
   return window['go']['main']['App']['Startup'](arg1);
 }
@@ -356,6 +396,10 @@ export function UnlockWithMasterPassword(arg1) {
 
 export function UpdateTunnel(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
   return window['go']['main']['App']['UpdateTunnel'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+
+export function UpdateTunnelWithListenHost(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
+  return window['go']['main']['App']['UpdateTunnelWithListenHost'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
 }
 
 export function Write(arg1, arg2) {

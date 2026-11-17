@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import {t as $t} from '../../i18n'
+
+import {t} from '../../i18n'
+
 import {computed, nextTick, ref, watch} from 'vue'
 import Icon from '@/components/Icon.vue'
 import type {AppCommand} from '@/commands'
@@ -12,13 +16,13 @@ const index = ref(0)
 const input = ref<HTMLInputElement>()
 let debounceTimer: number | undefined
 
-type GroupName = '最近' | '服务器' | '操作' | '导航'
+type GroupName = string
 type CommandGroup = {name: GroupName; items: AppCommand[]; overflow?: number}
 
 function groupName(command: AppCommand): GroupName {
-  if (command.id.startsWith('connect-')) return '服务器'
-  if (command.section === '导航') return '导航'
-  return '操作'
+  if (command.id.startsWith('connect-')) return t("服务器")
+  if (command.section === t("导航")) return t("导航")
+  return t("操作")
 }
 
 function matchScore(command: AppCommand, raw: string): number {
@@ -54,12 +58,12 @@ const groups = computed<CommandGroup[]>(() => {
     .filter((command): command is AppCommand => !!command)
     .slice(0, 10)
   if (recent.length) {
-    result.push({name: '最近', items: recent})
+    result.push({get name() { return t("最近") }, items: recent})
     recent.forEach((command) => used.add(command.id))
   }
-  for (const name of ['服务器', '操作', '导航'] as const) {
+  for (const name of [t("服务器"), t("操作"), t("导航")] as const) {
     const all = matches.filter((command) => !used.has(command.id) && groupName(command) === name)
-    const cap = name === '服务器' ? 50 : 60
+    const cap = name === t("服务器") ? 50 : 60
     if (all.length) result.push({name, items: all.slice(0, cap), overflow: Math.max(0, all.length - cap)})
   }
   let remaining = 60
@@ -104,21 +108,21 @@ watch(open, async (value) => {
 
 <template>
   <div v-if="open" class="modal-root" data-ui="modal" @click.self="close">
-    <div class="modal command-palette" role="dialog" aria-modal="true" aria-label="命令面板" data-ui="command-palette">
+    <div class="modal command-palette" role="dialog" aria-modal="true" :aria-label="$t('命令面板')" data-ui="command-palette">
       <div class="command-search">
         <Icon name="search" :size="15" extra-class="text-mist" />
-        <input ref="input" v-model="query" aria-label="搜索命令或服务器" role="combobox" aria-controls="command-results" :aria-activedescendant="activeId ? `command-${activeId}` : undefined" :aria-expanded="open" placeholder="搜索命令、服务器或操作…" @keydown="keydown" />
+        <input ref="input" v-model="query" :aria-label="$t('搜索命令或服务器')" role="combobox" aria-controls="command-results" :aria-activedescendant="activeId ? `command-${activeId}` : undefined" :aria-expanded="open" :placeholder="$t('搜索命令、服务器或操作…')" @keydown="keydown" />
         <span class="kbd">ESC</span>
       </div>
       <div id="command-results" class="command-list" role="listbox">
         <section v-for="group in groups" :key="group.name" class="command-group">
-          <header><span>{{ group.name }}</span><button v-if="group.name === '最近'" type="button" @click="emit('clearRecent')">清除</button></header>
+          <header><span>{{ group.name }}</span><button v-if="group.name === t('最近')" type="button" @click="emit('clearRecent')">{{ $t('清除') }}</button></header>
           <button v-for="command in group.items" :id="`command-${command.id}`" :key="command.id" type="button" role="option" :aria-selected="command.id === activeId" :class="command.id === activeId && 'active'" :data-testid="`command-item-${command.id}`" @mouseenter="select(command)" @click="run(command)">
             <span><strong>{{ command.title }}</strong><small v-if="command.subtitle">{{ command.subtitle }}</small></span><small>{{ command.section }}</small>
           </button>
-          <p v-if="group.overflow" class="command-more">还有 {{ group.overflow }} 项，继续输入以筛选</p>
+          <p v-if="group.overflow" class="command-more">{{ $t('还有') }} {{ group.overflow }} {{ $t('项，继续输入以筛选') }}</p>
         </section>
-        <div v-if="!flatItems.length" class="command-empty" data-ui="empty-state"><strong>无匹配命令</strong><span>请检查拼写，或搜索“服务器”打开服务器管理。</span></div>
+        <div v-if="!flatItems.length" class="command-empty" data-ui="empty-state"><strong>{{ $t('无匹配命令') }}</strong><span>{{ $t('请检查拼写，或搜索“服务器”打开服务器管理。') }}</span></div>
       </div>
     </div>
   </div>

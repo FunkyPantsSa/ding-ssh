@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"sort"
 	"strconv"
@@ -26,12 +27,14 @@ const (
 // 明确用 sh -c 执行；段落失败不影响后续（各命令独立 2>/dev/null）。
 // 不使用 head，避免 SIGPIPE 在个别 shell/pipefail 下中断整段脚本。
 const sysInfoScript = `
-echo '---CPU---'
-LC_ALL=C cat /proc/stat 2>/dev/null
-echo '---MEM---'
-LC_ALL=C cat /proc/meminfo 2>/dev/null
+echo '---CONFIG---'
+. /etc/os-release 2>/dev/null; printf '%s\n' "$PRETTY_NAME"; uname -m; getconf _NPROCESSORS_ONLN
+echo '---TOP---'
+LC_ALL=C TERM=dumb top -b -d 0.5 -n 2 -w 512 2>/dev/null
 echo '---DISK---'
-LC_ALL=C df -k -P 2>/dev/null
+LC_ALL=C df -k -P -T 2>/dev/null
+echo '---MOUNTS---'
+cat /proc/self/mountinfo 2>/dev/null
 echo '---NET---'
 LC_ALL=C cat /proc/net/dev 2>/dev/null
 echo '---IP---'
@@ -51,6 +54,8 @@ type cpuSample struct {
 
 // SysInfoCollector 在独立无 PTY Session 上周期性采集系统指标。
 type SysInfoCollector struct {
+	refresh   chan struct{}
+	realtime  func() bool
 	sessionID string
 	client    *ssh.Client
 	onSnap    func(models.SysInfoSnapshot)
@@ -73,6 +78,7 @@ func newSysInfoCollector(sessionID string, client *ssh.Client, onSnap func(model
 		onSnap:    onSnap,
 		onError:   onError,
 		prevNet:   make(map[string]netSample),
+		refresh:   make(chan struct{}, 1),
 	}
 }
 
@@ -80,6 +86,11 @@ func (c *SysInfoCollector) Start() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.running {
+		// A newly opened subscriber needs a fresh snapshot even in one-shot mode.
+		select {
+		case c.refresh <- struct{}{}:
+		default:
+		}
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -112,7 +123,7 @@ func (c *SysInfoCollector) SetIdle(idle bool) {
 
 func (c *SysInfoCollector) loop(ctx context.Context) {
 	defer c.wg.Done()
-	c.collectOnce()
+	c.collectOnce(ctx)
 	for {
 		c.mu.Lock()
 		idle := c.idle
@@ -124,20 +135,32 @@ func (c *SysInfoCollector) loop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-c.refresh:
+			c.collectOnce(ctx)
 		case <-time.After(interval):
-			c.collectOnce()
+			if c.realtime != nil && !c.realtime() {
+				continue
+			}
+			c.collectOnce(ctx)
 		}
 	}
 }
 
-func (c *SysInfoCollector) collectOnce() {
+func (c *SysInfoCollector) collectOnce(ctx context.Context) {
 	var raw string
 	var lastErr error
 	for attempt := 0; attempt < sysInfoMaxAttempts; attempt++ {
-		if attempt > 0 {
-			time.Sleep(250 * time.Millisecond)
+		if ctx.Err() != nil {
+			return
 		}
-		out, err := c.runRemoteScript()
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+		out, err := c.runRemoteScript(ctx)
 		if strings.TrimSpace(out) != "" {
 			raw = out
 			lastErr = err // 非零退出但有 stdout 时仍解析
@@ -146,14 +169,14 @@ func (c *SysInfoCollector) collectOnce() {
 		if err != nil {
 			lastErr = err
 		} else {
-			lastErr = fmt.Errorf("远程无输出")
+			lastErr = fmt.Errorf("%s", i18n.T("远程无输出"))
 		}
 	}
 
 	if strings.TrimSpace(raw) == "" {
-		msg := "无法采集指标（远程无输出，可能非 Linux）"
+		msg := i18n.T("无法采集指标（远程无输出，可能非 Linux）")
 		if lastErr != nil {
-			msg = fmt.Sprintf("无法采集指标: %v", lastErr)
+			msg = fmt.Sprintf(i18n.T("无法采集指标: %v"), lastErr)
 		}
 		c.emitSoftError(msg)
 		return
@@ -162,12 +185,13 @@ func (c *SysInfoCollector) collectOnce() {
 	snap, cpuRaw, counters, ips := parseSysInfoLoose(raw)
 	snap.SessionID = c.sessionID
 	snap.CollectedAt = time.Now().UnixMilli()
-	snap.CPUUsage = c.diffCPU(cpuRaw)
+	// CPU and memory come exclusively from top.
+	_ = cpuRaw
 	snap.NetIfaces = c.ratesFromCounters(counters, ips)
 
 	hasData := snap.MemTotalMB > 0 || len(snap.DiskUsage) > 0 || len(snap.NetIfaces) > 0 || cpuRaw != nil
 	if !hasData {
-		msg := "部分指标暂不可用"
+		msg := i18n.T("部分指标暂不可用")
 		if lastErr != nil {
 			msg = fmt.Sprintf("%s（%v）", msg, lastErr)
 		}
@@ -177,6 +201,9 @@ func (c *SysInfoCollector) collectOnce() {
 
 	// 有有效数据则清除瞬时错误；exit code / stderr 不阻断 partial
 	snap.Error = ""
+	if !snap.TopAvailable {
+		snap.Error = i18n.T("top 输出不可用或格式不支持（需要 Linux procps top）；磁盘数据独立展示")
+	}
 	c.mu.Lock()
 	cp := snap
 	c.lastGood = &cp
@@ -188,10 +215,10 @@ func (c *SysInfoCollector) collectOnce() {
 }
 
 // runRemoteScript 在独立 exec 通道上用 sh -c 跑采集脚本（不占用主 PTY）。
-func (c *SysInfoCollector) runRemoteScript() (string, error) {
+func (c *SysInfoCollector) runRemoteScript(ctx context.Context) (string, error) {
 	sess, err := c.client.NewSession()
 	if err != nil {
-		return "", fmt.Errorf("创建采集会话失败: %w", err)
+		return "", fmt.Errorf(i18n.T("创建采集会话失败: %w"), err)
 	}
 	defer sess.Close()
 
@@ -208,9 +235,13 @@ func (c *SysInfoCollector) runRemoteScript() (string, error) {
 	var runErr error
 	select {
 	case runErr = <-done:
+	case <-ctx.Done():
+		_ = sess.Close()
+		runErr = ctx.Err()
+		<-done
 	case <-time.After(sysInfoCollectTimeout):
 		_ = sess.Close()
-		runErr = fmt.Errorf("采集超时")
+		runErr = fmt.Errorf("%s", i18n.T("采集超时"))
 		<-done
 	}
 
@@ -237,7 +268,6 @@ func (c *SysInfoCollector) emitSoftError(msg string) {
 	if prev != nil {
 		snap := *prev
 		snap.Error = msg
-		snap.CollectedAt = time.Now().UnixMilli()
 		if c.onSnap != nil {
 			c.onSnap(snap)
 		}
@@ -336,10 +366,25 @@ func parseSysInfoLoose(raw string) (models.SysInfoSnapshot, *cpuSample, []netCou
 
 	cpuRaw := parseCPUStat(section("CPU"))
 	snap.MemUsedMB, snap.MemTotalMB = parseMeminfo(section("MEM"))
+	config := strings.Split(strings.TrimSpace(section("CONFIG")), "\n")
+	if len(config) >= 3 {
+		snap.OSName = config[0]
+		snap.Architecture = config[1]
+		snap.CPUCount, _ = strconv.Atoi(config[2])
+	}
 	snap.DiskUsage = parseDisk(section("DISK"))
+	snap.DiskIncomplete = strings.TrimSpace(section("DISK")) == ""
+	for i := range snap.DiskUsage {
+		d := &snap.DiskUsage[i]
+		if d.FSType == "btrfs" || d.FSType == "zfs" || !knownFilesystem(d.FSType) {
+			d.Uncertain = true
+			snap.DiskIncomplete = true
+		}
+	}
 	counters := parseNetRaw(section("NET"))
 	ips := parseIPAddr(section("IP"))
 	snap.Uptime = parseUptime(section("UP"))
+	parseTop(section("TOP"), &snap)
 	return snap, cpuRaw, counters, ips
 }
 
@@ -403,47 +448,55 @@ func parseMeminfo(s string) (used, total uint64) {
 	return used, total
 }
 
+func knownFilesystem(fs string) bool {
+	switch fs {
+	case "ext2", "ext3", "ext4", "xfs", "vfat", "exfat", "ntfs", "ntfs3", "f2fs", "jfs", "reiserfs", "nfs", "nfs4", "cifs", "smb3", "sshfs", "fuse.sshfs", "ceph", "glusterfs":
+		return true
+	}
+	return false
+}
+
 func parseDisk(s string) []models.DiskInfo {
 	var out []models.DiskInfo
-	sc := bufio.NewScanner(strings.NewReader(s))
-	headerSkipped := false
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
+	seen := map[string]bool{}
+	for _, line := range strings.Split(s, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 6 || strings.Contains(line, "Filesystem") {
 			continue
 		}
-		if !headerSkipped {
-			if strings.Contains(line, "Filesystem") || strings.Contains(line, "文件系统") {
-				headerSkipped = true
-			}
+		typed := len(f) >= 7
+		offset := 0
+		fs := ""
+		if typed {
+			offset = 1
+			fs = f[1]
+		}
+		device := f[0]
+		switch fs {
+		case "tmpfs", "devtmpfs", "proc", "sysfs", "overlay", "squashfs", "devpts", "cgroup", "cgroup2", "tracefs", "securityfs", "debugfs", "pstore", "hugetlbfs", "mqueue", "fusectl", "autofs", "ramfs":
 			continue
 		}
-		fields := strings.Fields(line)
-		if len(fields) < 6 {
+		mount := strings.Join(f[5+offset:], " ")
+		if strings.HasPrefix(mount, "/proc") || strings.HasPrefix(mount, "/sys") || device == "tmpfs" || device == "overlay" || device == "devtmpfs" {
 			continue
 		}
-		mount := fields[len(fields)-1]
-		if mount == "tmpfs" || mount == "devtmpfs" ||
-			strings.HasPrefix(mount, "/run") || strings.HasPrefix(mount, "/sys") || strings.HasPrefix(mount, "/proc") {
+		identity := device + "|" + mount
+		if seen[identity] {
 			continue
 		}
-		totalKB := parseUint(fields[1])
-		usedKB := parseUint(fields[2])
-		pctStr := strings.TrimSuffix(fields[4], "%")
-		pct, _ := strconv.ParseFloat(pctStr, 64)
-		info := models.DiskInfo{
-			MountPoint: mount,
-			TotalGB:    totalKB / (1024 * 1024),
-			UsedGB:     usedKB / (1024 * 1024),
-			UsagePct:   pct,
+		seen[identity] = true
+		total := parseUint(f[1+offset])
+		used := parseUint(f[2+offset])
+		if total == 0 {
+			continue
 		}
-		if info.TotalGB == 0 && totalKB > 0 {
-			info.TotalGB = 1
+		pct, _ := strconv.ParseFloat(strings.TrimSuffix(f[4+offset], "%"), 64)
+		network := strings.Contains(device, ":") || strings.HasPrefix(device, "//")
+		switch fs {
+		case "nfs", "nfs4", "cifs", "smb3", "sshfs", "fuse.sshfs", "ceph", "glusterfs":
+			network = true
 		}
-		out = append(out, info)
-		if len(out) >= 16 {
-			break
-		}
+		out = append(out, models.DiskInfo{MountPoint: mount, Device: device, FSType: fs, Network: network, TotalGB: total / (1024 * 1024), UsedGB: used / (1024 * 1024), TotalBytes: total * 1024, UsedBytes: used * 1024, UsagePct: pct})
 	}
 	return out
 }

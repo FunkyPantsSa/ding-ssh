@@ -4,6 +4,7 @@ package sshconfig
 
 import (
 	"bufio"
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"os"
 	"os/user"
@@ -86,7 +87,7 @@ func words(line string) ([]string, error) {
 		started = true
 	}
 	if quote != 0 || escaped {
-		return nil, fmt.Errorf("配置引号或转义不完整")
+		return nil, fmt.Errorf("%s", i18n.T("配置引号或转义不完整"))
 	}
 	flush()
 	return result, nil
@@ -102,7 +103,7 @@ func Parse(path string) ([]Preview, error) {
 	var read func(string, []string, int) ([]string, error)
 	read = func(file string, patterns []string, depth int) ([]string, error) {
 		if depth > 16 {
-			return patterns, fmt.Errorf("Include 深度超过 16")
+			return patterns, fmt.Errorf("%s", i18n.T("Include 深度超过 16"))
 		}
 		abs, err := filepath.Abs(file)
 		if err != nil {
@@ -113,7 +114,7 @@ func Parse(path string) ([]Preview, error) {
 			return patterns, err
 		}
 		if stack[canonical] {
-			return patterns, fmt.Errorf("Include 循环引用：%s", file)
+			return patterns, fmt.Errorf(i18n.T("Include 循环引用：%s"), file)
 		}
 		stack[canonical] = true
 		defer delete(stack, canonical)
@@ -127,7 +128,7 @@ func Parse(path string) ([]Preview, error) {
 		for scanner.Scan() {
 			count++
 			if count > 100000 {
-				return patterns, fmt.Errorf("配置文件过大")
+				return patterns, fmt.Errorf("%s", i18n.T("配置文件过大"))
 			}
 			fields, err := words(scanner.Text())
 			if err != nil {
@@ -139,7 +140,7 @@ func Parse(path string) ([]Preview, error) {
 			key := strings.ToLower(fields[0])
 			values := fields[1:]
 			if len(values) == 0 {
-				return patterns, fmt.Errorf("%s 缺少配置值", fields[0])
+				return patterns, fmt.Errorf(i18n.T("%s 缺少配置值"), fields[0])
 			}
 			if key == "include" {
 				for _, pattern := range values {
@@ -176,7 +177,7 @@ func Parse(path string) ([]Preview, error) {
 			}
 			// Match changes scope in ways this importer cannot safely evaluate.
 			if key == "match" {
-				return patterns, fmt.Errorf("不支持 Match，无法安全生成配置快照")
+				return patterns, fmt.Errorf("%s", i18n.T("不支持 Match，无法安全生成配置快照"))
 			}
 			directives = append(directives, directive{append([]string{}, patterns...), key, values})
 		}
@@ -208,7 +209,7 @@ func Parse(path string) ([]Preview, error) {
 			case "identityfile":
 				values[d.key] = append(values[d.key], d.values...)
 			default:
-				warnings = append(warnings, "不支持配置项："+d.key)
+				warnings = append(warnings, i18n.T("不支持配置项：")+d.key)
 			}
 		}
 		first := func(key, fallback string) string {
@@ -220,7 +221,7 @@ func Parse(path string) ([]Preview, error) {
 		node := models.ServerNode{Name: alias, Host: first("hostname", alias), User: first("user", defaultUser), Port: 22, AuthType: "auto", EnvVars: map[string]string{}}
 		port, err := strconv.Atoi(first("port", "22"))
 		if err != nil || port < 1 || port > 65535 {
-			warnings = append(warnings, "无效 SSH 端口")
+			warnings = append(warnings, i18n.T("无效 SSH 端口"))
 		} else {
 			node.Port = port
 		}
@@ -231,7 +232,7 @@ func Parse(path string) ([]Preview, error) {
 		node.IdentityAgent = expand(token(first("identityagent", "")))
 		only := strings.ToLower(first("identitiesonly", "no"))
 		if only != "yes" && only != "no" {
-			warnings = append(warnings, "无效 IdentitiesOnly 值")
+			warnings = append(warnings, i18n.T("无效 IdentitiesOnly 值"))
 		}
 		node.IdentitiesOnly = only == "yes"
 		for _, file := range values["identityfile"] {
@@ -241,7 +242,7 @@ func Parse(path string) ([]Preview, error) {
 		}
 		for _, file := range values["userknownhostsfile"] {
 			if file == "none" {
-				warnings = append(warnings, "不支持禁用主机信任库")
+				warnings = append(warnings, i18n.T("不支持禁用主机信任库"))
 			} else {
 				node.KnownHostsSources = append(node.KnownHostsSources, expand(token(file)))
 			}
@@ -254,11 +255,11 @@ func Parse(path string) ([]Preview, error) {
 			jumps = strings.Split(jump, ",")
 		}
 		if strings.Contains(node.Host, "%") || strings.Contains(node.IdentityAgent, "%") {
-			warnings = append(warnings, "包含不支持的配置 token")
+			warnings = append(warnings, i18n.T("包含不支持的配置 token"))
 		}
 		for _, path := range append(append([]string{}, node.IdentityFiles...), node.KnownHostsSources...) {
 			if strings.Contains(path, "%") {
-				warnings = append(warnings, "路径包含不支持的 token："+path)
+				warnings = append(warnings, i18n.T("路径包含不支持的 token：")+path)
 			}
 		}
 		results = append(results, Preview{alias, node, jumps, warnings})
@@ -266,7 +267,7 @@ func Parse(path string) ([]Preview, error) {
 	for i := range results {
 		for _, jump := range results[i].Jumps {
 			if !known[jump] {
-				results[i].Warnings = append(results[i].Warnings, "ProxyJump 必须引用配置中的明确 Host 别名："+jump)
+				results[i].Warnings = append(results[i].Warnings, i18n.T("ProxyJump 必须引用配置中的明确 Host 别名：")+jump)
 			}
 		}
 	}

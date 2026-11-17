@@ -1,3 +1,4 @@
+import {t} from './i18n'
 // 构建信息（版本 tag / 提交号 / 构建时间）：由 vite.config.ts 在构建时注入。
 // 用于「设置 → 关于」展示，也便于排查用户实际运行的版本。
 
@@ -12,14 +13,14 @@ function pad(n: number): string {
 /** 构建日期：2026-09-19。 */
 export function buildDateLabel(): string {
   const d = new Date(BUILD_TIME)
-  if (Number.isNaN(d.getTime())) return '未知'
+  if (Number.isNaN(d.getTime())) return t("未知")
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 /** 构建时间（本地时区）：2026-09-19 10:34:12。 */
 export function buildTimeLabel(): string {
   const d = new Date(BUILD_TIME)
-  if (Number.isNaN(d.getTime())) return '未知'
+  if (Number.isNaN(d.getTime())) return t("未知")
   return `${buildDateLabel()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
@@ -30,7 +31,7 @@ export function platformLabel(platform: string): string {
     windows: 'Windows',
     linux: 'Linux',
   }
-  return map[platform] ?? platform ?? '未知'
+  return map[platform] ?? platform ?? t("未知")
 }
 
 /** 平台兜底：后端平台接口不可用时按 UA 粗略识别。 */

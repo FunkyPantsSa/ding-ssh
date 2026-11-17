@@ -1,3 +1,5 @@
+import {errorText} from '../i18n'
+import {t} from '../i18n'
 // 调试模式：UI 观测与实验（M5 + M6）的前端实现。
 //
 // 分工（与 internal/debugsrv/ui.go 配套）：
@@ -45,7 +47,7 @@ const num = (v: unknown, fallback = 0): number => {
 }
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n))
 const clip = (s: string, max: number): string => (s.length <= max ? s : s.slice(0, max) + `…（已截断 ${s.length - max} 字符）`)
-const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
+const errText = (e: unknown): string => (e instanceof Error ? e.message : errorText(e))
 
 /** 等一帧：让 Vue 的更新与浏览器布局完成（保证「返回即可截图」）。 */
 function nextFrame(): Promise<void> {
@@ -279,7 +281,7 @@ function installErrorHandler(): void {
   const prev = app.config.errorHandler as ((err: unknown, instance: unknown, info: string) => void) | undefined
   app.config.errorHandler = (err: unknown, instance: unknown, info: string) => {
     try {
-      pushConsole('error', [err instanceof Error ? err : String(err)], `vue:errorHandler:${info}`, err instanceof Error ? err.stack : undefined)
+      pushConsole('error', [err instanceof Error ? err : errorText(err)], `vue:errorHandler:${info}`, err instanceof Error ? err.stack : undefined)
     } catch {
       /* 同上 */
     }
@@ -1049,17 +1051,17 @@ async function storePatchOp(args: Args): Promise<unknown> {
 }
 
 const SETTINGS_SECTIONS: Record<string, string> = {
-  general: '通用',
+  get general() { return t("通用") },
   hotkeys: '快捷键',
   connectionInfo: '连接说明',
-  theme: '外观',
+  get theme() { return t("外观") },
   credentials: '保存的凭证',
-  security: '安全',
+  get security() { return t("安全") },
   debug: '调试模式',
-  logs: '日志',
+  get logs() { return t("日志") },
   audit: 'AI 记录',
   migrate: '导入导出',
-  about: '关于',
+  get about() { return t("关于") },
 }
 
 async function navigateOp(args: Args): Promise<unknown> {
@@ -1067,6 +1069,9 @@ async function navigateOp(args: Args): Promise<unknown> {
   const ui = useUIStore()
   const sessions = useSessionsStore()
   switch (view) {
+    case 'home':
+      ui.showHome()
+      break
     // 兼容旧自动化：概览 / 传输记录不再是顶级视图，分别落到工作区与右侧传输面板。
     case 'overview':
       ui.showWorkspace()
@@ -1088,7 +1093,7 @@ async function navigateOp(args: Args): Promise<unknown> {
       ui.showSettings()
       break
     default:
-      throw new Error(`view 必须是 workspace | servers | tunnel | settings（兼容 overview / transfers，收到 ${view || '(空)'}）`)
+      throw new Error(`view 必须是 home | workspace | servers | tunnel | settings（兼容 overview / transfers，收到 ${view || '(空)'}）`)
   }
   ui.closeCommandPalette()
   await nextTick()

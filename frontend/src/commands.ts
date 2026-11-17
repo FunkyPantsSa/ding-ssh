@@ -1,3 +1,4 @@
+import {t} from './i18n'
 // 命令面板的**唯一定义**（M9 抽取）。
 //
 // 背景：命令面板的定义原先在 App.vue 的组件内部（cmdItems）与 debug/bridge.ts 里各维护一份，
@@ -47,7 +48,7 @@ export interface CommandContext {
   ui: ReturnType<typeof useUIStore>
 }
 
-const VIEW_EFFECT: CommandEffect = {cap: '', confirm: false, note: '切换视图（只读 / 可逆）'}
+const VIEW_EFFECT: CommandEffect = {cap: '', confirm: false, get note() { return t("切换视图（只读 / 可逆）") }}
 
 /** 已登记命令的影响范围（与 Go 侧 appctlCommandRules 的键集一致）。 */
 const commandEffects: Record<string, CommandEffect> = {
@@ -55,16 +56,16 @@ const commandEffects: Record<string, CommandEffect> = {
   servers: VIEW_EFFECT,
   tunnel: VIEW_EFFECT,
   settings: VIEW_EFFECT,
-  new: {cap: '', confirm: false, note: '打开新建服务器对话框（不写配置）'},
-  local: {cap: '', confirm: false, note: '会新建一个本机终端标签'},
-  'hide-tool': {cap: '', confirm: false, note: '收起右侧工具侧栏'},
-  'show-sftp': {cap: '', confirm: false, note: '展开右侧 SFTP 面板'},
-  'show-sys': {cap: '', confirm: false, note: '展开右侧系统看板'},
+  new: {cap: '', confirm: false, get note() { return t("打开新建服务器对话框（不写配置）") }},
+  local: {cap: '', confirm: false, get note() { return t("会新建一个本机终端标签") }},
+  'hide-tool': {cap: '', confirm: false, get note() { return t("收起右侧工具侧栏") }},
+  'show-sftp': {cap: '', confirm: false, get note() { return t("展开右侧 SFTP 面板") }},
+  'show-sys': {cap: '', confirm: false, get note() { return t("展开右侧运行状态") }},
 }
 
 /** 前缀命令的影响范围（按服务器动态生成的 connect-<serverId>）。 */
 const commandPrefixEffects: {prefix: string; effect: CommandEffect}[] = [
-  {prefix: 'connect-', effect: {cap: '', confirm: false, note: '会新建一个 SSH 会话标签'}},
+  {prefix: 'connect-', effect: {cap: '', confirm: false, get note() { return t("会新建一个 SSH 会话标签") }}},
 ]
 
 /** commandEffect 返回某条命令的影响范围；未登记的命令按最保守策略（与 Go 侧一致）。 */
@@ -78,7 +79,7 @@ export function commandEffect(id: string): CommandEffect {
   return {
     cap: 'config.write',
     confirm: true,
-    note: '未登记的命令：按最保守策略处理（要求 config.write 能力位 + 两段式确认）',
+    get note() { return t("未登记的命令：按最保守策略处理（要求 config.write 能力位 + 两段式确认）") },
   }
 }
 
@@ -87,42 +88,42 @@ export function buildCommands(ctx: CommandContext): AppCommand[] {
   const {sessions, servers, ui} = ctx
   const items: AppCommand[] = [
     {
-      id: 'workspace', title: '打开工作区', section: '导航', ...VIEW_EFFECT,
+      id: 'workspace', get title() { return t("打开工作区") }, get section() { return t("导航") }, ...VIEW_EFFECT,
       run: () => {
         ui.showWorkspace()
         return {ok: true, view: ui.view}
       },
     },
     {
-      id: 'servers', title: '打开服务器管理', section: '导航', ...VIEW_EFFECT,
+      id: 'servers', get title() { return t("打开服务器管理") }, get section() { return t("导航") }, ...VIEW_EFFECT,
       run: () => {
         ui.showServers()
         return {ok: true, view: ui.view}
       },
     },
     {
-      id: 'tunnel', title: '打开隧道页', section: '导航', ...VIEW_EFFECT,
+      id: 'tunnel', get title() { return t("打开隧道页") }, get section() { return t("导航") }, ...VIEW_EFFECT,
       run: () => {
         ui.showTunnel()
         return {ok: true, view: ui.view}
       },
     },
     {
-      id: 'settings', title: '打开设置', section: '导航', ...VIEW_EFFECT,
+      id: 'settings', get title() { return t("打开设置") }, get section() { return t("导航") }, ...VIEW_EFFECT,
       run: () => {
         ui.showSettings()
         return {ok: true, view: ui.view}
       },
     },
     {
-      id: 'new', title: '新建服务器', section: '操作', ...commandEffect('new'),
+      id: 'new', get title() { return t("新建服务器") }, get section() { return t("操作") }, ...commandEffect('new'),
       run: () => {
         ui.requestNewServer()
         return {ok: true, view: ui.view}
       },
     },
     {
-      id: 'local', title: '打开本地终端', section: '工作区', ...commandEffect('local'),
+      id: 'local', get title() { return t("打开本地终端") }, get section() { return t("工作区") }, ...commandEffect('local'),
       run: () => {
         ui.showWorkspace()
         sessions.openLocalTab()
@@ -132,7 +133,7 @@ export function buildCommands(ctx: CommandContext): AppCommand[] {
   ]
   if (sessions.sftpVisible) {
     items.push({
-      id: 'hide-tool', title: '收起侧栏工具', section: '工作区', ...commandEffect('hide-tool'),
+      id: 'hide-tool', get title() { return t("收起侧栏工具") }, get section() { return t("工作区") }, ...commandEffect('hide-tool'),
       run: () => {
         sessions.sftpVisible = false
         return {ok: true}
@@ -140,14 +141,14 @@ export function buildCommands(ctx: CommandContext): AppCommand[] {
     })
   } else {
     items.push({
-      id: 'show-sftp', title: '打开 SFTP', section: '工作区', ...commandEffect('show-sftp'),
+      id: 'show-sftp', get title() { return t("打开 SFTP") }, get section() { return t("工作区") }, ...commandEffect('show-sftp'),
       run: () => {
         sessions.showRightPanel('sftp')
         return {ok: true}
       },
     })
     items.push({
-      id: 'show-sys', title: '打开系统看板', section: '工作区', ...commandEffect('show-sys'),
+      id: 'show-sys', get title() { return t("打开运行状态") }, get section() { return t("工作区") }, ...commandEffect('show-sys'),
       run: () => {
         sessions.showRightPanel('sysinfo')
         return {ok: true}
@@ -160,9 +161,9 @@ export function buildCommands(ctx: CommandContext): AppCommand[] {
   for (const s of servers.servers) {
     items.push({
       id: 'connect-' + s.id,
-      title: '连接 ' + (s.name || `${s.user}@${s.host}`),
+      title: t("连接 ") + (s.name || `${s.user}@${s.host}`),
       subtitle: `${s.user}@${s.host}${s.port && s.port !== 22 ? `:${s.port}` : ''}`,
-      section: '工作区',
+      get section() { return t("工作区") },
       ...commandEffect('connect-' + s.id),
       run: () => {
         ui.showWorkspace()
@@ -181,12 +182,12 @@ export function buildCommands(ctx: CommandContext): AppCommand[] {
  */
 export function runCommand(ctx: CommandContext, id: string, extra?: unknown): unknown {
   if (extra && typeof extra === 'object' && Object.keys(extra as object).length > 0) {
-    throw new Error(`命令 ${id} 不接受参数`)
+    throw new Error(t("命令 {0} 不接受参数", [id]))
   }
   const key = id.trim()
   const cmd = buildCommands(ctx).find((c) => c.id === key)
   if (!cmd) {
-    throw new Error(`未知命令: ${id}（可用 app.commands 查看当前命令）`)
+    throw new Error(t("未知命令: {0}（可用 app.commands 查看当前命令）", [id]))
   }
   return cmd.run()
 }

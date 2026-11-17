@@ -1,3 +1,6 @@
+import {errorText} from '../i18n'
+import {t} from '../i18n'
+import {requestHostTrust} from './hostTrust'
 import {requestPassphrase} from './passphrase'
 
 // 封装 Wails 自动生成的绑定与事件，统一供各组件使用。
@@ -33,7 +36,9 @@ import {
   TestServer,
   TestServerLogin,
   TestServers,
-  UpdateTunnel,
+  UpdateTunnelWithListenHost,
+  StartTunnelWithListenHost,
+  ListLocalIPv4,
   Write,
   ConnectLocal,
   GetPlatform,
@@ -95,7 +100,9 @@ export const sshService = {
     localPort: number,
     remoteHost: string,
     remotePort: number,
-  ): Promise<TunnelInfo> => withAuthentication(phrases => withHostTrust(() => (window as any).go.main.App.StartTunnelAuthenticated(node, name, mode, localPort, remoteHost, remotePort, phrases))),
+    listenHost = '',
+  ): Promise<TunnelInfo> => withAuthentication(phrases => withHostTrust(() =>
+    StartTunnelWithListenHost(node, name, mode, localPort, remoteHost, remotePort, listenHost, phrases))),
   updateTunnel: (
     id: string,
     node: ServerNode,
@@ -104,7 +111,10 @@ export const sshService = {
     localPort: number,
     remoteHost: string,
     remotePort: number,
-  ): Promise<TunnelInfo> => UpdateTunnel(id, node, name, mode, localPort, remoteHost, remotePort),
+    listenHost = '',
+  ): Promise<TunnelInfo> => withAuthentication(phrases => withHostTrust(() =>
+    UpdateTunnelWithListenHost(id, node, name, mode, localPort, remoteHost, remotePort, listenHost, phrases))),
+  listLocalIPv4: (): Promise<string[]> => ListLocalIPv4(),
   stopTunnel: (id: string): Promise<void> => StopTunnel(id),
   restartTunnel: (id: string): Promise<void> => RestartTunnel(id),
   removeTunnel: (id: string): Promise<void> => RemoveTunnel(id),
@@ -128,7 +138,7 @@ export const sshService = {
   revealLocalPath: (path: string): Promise<void> => {
     const fn = (window as any)?.go?.main?.App?.RevealLocalPath
     if (typeof fn !== 'function') {
-      return Promise.reject(new Error('当前版本不支持打开本地文件夹，请重新构建应用'))
+      return Promise.reject(new Error(t("当前版本不支持打开本地文件夹，请重新构建应用")))
     }
     return fn(path)
   },
@@ -228,7 +238,7 @@ export function onSftpSyncPath(sessionId: string, handler: (path: string) => voi
   const event = `sftp:sync-path:${sessionId}`
   EventsOn(event, (...args: unknown[]) => {
     const p = extractSyncPath(args.length === 1 ? args[0] : args)
-    console.info('[sftp-sync] 收到事件', event, args, '→', p)
+    console.info(t("[sftp-sync] 收到事件"), event, args, '→', p)
     handler(p)
   })
   return () => EventsOff(event)
@@ -276,12 +286,14 @@ export function onSftpDirUpdated(sessionId: string, handler: (evt: { path: strin
 // Only explicit UI actions call this wrapper; reconnect and backend API calls
 // retain fail-closed behavior for unknown hosts.
 async function approveUnknownHost(error: unknown): Promise<boolean> {
-  const match = String(error).match(/SSH_HOST_TRUST:([A-Za-z0-9_-]+)/)
+  const match = errorText(error).match(/SSH_HOST_TRUST:([A-Za-z0-9_-]+)/)
   if (!match) return false
   const raw = match[1]!.replace(/-/g, '+').replace(/_/g, '/')
   const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0))
   const challenge = JSON.parse(new TextDecoder().decode(bytes))
-  return (window as any).go.main.App.ConfirmHostTrust(challenge.host, challenge.key)
+  const approved = await requestHostTrust(challenge)
+  await (window as any).go.main.App.ResolveHostTrust(challenge.id, approved, approved && challenge.changed)
+  return approved
 }
 async function withHostTrust<T>(action: () => Promise<T>): Promise<T> {
   // Bounded retries also support a chain with up to five intermediate hosts.
@@ -312,7 +324,7 @@ async function withAuthentication<T>(action: (phrases: Record<string, string>) =
    const raw = match[1]!.replace(/-/g, '+').replace(/_/g, '/')
    const path = new TextDecoder().decode(Uint8Array.from(atob(raw), c => c.charCodeAt(0)))
    const value = await requestPassphrase(path)
-   if (value === null) { if (result !== undefined) return result; throw new Error('已取消私钥解锁') }
+   if (value === null) { if (result !== undefined) return result; throw new Error(t("已取消私钥解锁")) }
    phrases[path] = value
   }
  } finally { for (const path of Object.keys(phrases)) delete phrases[path] }

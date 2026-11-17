@@ -1,6 +1,7 @@
 package localterm
 
 import (
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,9 +31,9 @@ func OptionsForPlatform() []ShellOption {
 		}
 	default: // linux 等
 		shell := strings.TrimSpace(os.Getenv("SHELL"))
-		label := "系统默认 ($SHELL)"
+		label := i18n.T("系统默认 ($SHELL)")
 		if shell != "" {
-			label = fmt.Sprintf("系统默认 (%s)", filepath.Base(shell))
+			label = fmt.Sprintf(i18n.T("系统默认 (%s)"), filepath.Base(shell))
 		}
 		return []ShellOption{{Value: "default", Label: label}}
 	}

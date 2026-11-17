@@ -1,3 +1,5 @@
+import {errorText} from '../i18n'
+import {t} from '../i18n'
 // Zmodem (rz/sz) 会话接管：基于 zmodem.js Sentry。
 import type {Terminal} from '@xterm/xterm'
 import {base64ToBytes, sshService} from './ssh'
@@ -54,12 +56,14 @@ async function loadZmodem(): Promise<AnyZ> {
 export async function attachZmodem(opts: {
   term: Terminal
   sessionId: string
+  writeOutput?: (bytes: Uint8Array) => void
   onProgress?: (p: ZmodemProgress) => void
   onStatus?: (msg: string) => void
   /** active 变化时回调，用于挂起/恢复键盘 */
   onActiveChange?: (active: boolean) => void
 }): Promise<ZmodemController> {
   const Zmodem = await loadZmodem()
+  const writeOutput = opts.writeOutput ?? ((bytes: Uint8Array) => opts.term.write(bytes))
   let active = false
   let disposed = false
   const timeoutMs = 120_000
@@ -105,7 +109,7 @@ export async function attachZmodem(opts: {
       } catch {
         /* ignore */
       }
-      finish(session, 'Zmodem 超时，已恢复终端；请改用 SFTP 传输')
+      finish(session, t("Zmodem 超时，已恢复终端；请改用 SFTP 传输"))
     }, timeoutMs)
   }
 
@@ -124,7 +128,7 @@ export async function attachZmodem(opts: {
   const handleReceive = (session: AnyZ) => {
     setActive(true)
     armTimeout(session)
-    bindSessionEnd(session, 'Zmodem 接收完成')
+    bindSessionEnd(session, t("Zmodem 接收完成"))
 
     session.on('offer', (offer: AnyZ) => {
       void (async () => {
@@ -148,7 +152,7 @@ export async function attachZmodem(opts: {
             } catch {
               /* ignore */
             }
-            finish(session, '已取消 Zmodem 接收')
+            finish(session, t("已取消 Zmodem 接收"))
             return
           }
 
@@ -190,7 +194,7 @@ export async function attachZmodem(opts: {
                 } catch {
                   /* ignore */
                 }
-                finish(session, 'Zmodem 接收完成')
+                finish(session, t("Zmodem 接收完成"))
               }
             }
           }, 1500)
@@ -201,14 +205,14 @@ export async function attachZmodem(opts: {
             transferred: 0,
             total: 0,
             done: true,
-            error: String(e),
+            error: errorText(e),
           })
           try {
             session.abort?.()
           } catch {
             /* ignore */
           }
-          finish(session, 'Zmodem 接收失败，请改用 SFTP')
+          finish(session, t("Zmodem 接收失败，请改用 SFTP"))
         }
       })()
     })
@@ -218,7 +222,7 @@ export async function attachZmodem(opts: {
       .then(() => {
         // start() 在 ZFIN 时 resolve；若 session_end 已处理则 no-op
         if (active && currentSession === session) {
-          finish(session, 'Zmodem 接收完成')
+          finish(session, t("Zmodem 接收完成"))
         }
       })
       .catch(() => {
@@ -228,7 +232,7 @@ export async function attachZmodem(opts: {
           } catch {
             /* ignore */
           }
-          finish(session, 'Zmodem 接收失败，请改用 SFTP')
+          finish(session, t("Zmodem 接收失败，请改用 SFTP"))
         }
       })
   }
@@ -236,7 +240,7 @@ export async function attachZmodem(opts: {
   const handleSend = async (session: AnyZ) => {
     setActive(true)
     armTimeout(session)
-    bindSessionEnd(session, 'Zmodem 发送完成')
+    bindSessionEnd(session, t("Zmodem 发送完成"))
 
     try {
       const path = await sshService.selectLocalFile()
@@ -252,7 +256,7 @@ export async function attachZmodem(opts: {
         } catch {
           /* ignore */
         }
-        finish(session, '已取消 Zmodem 发送')
+        finish(session, t("已取消 Zmodem 发送"))
         return
       }
       const b64 = await (window as AnyZ).go.main.App.ReadLocalFileBase64(path)
@@ -289,7 +293,7 @@ export async function attachZmodem(opts: {
       // close 后若未触发 session_end，兜底解锁
       setTimeout(() => {
         if (active && currentSession === session) {
-          finish(session, 'Zmodem 发送完成')
+          finish(session, t("Zmodem 发送完成"))
         }
       }, 800)
     } catch (e) {
@@ -299,14 +303,14 @@ export async function attachZmodem(opts: {
         transferred: 0,
         total: 0,
         done: true,
-        error: String(e),
+        error: errorText(e),
       })
       try {
         session.abort?.()
       } catch {
         /* ignore */
       }
-      finish(session, 'Zmodem 发送失败，请改用 SFTP')
+      finish(session, t("Zmodem 发送失败，请改用 SFTP"))
     }
   }
 
@@ -314,7 +318,7 @@ export async function attachZmodem(opts: {
     // 切勿因 active 丢弃输出：收尾字节与后续 shell 输出都要写回终端
     to_terminal: (octets: number[]) => {
       if (disposed || !octets?.length) return
-      opts.term.write(Uint8Array.from(octets))
+      writeOutput(Uint8Array.from(octets))
     },
     sender: (octets: number[]) => writeSSH(octets),
     on_retract: () => {
@@ -324,7 +328,7 @@ export async function attachZmodem(opts: {
       if (!detection?.is_valid?.()) return
       const session = detection.confirm()
       const role = String(detection.get_session_role?.() || '')
-      opts.onStatus?.(`检测到 Zmodem（${role || 'transfer'}），请在对话框中选择文件…`)
+      opts.onStatus?.(t("检测到 Zmodem（{0}），请在对话框中选择文件…", [role || 'transfer']))
       if (role === 'receive') {
         handleReceive(session)
       } else {
@@ -336,7 +340,7 @@ export async function attachZmodem(opts: {
   return {
     consume: (bytes: Uint8Array) => {
       if (disposed) {
-        opts.term.write(bytes)
+        writeOutput(bytes)
         return
       }
       try {
@@ -349,9 +353,9 @@ export async function attachZmodem(opts: {
           } catch {
             /* ignore */
           }
-          finish(currentSession, 'Zmodem 异常，已恢复终端')
+          finish(currentSession, t("Zmodem 异常，已恢复终端"))
         }
-        opts.term.write(bytes)
+        writeOutput(bytes)
       }
     },
     dispose: () => {

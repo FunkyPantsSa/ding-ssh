@@ -1,6 +1,7 @@
 package cryptox
 
 import (
+	"ding-ssh/internal/i18n"
 	"fmt"
 )
 
@@ -20,7 +21,7 @@ func Reencrypt(oldKey, newKey []byte, value string) (string, error) {
 	if IsEncrypted(value) {
 		plain, err = Decrypt(oldKey, value)
 		if err != nil {
-			return "", fmt.Errorf("旧密钥解密失败: %w", err)
+			return "", fmt.Errorf(i18n.T("旧密钥解密失败: %w"), err)
 		}
 	} else {
 		plain = value

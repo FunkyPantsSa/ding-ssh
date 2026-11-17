@@ -2,8 +2,7 @@ package sshx
 
 import (
 	"bufio"
-	"encoding/base64"
-	"encoding/json"
+	"ding-ssh/internal/i18n"
 	"errors"
 	"fmt"
 	"net"
@@ -42,14 +41,14 @@ func VerifyHostKey(host string, remote net.Addr, key ssh.PublicKey, extra []stri
 	defer trustMu.Unlock()
 	for _, source := range extra {
 		if _, err := os.Stat(expandSSHPath(source)); err != nil {
-			return fmt.Errorf("读取指定信任源失败: %w", err)
+			return fmt.Errorf(i18n.T("读取指定信任源失败: %w"), err)
 		}
 	}
 	paths := trustPaths(nil)
 	for _, source := range extra {
 		paths = append(paths, expandSSHPath(source))
 	}
-	verify, err := loadHostKeyVerifier(paths)
+	verify, err := preferredHostKeyVerifier(paths)
 	if err != nil {
 		return err
 	}
@@ -81,7 +80,7 @@ func ListHostTrust() ([]HostTrustRecord, error) {
 				fields = fields[1:]
 			}
 			if len(fields) < 3 {
-				return nil, fmt.Errorf("无效信任记录 %s:%d", file, line)
+				return nil, fmt.Errorf(i18n.T("无效信任记录 %s:%d"), file, line)
 			}
 			key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(strings.Join(fields[1:], " ")))
 			if err != nil {
@@ -139,18 +138,18 @@ func DeleteHostTrust(line int, fingerprint string) error {
 	}
 	lines := strings.Split(string(data), "\n")
 	if line < 1 || line > len(lines) {
-		return fmt.Errorf("记录已变化，请刷新")
+		return fmt.Errorf("%s", i18n.T("记录已变化，请刷新"))
 	}
 	fields := strings.Fields(lines[line-1])
 	if len(fields) < 3 {
-		return fmt.Errorf("无效记录")
+		return fmt.Errorf("%s", i18n.T("无效记录"))
 	}
 	if strings.HasPrefix(fields[0], "@") {
-		return fmt.Errorf("撤销记录不能从此界面删除")
+		return fmt.Errorf("%s", i18n.T("撤销记录不能从此界面删除"))
 	}
 	key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(strings.Join(fields[1:], " ")))
 	if err != nil || ssh.FingerprintSHA256(key) != fingerprint {
-		return fmt.Errorf("记录已变化，请刷新")
+		return fmt.Errorf("%s", i18n.T("记录已变化，请刷新"))
 	}
 	lines = append(lines[:line-1], lines[line:]...)
 	return writeTrustFile(file, []byte(strings.Join(lines, "\n")))
@@ -193,10 +192,34 @@ func verifyConnectionHostSources(host string, remote net.Addr, key ssh.PublicKey
 	if err == nil {
 		return nil
 	}
-	var unknown *knownhosts.KeyError
-	if errors.As(err, &unknown) && len(unknown.Want) == 0 {
-		payload, _ := json.Marshal(map[string]string{"host": host, "key": strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))), "fingerprint": ssh.FingerprintSHA256(key)})
-		return fmt.Errorf("未知主机，需要核对指纹并明确授权 SSH_HOST_TRUST:%s", base64.RawURLEncoding.EncodeToString(payload))
+	return hostTrustChallenge(host, key, sources, err)
+}
+
+// Application pins take precedence over stale read-only keys. Every source is
+// still parsed and its revocation list checked before applying the pin.
+func preferredHostKeyVerifier(paths []string) (ssh.HostKeyCallback, error) {
+	all, err := loadHostKeyVerifier(paths)
+	if err != nil {
+		return nil, err
 	}
-	return err
+	app, err := loadHostKeyVerifier(paths[:1])
+	if err != nil {
+		return nil, err
+	}
+	return func(host string, remote net.Addr, key ssh.PublicKey) error {
+		combined := all(host, remote, key)
+		var mismatch *knownhosts.KeyError
+		if combined != nil && !errors.As(combined, &mismatch) {
+			return combined
+		}
+		local := app(host, remote, key)
+		if local == nil {
+			return nil
+		}
+		var localMismatch *knownhosts.KeyError
+		if errors.As(local, &localMismatch) && len(localMismatch.Want) == 0 {
+			return combined
+		}
+		return local
+	}, nil
 }

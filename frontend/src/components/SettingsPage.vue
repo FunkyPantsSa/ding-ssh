@@ -1,5 +1,9 @@
 <script lang="ts" setup>
-import {onMounted, ref} from 'vue'
+import {t} from '../i18n'
+
+import {onMounted} from 'vue'
+import {storeToRefs} from 'pinia'
+import {useUIStore, type SettingsSection} from '../stores/ui'
 import SettingsNavigation from './settings/SettingsNavigation.vue'
 import HotkeysSection from './settings/HotkeysSection.vue'
 import ConnectionInfoSection from './ConnectionInfoSection.vue'
@@ -18,20 +22,19 @@ const settings = useSettingsStore()
 
 // 一级菜单：通用 / 快捷键 / 连接说明 / 外观 / 凭证 / 安全 / 调试 / 日志 / AI 记录 / 导入导出 / 关于
 const menuItems = [
-  {key: 'general', label: '通用', icon: 'clock'},
-  {key: 'hotkeys', label: '快捷键', icon: 'command'},
-  {key: 'connectionInfo', label: '连接说明', icon: 'info'},
-  {key: 'theme', label: '外观', icon: 'palette'},
-  {key: 'credentials', label: '保存的凭证', icon: 'key'},
-  {key: 'security', label: '安全', icon: 'lock'},
-  {key: 'debug', label: '调试模式', icon: 'terminal'},
-  {key: 'logs', label: '日志', icon: 'file'},
-  {key: 'audit', label: 'AI 记录', icon: 'activity'},
-  {key: 'migrate', label: '导入导出', icon: 'package'},
-  {key: 'about', label: '关于', icon: 'info'},
+  {key: 'general', get label() { return t("通用") }, icon: 'clock'},
+  {key: 'hotkeys', get label() { return t("快捷键") }, icon: 'command'},
+  {key: 'connectionInfo', get label() { return t("连接说明") }, icon: 'info'},
+  {key: 'theme', get label() { return t("外观") }, icon: 'palette'},
+  {key: 'credentials', get label() { return t("保存的凭证") }, icon: 'key'},
+  {key: 'security', get label() { return t("安全") }, icon: 'lock'},
+  {key: 'debug', get label() { return t("调试模式") }, icon: 'terminal'},
+  {key: 'logs', get label() { return t("日志") }, icon: 'file'},
+  {key: 'audit', get label() { return t("AI 记录") }, icon: 'activity'},
+  {key: 'migrate', get label() { return t("导入导出") }, icon: 'package'},
+  {key: 'about', get label() { return t("关于") }, icon: 'info'},
 ] as const
-type SettingsSection = 'general' | 'hotkeys' | 'connectionInfo' | 'theme' | 'credentials' | 'security' | 'debug' | 'logs' | 'audit' | 'migrate' | 'about'
-const section = ref<SettingsSection>('general')
+const {settingsSection: section, view} = storeToRefs(useUIStore())
 
 onMounted(() => {
   if (!settings.loaded) void settings.load()
@@ -56,7 +59,7 @@ onMounted(() => {
         <SettingsLogsSection v-else-if="section === 'logs'" />
         <SettingsAuditSection v-else-if="section === 'audit'" />
         <SettingsMigrateSection v-else-if="section === 'migrate'" />
-        <SettingsAboutSection v-else />
+        <SettingsAboutSection v-else :active="view === 'settings'" />
       </div>
     </div>
   </div>
@@ -66,8 +69,8 @@ onMounted(() => {
 .settings-shell{background:transparent}
 .settings-workspace{overflow:hidden;border-radius:var(--radius-layout);background:transparent}
 .settings-content{border-radius:var(--radius-layout);background:transparent}
-:deep(.set-nav){background:transparent}
-:deep([data-section-content] > .neo){border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:none;background:var(--theme-bg-surface)}
+:deep(.set-nav){background:var(--sidebar-secondary-bg)}
+:deep([data-section-content] > .neo){border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:none;background:var(--surface-bg)}
 :deep([data-section-content] > :not(:first-child)){margin-top:var(--space-4)}
 @media(max-width:760px){.settings-content{padding:var(--space-4)}.settings-shell :deep(.set-nav){width:156px;padding:var(--space-2)}}
 </style>

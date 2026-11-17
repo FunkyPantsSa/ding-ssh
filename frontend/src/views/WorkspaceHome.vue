@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import {computed, onMounted, ref, watch} from 'vue'
+import {t as $t} from '../i18n'
+
+import {t} from '../i18n'
+
+import {computed, onMounted} from 'vue'
+import {serverUsage} from '@/services/recent'
 import {useUIStore} from '@/stores/ui'
 import Icon from '@/components/Icon.vue'
 import {Button} from '@/components/ui'
@@ -9,26 +14,34 @@ import {useSessionsStore} from '@/stores/sessions'
 const emit = defineEmits<{
   quickConnect: []
   manageServers: []
-  openSettings: []
 }>()
 
 const ui = useUIStore()
 const servers = useServersStore()
 const sessions = useSessionsStore()
 
-const featuredServers = computed(() => servers.servers.slice(0, 4))
+const knownServers = computed(() => new Map(servers.servers.map((server) => [server.id, server])))
+const usage = computed(() => serverUsage.value.flatMap((entry) => {
+  const server = knownServers.value.get(entry.id)
+  return server ? [{...entry, server}] : []
+}))
+const featuredServers = computed(() => usage.value
+  .filter((entry) => entry.count > 0)
+  .sort((a, b) => b.count - a.count || b.connectedAt - a.connectedAt)
+  .slice(0, 4))
+const recentServers = computed(() => [...usage.value]
+  .sort((a, b) => b.connectedAt - a.connectedAt)
+  .slice(0, 4))
 const groupCount = computed(() => new Set(servers.servers.map((server) => server.group).filter(Boolean)).size)
-
-function readRecent(): string[] {
-  try { const ids = JSON.parse(localStorage.getItem('ding-ssh:recent-servers') || '[]'); return Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [] } catch { return [] }
-}
-const recentIds = ref<string[]>(readRecent())
-const recentServers = computed(() => recentIds.value.map(id => servers.servers.find(s => s.id === id)).filter(Boolean).slice(0, 4))
 const onlineTabs = computed(() => sessions.tabs.filter(t => t.status === 'connected'))
-watch(() => sessions.tabs.filter(t => t.status === 'connected' && t.node?.id).map(t => t.node!.id), ids => {
-  recentIds.value = [...new Set([...ids, ...recentIds.value])].slice(0, 8)
-  try { localStorage.setItem('ding-ssh:recent-servers', JSON.stringify(recentIds.value)) } catch { /* storage is optional */ }
-}, {immediate: true})
+const shortcuts = [
+  {get label() { return t("命令面板") }, get description() { return t("搜索并执行应用命令") }, icon: 'command', open: () => ui.openCommandPalette()},
+  {get label() { return t("新建服务器") }, get description() { return t("保存新的 SSH 连接") }, icon: 'plus', open: () => ui.requestNewServer()},
+  {get label() { return t("SSH 隧道") }, get description() { return t("管理端口转发") }, icon: 'terminal', open: () => ui.showTunnel()},
+  {get label() { return t("运行状态") }, get description() { return t("查看资源占用和渲染方式") }, icon: 'activity', open: () => ui.showSettings('about')},
+  {get label() { return t("应用日志") }, get description() { return t("查看连接和诊断日志") }, icon: 'file', open: () => ui.showSettings('logs')},
+  {get label() { return t("导入导出") }, get description() { return t("迁移服务器与配置") }, icon: 'package', open: () => ui.showSettings('migrate')},
+]
 
 onMounted(() => {
   if (!servers.loadedOnce && !servers.loading) void servers.load().catch(() => {})
@@ -41,47 +54,41 @@ function connect(server: (typeof servers.servers)[number]) {
 </script>
 
 <template>
-  <section class="workspace-home" aria-label="工作区首页">
-    <div class="home-orb home-orb-a" aria-hidden="true"></div>
-    <div class="home-orb home-orb-b" aria-hidden="true"></div>
-
+  <section class="workspace-home" :aria-label="$t('工作区首页')">
     <div class="home-content">
       <header class="home-hero">
         <div>
           <span class="home-eyebrow"><span class="home-live-dot"></span> SSH workspace</span>
-          <h2>准备连接到哪里？</h2>
-          <p>在一个安静、专注的工作区里管理服务器、终端与文件传输。</p>
+          <h2>{{ $t('准备连接到哪里？') }}</h2>
+          <p>{{ $t('在一个安静、专注的工作区里管理服务器、终端与文件传输。') }}</p>
         </div>
         <div class="home-hero-actions">
           <Button variant="primary" @click="emit('quickConnect')">
-            <Icon name="zap" :size="14" />
-            快速连接
-          </Button>
+            <Icon name="zap" :size="14" />{{ $t('快速连接') }}</Button>
           <Button variant="ghost" @click="ui.showWorkspace(); sessions.openLocalTab()">
-            <Icon name="monitor" :size="14" />
-            本地终端
-          </Button>
+            <Icon name="monitor" :size="14" />{{ $t('本地终端') }}</Button>
         </div>
       </header>
 
       <div class="home-grid">
+        <div class="home-primary">
         <section class="home-panel home-servers">
           <div class="home-panel-head">
             <div>
               <span class="home-kicker">SERVERS</span>
-              <h3>常用服务器</h3>
+              <h3>{{ $t('常用服务器') }}</h3>
+              <p class="home-panel-hint">{{ $t('按成功登录次数排序') }}</p>
             </div>
-            <button class="home-link" type="button" @click="emit('manageServers')">
-              管理全部 <Icon name="arrow-right" :size="13" />
+            <button class="home-link" type="button" @click="emit('manageServers')">{{ $t('管理全部') }}<Icon name="arrow-right" :size="13" />
             </button>
           </div>
 
-          <div v-if="servers.loading && !servers.servers.length" class="home-server-list" aria-label="正在加载服务器">
+          <div v-if="servers.loading && !servers.servers.length" class="home-server-list" :aria-label="$t('正在加载服务器')">
             <div v-for="i in 3" :key="i" class="home-server-row skeleton-row"></div>
           </div>
           <div v-else-if="featuredServers.length" class="home-server-list">
             <button
-              v-for="server in featuredServers"
+              v-for="{server, count} in featuredServers"
               :key="server.id"
               type="button"
               class="home-server-row"
@@ -92,70 +99,144 @@ function connect(server: (typeof servers.servers)[number]) {
                 <strong>{{ server.name }}</strong>
                 <small>{{ server.user }}@{{ server.host }}:{{ server.port }}</small>
               </span>
+              <span class="home-server-group">{{ count }} {{ $t('次') }}</span>
               <span v-if="server.group" class="home-server-group">{{ server.group }}</span>
               <Icon name="chevron-right" :size="14" extra-class="home-row-arrow" />
             </button>
           </div>
           <div v-else class="home-empty">
             <span class="home-empty-icon"><Icon name="plus" :size="18" /></span>
-            <div><strong>添加第一台服务器</strong><p>保存连接信息，下次一键进入终端。</p></div>
-            <Button variant="ghost" size="sm" @click="emit('manageServers')">新建服务器</Button>
+            <div v-if="servers.servers.length"><strong>{{ $t('还没有常用服务器') }}</strong><p>{{ $t('成功连接已保存的服务器后，这里会按登录次数更新。') }}</p></div>
+            <div v-else><strong>{{ $t('添加第一台服务器') }}</strong><p>{{ $t('保存连接信息，下次一键进入终端。') }}</p></div>
+            <Button v-if="servers.servers.length" variant="ghost" size="sm" @click="emit('quickConnect')">{{ $t('快速连接') }}</Button>
+            <Button v-else variant="ghost" size="sm" @click="ui.requestNewServer()">{{ $t('新建服务器') }}</Button>
           </div>
         </section>
 
+      <section class="home-panel home-tools" aria-labelledby="home-tools-title">
+        <h3 id="home-tools-title">{{ $t('快捷入口') }}</h3>
+        <div class="home-tool-grid">
+          <button v-for="shortcut in shortcuts" :key="shortcut.label" type="button" class="home-server-row" @click="shortcut.open()">
+            <span class="home-server-icon"><Icon :name="shortcut.icon" :size="16" /></span>
+            <span class="home-server-copy"><strong>{{ shortcut.label }}</strong><small>{{ shortcut.description }}</small></span>
+            <Icon name="arrow-right" :size="14" extra-class="home-row-arrow" />
+          </button>
+        </div>
+      </section>
+
+        </div>
         <aside class="home-side">
           <section class="home-panel home-status">
             <span class="home-kicker">OVERVIEW</span>
-            <h3>首页概览</h3>
+            <h3>{{ $t('首页概览') }}</h3>
             <div class="home-stats">
-              <div><strong>{{ servers.servers.length }}</strong><span>服务器</span></div>
-              <div><strong>{{ groupCount }}</strong><span>分组</span></div>
-              <div><strong>{{ sessions.tabs.length }}</strong><span>会话</span></div>
+              <div><strong>{{ servers.servers.length }}</strong><span>{{ $t('服务器') }}</span></div>
+              <div><strong>{{ groupCount }}</strong><span>{{ $t('分组') }}</span></div>
+              <div><strong>{{ sessions.tabs.length }}</strong><span>{{ $t('会话') }}</span></div>
             </div>
           </section>
 
-          <section class="home-panel home-status">
-            <h3>在线会话 · {{ onlineTabs.length }}</h3>
-            <button v-for="tab in onlineTabs" :key="tab.clientId" class="home-server-row" @click="ui.showWorkspace(); sessions.activateTab(tab.clientId)">{{ tab.node?.name || '本机终端' }} <Icon name="arrow-right" :size="14" /></button>
-            <p v-if="!onlineTabs.length">暂无在线会话</p>
+          <div class="home-panel home-activity">
+          <section class="home-status">
+            <h3>{{ $t('在线会话 ·') }} {{ onlineTabs.length }}</h3>
+            <button v-for="tab in onlineTabs" :key="tab.clientId" class="home-server-row" @click="ui.showWorkspace(); sessions.activateTab(tab.clientId)"><span class="home-session-name" :title="tab.node?.name || t('本机终端')">{{ tab.node?.name || t('本机终端') }}</span> <Icon name="arrow-right" :size="14" /></button>
+            <p v-if="!onlineTabs.length">{{ $t('暂无在线会话') }}</p>
           </section>
-          <section class="home-panel home-status">
-            <h3>最近连接</h3>
-            <button v-for="server in recentServers" :key="server!.id" class="home-server-row" @click="connect(server!)">{{ server!.name }} <Icon name="arrow-right" :size="14" /></button>
-            <p v-if="!recentServers.length">连接服务器后将在这里显示</p>
+          <section class="home-status">
+            <h3>{{ $t('最近连接') }}</h3>
+            <button v-for="{server} in recentServers" :key="server.id" class="home-server-row" @click="connect(server)"><span class="home-session-name" :title="server.name">{{ server.name }}</span> <Icon name="arrow-right" :size="14" /></button>
+            <p v-if="!recentServers.length">{{ $t('连接服务器后将在这里显示') }}</p>
           </section>
-          <button type="button" class="home-panel home-theme" @click="emit('openSettings')">
+          </div>
+          <button type="button" class="home-panel home-theme" @click="ui.showSettings('theme')">
             <span class="home-theme-icon"><Icon name="palette" :size="17" /></span>
-            <span><strong>让工作区更像你</strong><small>调整颜色、明暗与终端主题</small></span>
+            <span><strong>{{ $t('让工作区更像你') }}</strong><small>{{ $t('调整颜色、明暗与终端主题') }}</small></span>
             <Icon name="arrow-right" :size="14" extra-class="home-row-arrow" />
           </button>
         </aside>
       </div>
 
+
       <footer class="home-shortcuts">
-        <span><kbd>⌘ K</kbd> 命令面板</span>
-        <span><kbd>⌘ T</kbd> 本地终端</span>
-        <span><kbd>⌘ ,</kbd> 偏好设置</span>
+        <span><kbd>⌘ K</kbd>{{ $t('命令面板') }}</span>
+        <span><kbd>⌘ T</kbd>{{ $t('本地终端') }}</span>
+        <span><kbd>⌘ ,</kbd>{{ $t('偏好设置') }}</span>
       </footer>
     </div>
   </section>
 </template>
 
 <style scoped>
-.workspace-home{position:relative;flex:1;isolation:isolate;min-width:0;min-height:0;overflow:hidden;background:transparent;color:var(--foreground)}
-.workspace-home::before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(135deg,var(--theme-glass-tint,transparent),transparent 42%);opacity:.7}
-.home-orb{position:absolute;z-index:-1;border-radius:999px;filter:blur(72px);pointer-events:none;opacity:.28}.home-orb-a{width:420px;height:420px;right:-140px;top:-180px;background:var(--primary)}.home-orb-b{width:280px;height:280px;left:18%;bottom:-180px;background:var(--secondary)}
-.home-content{width:min(1040px,calc(100% - 64px));height:100%;min-height:0;margin:0 auto;padding:clamp(24px,4.5vh,56px) 0 22px;display:flex;flex-direction:column}
-.home-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:32px;margin-bottom:34px}.home-eyebrow,.home-kicker{display:flex;align-items:center;gap:7px;color:var(--muted-foreground);font:600 10px/1 var(--font-mono);letter-spacing:.14em;text-transform:uppercase}.home-live-dot{width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 0 4px color-mix(in srgb,var(--success) 14%,transparent)}.home-hero h2{margin:15px 0 7px;font-size:clamp(29px,3vw,42px);line-height:1.08;letter-spacing:-.045em;font-weight:600}.home-hero p{margin:0;color:var(--foreground-secondary);font-size:14px}.home-hero-actions{display:flex;gap:8px;flex-shrink:0}
-.home-grid{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(260px,.75fr);gap:14px}.home-side{display:grid;gap:14px;align-content:start}.home-panel{border:1px solid var(--border-subtle);border-radius:var(--radius-card);background:var(--theme-bg-surface,var(--surface-2));box-shadow:0 12px 36px rgb(0 0 0 / 5%),inset 0 1px 0 rgb(255 255 255 / 4%);backdrop-filter:blur(var(--theme-glass-blur,24px));-webkit-backdrop-filter:blur(var(--theme-glass-blur,24px))}.home-servers{padding:24px}.home-panel-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px}.home-panel h3{margin:8px 0 0;font-size:15px;letter-spacing:-.01em}.home-link{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:12px}.home-link:hover{color:var(--foreground)}
-.home-server-list{display:grid;gap:7px}.home-server-row{width:100%;min-height:58px;display:flex;align-items:center;gap:12px;padding:9px 11px;border:1px solid transparent;border-radius:var(--radius-card);text-align:left;transition:background var(--dur),border-color var(--dur),transform var(--dur)}.home-server-row:hover{background:var(--hover-strong);border-color:var(--border-subtle);transform:translateY(-1px)}.home-server-icon,.home-theme-icon,.home-empty-icon{width:34px;height:34px;border-radius:var(--radius-control);display:grid;place-items:center;flex-shrink:0;background:var(--primary-weak);color:var(--primary-hover);box-shadow:inset 0 0 0 1px var(--primary-border)}.home-server-copy{min-width:0;flex:1}.home-server-copy strong{display:block;font-size:13px;font-weight:550}.home-server-copy small{display:block;margin-top:2px;color:var(--muted-foreground);font:11px/1.3 var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.home-server-group{max-width:92px;padding:3px 7px;border-radius:var(--radius-pill);background:var(--hover);color:var(--muted-foreground);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.home-row-arrow{color:var(--muted-foreground)}.skeleton-row{background:linear-gradient(100deg,var(--hover),var(--hover-strong),var(--hover));background-size:200% 100%;animation:shimmer 1.4s infinite}.home-empty{min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:12px;color:var(--muted-foreground)}.home-empty strong{display:block;color:var(--foreground);font-size:13px}.home-empty p{margin:4px 0 0;font-size:12px}
-.home-status{padding:24px}.home-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:24px}.home-stats div{padding:13px 8px;border-radius:var(--radius-card);background:var(--hover);text-align:center}.home-stats strong{display:block;font:600 20px/1 var(--font-mono);color:var(--foreground)}.home-stats span{display:block;margin-top:7px;color:var(--muted-foreground);font-size:10px}.home-theme{width:100%;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;padding:18px;text-align:left;transition:transform var(--dur),border-color var(--dur)}.home-theme:hover{transform:translateY(-1px);border-color:var(--primary-border)}.home-theme strong,.home-theme small{display:block}.home-theme strong{font-size:12.5px}.home-theme small{margin-top:3px;color:var(--muted-foreground);font-size:11px}
-.home-shortcuts{display:flex;gap:22px;flex-shrink:0;padding-top:clamp(14px,2.5vh,28px);color:var(--muted-foreground);font-size:11px}.home-shortcuts kbd{margin-right:5px;padding:3px 6px;border:1px solid var(--border-subtle);border-radius:6px;background:var(--hover);font:10px var(--font-mono);color:var(--foreground-secondary)}
-/* 空工作区严格收敛在主内容区内，不产生横向或纵向滚动。 */
-.home-hero{margin-bottom:clamp(18px,3vh,30px);flex-shrink:0}
-.home-grid{flex:1;min-height:0}
-.home-servers{min-height:0;display:flex;flex-direction:column}
-.home-server-list{min-height:0;overflow:hidden}
-@keyframes shimmer{to{background-position:-200% 0}}
-@media(max-width:820px){.home-content{width:min(100% - 32px,680px);padding-top:32px}.home-hero{align-items:flex-start;flex-direction:column}.home-grid{grid-template-columns:1fr}.home-shortcuts{display:none}}
+.workspace-home{position:relative;flex:1;min-width:0;min-height:0;overflow:auto;container-type:size;color:var(--foreground)}
+.home-content{box-sizing:border-box;width:min(1080px,calc(100% - 40px));margin:0 auto;padding:24px 0 18px}
+.home-hero{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}
+.home-eyebrow,.home-kicker{display:flex;align-items:center;gap:7px;color:var(--muted-foreground);font:500 10px/1.3 var(--font-mono);letter-spacing:.1em}
+.home-live-dot{width:6px;height:6px;border-radius:50%;background:var(--success)}
+.home-hero h2{margin:9px 0 6px;font-size:clamp(23px,2.8cqw,32px);line-height:1.2;letter-spacing:-.03em;font-weight:600}
+.home-hero p{margin:0;font-size:12px;line-height:1.5;color:var(--muted-foreground)}
+.home-hero-actions{display:flex;flex-wrap:wrap;gap:6px}
+.home-grid{display:grid;grid-template-columns:minmax(0,1fr) 280px;align-items:start;gap:16px}
+.home-primary,.home-side{display:grid;align-content:start;gap:14px;min-width:0}
+.home-panel{min-width:0;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface-bg);box-shadow:0 3px 12px rgb(0 0 0 / 3%)}
+.home-servers,.home-tools,.home-status{padding:16px}
+.home-panel-head{display:flex;justify-content:space-between;gap:12px;align-items:start;margin-bottom:10px}
+.home-panel h3{margin:4px 0 10px;font-size:13px;font-weight:600}
+.home-panel-hint{margin:4px 0 0;font-size:11px;color:var(--muted-foreground)}
+.home-link{display:flex;align-items:center;gap:5px;white-space:nowrap;font-size:12px;color:var(--muted-foreground)}
+.home-link:hover{color:var(--foreground)}
+.home-server-list{display:grid;gap:3px}
+.home-server-row{display:flex;align-items:center;gap:9px;width:100%;min-width:0;min-height:44px;padding:7px 8px;text-align:left;border-radius:var(--radius-sm);transition:background var(--dur)}
+.home-server-row:hover{background:var(--hover)}
+.home-server-icon,.home-theme-icon,.home-empty-icon{display:grid;place-items:center;flex-shrink:0;width:30px;height:30px;border-radius:var(--radius-sm);background:var(--primary-weak);color:var(--primary-hover)}
+.home-server-copy{flex:1;min-width:0}
+.home-server-copy strong{display:block;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.home-server-copy small{display:block;margin-top:3px;font-size:11px;line-height:1.4;color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.home-server-group{flex-shrink:0;max-width:70px;padding:2px 5px;font-size:10px;border-radius:var(--radius-sm);background:var(--hover);color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.home-row-arrow,.home-status .home-server-row>svg{flex-shrink:0;color:var(--muted-foreground)}
+.home-session-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.home-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:12px}
+.home-stats div{text-align:center;padding:9px 4px;border-radius:var(--radius-sm);background:var(--hover)}
+.home-stats strong{display:block;font:500 19px/1.2 var(--font-mono)}
+.home-stats span{display:block;margin-top:4px;font-size:10px;color:var(--muted-foreground)}
+.home-activity .home-status+.home-status{border-top:1px solid var(--border-subtle)}
+.home-status .home-server-row{min-height:34px;padding:5px 0}
+.home-status p{margin:6px 0 0;font-size:12px;color:var(--muted-foreground)}
+.home-theme{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:9px;padding:12px;text-align:left}
+.home-theme strong,.home-theme small{display:block;line-height:1.4}
+.home-theme strong{font-size:12px;font-weight:500}
+.home-theme small{margin-top:2px;font-size:11px;color:var(--muted-foreground)}
+.home-tools h3{margin:0 0 8px}
+.home-tool-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}
+.home-tools .home-server-row{min-height:52px}
+.home-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:140px;text-align:center;color:var(--muted-foreground)}
+.home-empty strong{font-size:13px;color:var(--foreground)}
+.home-empty p{margin:4px 0;font-size:12px}
+.home-shortcuts{display:flex;flex-wrap:wrap;gap:16px;padding-top:16px;font-size:11px;color:var(--muted-foreground)}
+.home-shortcuts kbd{margin-right:5px;padding:2px 5px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);font:10px var(--font-mono)}
+.skeleton-row{background:var(--hover)}
+@container(max-width:720px){
+ .home-content{width:calc(100% - 28px);padding-top:16px}
+ .home-grid{grid-template-columns:minmax(0,1fr);gap:12px}
+ .home-side{grid-row:1}
+ .home-primary{grid-row:2}
+ .home-side{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+ .home-theme{grid-column:1/-1}
+ .home-shortcuts{display:none}
+ .home-hero{margin-bottom:14px}
+}
+@container(max-width:460px){
+ .home-side{grid-template-columns:minmax(0,1fr)}
+ .home-tool-grid{grid-template-columns:minmax(0,1fr)}
+ .home-server-group{display:none}
+}
+@container(max-height:600px){
+ .home-content{padding-top:12px;padding-bottom:12px}
+ .home-hero{margin-bottom:12px;gap:10px}
+ .home-hero h2{font-size:24px;margin-top:6px}
+ .home-servers,.home-tools,.home-status{padding:12px}
+ .home-primary,.home-side{gap:10px}
+ .home-server-row,.home-tools .home-server-row{min-height:40px;padding-top:5px;padding-bottom:5px}
+ .home-server-icon{width:26px;height:26px}
+ .home-shortcuts{padding-top:10px}
+}
 </style>

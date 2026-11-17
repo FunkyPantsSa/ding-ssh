@@ -9,6 +9,7 @@ vi.mock('../services/ssh', () => ({
   sshService: {
     getServers: vi.fn(),
     listTunnels: vi.fn(),
+    listLocalIPv4: vi.fn(),
     startTunnel: vi.fn(),
     updateTunnel: vi.fn(),
     stopTunnel: vi.fn(),
@@ -42,11 +43,16 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(sshService.getServers).mockResolvedValue([node])
   vi.mocked(sshService.listTunnels).mockResolvedValue([])
+  vi.mocked(sshService.listLocalIPv4).mockResolvedValue(['192.168.1.20', '10.0.0.2'])
   vi.mocked(sshService.startTunnel).mockResolvedValue(undefined as never)
 })
 
 describe('tunnel business flow', () => {
-  it('creates a local tunnel with the form values', async () => {
+  it.each([
+    ['loopback', '127.0.0.1'],
+    ['specific', '192.168.1.20'],
+    ['all-ipv4', '0.0.0.0'],
+  ])('creates a local tunnel with %s listening', async (scope, listenHost) => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const wrapper = mount(TunnelPage, {global: {plugins: [pinia]}, attachTo: document.body})
@@ -62,10 +68,25 @@ describe('tunnel business flow', () => {
     port.value = '15432'
     port.dispatchEvent(new Event('input', {bubbles: true}))
 
+    const listenScope = document.querySelector<HTMLSelectElement>('#tunnel-listen-scope')!
+    expect(listenScope.value).toBe('loopback')
+    listenScope.value = scope
+    listenScope.dispatchEvent(new Event('change', {bubbles: true}))
+    await flushPromises()
+    if (scope === 'specific') {
+      const ip = document.querySelector<HTMLInputElement>('#tunnel-listen-ip')!
+      ip.click()
+      await flushPromises()
+      const options = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
+      options.find(option => option.textContent === listenHost)!.click()
+      await flushPromises()
+      expect(sshService.listLocalIPv4).toHaveBeenCalledTimes(1)
+    }
+
     document.querySelector<HTMLElement>('[data-testid="tunnel-save"]')!.click()
     await flushPromises()
 
-    expect(sshService.startTunnel).toHaveBeenCalledWith(node, '测试隧道', 'local', 15432, '127.0.0.1', 3306)
+    expect(sshService.startTunnel).toHaveBeenCalledWith(node, '测试隧道', 'local', 15432, '127.0.0.1', 3306, listenHost)
     expect(onTunnelStatus).toHaveBeenCalled()
     expect(sshService.listTunnels).toHaveBeenCalledTimes(2)
     wrapper.unmount()

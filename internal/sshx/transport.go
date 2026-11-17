@@ -2,6 +2,7 @@ package sshx
 
 import (
 	"context"
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"net"
 	"strconv"
@@ -23,10 +24,12 @@ type chainConn struct {
 func (c *chainConn) Close() error {
 	var err error
 	c.once.Do(func() {
-		err = c.Conn.Close()
-		for i := len(c.upstream) - 1; i >= 0; i-- {
-			_ = c.upstream[i].Close()
+		// Close the underlying TCP transport before closing tunneled channels.
+		// A channel close can itself block on an unresponsive upstream.
+		for _, upstream := range c.upstream {
+			_ = upstream.Close()
 		}
+		err = c.Conn.Close()
 	})
 	return err
 }
@@ -36,10 +39,10 @@ func dialNode(node models.ServerNode, report progressFn) (*ssh.Client, error) {
 }
 func dialNodeContext(ctx context.Context, node models.ServerNode, report progressFn) (*ssh.Client, error) {
 	if len(node.JumpServerIDs) > 0 && len(node.ResolvedJumps) == 0 {
-		return nil, fmt.Errorf("跳板机配置尚未解析，拒绝直连")
+		return nil, fmt.Errorf("%s", i18n.T("跳板机配置尚未解析，拒绝直连"))
 	}
 	if len(node.ResolvedJumps) > 5 {
-		return nil, fmt.Errorf("最多支持 5 级跳板机")
+		return nil, fmt.Errorf("%s", i18n.T("最多支持 5 级跳板机"))
 	}
 	chain := append(append([]models.ServerNode{}, node.ResolvedJumps...), node)
 	clients := []*ssh.Client{}
@@ -65,14 +68,14 @@ func dialNodeContext(ctx context.Context, node models.ServerNode, report progres
 		progress := func(step, status, log, message string) { report(step, status, label+"："+log, message) }
 		cfg, err := buildClientConfig(hop, progress)
 		if err != nil {
-			return nil, fmt.Errorf("%s：认证配置失败: %w", label, err)
+			return nil, fmt.Errorf(i18n.T("%s：认证配置失败: %w"), label, err)
 		}
 		var client *ssh.Client
 		if i == 0 {
 			client, err = dialSSHContext(ctx, hop.Host, hop.Port, cfg, progress)
 		} else {
 			address := net.JoinHostPort(hop.Host, strconv.Itoa(hop.Port))
-			progress(models.ConnectStepTCP, "running", "建立跳板 TCP 通道 "+address, "")
+			progress(models.ConnectStepTCP, "running", i18n.T("建立跳板 TCP 通道 ")+address, "")
 			// Closing the upstream client interrupts both channel open and handshake.
 			upstream := clients[i-1]
 			stopCancel := context.AfterFunc(ctx, func() { upstream.Close() })
@@ -95,7 +98,7 @@ func dialNodeContext(ctx context.Context, node models.ServerNode, report progres
 			stopCancel()
 		}
 		if err != nil {
-			return nil, fmt.Errorf("%s：连接/身份认证失败: %w", label, err)
+			return nil, fmt.Errorf(i18n.T("%s：连接/身份认证失败: %w"), label, err)
 		}
 		clients = append(clients, client)
 	}

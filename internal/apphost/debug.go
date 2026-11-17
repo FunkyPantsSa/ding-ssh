@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"ding-ssh/internal/i18n"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -386,7 +388,7 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 		var uiArgs map[string]any
 		if len(args) > 0 {
 			if err := json.Unmarshal(args, &uiArgs); err != nil {
-				return nil, fmt.Errorf("%w: 入参不是合法 JSON", debugsrv.ErrBadInput)
+				return nil, fmt.Errorf(i18n.T("%w: 入参不是合法 JSON"), debugsrv.ErrBadInput)
 			}
 		}
 		return c.callFrontend(ctx, op, uiArgs)
@@ -400,7 +402,7 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 		var m map[string]any
 		if len(args) > 0 {
 			if err := json.Unmarshal(args, &m); err != nil {
-				return nil, fmt.Errorf("%w: 入参不是合法 JSON", debugsrv.ErrBadInput)
+				return nil, fmt.Errorf(i18n.T("%w: 入参不是合法 JSON"), debugsrv.ErrBadInput)
 			}
 		}
 		return c.handleAppctlOp(ctx, op, m)
@@ -413,7 +415,7 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 		var m map[string]any
 		if len(args) > 0 {
 			if err := json.Unmarshal(args, &m); err != nil {
-				return nil, fmt.Errorf("%w: 入参不是合法 JSON", debugsrv.ErrBadInput)
+				return nil, fmt.Errorf(i18n.T("%w: 入参不是合法 JSON"), debugsrv.ErrBadInput)
 			}
 		}
 		return c.handleSftpOp(ctx, op, m)
@@ -427,7 +429,7 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 		var m map[string]any
 		if len(args) > 0 {
 			if err := json.Unmarshal(args, &m); err != nil {
-				return nil, fmt.Errorf("%w: 入参不是合法 JSON", debugsrv.ErrBadInput)
+				return nil, fmt.Errorf(i18n.T("%w: 入参不是合法 JSON"), debugsrv.ErrBadInput)
 			}
 		}
 		return c.handleSudoOp(ctx, op, m)
@@ -436,7 +438,7 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 	var in debugArgs
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &in); err != nil {
-			return nil, fmt.Errorf("%w: 入参不是合法 JSON", debugsrv.ErrBadInput)
+			return nil, fmt.Errorf(i18n.T("%w: 入参不是合法 JSON"), debugsrv.ErrBadInput)
 		}
 	}
 
@@ -466,7 +468,7 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 			return nil, fmt.Errorf("%w: 缺少 id", debugsrv.ErrBadInput)
 		}
 		if in.Base64 == "" && in.Data == "" {
-			return nil, fmt.Errorf("%w: 缺少 data / base64", debugsrv.ErrBadInput)
+			return nil, fmt.Errorf(i18n.T("%w: 缺少 data / base64"), debugsrv.ErrBadInput)
 		}
 		return c.callFrontend(ctx, "terminal.input", map[string]any{
 			"id": in.ID, "data": in.Data, "base64": in.Base64,
@@ -497,14 +499,14 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 		return c.callFrontend(ctx, "tab.close", map[string]any{"id": in.ID})
 	case debugsrv.OpEval:
 		if !c.boot.AllowEval {
-			return nil, fmt.Errorf("%w: eval 未开启（设置 → 调试模式 → 允许执行 JS）", debugsrv.ErrForbidden)
+			return nil, fmt.Errorf(i18n.T("%w: eval 未开启（设置 → 调试模式 → 允许执行 JS）"), debugsrv.ErrForbidden)
 		}
 		js := in.JS
 		if js == "" {
 			js = in.Expr
 		}
 		if strings.TrimSpace(js) == "" {
-			return nil, fmt.Errorf("%w: 缺少 js", debugsrv.ErrBadInput)
+			return nil, fmt.Errorf(i18n.T("%w: 缺少 js"), debugsrv.ErrBadInput)
 		}
 		return c.callFrontend(ctx, "eval", map[string]any{"js": js})
 	case debugsrv.OpSettings:
@@ -515,7 +517,7 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 		return c.settingsView(st), nil
 	case debugsrv.OpSettingsUpdate:
 		if len(args) == 0 {
-			return nil, fmt.Errorf("%w: 需要 settings JSON（支持部分字段）", debugsrv.ErrBadInput)
+			return nil, fmt.Errorf(i18n.T("%w: 需要 settings JSON（支持部分字段）"), debugsrv.ErrBadInput)
 		}
 		cur, err := c.app.settings.Get()
 		if err != nil {
@@ -551,11 +553,11 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 		return c.app.ExportDiagnostics(), nil
 	case debugsrv.OpLogsOptions:
 		if len(args) == 0 {
-			return nil, fmt.Errorf("%w: 需要日志设置 JSON（支持部分字段：consoleEnabled/fileEnabled/level/apiLogEnabled）", debugsrv.ErrBadInput)
+			return nil, fmt.Errorf(i18n.T("%w: 需要日志设置 JSON（支持部分字段：consoleEnabled/fileEnabled/level/apiLogEnabled）"), debugsrv.ErrBadInput)
 		}
 		var opts map[string]any
 		if err := json.Unmarshal(args, &opts); err != nil {
-			return nil, fmt.Errorf("%w: 入参不是合法 JSON", debugsrv.ErrBadInput)
+			return nil, fmt.Errorf(i18n.T("%w: 入参不是合法 JSON"), debugsrv.ErrBadInput)
 		}
 		before, _ := c.app.settings.Get()
 		if err := c.app.SetLogOptions(opts); err != nil {
@@ -565,7 +567,7 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 		// 返回最新设置，调用方不必再查一次。
 		return c.app.GetLogInfo(), nil
 	}
-	return nil, fmt.Errorf("%w: 未知操作 %q", debugsrv.ErrBadInput, op)
+	return nil, fmt.Errorf(i18n.T("%w: 未知操作 %q"), debugsrv.ErrBadInput, op)
 }
 
 // state 汇总后端与前端的状态快照。
@@ -582,10 +584,45 @@ func (c *debugController) state(ctx context.Context) (any, error) {
 	}
 	if fe, err := c.callFrontend(ctx, "state", nil); err == nil {
 		out["frontend"] = fe
+		out["sessionBindings"] = sessionBindingDiagnostics(c.app.manager.List(), fe)
 	} else {
 		out["frontendError"] = err.Error()
 	}
 	return out, nil
+}
+
+// sessionBindingDiagnostics reports detached sessions without closing user connections.
+// Missing frontend data is unknown, never proof that every connection is orphaned.
+func sessionBindingDiagnostics(sessions []models.SessionInfo, frontend any) map[string]any {
+	root, ok := frontend.(map[string]any)
+	if !ok {
+		return map[string]any{"checked": false}
+	}
+	tabs, ok := root["tabs"].([]any)
+	if !ok {
+		return map[string]any{"checked": false}
+	}
+	bound := map[string]bool{}
+	for _, raw := range tabs {
+		tab, ok := raw.(map[string]any)
+		if !ok {
+			return map[string]any{"checked": false}
+		}
+		if id, ok := tab["sessionId"].(string); ok && id != "" {
+			bound[id] = true
+		}
+		// During connection setup the client ID precedes bindSession.
+		if id, ok := tab["clientId"].(string); ok && id != "" {
+			bound[id] = true
+		}
+	}
+	unbound := []models.SessionInfo{}
+	for _, session := range sessions {
+		if !bound[session.SessionID] && (session.Status == models.StatusConnected || session.Status == models.StatusConnecting) {
+			unbound = append(unbound, session)
+		}
+	}
+	return map[string]any{"checked": true, "unboundCount": len(unbound), "unboundSessions": unbound, "note": "未关联标签的连接仅供诊断，未自动断开"}
 }
 
 // settingsView 返回设置快照；未开启 allowSecrets 时抹掉潜在敏感字段。
@@ -838,11 +875,11 @@ func (a *App) GetLogInfo() map[string]any {
 // 写回设置并立即生效；未出现的字段保持原值。
 func (a *App) SetLogOptions(opts map[string]any) error {
 	if a.settings == nil {
-		return errors.New("设置存储未初始化")
+		return errors.New(i18n.T("设置存储未初始化"))
 	}
 	cur, err := a.settings.Get()
 	if err != nil {
-		return fmt.Errorf("读取设置失败: %w", err)
+		return fmt.Errorf(i18n.T("读取设置失败: %w"), err)
 	}
 	if v, ok := opts["consoleEnabled"].(bool); ok {
 		cur.LogEnabled = v
@@ -876,7 +913,7 @@ func (a *App) OpenLogFolder() error {
 		cmd = exec.Command("xdg-open", dir)
 	}
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("打开日志目录失败: %w", err)
+		return fmt.Errorf(i18n.T("打开日志目录失败: %w"), err)
 	}
 	// 不阻塞等待（explorer 会常驻）：异步回收进程句柄，避免僵尸进程。
 	go func() { _ = cmd.Wait() }()
@@ -934,7 +971,7 @@ func parseLogLevelFilter(name string) (int, error) {
 			return i, nil
 		}
 	}
-	return -1, fmt.Errorf("%w: 不支持的 level %q（可选 debug|info|warn|error）", debugsrv.ErrBadInput, name)
+	return -1, fmt.Errorf(i18n.T("%w: 不支持的 level %q（可选 debug|info|warn|error）"), debugsrv.ErrBadInput, name)
 }
 
 // logLineLevel 返回日志行的严重程度；没有级别标记的行返回 -1
@@ -979,14 +1016,14 @@ func (a *App) logTailView(in debugArgs) (map[string]any, error) {
 	// 只允许 ListFiles 返回的文件名：外部传入的名字一律拒绝，杜绝目录穿越。
 	files, err := logx.ListFiles()
 	if err != nil {
-		return nil, fmt.Errorf("读取日志文件列表失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("读取日志文件列表失败: %w"), err)
 	}
 	name := strings.TrimSpace(in.File)
 	if name != "" {
 		// 用列表里的规范名字（大小写不同也接受，Windows 文件系统本身不区分大小写）。
 		canonical, ok := logFileName(files, name)
 		if !ok {
-			return nil, fmt.Errorf("%w: 未知日志文件 %q（见 list_logs 的 files 列表）", debugsrv.ErrBadInput, name)
+			return nil, fmt.Errorf(i18n.T("%w: 未知日志文件 %q（见 list_logs 的 files 列表）"), debugsrv.ErrBadInput, name)
 		}
 		name = canonical
 	}
@@ -1002,11 +1039,11 @@ func (a *App) logTailView(in debugArgs) (map[string]any, error) {
 			name = files[0].Name // ListFiles 已按修改时间倒序，首个即最新
 		}
 		if text, err = logx.ReadTail(scan); err != nil {
-			return nil, fmt.Errorf("读取日志失败: %w", err)
+			return nil, fmt.Errorf(i18n.T("读取日志失败: %w"), err)
 		}
 	} else {
 		if text, err = readLogFileTail(name, scan); err != nil {
-			return nil, fmt.Errorf("读取日志文件 %q 失败: %w", name, err)
+			return nil, fmt.Errorf(i18n.T("读取日志文件 %q 失败: %w"), name, err)
 		}
 	}
 
@@ -1382,14 +1419,14 @@ func (a *App) isTraced(id string) bool {
 func (a *App) SetLogTrace(tabId string, enabled bool) error {
 	tabId = strings.TrimSpace(tabId)
 	if tabId == "" {
-		return errors.New("标签 id 不能为空")
+		return errors.New(i18n.T("标签 id 不能为空"))
 	}
 	if a.settings == nil {
-		return errors.New("设置存储未初始化")
+		return errors.New(i18n.T("设置存储未初始化"))
 	}
 	st, err := a.settings.Get()
 	if err != nil {
-		return fmt.Errorf("读取设置失败: %w", err)
+		return fmt.Errorf(i18n.T("读取设置失败: %w"), err)
 	}
 	tabs := make([]string, 0, len(st.LogTraceTabs)+1)
 	for _, id := range st.LogTraceTabs {
@@ -1403,7 +1440,7 @@ func (a *App) SetLogTrace(tabId string, enabled bool) error {
 	}
 	st.LogTraceTabs = models.NormalizeLogTraceTabs(tabs)
 	if err := a.settings.Save(st); err != nil {
-		return fmt.Errorf("保存日志跟踪设置失败: %w", err)
+		return fmt.Errorf(i18n.T("保存日志跟踪设置失败: %w"), err)
 	}
 	a.setTraceTabs(st.LogTraceTabs)
 	if enabled {
@@ -1418,7 +1455,7 @@ func (a *App) SetLogTrace(tabId string, enabled bool) error {
 func (a *App) LogClient(level string, message string) error {
 	msg := logx.Redact(strings.TrimSpace(message))
 	if msg == "" {
-		return errors.New("日志内容不能为空")
+		return errors.New(i18n.T("日志内容不能为空"))
 	}
 	// 消息里可能含 % 号，必须作为参数传入而不是格式化串。
 	line := "[client] " + msg
@@ -1490,7 +1527,7 @@ func (g debugGate) Allow(cap debugsrv.Capability, detail string) error {
 		if detail != "" {
 			suffix = fmt.Sprintf("（本次操作涉及：%s）", detail)
 		}
-		return fmt.Errorf("「%s」能力未开启：%s%s。可在 设置 → 调试模式 → MCP 能力 中开启，"+
+		return fmt.Errorf(i18n.T("「%s」能力未开启：%s%s。可在 设置 → 调试模式 → MCP 能力 中开启，")+
 			"或先 confirm.prepare（action=capability.enable, args={\"cap\":%q}）再 confirm.commit。",
 			label, reason, suffix, string(cap))
 	}
@@ -1526,7 +1563,7 @@ func (g debugGate) Allow(cap debugsrv.Capability, detail string) error {
 			return deny("已开启远端文件写入，但路径白名单为空（留空 = 禁止任何写入路径），请先填写允许的前缀")
 		}
 		if detail != "" && !pathAllowed(d.SFTPWriteAllowlist, detail) {
-			return fmt.Errorf("远端路径 %q 不在写入白名单内（当前白名单：%s）",
+			return fmt.Errorf(i18n.T("远端路径 %q 不在写入白名单内（当前白名单：%s）"),
 				detail, strings.Join(d.SFTPWriteAllowlist, "、"))
 		}
 	case debugsrv.CapSudoCredential:
@@ -1552,7 +1589,7 @@ func (g debugGate) Allow(cap debugsrv.Capability, detail string) error {
 			return deny("它沿用既有开关「允许执行 JS」")
 		}
 	default:
-		return fmt.Errorf("未知能力 %q：请更新应用（该能力可能是更新版本才支持的）", cap)
+		return fmt.Errorf(i18n.T("未知能力 %q：请更新应用（该能力可能是更新版本才支持的）"), cap)
 	}
 	return nil
 }
@@ -1631,11 +1668,11 @@ func (e debugExecutor) ExecuteAction(ctx context.Context, action string, args ma
 	if op, ok := ctlActionOps[strings.TrimSpace(action)]; ok {
 		b, err := json.Marshal(args)
 		if err != nil {
-			return nil, fmt.Errorf("%w: 动作参数无法序列化: %v", debugsrv.ErrBadInput, err)
+			return nil, fmt.Errorf(i18n.T("%w: 动作参数无法序列化: %v"), debugsrv.ErrBadInput, err)
 		}
 		return c.Handle(ctx, op, b)
 	}
-	return nil, fmt.Errorf("动作 %q 暂未实现执行器：本波可通过应用界面完成，"+
+	return nil, fmt.Errorf(i18n.T("动作 %q 暂未实现执行器：本波可通过应用界面完成，")+
 		"或等待对应工具接入后再调用", action)
 }
 
@@ -1646,6 +1683,7 @@ func (e debugExecutor) ExecuteAction(ctx context.Context, action string, args ma
 // 因此这里不能靠 action 反推 op —— AI 用 confirm.commit 时应改用对应的写工具本身
 // （写工具会把 token 与自己的参数一起提交，语义更精确）。
 var ctlActionOps = map[string]string{
+	debugsrv.OpGroupsCreate: debugsrv.OpGroupsCreate, debugsrv.OpGroupsRename: debugsrv.OpGroupsRename, debugsrv.OpGroupsDelete: debugsrv.OpGroupsDelete,
 	"servers.create":     debugsrv.OpServersCreate,
 	"servers.update":     debugsrv.OpServersUpdate,
 	"servers.delete":     debugsrv.OpServersDelete,
@@ -1678,7 +1716,7 @@ func (c *debugController) executeCapabilityEnable(args map[string]any) (any, err
 	name, _ := args["cap"].(string)
 	capName, ok := debugsrv.KnownCapability(name)
 	if !ok {
-		return nil, fmt.Errorf("未知能力 %q：可选值见 app.permissions 的 descriptions", strings.TrimSpace(name))
+		return nil, fmt.Errorf(i18n.T("未知能力 %q：可选值见 app.permissions 的 descriptions"), strings.TrimSpace(name))
 	}
 	enabled := true
 	if v, has := args["enabled"]; has {
@@ -1700,11 +1738,11 @@ func (c *debugController) executeCapabilityEnable(args map[string]any) (any, err
 func (c *debugController) executeSettingsUpdate(args map[string]any) (any, error) {
 	patch, has := args["settings"]
 	if !has {
-		return nil, fmt.Errorf("%w: 缺少 settings", debugsrv.ErrBadInput)
+		return nil, fmt.Errorf(i18n.T("%w: 缺少 settings"), debugsrv.ErrBadInput)
 	}
 	b, err := json.Marshal(patch)
 	if err != nil {
-		return nil, fmt.Errorf("%w: settings 不是合法 JSON: %v", debugsrv.ErrBadInput, err)
+		return nil, fmt.Errorf(i18n.T("%w: settings 不是合法 JSON: %v"), debugsrv.ErrBadInput, err)
 	}
 	cur, err := c.app.settings.Get()
 	if err != nil {
@@ -1811,7 +1849,7 @@ func (a *App) sftpWriteAllowlist() []string {
 func (a *App) SetCapability(capName string, enabled bool) error {
 	c, ok := debugsrv.KnownCapability(capName)
 	if !ok {
-		return fmt.Errorf("未知能力 %q", capName)
+		return fmt.Errorf(i18n.T("未知能力 %q"), capName)
 	}
 	return a.applyCapability(c, enabled, "ui")
 }
@@ -1822,11 +1860,11 @@ func (a *App) SetCapability(capName string, enabled bool) error {
 // 之类的不一致行为。source 只影响审计记录的来源标记（ui / mcp）。
 func (a *App) applyCapability(c debugsrv.Capability, enabled bool, source string) error {
 	if a.settings == nil {
-		return errors.New("设置存储未初始化")
+		return errors.New(i18n.T("设置存储未初始化"))
 	}
 	cur, err := a.settings.Get()
 	if err != nil {
-		return fmt.Errorf("读取设置失败: %w", err)
+		return fmt.Errorf(i18n.T("读取设置失败: %w"), err)
 	}
 	before := cur.Debug
 	// 关掉敏感能力时不清空白名单：用户可能只是临时关掉再打开，
@@ -1840,7 +1878,7 @@ func (a *App) applyCapability(c debugsrv.Capability, enabled bool, source string
 		cur.Debug.CapConfigWrite = enabled
 	case debugsrv.CapSecretsWrite:
 		if enabled && !cur.Debug.AllowSecrets {
-			return errors.New("开启「凭据写入」前必须先开启「允许读取敏感数据」（凭据写入必然要读回凭据）")
+			return errors.New(i18n.T("开启「凭据写入」前必须先开启「允许读取敏感数据」（凭据写入必然要读回凭据）"))
 		}
 		cur.Debug.CapSecretWrite = enabled
 	case debugsrv.CapSecretsRead:
@@ -1855,7 +1893,7 @@ func (a *App) applyCapability(c debugsrv.Capability, enabled bool, source string
 		cur.Debug.CapRemoteFSWrite = enabled
 	case debugsrv.CapSudoCredential:
 		if enabled && !cur.Debug.AllowSecrets {
-			return errors.New("开启「sudo 凭证提权」前必须先开启「允许读取敏感数据」（密码只能从凭据库读出来，" +
+			return errors.New(i18n.T("开启「sudo 凭证提权」前必须先开启「允许读取敏感数据」（密码只能从凭据库读出来，") +
 				"不允许读取敏感数据就不可能用保存的密码提权）")
 		}
 		cur.Debug.CapSudoCredential = enabled
@@ -1865,15 +1903,15 @@ func (a *App) applyCapability(c debugsrv.Capability, enabled bool, source string
 		cur.Debug.AllowEval = enabled
 	case debugsrv.CapRead:
 		if !enabled {
-			return errors.New("「读取」能力永远允许，无法关闭（调试模式下只读是基础能力）")
+			return errors.New(i18n.T("「读取」能力永远允许，无法关闭（调试模式下只读是基础能力）"))
 		}
 		return nil
 	default:
-		return fmt.Errorf("能力 %q 不支持通过该接口修改", c)
+		return fmt.Errorf(i18n.T("能力 %q 不支持通过该接口修改"), c)
 	}
 	cur.Debug = models.NormalizeDebugSettings(cur.Debug)
 	if err := a.SaveSettings(cur); err != nil {
-		return fmt.Errorf("保存能力设置失败: %w", err)
+		return fmt.Errorf(i18n.T("保存能力设置失败: %w"), err)
 	}
 	// 审计：能力开关是「扩权」动作，必须有记录（含改动前的值，便于用户回看自己开了什么）。
 	args := map[string]any{"cap": string(c), "enabled": enabled, "before": capabilityFieldValue(before, c)}
@@ -1991,11 +2029,11 @@ func settingsPatchJSON(argsJSON string) string {
 // 其余记录返回中文错误，前端会把「撤销」按钮置灰并显示原因。
 func (a *App) UndoAuditRecord(id string, tool string, args string) error {
 	if a.debug == nil {
-		return errors.New("调试服务未初始化，无法撤销")
+		return errors.New(i18n.T("调试服务未初始化，无法撤销"))
 	}
 	tool = strings.TrimSpace(tool)
 	if !isSettingsUndoTool(tool) {
-		return fmt.Errorf("该记录（%s）不支持撤销：本波只对设置类改动提供「恢复为改动前值」，其余动作无法可靠回滚", tool)
+		return fmt.Errorf(i18n.T("该记录（%s）不支持撤销：本波只对设置类改动提供「恢复为改动前值」，其余动作无法可靠回滚"), tool)
 	}
 	key := settingsUndoKey(tool, settingsPatchJSON(strings.TrimSpace(args)))
 	a.debug.undoMu.Lock()
@@ -2005,10 +2043,10 @@ func (a *App) UndoAuditRecord(id string, tool string, args string) error {
 	}
 	a.debug.undoMu.Unlock()
 	if !has {
-		return fmt.Errorf("找不到记录 %s 的改动前快照（只保留最近 %d 条，或已被撤销过）", id, settingsUndoKeep)
+		return fmt.Errorf(i18n.T("找不到记录 %s 的改动前快照（只保留最近 %d 条，或已被撤销过）"), id, settingsUndoKeep)
 	}
 	if err := a.SaveSettings(before); err != nil {
-		return fmt.Errorf("恢复设置失败: %w", err)
+		return fmt.Errorf(i18n.T("恢复设置失败: %w"), err)
 	}
 	a.debug.logAudit("ui", "settings.undo", string(debugsrv.CapConfigWrite),
 		map[string]any{"auditId": id, "tool": tool}, true, "", false, "")
@@ -2178,15 +2216,15 @@ var ctlServerNodeFields = []string{
 func ctlServerNodeFromArgs(args map[string]any) (models.ServerNode, error) {
 	raw := ctlArgMap(args, "node")
 	if len(raw) == 0 {
-		return models.ServerNode{}, fmt.Errorf("%w: 缺少 node", debugsrv.ErrBadInput)
+		return models.ServerNode{}, fmt.Errorf(i18n.T("%w: 缺少 node"), debugsrv.ErrBadInput)
 	}
 	b, err := json.Marshal(raw)
 	if err != nil {
-		return models.ServerNode{}, fmt.Errorf("%w: node 无法序列化: %v", debugsrv.ErrBadInput, err)
+		return models.ServerNode{}, fmt.Errorf(i18n.T("%w: node 无法序列化: %v"), debugsrv.ErrBadInput, err)
 	}
 	var node models.ServerNode
 	if err := json.Unmarshal(b, &node); err != nil {
-		return models.ServerNode{}, fmt.Errorf("%w: node 不是合法服务器对象: %v", debugsrv.ErrBadInput, err)
+		return models.ServerNode{}, fmt.Errorf(i18n.T("%w: node 不是合法服务器对象: %v"), debugsrv.ErrBadInput, err)
 	}
 	return node, nil
 }
@@ -2198,7 +2236,7 @@ func (c *debugController) findServer(id string) (models.ServerNode, error) {
 			return n, nil
 		}
 	}
-	return models.ServerNode{}, fmt.Errorf("%w: 未找到服务器 %s（可用 servers.list 查看）", debugsrv.ErrNotFound, id)
+	return models.ServerNode{}, fmt.Errorf(i18n.T("%w: 未找到服务器 %s（可用 servers.list 查看）"), debugsrv.ErrNotFound, id)
 }
 
 // ctlCredentialMeta 凭据元信息（**唯一**允许离开宿主的凭据形状：不含密码 / 私钥内容）。
@@ -2216,6 +2254,56 @@ func ctlCredentialMeta(c models.Credential) map[string]any {
 // handleAppctlOp 执行一个应用控制面 op（op 集合见 debugsrv.IsAppctlOp）。
 func (c *debugController) handleAppctlOp(ctx context.Context, op string, args map[string]any) (any, error) {
 	switch op {
+	case debugsrv.OpTabsActivate, debugsrv.OpPanelsSet, debugsrv.OpWorkspaceSplit:
+		return c.callFrontend(ctx, op, args)
+	case debugsrv.OpGroupsList:
+		groups := c.app.GetGroups()
+		return map[string]any{"groups": groups, "count": len(groups)}, nil
+	case debugsrv.OpGroupsCreate, debugsrv.OpGroupsRename, debugsrv.OpGroupsDelete:
+		var err error
+		switch op {
+		case debugsrv.OpGroupsCreate:
+			err = c.app.AddGroup(ctlArgStr(args, "name"))
+		case debugsrv.OpGroupsRename:
+			if ctlArgStr(args, "oldName") == "" {
+				return nil, fmt.Errorf(i18n.T("%w: 缺少 oldName"), debugsrv.ErrBadInput)
+			}
+			err = c.app.RenameGroup(ctlArgStr(args, "oldName"), ctlArgStr(args, "newName"))
+		case debugsrv.OpGroupsDelete:
+			err = c.app.RemoveGroup(ctlArgStr(args, "name"))
+		}
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true}, nil
+	case debugsrv.OpServersTest:
+		node, err := c.findServer(ctlArgStr(args, "id"))
+		if err != nil {
+			return nil, err
+		}
+		mode := ctlArgStr(args, "mode")
+		if mode == "" {
+			mode = "tcp"
+		}
+		var result models.ServerTestResult
+		switch mode {
+		case "tcp":
+			if len(node.JumpServerIDs) > 0 {
+				return nil, fmt.Errorf(i18n.T("%w: 跳板机节点请使用 mode=login"), debugsrv.ErrBadInput)
+			}
+			result = c.app.TestServer(node)
+		case "login":
+			result = c.app.TestServerLogin(node)
+		default:
+			return nil, fmt.Errorf("%w: mode 必须为 tcp 或 login", debugsrv.ErrBadInput)
+		}
+		return map[string]any{"result": result, "mode": mode}, nil
+	case debugsrv.OpHostTrustList:
+		records, err := c.app.GetHostTrust()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"records": records, "count": len(records)}, nil
 	// ---- A. 服务器 ----
 	case debugsrv.OpServersList:
 		nodes := c.app.GetServers()
@@ -2256,7 +2344,7 @@ func (c *debugController) handleAppctlOp(ctx context.Context, op string, args ma
 		}
 		patch := ctlArgMap(args, "node")
 		if len(patch) == 0 {
-			return nil, fmt.Errorf("%w: 缺少 node", debugsrv.ErrBadInput)
+			return nil, fmt.Errorf(i18n.T("%w: 缺少 node"), debugsrv.ErrBadInput)
 		}
 		merged, err := ctlMergeServerNode(cur, patch)
 		if err != nil {
@@ -2309,7 +2397,7 @@ func (c *debugController) handleAppctlOp(ctx context.Context, op string, args ma
 	case debugsrv.OpServersMoveGroup:
 		ids := ctlArgList(args, "ids")
 		if len(ids) == 0 {
-			return nil, fmt.Errorf("%w: 缺少 ids", debugsrv.ErrBadInput)
+			return nil, fmt.Errorf(i18n.T("%w: 缺少 ids"), debugsrv.ErrBadInput)
 		}
 		group := ctlArgStr(args, "group")
 		moved := make([]string, 0, len(ids))
@@ -2331,14 +2419,14 @@ func (c *debugController) handleAppctlOp(ctx context.Context, op string, args ma
 	case debugsrv.OpServersImport:
 		items := ctlArgObjList(args, "servers")
 		if len(items) == 0 {
-			return nil, fmt.Errorf("%w: 缺少 servers（导入数据）", debugsrv.ErrBadInput)
+			return nil, fmt.Errorf(i18n.T("%w: 缺少 servers（导入数据）"), debugsrv.ErrBadInput)
 		}
 		mode := ctlArgStr(args, "mode")
 		if mode == "" {
 			mode = "merge"
 		}
 		if mode != "merge" && mode != "replace" {
-			return nil, fmt.Errorf("%w: 非法 mode %q", debugsrv.ErrBadInput, mode)
+			return nil, fmt.Errorf(i18n.T("%w: 非法 mode %q"), debugsrv.ErrBadInput, mode)
 		}
 		deleted := 0
 		if mode == "replace" {
@@ -2357,11 +2445,11 @@ func (c *debugController) handleAppctlOp(ctx context.Context, op string, args ma
 		for _, m := range items {
 			b, err := json.Marshal(m)
 			if err != nil {
-				return nil, fmt.Errorf("%w: 导入条目无法序列化: %v", debugsrv.ErrBadInput, err)
+				return nil, fmt.Errorf(i18n.T("%w: 导入条目无法序列化: %v"), debugsrv.ErrBadInput, err)
 			}
 			var node models.ServerNode
 			if err := json.Unmarshal(b, &node); err != nil {
-				return nil, fmt.Errorf("%w: 导入条目不是合法服务器对象: %v", debugsrv.ErrBadInput, err)
+				return nil, fmt.Errorf(i18n.T("%w: 导入条目不是合法服务器对象: %v"), debugsrv.ErrBadInput, err)
 			}
 			isUpdate := node.ID != "" && existing[node.ID]
 			saved, err := c.app.SaveServer(node)
@@ -2383,7 +2471,7 @@ func (c *debugController) handleAppctlOp(ctx context.Context, op string, args ma
 	// ---- B. 凭据 ----
 	case debugsrv.OpCredentialsList:
 		if err := c.app.ensureUnlocked(); err != nil {
-			return nil, fmt.Errorf("%w: %v（请先在应用内解锁主密码）", debugsrv.ErrForbidden, err)
+			return nil, fmt.Errorf(i18n.T("%w: %v（请先在应用内解锁主密码）"), debugsrv.ErrForbidden, err)
 		}
 		creds := c.app.GetCredentials()
 		metas := make([]map[string]any, 0, len(creds))
@@ -2398,7 +2486,7 @@ func (c *debugController) handleAppctlOp(ctx context.Context, op string, args ma
 		typ := ctlArgStr(args, "type")
 		content := ctlArgStr(args, "content")
 		if name == "" || content == "" || (typ != "password" && typ != "privateKey") {
-			return nil, fmt.Errorf("%w: 需要 name / type(password|privateKey) / content", debugsrv.ErrBadInput)
+			return nil, fmt.Errorf(i18n.T("%w: 需要 name / type(password|privateKey) / content"), debugsrv.ErrBadInput)
 		}
 		cred := models.Credential{Name: name, AuthType: typ, User: ctlArgStr(args, "user")}
 		if typ == "privateKey" {
@@ -2418,7 +2506,7 @@ func (c *debugController) handleAppctlOp(ctx context.Context, op string, args ma
 			return nil, fmt.Errorf("%w: 缺少 id", debugsrv.ErrBadInput)
 		}
 		if err := c.app.ensureUnlocked(); err != nil {
-			return nil, fmt.Errorf("%w: %v（请先在应用内解锁主密码）", debugsrv.ErrForbidden, err)
+			return nil, fmt.Errorf(i18n.T("%w: %v（请先在应用内解锁主密码）"), debugsrv.ErrForbidden, err)
 		}
 		var found *models.Credential
 		for _, cred := range c.app.GetCredentials() {
@@ -2429,7 +2517,7 @@ func (c *debugController) handleAppctlOp(ctx context.Context, op string, args ma
 			}
 		}
 		if found == nil {
-			return nil, fmt.Errorf("%w: 未找到凭据 %s", debugsrv.ErrNotFound, id)
+			return nil, fmt.Errorf(i18n.T("%w: 未找到凭据 %s"), debugsrv.ErrNotFound, id)
 		}
 		if v := ctlArgStr(args, "name"); v != "" {
 			found.Name = v
@@ -2466,14 +2554,14 @@ func (c *debugController) handleAppctlOp(ctx context.Context, op string, args ma
 		serverID := ctlArgStr(args, "serverId")
 		credID := ctlArgStr(args, "credentialId")
 		if serverID == "" || credID == "" {
-			return nil, fmt.Errorf("%w: 需要 serverId 与 credentialId", debugsrv.ErrBadInput)
+			return nil, fmt.Errorf(i18n.T("%w: 需要 serverId 与 credentialId"), debugsrv.ErrBadInput)
 		}
 		node, err := c.findServer(serverID)
 		if err != nil {
 			return nil, err
 		}
 		if err := c.app.ensureUnlocked(); err != nil {
-			return nil, fmt.Errorf("%w: %v（请先在应用内解锁主密码）", debugsrv.ErrForbidden, err)
+			return nil, fmt.Errorf(i18n.T("%w: %v（请先在应用内解锁主密码）"), debugsrv.ErrForbidden, err)
 		}
 		var cred *models.Credential
 		for _, item := range c.app.GetCredentials() {
@@ -2484,7 +2572,7 @@ func (c *debugController) handleAppctlOp(ctx context.Context, op string, args ma
 			}
 		}
 		if cred == nil {
-			return nil, fmt.Errorf("%w: 未找到凭据 %s", debugsrv.ErrNotFound, credID)
+			return nil, fmt.Errorf(i18n.T("%w: 未找到凭据 %s"), debugsrv.ErrNotFound, credID)
 		}
 		// 只写入凭据里**有值**的字段，避免把服务器原有的配置清空。
 		applied := make([]string, 0, 5)
@@ -2609,7 +2697,7 @@ func (c *debugController) handleAppctlOp(ctx context.Context, op string, args ma
 		}()
 		return map[string]any{"ok": true, "quitting": true}, nil
 	}
-	return nil, fmt.Errorf("%w: 未知的应用控制面操作 %q", debugsrv.ErrBadInput, op)
+	return nil, fmt.Errorf(i18n.T("%w: 未知的应用控制面操作 %q"), debugsrv.ErrBadInput, op)
 }
 
 // ctlMergeServerNode 把 patch 合并到现有节点上：只覆盖「非空」字段，id 不可改。
@@ -2631,7 +2719,7 @@ func ctlMergeServerNode(cur models.ServerNode, patch map[string]any) (models.Ser
 			continue // 主键不可通过 node 修改
 		}
 		if !known[k] {
-			return cur, fmt.Errorf("%w: 未知的服务器字段 %q", debugsrv.ErrBadInput, k)
+			return cur, fmt.Errorf(i18n.T("%w: 未知的服务器字段 %q"), debugsrv.ErrBadInput, k)
 		}
 		if ctlIsEmptyValue(v) {
 			continue // 空值 = 不修改（避免误清空密码 / 私钥）
@@ -2644,7 +2732,7 @@ func ctlMergeServerNode(cur models.ServerNode, patch map[string]any) (models.Ser
 	}
 	var out models.ServerNode
 	if err := json.Unmarshal(merged, &out); err != nil {
-		return cur, fmt.Errorf("%w: 合并后的服务器对象不合法: %v", debugsrv.ErrBadInput, err)
+		return cur, fmt.Errorf(i18n.T("%w: 合并后的服务器对象不合法: %v"), debugsrv.ErrBadInput, err)
 	}
 	out.ID = cur.ID
 	return out, nil
@@ -2684,8 +2772,10 @@ func (c *debugController) ctlTunnelUpsert(ctx context.Context, op string, args m
 		}
 	case "dynamic":
 		localPort = listenPort
+	case "reverse-dynamic":
+		remoteHost, remotePort = "127.0.0.1", listenPort
 	default:
-		return nil, fmt.Errorf("%w: 非法 type %q（只支持 local | remote | dynamic）", debugsrv.ErrBadInput, mode)
+		return nil, fmt.Errorf(i18n.T("%w: 非法 type %q（只支持 local | remote | dynamic | reverse-dynamic）"), debugsrv.ErrBadInput, mode)
 	}
 
 	var info models.TunnelInfo
@@ -2694,7 +2784,7 @@ func (c *debugController) ctlTunnelUpsert(ctx context.Context, op string, args m
 	} else {
 		id := ctlArgStr(args, "id")
 		if id == "" {
-			return nil, fmt.Errorf("%w: 缺少 id（隧道 id）", debugsrv.ErrBadInput)
+			return nil, fmt.Errorf(i18n.T("%w: 缺少 id（隧道 id）"), debugsrv.ErrBadInput)
 		}
 		info, err = c.app.UpdateTunnel(id, node, name, mode, localPort, remoteHost, remotePort)
 	}
@@ -2705,7 +2795,9 @@ func (c *debugController) ctlTunnelUpsert(ctx context.Context, op string, args m
 	switch {
 	case mode == "remote":
 		out["targetNote"] = "remote 模式下本地目标固定为 127.0.0.1:targetPort（当前实现），targetHost 被忽略。"
-	case mode != "remote" && listenHost != "" && listenHost != "127.0.0.1":
+	case mode == "reverse-dynamic" && listenHost != "" && listenHost != "127.0.0.1":
+		out["listenHostNote"] = "反向 SOCKS5 固定请求服务器回环监听，已忽略 listenHost。"
+	case mode != "remote" && mode != "reverse-dynamic" && listenHost != "" && listenHost != "127.0.0.1":
 		out["listenHostNote"] = fmt.Sprintf("当前实现里 %s 模式的本地监听地址固定为 127.0.0.1，已忽略 listenHost=%s。", mode, listenHost)
 	}
 	return out, nil
@@ -2718,11 +2810,11 @@ func (c *debugController) resolveTunnelNode(ctx context.Context, serverID, sessi
 		return c.findServer(serverID)
 	}
 	if sessionID == "" {
-		return models.ServerNode{}, fmt.Errorf("%w: 需要 serverId 或 sessionId", debugsrv.ErrBadInput)
+		return models.ServerNode{}, fmt.Errorf(i18n.T("%w: 需要 serverId 或 sessionId"), debugsrv.ErrBadInput)
 	}
 	v, err := c.callFrontend(ctx, "session.node", map[string]any{"id": sessionID})
 	if err != nil {
-		return models.ServerNode{}, fmt.Errorf("解析会话 %s 的服务器节点失败：%w", sessionID, err)
+		return models.ServerNode{}, fmt.Errorf(i18n.T("解析会话 %s 的服务器节点失败：%w"), sessionID, err)
 	}
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -2730,10 +2822,10 @@ func (c *debugController) resolveTunnelNode(ctx context.Context, serverID, sessi
 	}
 	var node models.ServerNode
 	if err := json.Unmarshal(b, &node); err != nil {
-		return models.ServerNode{}, fmt.Errorf("%w: 前端返回的会话节点不是合法服务器对象", debugsrv.ErrBadInput)
+		return models.ServerNode{}, fmt.Errorf(i18n.T("%w: 前端返回的会话节点不是合法服务器对象"), debugsrv.ErrBadInput)
 	}
 	if node.Host == "" {
-		return models.ServerNode{}, fmt.Errorf("会话 %s 没有可用的服务器节点（本机终端不能作为隧道的 SSH 连接）", sessionID)
+		return models.ServerNode{}, fmt.Errorf(i18n.T("会话 %s 没有可用的服务器节点（本机终端不能作为隧道的 SSH 连接）"), sessionID)
 	}
 	return node, nil
 }
@@ -2847,14 +2939,14 @@ func ctlSetPath(root map[string]any, path string, value any) error {
 	for i, part := range parts {
 		if i == len(parts)-1 {
 			if _, has := cur[part]; !has {
-				return fmt.Errorf("%w: 未知设置字段 %q（可用 settings.schema 查看全部字段）", debugsrv.ErrBadInput, path)
+				return fmt.Errorf(i18n.T("%w: 未知设置字段 %q（可用 settings.schema 查看全部字段）"), debugsrv.ErrBadInput, path)
 			}
 			cur[part] = value
 			return nil
 		}
 		next, ok := cur[part].(map[string]any)
 		if !ok {
-			return fmt.Errorf("%w: 设置字段 %q 不是对象，无法按路径访问", debugsrv.ErrBadInput, strings.Join(parts[:i+1], "."))
+			return fmt.Errorf(i18n.T("%w: 设置字段 %q 不是对象，无法按路径访问"), debugsrv.ErrBadInput, strings.Join(parts[:i+1], "."))
 		}
 		cur = next
 	}
@@ -2906,15 +2998,15 @@ func (c *debugController) ctlSettingsReset(paths []string) (any, error) {
 	resetPaths := make([]string, 0, len(paths))
 	for _, p := range paths {
 		if ctlPreserveOnReset(p) {
-			return nil, fmt.Errorf("%w: 字段 %q 在重置时被刻意保留（改了会把调试控制面自己关掉、导致 AI 失联）；"+
+			return nil, fmt.Errorf(i18n.T("%w: 字段 %q 在重置时被刻意保留（改了会把调试控制面自己关掉、导致 AI 失联）；")+
 				"如确需修改请用 update_settings", debugsrv.ErrBadInput, p)
 		}
 		if _, ok := ctlLookupPath(curMap, p); !ok {
-			return nil, fmt.Errorf("%w: 未知设置字段 %q（可用 settings.schema 查看全部字段）", debugsrv.ErrBadInput, p)
+			return nil, fmt.Errorf(i18n.T("%w: 未知设置字段 %q（可用 settings.schema 查看全部字段）"), debugsrv.ErrBadInput, p)
 		}
 		def, ok := ctlLookupPath(defMap, p)
 		if !ok {
-			return nil, fmt.Errorf("%w: 字段 %q 没有默认值，无法重置", debugsrv.ErrBadInput, p)
+			return nil, fmt.Errorf(i18n.T("%w: 字段 %q 没有默认值，无法重置"), debugsrv.ErrBadInput, p)
 		}
 		if err := ctlSetPath(curMap, p, def); err != nil {
 			return nil, err
@@ -2927,7 +3019,7 @@ func (c *debugController) ctlSettingsReset(paths []string) (any, error) {
 	}
 	var next models.Settings
 	if err := json.Unmarshal(b, &next); err != nil {
-		return nil, fmt.Errorf("%w: 重置后的设置无法解析: %v", debugsrv.ErrBadInput, err)
+		return nil, fmt.Errorf(i18n.T("%w: 重置后的设置无法解析: %v"), debugsrv.ErrBadInput, err)
 	}
 	if err := c.app.SaveSettings(next); err != nil {
 		return nil, err
@@ -3003,7 +3095,7 @@ func (c *debugController) handleSftpOp(ctx context.Context, op string, args map[
 	case debugsrv.OpSftpCancel:
 		return c.sftpHostCancel(args)
 	}
-	return nil, fmt.Errorf("%w: 未知 SFTP 操作 %q", debugsrv.ErrBadInput, op)
+	return nil, fmt.Errorf(i18n.T("%w: 未知 SFTP 操作 %q"), debugsrv.ErrBadInput, op)
 }
 
 // ctlSftpSessionID 读取会话 id（主名 sessionId，兼容 id）。
@@ -3018,21 +3110,21 @@ func ctlSftpSessionID(args map[string]any) string {
 func (c *debugController) ctlSftpClient(args map[string]any) (*sftp.Client, string, error) {
 	sess := ctlSftpSessionID(args)
 	if sess == "" {
-		return nil, "", fmt.Errorf("%w: 缺少 sessionId", debugsrv.ErrBadInput)
+		return nil, "", fmt.Errorf(i18n.T("%w: 缺少 sessionId"), debugsrv.ErrBadInput)
 	}
 	if c.app == nil || c.app.manager == nil {
-		return nil, sess, errors.New("会话管理器未初始化")
+		return nil, sess, errors.New(i18n.T("会话管理器未初始化"))
 	}
 	client, err := c.app.manager.SftpClient(sess)
 	if err != nil {
 		if errors.Is(err, sshx.ErrSessionNotFound) {
-			return nil, sess, fmt.Errorf("会话 %s 不存在或不是 SSH 会话（本机终端没有 SFTP）："+
+			return nil, sess, fmt.Errorf(i18n.T("会话 %s 不存在或不是 SSH 会话（本机终端没有 SFTP）：")+
 				"请先用 list_terminals 确认会话 id", sess)
 		}
-		return nil, sess, fmt.Errorf("建立 SFTP 连接失败（会话 %s）：%w", sess, err)
+		return nil, sess, fmt.Errorf(i18n.T("建立 SFTP 连接失败（会话 %s）：%w"), sess, err)
 	}
 	if client == nil {
-		return nil, sess, fmt.Errorf("会话 %s 的 SFTP 连接不可用（可能已断开）", sess)
+		return nil, sess, fmt.Errorf(i18n.T("会话 %s 的 SFTP 连接不可用（可能已断开）"), sess)
 	}
 	return client, sess, nil
 }
@@ -3123,20 +3215,35 @@ func (c *debugController) sftpHostList(args map[string]any) (any, error) {
 	}
 	infos, err := client.ReadDir(path)
 	if err != nil {
-		return nil, fmt.Errorf("读取远端目录 %q 失败（会话 %s）：%s", path, sess, ctlSftpErrText(err))
+		return nil, fmt.Errorf(i18n.T("读取远端目录 %q 失败（会话 %s）：%s"), path, sess, ctlSftpErrText(err))
 	}
 	resolved := path
 	if !strings.HasPrefix(path, "/") {
-		if wd, werr := client.Getwd(); werr == nil && strings.HasPrefix(wd, "/") {
-			resolved = wd
+		if absolute, resolveErr := client.RealPath(path); resolveErr == nil {
+			resolved = absolute
+		} else if wd, werr := client.Getwd(); werr == nil && strings.HasPrefix(wd, "/") {
+			resolved = filepath.ToSlash(filepath.Join(wd, path))
 		}
 	}
 	base := resolved
 	if !strings.HasSuffix(base, "/") {
 		base += "/"
 	}
-	entries := make([]debugsrv.SFTPEntryInfo, 0, len(infos))
-	for _, fi := range infos {
+	sort.SliceStable(infos, func(i, j int) bool {
+		if infos[i].IsDir() != infos[j].IsDir() {
+			return infos[i].IsDir()
+		}
+		return infos[i].Name() < infos[j].Name()
+	})
+	offset := ctlArgInt(args, "offset")
+	if offset < 0 {
+		return nil, fmt.Errorf("%s", i18n.T("offset 不能为负数"))
+	}
+	if offset > len(infos) {
+		offset = len(infos)
+	}
+	entries := make([]debugsrv.SFTPEntryInfo, 0, len(infos)-offset)
+	for _, fi := range infos[offset:] {
 		if len(entries) >= limit {
 			break
 		}
@@ -3166,7 +3273,7 @@ func (c *debugController) sftpHostStat(args map[string]any) (any, error) {
 	path = ctlExpandRemoteTilde(client, path)
 	fi, err := client.Lstat(path)
 	if err != nil {
-		return nil, fmt.Errorf("读取远端路径 %q 属性失败（会话 %s）：%s", path, sess, ctlSftpErrText(err))
+		return nil, fmt.Errorf(i18n.T("读取远端路径 %q 属性失败（会话 %s）：%s"), path, sess, ctlSftpErrText(err))
 	}
 	out := debugsrv.SFTPStatPayload{
 		Path:      path,
@@ -3208,7 +3315,7 @@ func ctlSftpWriteContentB64(args map[string]any) (string, error) {
 	}
 	raw, hasContent := args["content"]
 	if !hasContent {
-		return "", fmt.Errorf("%w: 缺少写入内容（content / base64）", debugsrv.ErrBadInput)
+		return "", fmt.Errorf(i18n.T("%w: 缺少写入内容（content / base64）"), debugsrv.ErrBadInput)
 	}
 	s, isStr := raw.(string)
 	if !isStr {
@@ -3244,7 +3351,7 @@ func (c *debugController) sftpHostRead(args map[string]any) (any, error) {
 	}
 	f, err := client.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("打开远端文件 %q 失败（会话 %s）：%s", path, sess, ctlSftpErrText(err))
+		return nil, fmt.Errorf(i18n.T("打开远端文件 %q 失败（会话 %s）：%s"), path, sess, ctlSftpErrText(err))
 	}
 	defer func() { _ = f.Close() }()
 	if fi, serr := f.Stat(); serr == nil {
@@ -3254,12 +3361,12 @@ func (c *debugController) sftpHostRead(args map[string]any) (any, error) {
 	}
 	if offset > 0 {
 		if _, serr := f.Seek(offset, io.SeekStart); serr != nil {
-			return nil, fmt.Errorf("定位远端文件 %q 到偏移 %d 失败：%w", path, offset, serr)
+			return nil, fmt.Errorf(i18n.T("定位远端文件 %q 到偏移 %d 失败：%w"), path, offset, serr)
 		}
 	}
 	buf, rerr := io.ReadAll(io.LimitReader(f, int64(maxBytes)+1))
 	if rerr != nil {
-		return nil, fmt.Errorf("读取远端文件 %q 失败：%w", path, rerr)
+		return nil, fmt.Errorf(i18n.T("读取远端文件 %q 失败：%w"), path, rerr)
 	}
 	eof := len(buf) <= maxBytes
 	if !eof {
@@ -3293,13 +3400,13 @@ func (c *debugController) sftpHostWrite(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%w: base64 解码失败：%v", debugsrv.ErrBadInput, derr)
 	}
 	if len(data) > ctlSFTPWriteMaxBytes {
-		return nil, fmt.Errorf("%w: 写入内容 %d 字节超过上限 %d 字节", debugsrv.ErrBadInput, len(data), ctlSFTPWriteMaxBytes)
+		return nil, fmt.Errorf(i18n.T("%w: 写入内容 %d 字节超过上限 %d 字节"), debugsrv.ErrBadInput, len(data), ctlSFTPWriteMaxBytes)
 	}
 	appendMode := ctlArgBool(args, "append")
 	if ctlArgBool(args, "createDirs") {
 		if parent := path.Dir(target); parent != "" && parent != "/" {
 			if merr := client.MkdirAll(parent); merr != nil {
-				return nil, fmt.Errorf("创建远端父目录 %q 失败：%w", parent, merr)
+				return nil, fmt.Errorf(i18n.T("创建远端父目录 %q 失败：%w"), parent, merr)
 			}
 		}
 	}
@@ -3311,15 +3418,15 @@ func (c *debugController) sftpHostWrite(args map[string]any) (any, error) {
 	}
 	f, oerr := client.OpenFile(target, flags)
 	if oerr != nil {
-		return nil, fmt.Errorf("打开远端文件 %q 写入失败：%w", target, oerr)
+		return nil, fmt.Errorf(i18n.T("打开远端文件 %q 写入失败：%w"), target, oerr)
 	}
 	n, werr := f.Write(data)
 	cerr := f.Close()
 	if werr != nil {
-		return nil, fmt.Errorf("写入远端文件 %q 失败：%w", target, werr)
+		return nil, fmt.Errorf(i18n.T("写入远端文件 %q 失败：%w"), target, werr)
 	}
 	if cerr != nil {
-		return nil, fmt.Errorf("关闭远端文件 %q 失败：%w", target, cerr)
+		return nil, fmt.Errorf(i18n.T("关闭远端文件 %q 失败：%w"), target, cerr)
 	}
 	c.app.manager.InvalidateSftpCache(path.Dir(target))
 	logx.Infof("MCP SFTP 写入: session=%s path=%s bytes=%d append=%v", sess, target, n, appendMode)
@@ -3344,7 +3451,7 @@ func (c *debugController) sftpHostMkdir(args map[string]any) (any, error) {
 		err = client.Mkdir(target)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("创建远端目录 %q 失败（会话 %s，recursive=%v）：%w", target, sess, recursive, err)
+		return nil, fmt.Errorf(i18n.T("创建远端目录 %q 失败（会话 %s，recursive=%v）：%w"), target, sess, recursive, err)
 	}
 	c.app.manager.InvalidateSftpCache(path.Dir(target))
 	logx.Infof("MCP SFTP 建目录: session=%s path=%s recursive=%v", sess, target, recursive)
@@ -3363,7 +3470,7 @@ func (c *debugController) sftpHostRename(args map[string]any) (any, error) {
 	}
 	from, to := paths[0], paths[1]
 	if rerr := client.Rename(from, to); rerr != nil {
-		return nil, fmt.Errorf("重命名 %q → %q 失败（会话 %s）：%w", from, to, sess, rerr)
+		return nil, fmt.Errorf(i18n.T("重命名 %q → %q 失败（会话 %s）：%w"), from, to, sess, rerr)
 	}
 	c.app.manager.InvalidateSftpCache(path.Dir(from))
 	c.app.manager.InvalidateSftpCache(path.Dir(to))
@@ -3389,20 +3496,20 @@ func (c *debugController) sftpHostRemove(args map[string]any) (any, error) {
 	recursive := ctlArgBool(args, "recursive")
 	fi, lerr := client.Lstat(target)
 	if lerr != nil {
-		return nil, fmt.Errorf("读取远端路径 %q 失败（会话 %s）：%w", target, sess, lerr)
+		return nil, fmt.Errorf(i18n.T("读取远端路径 %q 失败（会话 %s）：%w"), target, sess, lerr)
 	}
 	switch {
 	case fi.IsDir() && recursive:
 		// 复用既有实现：sshx.Manager.SftpRemove 内部就是「先删子项再删自身」的递归删除。
 		if rerr := c.app.SftpRemove(sess, target); rerr != nil {
-			return nil, fmt.Errorf("递归删除远端目录 %q 失败：%w", target, rerr)
+			return nil, fmt.Errorf(i18n.T("递归删除远端目录 %q 失败：%w"), target, rerr)
 		}
 	case fi.IsDir():
-		return nil, fmt.Errorf("%w: 目标 %q 是目录：删除目录必须显式传 recursive=true（会递归删除全部子项，不可恢复）",
+		return nil, fmt.Errorf(i18n.T("%w: 目标 %q 是目录：删除目录必须显式传 recursive=true（会递归删除全部子项，不可恢复）"),
 			debugsrv.ErrBadInput, target)
 	default:
 		if rerr := client.Remove(target); rerr != nil {
-			return nil, fmt.Errorf("删除远端路径 %q 失败：%w", target, rerr)
+			return nil, fmt.Errorf(i18n.T("删除远端路径 %q 失败：%w"), target, rerr)
 		}
 		c.app.manager.InvalidateSftpCache(path.Dir(target))
 	}
@@ -3417,7 +3524,7 @@ func (c *debugController) sftpHostRemove(args map[string]any) (any, error) {
 func (c *debugController) sftpHostSyncCwd(args map[string]any) (any, error) {
 	sess := ctlSftpSessionID(args)
 	if sess == "" {
-		return nil, fmt.Errorf("%w: 缺少 sessionId", debugsrv.ErrBadInput)
+		return nil, fmt.Errorf(i18n.T("%w: 缺少 sessionId"), debugsrv.ErrBadInput)
 	}
 	paths, err := c.ctlRequireSftpWritePaths(ctlArgStr(args, "remotePath"))
 	if err != nil {
@@ -3425,7 +3532,7 @@ func (c *debugController) sftpHostSyncCwd(args map[string]any) (any, error) {
 	}
 	path := paths[0]
 	if serr := c.app.SetSftpPathFromTerminal(sess, path); serr != nil {
-		return nil, fmt.Errorf("同步 SFTP 目录失败（会话 %s）：%w", sess, serr)
+		return nil, fmt.Errorf(i18n.T("同步 SFTP 目录失败（会话 %s）：%w"), sess, serr)
 	}
 	logx.Debugf("MCP SFTP 目录同步: session=%s path=%s", sess, path)
 	return debugsrv.SFTPMutationPayload{OK: true, Path: path}, nil
@@ -3447,14 +3554,14 @@ func (c *debugController) sftpHostCancel(args map[string]any) (any, error) {
 		}
 	}
 	if sess == "" || direction == "" || name == "" {
-		return nil, fmt.Errorf("%w: 缺少 sessionId / direction / name（或 transferId）", debugsrv.ErrBadInput)
+		return nil, fmt.Errorf(i18n.T("%w: 缺少 sessionId / direction / name（或 transferId）"), debugsrv.ErrBadInput)
 	}
 	// 取消传输没有路径可查白名单，但仍属于远端写类：能力位 + 非空白名单必须满足。
 	if err := c.ctlRequireRemoteFSWrite(""); err != nil {
 		return nil, err
 	}
 	if err := c.app.SftpCancelTransfer(sess, direction, name); err != nil {
-		return nil, fmt.Errorf("取消传输失败（session=%s direction=%s name=%s）：%w；"+
+		return nil, fmt.Errorf(i18n.T("取消传输失败（session=%s direction=%s name=%s）：%w；")+
 			"可先用 sftp.transfers 确认它仍在进行中", sess, direction, name, err)
 	}
 	return debugsrv.SFTPMutationPayload{OK: true, Path: name}, nil
@@ -3496,7 +3603,7 @@ func (c *debugController) handleSudoOp(ctx context.Context, op string, args map[
 	case debugsrv.OpSudoCleanup:
 		return c.sudoHostCleanup(ctx, args)
 	}
-	return nil, fmt.Errorf("%w: 未知 sudo 操作 %q", debugsrv.ErrBadInput, op)
+	return nil, fmt.Errorf(i18n.T("%w: 未知 sudo 操作 %q"), debugsrv.ErrBadInput, op)
 }
 
 // ctlSudoCredential 解析「会话 → 服务器节点 → 保存的密码」，返回节点与明文密码。
@@ -3510,29 +3617,29 @@ func (c *debugController) handleSudoOp(ctx context.Context, op string, args map[
 func (c *debugController) ctlSudoCredential(ctx context.Context, sessionID string) (models.ServerNode, string, error) {
 	sess := strings.TrimSpace(sessionID)
 	if sess == "" {
-		return models.ServerNode{}, "", fmt.Errorf("%w: 缺少 sessionId", debugsrv.ErrBadInput)
+		return models.ServerNode{}, "", fmt.Errorf(i18n.T("%w: 缺少 sessionId"), debugsrv.ErrBadInput)
 	}
 	// 1) 本机终端：明确拒绝（工具描述里也写明了不支持）。
 	if c.app != nil && c.app.local != nil && c.app.local.Has(sess) {
-		return models.ServerNode{}, "", errors.New("本机终端不支持 sudo 凭证提权：本机终端没有远端账号，" +
+		return models.ServerNode{}, "", errors.New(i18n.T("本机终端不支持 sudo 凭证提权：本机终端没有远端账号，") +
 			"也没有可用的 SFTP 通道（本机请直接用 terminal.run / send_input 手动输入）")
 	}
 	// 2) 会话 → 服务器节点（完整节点只存在于页面标签里）。
 	v, err := c.callFrontend(ctx, "session.node", map[string]any{"id": sess})
 	if err != nil {
-		return models.ServerNode{}, "", fmt.Errorf("会话 %s 没有对应的服务器：sudo 凭证提权只能用于「由已保存服务器打开的 SSH 会话」（%v）",
+		return models.ServerNode{}, "", fmt.Errorf(i18n.T("会话 %s 没有对应的服务器：sudo 凭证提权只能用于「由已保存服务器打开的 SSH 会话」（%v）"),
 			sess, err)
 	}
 	b, err := json.Marshal(v)
 	if err != nil {
-		return models.ServerNode{}, "", fmt.Errorf("解析会话 %s 的服务器节点失败：%w", sess, err)
+		return models.ServerNode{}, "", fmt.Errorf(i18n.T("解析会话 %s 的服务器节点失败：%w"), sess, err)
 	}
 	var node models.ServerNode
 	if err := json.Unmarshal(b, &node); err != nil {
-		return models.ServerNode{}, "", fmt.Errorf("%w: 前端返回的会话节点不是合法服务器对象", debugsrv.ErrBadInput)
+		return models.ServerNode{}, "", fmt.Errorf(i18n.T("%w: 前端返回的会话节点不是合法服务器对象"), debugsrv.ErrBadInput)
 	}
 	if node.Host == "" {
-		return models.ServerNode{}, "", fmt.Errorf("会话 %s 没有对应的服务器："+
+		return models.ServerNode{}, "", fmt.Errorf(i18n.T("会话 %s 没有对应的服务器：")+
 			"sudo 凭证提权需要从凭据库读取该服务器保存的密码（本机终端 / 未绑定服务器的会话都不支持）", sess)
 	}
 	// 3) 保存的密码：优先按 id 从存储再读一份（= servers.get includeSecrets=true 的宿主实现），
@@ -3548,7 +3655,7 @@ func (c *debugController) ctlSudoCredential(ctx context.Context, sessionID strin
 		if name == "" {
 			name = saved.Host
 		}
-		return saved, "", fmt.Errorf("服务器「%s」没有保存密码：请先在应用里为该服务器保存密码"+
+		return saved, "", fmt.Errorf(i18n.T("服务器「%s」没有保存密码：请先在应用里为该服务器保存密码")+
 			"（服务器 → 编辑 → 密码），或在该机器上配置免密 sudo 后改用 terminal.run", name)
 	}
 	return saved, saved.Password, nil
@@ -3561,7 +3668,7 @@ func (c *debugController) sudoHostStage(ctx context.Context, args map[string]any
 	sess := ctlSftpSessionID(args)
 	target := ctlArgStr(args, "path")
 	if target == "" {
-		return nil, fmt.Errorf("%w: 缺少 path（sudo 临时文件路径）", debugsrv.ErrBadInput)
+		return nil, fmt.Errorf(i18n.T("%w: 缺少 path（sudo 临时文件路径）"), debugsrv.ErrBadInput)
 	}
 	node, password, err := c.ctlSudoCredential(ctx, sess)
 	if err != nil {
@@ -3578,7 +3685,7 @@ func (c *debugController) sudoHostStage(ctx context.Context, args map[string]any
 	}
 	allow := c.app.sftpWriteAllowlist()
 	if !debugsrv.SFTPPathAllowed(allow, norm) {
-		return nil, fmt.Errorf("sudo 临时文件路径 %q 不在远端写入白名单内（当前白名单：%s）："+
+		return nil, fmt.Errorf(i18n.T("sudo 临时文件路径 %q 不在远端写入白名单内（当前白名单：%s）：")+
 			"请在 设置 → 调试模式 → MCP 能力 里把 /tmp 加进白名单前缀", norm, strings.Join(allow, "、"))
 	}
 	client, _, err := c.ctlSftpClient(map[string]any{"sessionId": sess})
@@ -3588,18 +3695,18 @@ func (c *debugController) sudoHostStage(ctx context.Context, args map[string]any
 	payload := []byte(password + "\n")
 	f, oerr := client.OpenFile(norm, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
 	if oerr != nil {
-		return nil, fmt.Errorf("创建 sudo 临时文件 %q 失败：%s", norm, ctlSftpErrText(oerr))
+		return nil, fmt.Errorf(i18n.T("创建 sudo 临时文件 %q 失败：%s"), norm, ctlSftpErrText(oerr))
 	}
 	n, werr := f.Write(payload)
 	cerr := f.Close()
 	if werr != nil {
 		// 写了一半也可能留下残片：尽力删掉再报错（debugsrv 侧还会再兜底清理一次）。
 		_ = client.Remove(norm)
-		return nil, fmt.Errorf("写入 sudo 临时文件 %q 失败：%w", norm, werr)
+		return nil, fmt.Errorf(i18n.T("写入 sudo 临时文件 %q 失败：%w"), norm, werr)
 	}
 	if cerr != nil {
 		_ = client.Remove(norm)
-		return nil, fmt.Errorf("关闭 sudo 临时文件 %q 失败：%w", norm, cerr)
+		return nil, fmt.Errorf(i18n.T("关闭 sudo 临时文件 %q 失败：%w"), norm, cerr)
 	}
 	c.app.manager.InvalidateSftpCache(path.Dir(norm))
 	// 日志只记会话 / 路径 / 字节数（长度有助于排查「写空了」），绝不记内容。
@@ -3635,10 +3742,10 @@ func (c *debugController) sudoHostCleanup(ctx context.Context, args map[string]a
 	sess := ctlSftpSessionID(args)
 	raw := ctlArgStr(args, "path")
 	if raw == "" {
-		return nil, fmt.Errorf("%w: 缺少 path（sudo 临时文件路径）", debugsrv.ErrBadInput)
+		return nil, fmt.Errorf(i18n.T("%w: 缺少 path（sudo 临时文件路径）"), debugsrv.ErrBadInput)
 	}
 	if !debugsrv.IsSudoTempPath(raw) {
-		return nil, fmt.Errorf("%w: 拒绝清理路径 %q：只接受本工具生成的临时文件（严格匹配 %s）",
+		return nil, fmt.Errorf(i18n.T("%w: 拒绝清理路径 %q：只接受本工具生成的临时文件（严格匹配 %s）"),
 			debugsrv.ErrBadInput, raw, "/tmp/.ding-sudo-<12 位十六进制>")
 	}
 	norm, nerr := debugsrv.NormalizeRemotePath(raw)
@@ -3649,11 +3756,11 @@ func (c *debugController) sudoHostCleanup(ctx context.Context, args map[string]a
 		return nil, fmt.Errorf("%w: 清理路径 %q 归一化后变成 %q：拒绝使用", debugsrv.ErrBadInput, raw, norm)
 	}
 	if c.app == nil {
-		return nil, errors.New("应用未初始化")
+		return nil, errors.New(i18n.T("应用未初始化"))
 	}
 	allow := c.app.sftpWriteAllowlist()
 	if !debugsrv.SFTPPathAllowed(allow, norm) {
-		return nil, fmt.Errorf("sudo 临时文件 %q 不在远端写入白名单内（当前白名单：%s）："+
+		return nil, fmt.Errorf(i18n.T("sudo 临时文件 %q 不在远端写入白名单内（当前白名单：%s）：")+
 			"请在 设置 → 调试模式 → MCP 能力 里把 /tmp 加进白名单前缀", norm, strings.Join(allow, "、"))
 	}
 	client, _, cerr := c.ctlSftpClient(map[string]any{"sessionId": sess})
@@ -3722,7 +3829,7 @@ func (c *debugController) sudoHostScrub(ctx context.Context, args map[string]any
 	raw, hasText := args["text"]
 	text, _ := raw.(string)
 	if !hasText {
-		return nil, fmt.Errorf("%w: 缺少 text（要净化的输出文本）", debugsrv.ErrBadInput)
+		return nil, fmt.Errorf(i18n.T("%w: 缺少 text（要净化的输出文本）"), debugsrv.ErrBadInput)
 	}
 	sess := ctlSftpSessionID(args)
 	_, password, err := c.ctlSudoCredential(ctx, sess)

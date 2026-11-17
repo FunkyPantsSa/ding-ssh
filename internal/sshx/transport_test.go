@@ -23,7 +23,7 @@ type localSSH struct {
 	listener net.Listener
 }
 
-func startLocalSSH(t *testing.T, password string, forward bool) *localSSH {
+func startLocalSSH(t *testing.T, password string, forward bool, handleRequests ...func(*ssh.ServerConn, <-chan *ssh.Request)) *localSSH {
 	t.Helper()
 	_, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -63,7 +63,11 @@ func startLocalSSH(t *testing.T, password string, forward bool) *localSSH {
 				}
 				defer sshConn.Close()
 				defer server.closed.Add(1)
-				go ssh.DiscardRequests(reqs)
+				if len(handleRequests) == 0 {
+					go ssh.DiscardRequests(reqs)
+				} else {
+					go handleRequests[0](sshConn, reqs)
+				}
 				for request := range chans {
 					if request.ChannelType() != "direct-tcpip" || !forward {
 						request.Reject(ssh.Prohibited, "forward denied")

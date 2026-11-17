@@ -1,291 +1,28 @@
 <script lang="ts" setup>
-import {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
-import {onTunnelStatus, sshService} from '../services/ssh'
-import {useServersStore} from '../stores/servers'
-import {ClipboardSetText} from '../../wailsjs/runtime/runtime'
-import type {TunnelInfo, TunnelStatusEvent} from '../types'
+import {t as $t} from '../i18n'
+
+import {t} from '../i18n'
+
 import Icon from './Icon.vue'
 import TunnelCard from './tunnels/TunnelCard.vue'
 import TunnelModePicker from './tunnels/TunnelModePicker.vue'
+import SearchSelect from './ui/select/SearchSelect.vue'
 import {Button, Dialog, EmptyState, ErrorState, Field, Input, Select} from './ui'
 
-type TunnelMode = 'local' | 'remote' | 'dynamic'
-
-const servers = useServersStore()
-const tunnels = ref<TunnelInfo[]>([])
-const loading = ref(false)
-const busy = ref(false)
-const error = ref('')
-const showDialog = ref(false)
-const editing = ref<TunnelInfo | null>(null)
-const copiedId = ref('')
-let copiedTimer: number | undefined
-/** 载入已有隧道时暂停「按模式/服务器自动填默认值」的联动，避免覆盖原有配置。 */
-let syncingForm = false
-const form = reactive({
-  serverId: '',
-  name: '',
-  mode: 'local' as TunnelMode,
-  localPort: 13306,
-  remoteHost: '127.0.0.1',
-  remotePort: 3306,
-})
-const disposers: Array<() => void> = []
-
-const selectedServer = computed(() => servers.servers.find((s) => s.id === form.serverId))
-
-const modeDetails = {
-  local: {
-    title: '本地转发 -L',
-    summary: '从本机访问远端网络中的服务',
-    description: '在本机开放一个端口，经 SSH 服务器连接只有远端网络才能访问的目标。',
-    example: '例如：数据库 10.0.0.8:3306 仅内网可见。创建后访问本机 127.0.0.1:13306，即可连接该数据库。',
-  },
-  remote: {
-    title: '远程转发 -R',
-    summary: '让远端访问本机上的服务',
-    description: '在 SSH 服务器上开放一个端口，收到的连接会通过隧道转发到本机服务。',
-    example: '例如：本机在 3000 端口运行开发站点。远端监听 127.0.0.1:13000 后，服务器访问该地址即可打开本机站点。',
-  },
-  dynamic: {
-    title: '动态 SOCKS5 -D',
-    summary: '让应用通过 SSH 服务器访问网络',
-    description: '在本机创建 SOCKS5 代理，应用发出的不同目标请求都会经 SSH 服务器转发。',
-    example: '例如：在浏览器中将 SOCKS5 代理设为 127.0.0.1:1080，浏览器流量就会从 SSH 服务器出口访问网络。',
-  },
-} as const
-
-const currentModeDetail = computed(() => modeDetails[form.mode])
-
-const hint = computed(() => {
-  if (form.mode === 'dynamic') {
-    return `SOCKS5 代理：127.0.0.1:${form.localPort || '?'}`
-  }
-  if (form.mode === 'remote') {
-    return `远程转发：远端 ${form.remoteHost || '127.0.0.1'}:${form.remotePort || '?'} → 本机 127.0.0.1:${form.localPort || '?'}`
-  }
-  return `本地转发：127.0.0.1:${form.localPort || '?'} → ${form.remoteHost || '?'}:${form.remotePort || '?'}`
-})
-
-watch(
-  () => form.serverId,
-  (id, old) => {
-    if (syncingForm) return
-    const s = servers.servers.find((x) => x.id === id)
-    if (!s) return
-    if (!form.name || form.name === servers.servers.find((x) => x.id === old)?.name) {
-      form.name = s.name
-    }
-  },
-)
-
-watch(
-  () => form.mode,
-  (mode) => {
-    if (syncingForm) return
-    if (mode === 'dynamic' && form.localPort === 13306) form.localPort = 1080
-    if (mode === 'local' && form.localPort === 1080) form.localPort = 13306
-  },
-)
-
-async function refresh() {
-  loading.value = true
-  try {
-    tunnels.value = await sshService.listTunnels()
-  } catch (e) {
-    error.value = String(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-async function submit() {
-  error.value = ''
-  if (!form.serverId) {
-    error.value = '请选择服务器'
-    return
-  }
-  const node = selectedServer.value
-  if (!node) return
-  const localPort = Number(form.localPort)
-  const remotePort = Number(form.remotePort)
-  if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535) {
-    error.value = '本地端口无效（1-65535）'
-    return
-  }
-  if (form.mode !== 'dynamic') {
-    if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) {
-      error.value = '远程端口无效（1-65535）'
-      return
-    }
-  }
-  const name = form.name.trim() || node.name
-  const remoteHost = form.remoteHost.trim() || '127.0.0.1'
-  const targetPort = form.mode === 'dynamic' ? 0 : remotePort
-  busy.value = true
-  try {
-    if (editing.value) {
-      await sshService.updateTunnel(editing.value.id, node, name, form.mode, localPort, remoteHost, targetPort)
-    } else {
-      await sshService.startTunnel(node, name, form.mode, localPort, remoteHost, targetPort)
-    }
-    await refresh()
-    showDialog.value = false
-    editing.value = null
-  } catch (e) {
-    error.value = String(e)
-    await refresh()
-  } finally {
-    busy.value = false
-  }
-}
-
-/** 用指定隧道的配置填充表单；传 null 表示按当前模式重置为新建默认值。 */
-function fillForm(t: TunnelInfo | null) {
-  syncingForm = true
-  if (t) {
-    form.serverId = servers.servers.some((s) => s.id === t.serverId)
-      ? t.serverId
-      : servers.servers[0]?.id ?? ''
-    form.name = t.name
-    form.mode = t.mode as TunnelMode
-    form.localPort = t.localPort
-    form.remoteHost = t.remoteHost || '127.0.0.1'
-    form.remotePort = t.remotePort || 3306
-  } else {
-    if (!form.serverId && servers.servers.length) form.serverId = servers.servers[0].id
-    form.name = selectedServer.value?.name ?? ''
-    form.localPort = form.mode === 'dynamic' ? 1080 : 13306
-    form.remoteHost = '127.0.0.1'
-    form.remotePort = 3306
-  }
-  void nextTick(() => {
-    syncingForm = false
-  })
-}
-
-function openCreate() {
-  error.value = ''
-  editing.value = null
-  fillForm(null)
-  showDialog.value = true
-}
-
-function openEdit(t: TunnelInfo) {
-  error.value = ''
-  editing.value = t
-  fillForm(t)
-  showDialog.value = true
-}
-
-function closeDialog() {
-  if (busy.value) return
-  showDialog.value = false
-  editing.value = null
-}
-
-async function stop(id: string) {
-  error.value = ''
-  try {
-    await sshService.stopTunnel(id)
-    await refresh()
-  } catch (e) {
-    error.value = String(e)
-  }
-}
-
-async function restart(id: string) {
-  error.value = ''
-  try {
-    await sshService.restartTunnel(id)
-    await refresh()
-  } catch (e) {
-    error.value = String(e)
-  }
-}
-
-async function remove(id: string) {
-  error.value = ''
-  try {
-    await sshService.removeTunnel(id)
-    await refresh()
-  } catch (e) {
-    error.value = String(e)
-  }
-}
-
-function onStatus(evt: TunnelStatusEvent) {
-  const t = tunnels.value.find((x) => x.id === evt.id)
-  if (!t) return
-  t.status = evt.status
-  if (evt.message) t.message = evt.message
-}
-
-const filteredTunnels = computed(() => tunnels.value.filter((t) => t.mode === form.mode))
-
-/** 使用者真正需要填到客户端里的地址。 */
-function tunnelAddress(t: TunnelInfo): string {
-  if (t.mode === 'dynamic') return `socks5://127.0.0.1:${t.localPort}`
-  if (t.mode === 'remote') return `${t.remoteHost || '127.0.0.1'}:${t.remotePort}`
-  return `127.0.0.1:${t.localPort}`
-}
-
-function addressLabel(t: TunnelInfo): string {
-  if (t.mode === 'dynamic') return '代理地址'
-  if (t.mode === 'remote') return '远端访问地址'
-  return '本机访问地址'
-}
-
-function tunnelPath(t: TunnelInfo): string {
-  if (t.mode === 'dynamic') return `经 ${t.serverName} 出口访问网络`
-  if (t.mode === 'remote') {
-    return `${t.remoteHost}:${t.remotePort}（${t.serverName}）→ 本机 127.0.0.1:${t.localPort}`
-  }
-  return `本机 127.0.0.1:${t.localPort} → ${t.remoteHost}:${t.remotePort}（经 ${t.serverName}）`
-}
-
-async function copyAddress(t: TunnelInfo) {
-  try {
-    await ClipboardSetText(tunnelAddress(t))
-    copiedId.value = t.id
-    window.clearTimeout(copiedTimer)
-    copiedTimer = window.setTimeout(() => {
-      copiedId.value = ''
-    }, 1600)
-  } catch (e) {
-    error.value = String(e)
-  }
-}
-
-onMounted(async () => {
-  if (!servers.servers.length) await servers.load()
-  if (servers.servers.length && !form.serverId) form.serverId = servers.servers[0].id
-  disposers.push(onTunnelStatus(onStatus))
-  await refresh()
-})
-
-onBeforeUnmount(() => {
-  disposers.forEach((d) => d())
-  window.clearTimeout(copiedTimer)
-})
+import {useTunnelManagement} from '../composables/useTunnelManagement'
+const {servers, tunnels, loading, busy, error, showDialog, editing, copiedId, localIPv4, loadingLocalIPv4, localIPv4Error, pendingActions, form, listenIPOptions, modeDetails, currentModeDetail, isReverseDynamic, isFixedForward, hint, refresh, submit, openCreate, openEdit, closeDialog, restartTunnel, stopTunnel, removeTunnel, filteredTunnels, tunnelAddress, addressLabel, tunnelTarget, loadLocalIPv4, copyOptions, copyAddress} = useTunnelManagement()
 </script>
 
 <template>
   <div class="h-full flex flex-col min-h-0">
     <div class="page-pad" data-ui="tunnels">
       <div class="page-hero flex items-center justify-between gap-6 mb-6">
-        <p class="text-[12.5px] text-mist leading-relaxed max-w-[620px]">
-          通过 SSH 安全转发端口，在本机、远端服务器和目标服务之间建立访问通道。
-        </p>
+        <p class="text-[12.5px] text-mist leading-relaxed max-w-[620px]">{{ $t('通过 SSH 安全转发端口，在本机、远端服务器和目标服务之间建立访问通道。') }}</p>
         <div class="flex gap-2 shrink-0">
           <Button variant="ghost" data-testid="tunnel-refresh" @click="refresh">
-            <Icon name="refresh" :size="14" />
-            刷新
-          </Button>
+            <Icon name="refresh" :size="14" />{{ $t('刷新') }}</Button>
           <Button variant="primary" :disabled="!servers.servers.length" data-testid="tunnel-create" @click="openCreate">
-            <Icon name="plus" :size="15" />
-            新建隧道
-          </Button>
+            <Icon name="plus" :size="15" />{{ $t('新建隧道') }}</Button>
         </div>
       </div>
 
@@ -294,60 +31,109 @@ onBeforeUnmount(() => {
       <div class="neo-flat px-4 py-3 mb-5">
         <p class="text-[13px] text-[var(--foreground)]">{{ currentModeDetail.description }}</p>
         <p class="text-[12px] text-mist mt-1.5 leading-relaxed">{{ currentModeDetail.example }}</p>
+        <p v-if="isReverseDynamic" class="text-[12px] text-danger mt-2">{{ $t('此代理无认证。服务器上的其他用户和进程也可能借此访问本机和本机可达的内网。\n          仅连接可信服务器。OpenSSH 请使用 GatewayPorts no，并通过防火墙阻止外部访问代理端口。') }}</p>
       </div>
 
       <ErrorState
         v-if="error && !showDialog"
         class="mb-5"
-        title="隧道操作失败"
+        :title="$t('隧道操作失败')"
         :description="error"
         @retry="refresh"
       />
 
-      <div v-if="filteredTunnels.length" class="grid gap-4 mb-6" style="grid-template-columns: repeat(auto-fill, minmax(300px, 1fr))">
-        <TunnelCard v-for="t in filteredTunnels" :key="t.id" :tunnel="t" :address="tunnelAddress(t)" :address-label="addressLabel(t)" :path="tunnelPath(t)" :copied="copiedId === t.id" @copy="copyAddress(t)" @start="restart(t.id)" @stop="stop(t.id)" @restart="restart(t.id)" @edit="openEdit(t)" @remove="remove(t.id)" />
+      <div v-if="filteredTunnels.length" class="grid gap-4 mb-6" style="grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr))">
+        <TunnelCard
+          v-for="t in filteredTunnels"
+          :key="t.id"
+          :tunnel="t"
+          :address="tunnelAddress(t)"
+          :address-label="addressLabel(t)"
+          :target="tunnelTarget(t)"
+          :copy-options="copyOptions(t)"
+          :copied="copiedId === t.id"
+          :busy="pendingActions.has(t.id)"
+          @load-addresses="loadLocalIPv4"
+          @copy="address => copyAddress(t, address)"
+          @start="restartTunnel(t.id)"
+          @stop="stopTunnel(t.id)"
+          @restart="restartTunnel(t.id)"
+          @edit="openEdit(t)"
+          @remove="removeTunnel(t.id)"
+        />
       </div>
       <EmptyState
         v-else-if="!loading"
         class="py-10"
-        title="暂无此类隧道"
-        :description="servers.servers.length ? '点击右上角「新建隧道」创建一条转发规则，或切换类型查看。' : '请先新建 SSH 服务器，再创建隧道。'"
+        :title="$t('暂无此类隧道')"
+        :description="servers.servers.length ? t('点击右上角「新建隧道」创建一条转发规则，或切换类型查看。') : t('请先新建 SSH 服务器，再创建隧道。')"
       />
     </div>
 
-    <Dialog v-model="showDialog" :title="editing ? '编辑隧道' : '新建隧道'" :width="600" :close-disabled="busy" @close="closeDialog">
+    <Dialog v-model="showDialog" :title="editing ? t('编辑隧道') : t('新建隧道')" :width="600" :close-disabled="busy" @close="closeDialog">
       <div class="flex flex-col gap-4">
         <p class="text-[12px] text-mist">
-          {{ editing ? '保存后按新配置生效；运行中的隧道会自动重启。' : '选择转发方式，并配置监听端口与目标地址。' }}
+          {{ editing ? t('保存后按新配置生效；运行中的隧道会自动重启。') : t('选择转发方式，并配置监听端口与目标地址。') }}
         </p>
 
         <div>
-          <span class="field-label">隧道类型</span>
+          <span class="field-label">{{ $t('隧道类型') }}</span>
           <div class="seg mt-1">
-            <button type="button" :class="form.mode === 'local' ? 'active' : ''" :aria-pressed="form.mode === 'local'" @click="form.mode = 'local'">本地 -L</button>
-            <button type="button" :class="form.mode === 'remote' ? 'active' : ''" :aria-pressed="form.mode === 'remote'" @click="form.mode = 'remote'">远程 -R</button>
+            <button type="button" :class="form.mode === 'local' ? 'active' : ''" :aria-pressed="form.mode === 'local'" @click="form.mode = 'local'">{{ $t('本地 -L') }}</button>
+            <button type="button" :class="form.mode === 'remote' ? 'active' : ''" :aria-pressed="form.mode === 'remote'" @click="form.mode = 'remote'">{{ $t('远程 -R') }}</button>
             <button type="button" :class="form.mode === 'dynamic' ? 'active' : ''" :aria-pressed="form.mode === 'dynamic'" @click="form.mode = 'dynamic'">SOCKS5 -D</button>
+            <button type="button" :class="isReverseDynamic ? 'active' : ''" :aria-pressed="isReverseDynamic" @click="form.mode = 'reverse-dynamic'">{{ $t('反向 SOCKS5') }}</button>
           </div>
           <div class="neo-flat px-3 py-2.5 mt-2">
             <p class="text-[12px] text-[var(--foreground)]">{{ currentModeDetail.description }}</p>
             <p class="text-[12px] text-mist mt-1">{{ currentModeDetail.example }}</p>
+            <p v-if="isReverseDynamic" class="text-[12px] text-danger mt-2">{{ $t('此代理无认证。服务器上的其他用户和进程也可能借此访问本机和本机可达的内网。\n              仅连接可信服务器。OpenSSH 请使用 GatewayPorts no，并通过防火墙阻止外部访问代理端口。') }}</p>
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
-          <Field label="名称" html-for="tunnel-name">
-            <Input id="tunnel-name" v-model="form.name" placeholder="例如：MySQL 本地入口" />
+          <Field :label="$t('名称')" html-for="tunnel-name">
+            <Input id="tunnel-name" v-model="form.name" :placeholder="$t('例如：MySQL 本地入口')" />
           </Field>
-          <Field label="SSH 服务器" html-for="tunnel-server">
-            <Select id="tunnel-server" v-model="form.serverId">
-              <option v-for="s in servers.servers" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </Select>
+          <Field :label="$t('SSH 服务器')" html-for="tunnel-server">
+            <SearchSelect
+              id="tunnel-server"
+              v-model="form.serverId"
+              :placeholder="$t('选择 SSH 服务器')"
+              :options="servers.servers.map(s => ({value: s.id, label: s.name === s.host ? s.name : `${s.name} · ${s.host}`, keywords: `${s.user} ${s.group}`}))"
+            />
           </Field>
         </div>
 
+        <Field v-if="form.mode === 'local'" :label="$t('监听范围')" html-for="tunnel-listen-scope">
+          <Select id="tunnel-listen-scope" v-model="form.listenScope">
+            <option value="loopback">{{ $t('仅本机（127.0.0.1）') }}</option>
+            <option value="specific">{{ $t('指定本机 IP') }}</option>
+            <option value="all-ipv4">{{ $t('所有 IPv4 网卡（0.0.0.0）') }}</option>
+          </Select>
+          <p v-if="form.listenScope !== 'loopback'" class="mt-2 text-xs text-mist">{{ $t('可达此端口的设备无需登录 SSH 即可使用转发。请在本机防火墙按来源 IP 限制访问。') }}</p>
+        </Field>
+        <Field v-if="form.mode === 'local' && form.listenScope === 'specific'" :label="$t('本机网卡 IP')" html-for="tunnel-listen-ip">
+          <div class="flex items-start gap-2">
+            <SearchSelect
+              id="tunnel-listen-ip"
+              v-model="form.listenIP"
+              class="font-mono"
+              :placeholder="$t('选择或搜索本机 IPv4')"
+              :options="listenIPOptions"
+              :disabled="loadingLocalIPv4 || !listenIPOptions.length"
+            />
+            <Button size="sm" variant="ghost" :disabled="loadingLocalIPv4" @click="loadLocalIPv4">{{ $t('刷新网卡') }}</Button>
+          </div>
+          <p v-if="loadingLocalIPv4" class="mt-1 text-xs text-mist">{{ $t('正在读取网卡地址…') }}</p>
+          <p v-else-if="localIPv4Error" class="mt-1 text-xs text-danger">{{ $t('读取网卡地址失败，请刷新重试。') }}</p>
+          <p v-else-if="!localIPv4.length" class="mt-1 text-xs text-mist">{{ $t('未发现启用的非回环 IPv4 地址。') }}</p>
+        </Field>
+
         <div class="grid grid-cols-2 gap-3">
           <Field
-            :label="form.mode === 'remote' ? '本机服务端口' : form.mode === 'dynamic' ? '本地代理端口' : '本地监听端口'"
+            v-if="!isReverseDynamic"
+            :label="form.mode === 'remote' ? t('本机服务端口') : form.mode === 'dynamic' ? t('本地代理端口') : t('本地监听端口')"
             html-for="tunnel-local-port"
           >
             <Input
@@ -360,12 +146,12 @@ onBeforeUnmount(() => {
               @update:model-value="form.localPort = Number($event)"
             />
           </Field>
-          <Field v-if="form.mode !== 'dynamic'" :label="form.mode === 'remote' ? '远端监听地址' : '目标主机'" html-for="tunnel-remote-host">
+          <Field v-if="isFixedForward" :label="form.mode === 'remote' ? t('远端监听地址') : t('目标主机')" html-for="tunnel-remote-host">
             <Input id="tunnel-remote-host" v-model="form.remoteHost" class="font-mono" placeholder="127.0.0.1" />
           </Field>
         </div>
 
-        <Field v-if="form.mode !== 'dynamic'" :label="form.mode === 'remote' ? '远端监听端口' : '目标端口'" html-for="tunnel-remote-port">
+        <Field v-if="form.mode !== 'dynamic'" :label="isReverseDynamic ? t('服务器代理端口') : form.mode === 'remote' ? t('远端监听端口') : t('目标端口')" html-for="tunnel-remote-port">
           <Input
             id="tunnel-remote-port"
             :model-value="form.remotePort"
@@ -382,9 +168,9 @@ onBeforeUnmount(() => {
       </div>
 
       <template #footer>
-        <Button variant="ghost" :disabled="busy" @click="closeDialog">取消</Button>
+        <Button variant="ghost" :disabled="busy" @click="closeDialog">{{ $t('取消') }}</Button>
         <Button variant="primary" :loading="busy" :disabled="busy" data-testid="tunnel-save" @click="submit">
-          {{ busy ? (editing ? '保存中…' : '创建中…') : editing ? '保存修改' : '创建隧道' }}
+          {{ busy ? (editing ? t('保存中…') : t('创建中…')) : editing ? t('保存修改') : t('创建隧道') }}
         </Button>
       </template>
     </Dialog>

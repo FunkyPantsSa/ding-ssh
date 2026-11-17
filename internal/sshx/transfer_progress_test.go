@@ -3,6 +3,7 @@ package sshx
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"sync"
 	"testing"
@@ -77,4 +78,76 @@ func (g *gateReader) Read(p []byte) (int, error) {
 		}
 	})
 	return g.r.Read(p)
+}
+
+func TestSameNameTransfersHaveDistinctIDsAndExactCancellation(t *testing.T) {
+	m := NewManager(func(string, interface{}) {})
+	ctxA, cancelA := context.WithCancel(context.Background())
+	defer cancelA()
+	ctxB, cancelB := context.WithCancel(context.Background())
+	defer cancelB()
+	a := m.registerTransfer("s", "upload", "same.txt", cancelA)
+	defer m.unregisterTransfer(a)
+	b := m.registerTransfer("s", "upload", "same.txt", cancelB)
+	defer m.unregisterTransfer(b)
+	if a.id == "" || a.id == b.id {
+		t.Fatal("task IDs must be distinct")
+	}
+	if err := m.SftpCancelTransfer("s", "upload", "same.txt"); err == nil {
+		t.Fatal("ambiguous legacy cancellation must fail")
+	}
+	if ctxA.Err() != nil || ctxB.Err() != nil {
+		t.Fatal("ambiguous cancellation stopped a task")
+	}
+	if err := m.SftpCancelTransfer("s", "upload", "@id:"+a.id); err != nil {
+		t.Fatal(err)
+	}
+	if ctxA.Err() == nil || ctxB.Err() != nil {
+		t.Fatal("exact cancellation affected wrong task")
+	}
+}
+
+func TestTransferProgressKeepsOneIDAcrossStartAndFinish(t *testing.T) {
+	var ids []string
+	m := NewManager(func(_ string, p interface{}) {
+		if e, ok := p.(models.SFTPTransferEvent); ok {
+			ids = append(ids, e.TransferID)
+		}
+	})
+	var dst bytes.Buffer
+	for i := 0; i < 2; i++ {
+		ids = nil
+		src := bytes.NewReader([]byte("data"))
+		if err := m.streamTransfer(context.Background(), "s", "upload", "same", 4, src.Read, dst.Write); err != nil {
+			t.Fatal(err)
+		}
+		if len(ids) < 2 || ids[0] == "" {
+			t.Fatalf("missing ID: %v", ids)
+		}
+		for _, id := range ids {
+			if id != ids[0] {
+				t.Fatalf("ID changed within task: %v", ids)
+			}
+		}
+	}
+}
+
+func TestCancelledStreamReturnsCancellationWithPartialBytes(t *testing.T) {
+	var final models.SFTPTransferEvent
+	m := NewManager(func(_ string, p interface{}) {
+		if e, ok := p.(models.SFTPTransferEvent); ok && e.Done {
+			final = e
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var dst bytes.Buffer
+	read := func(b []byte) (int, error) { b[0] = 'x'; cancel(); return 1, nil }
+	err := m.streamTransfer(ctx, "s", "upload", "partial", 100, read, dst.Write)
+	if !errors.Is(err, ErrTransferCancelled) {
+		t.Fatalf("cancelled transfer reported success: %v", err)
+	}
+	if final.TransferID == "" || final.Error != "已取消" || final.Transferred != 1 || final.Total != 100 {
+		t.Fatalf("incorrect cancellation progress: %+v", final)
+	}
 }

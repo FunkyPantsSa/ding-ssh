@@ -1,6 +1,15 @@
 <script lang="ts" setup>
+import {errorText} from '../i18n'
+
+import {t} from '../i18n'
+
+import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
 import {Terminal} from '@xterm/xterm'
+import {guardProgrammaticSelection} from '../utils/selection-copy-guard'
+import {isTerminalSearchShortcut} from '../utils/terminal-search'
+import {SearchAddon} from '@xterm/addon-search'
+import {Button, Input} from './ui'
 import {FitAddon} from '@xterm/addon-fit'
 import {WebglAddon} from '@xterm/addon-webgl'
 import {
@@ -17,11 +26,18 @@ import {
   reconnect,
   sshService,
 } from '../services/ssh'
-import {sysInfoService} from '../services/sysinfo'
+import {cacheServerSnapshot} from '../services/serverSnapshot'
+import {onSysInfoSnapshot, sysInfoService} from '../services/sysinfo'
 import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../services/zmodem'
 import {Colorizer} from '../utils/output-color'
 import {patchXtermZoomCoords} from '../utils/xterm-zoom'
-import {patchWebglZoomCanvas, syncWebglCanvas, webglCanvasReport} from '../utils/xterm-webgl-zoom'
+import {invalidateWebglGlyphModel, patchWebglZoomCanvas, syncWebglCanvas, webglCanvasReport} from '../utils/xterm-webgl-zoom'
+import {
+  registerSharedAtlasTerminal,
+  resetSharedAtlasTerminals,
+  scheduleSharedAtlasReset,
+  unregisterSharedAtlasTerminal,
+} from '../utils/terminal-atlas'
 import {registerDebugTerminal, unregisterDebugTerminal, type DebugTerminalEntry} from '../debug/registry'
 import Icon from './Icon.vue'
 import TerminalContextMenu from './terminal/TerminalContextMenu.vue'
@@ -30,16 +46,20 @@ import TerminalConnectionOverlay from './terminal/TerminalConnectionOverlay.vue'
 import TerminalTransferOverlay from './terminal/TerminalTransferOverlay.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
+import {useUIStore} from '../stores/ui'
 import {useTerminalCompletion} from '../composables/useTerminalCompletion'
-import {ClipboardGetText, ClipboardSetText} from '../../wailsjs/runtime/runtime'
+import {loadTerminalFonts} from '../theme/terminal-fonts'
+import {systemTone} from '../composables/useSystemTone'
+import {ClipboardGetText} from '../../wailsjs/runtime/runtime'
 import {LogClient, SetLogTrace} from '../../wailsjs/go/main/App'
-import {deriveSurfaceVars, isManagedTerminalBackground, effectiveBrand, resolveTone, monoFontStack, readableOn} from '../theme/engine'
+import {terminalAccentColor, resolveTerminalForeground, resolveTerminalSurface, effectiveBrand, monoFontStack, readableOn, rgba} from '../theme/engine'
 import {recordRecentServer} from '../services/recent'
 import type {SessionTab} from '../types'
 
 const props = defineProps<{tab: SessionTab; paneId?: string}>()
 const sessions = useSessionsStore()
 const settings = useSettingsStore()
+const ui = useUIStore()
 // 分屏中：该 TerminalView 所在格是否焦点格；未分屏：全局 activeId 是否命中
 const isActiveTab = computed(() => {
   if (props.paneId) return sessions.focusedPaneId === props.paneId
@@ -56,12 +76,55 @@ const webglFallbackToast = ref('')
 
 let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
+let searchAddon: SearchAddon | null = null
+let selectionCopyGuard: ReturnType<typeof guardProgrammaticSelection> | null = null
+function onUserSelection(event: PointerEvent) {
+  if ((event.target as HTMLElement | null)?.closest('.xterm-screen')) selectionCopyGuard?.beginUserSelection()
+}
+const searchOpen = ref(false)
+const searchQuery = ref('')
+const searchCase = ref(false)
+const searchCount = ref(0)
+const searchIndex = ref(-1)
+const searchRoot = ref<HTMLElement>()
+function findOutput(previous = false, incremental = false) {
+  if (!searchAddon || !searchQuery.value) {
+    searchAddon?.clearDecorations(); term?.clearSelection()
+    searchCount.value = 0; searchIndex.value = -1
+    return
+  }
+  const options = {caseSensitive: searchCase.value, incremental, decorations: {
+    matchBackground: '#73551a', matchBorder: '#efbf52', matchOverviewRuler: '#efbf52',
+    activeMatchBackground: '#175a88', activeMatchBorder: '#70c8ff', activeMatchColorOverviewRuler: '#70c8ff',
+  }}
+  if (previous) searchAddon.findPrevious(searchQuery.value, options)
+  else searchAddon.findNext(searchQuery.value, options)
+}
+watch([searchQuery, searchCase], () => findOutput(false, true))
+function closeSearch() {
+  searchOpen.value = false
+  searchAddon?.clearDecorations()
+  term?.clearSelection()
+  term?.focus()
+}
+function onSearchShortcut(event: KeyboardEvent) {
+  if (!isTerminalSearchShortcut(event, isActiveTab.value, searchRoot.value)) return
+  event.preventDefault(); event.stopImmediatePropagation()
+  searchOpen.value = true
+  void nextTick(() => { const input = searchRoot.value?.querySelector('input'); input?.focus(); input?.select() })
+}
+onMounted(() => window.addEventListener('keydown', onSearchShortcut, true))
+
+let pendingOutputBytes = 0
+let peakOutputBytes = 0
 let webglAddon: WebglAddon | null = null
-// WebGL 画布位图补丁探测结果：null = 尚未探测，false = 私有 API 不可用（缩放≠100% 时回退 Canvas）
+// WebGL 画布位图补丁探测结果：null = 尚未探测，false = 私有 API 不可用（缩放≠100% 时回退 DOM）
 let webglZoomPatched: boolean | null = null
 let zmodem: ZmodemController | null = null
 let resizeObserver: ResizeObserver | null = null
 const disposers: Array<() => void> = []
+// Terminal-lifetime hooks must survive session reconnect cleanup.
+const terminalDisposers: Array<() => void> = []
 // 本实例在调试注册表里的那一份登记（注销时按身份匹配，见 onBeforeUnmount 的说明）
 let debugEntry: DebugTerminalEntry | null = null
 let disposed = false
@@ -74,6 +137,19 @@ let autoReconnectAttempt = 0
 const autoReconnectCountdown = ref(0)
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 let focusTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * 共享图集协调登记项：图集被清空/合并时，先丢弃本终端的 WebGL 顶点模型（只 refresh
+ * 不会重建未变化的单元格），再整屏重绘。
+ */
+const atlasEntry = {
+  invalidateModel: () => {
+    if (!webglAddon) return
+    // 私有 API 不可用时退回公开的 clearTextureAtlas（会连带清图集，但保证模型失效）
+    if (!invalidateWebglGlyphModel(webglAddon)) term?.clearTextureAtlas()
+  },
+  refresh: () => term?.refresh(0, (term?.rows ?? 1) - 1),
+}
 
 // 命令补全的候选、输入行跟踪与快捷键从视图层抽出（见 composables/useTerminalCompletion.ts）。
 const completion = useTerminalCompletion({
@@ -114,50 +190,69 @@ const bgImageStyle = computed(() => {
   }
 })
 
+const followsAppTheme = computed(
+  () => !settings.theme.bgImage && settings.appearance.terminalBackgroundMode !== 'independent',
+)
+const appTone = computed(() => settings.appearance.baseTone === 'auto' ? systemTone.value : settings.appearance.baseTone)
+const terminalTone = computed(() => appTone.value)
 const terminalBackground = computed(() => {
-  const tone = resolveTone(settings.appearance.baseTone)
   const seed = effectiveBrand(settings.appearance).primary
-  if (!settings.theme.bgImage && isManagedTerminalBackground(settings.theme.background, seed, tone)) {
-    return deriveSurfaceVars(seed, tone)['--theme-bg-main']
-  }
-  return settings.theme.background
+  // Follow mode derives a coordinated ink surface; independent mode returns
+  // the scheme background unchanged. ANSI colors are never touched here.
+  return resolveTerminalSurface(
+    followsAppTheme.value,
+    settings.theme.background,
+    seed,
+    terminalTone.value,
+    settings.appearance.atmosphere ?? settings.appearance.colorIntensity ?? 75,
+    settings.appearance.surfaceSeparation ?? 65,
+  )
 })
-
-const useGlassTerminal = computed(() => {
-  if (!settings.appearance.glassEnabled || settings.theme.bgImage) return false
-  const tone = resolveTone(settings.appearance.baseTone)
-  return isManagedTerminalBackground(settings.theme.background, effectiveBrand(settings.appearance).primary, tone)
-})
+const terminalAccent = computed(() =>
+  terminalAccentColor(
+    effectiveBrand(settings.appearance).primary,
+    terminalTone.value,
+    settings.appearance.atmosphere ?? settings.appearance.colorIntensity ?? 75,
+    settings.appearance.surfaceSeparation ?? 65,
+  ),
+)
 
 const terminalStyle = computed(() => ({
-  '--xterm-text-shadow': settings.theme.textShadow
+  '--xterm-text-shadow': settings.theme.textShadow && appTone.value !== 'light'
     ? 'var(--terminal-text-shadow)'
     : 'none',
   '--terminal-shadow-blur': `${settings.theme.shadowBlur}px`,
   // 终端容器底色跟随终端主题：xterm 的内边距区域也呈现终端背景色，
   // 避免浅色界面下终端四周露出一圈界面底色边框（终端主题与界面明暗相互独立）。
-  background: useGlassTerminal.value ? 'transparent' : terminalBackground.value,
+  background: terminalBackground.value,
   // 不再反向抵消全局 zoom：app-shell 的 zoom 会整体等比缩放（含终端字号），
   // 若在此处设置 zoom: 1/z 会把 xterm 容器压缩 1/z，导致分屏格右侧/底部出现空白。
 }))
 
 const sourceLabel: Record<string, string> = {
-  history: '历史',
-  dict: '字典',
-  screen: '屏幕',
+  get history() { return t("历史") },
+  get dict() { return t("字典") },
+  get screen() { return t("屏幕") },
 }
 
 function applyTheme() {
   if (!term) return
   const t = settings.theme
-  const background = useGlassTerminal.value ? 'rgba(0, 0, 0, 0)' : t.bgImage ? hexToRgba(t.background, 0.85) : terminalBackground.value
-  term.options.allowTransparency = true
+  // Windows 透明字形比不透明背景上的字形显细，使用真实 Medium 字重补偿。
+  term.options.fontWeight = terminalFontWeight()
+  const background = t.bgImage ? hexToRgba(t.background, 0.85) : terminalBackground.value
+  // Readability protection: only a user-provided background image may make the
+  // terminal translucent. Glass material never lowers terminal opacity.
+  term.options.allowTransparency = !!t.bgImage
+  const follow = followsAppTheme.value
+  const cursor = follow ? terminalAccent.value : t.cursor
+  const selectionBackground = follow ? rgba(terminalAccent.value, 0.28) : t.selection
   term.options.theme = {
     background,
-    foreground: t.foreground,
-    cursor: t.cursor,
-    cursorAccent: readableOn(t.cursor),
-    selectionBackground: t.selection,
+    foreground: resolveTerminalForeground(follow, t.foreground, terminalBackground.value),
+    cursor,
+    cursorAccent: readableOn(cursor),
+    selectionBackground,
     black: t.black,
     red: t.red,
     green: t.green,
@@ -183,12 +278,22 @@ function applyFontSettings() {
   term.options.fontFamily = monoFontStack(settings.fonts.terminalFont)
   term.options.fontSize = effectiveFontSize()
   fit()
-  void Promise.all([document.fonts.load(`${effectiveFontSize()}px "${settings.fonts.terminalFont}"`), document.fonts.load(`${effectiveFontSize()}px "Noto Sans SC"`, '终端中文')]).then(() => {
+  void Promise.all([
+    loadTerminalFonts(settings.fonts.terminalFont, effectiveFontSize(), terminalFontWeight()),
+    document.fonts.load(`${effectiveFontSize()}px "Noto Sans SC"`, "终端中文"),
+  ]).then(() => {
     if (!term) return
     term.clearTextureAtlas()
     fit()
-    term.refresh(0, term.rows - 1)
+    // 图集是多终端共享的：清空后必须让兄弟终端也重建顶点模型，否则切回其它标签会整屏乱码。
+    resetSharedAtlasTerminals()
+  }).catch((error: unknown) => {
+    logClient('warn', t("[fonts] 终端字体加载失败，使用回退字体：{0}", [errorText(error)]))
   })
+}
+
+function terminalFontWeight(): 400 | 500 {
+  return navigator.userAgent.includes('Windows') && !!settings.theme.bgImage ? 500 : 400
 }
 
 /**
@@ -202,7 +307,7 @@ function applyFontSettings() {
  *
  * 现在由 `patchWebglZoomCanvas()`（见 utils/xterm-webgl-zoom.ts）把位图拉回网格尺寸并
  * 重设 GL viewport / uniform，任意缩放档位都能正常使用 WebGL；只有补丁打不上
- * （addon 私有 API 变化）且缩放 ≠ 100% 时，才回退 Canvas。
+ * （addon 私有 API 变化）且缩放 ≠ 100% 时，才回退 DOM。
  */
 function webglUsable(): boolean {
   if (!settings.webGLEnabled) return false
@@ -230,40 +335,43 @@ function tryEnableWebGL() {
   if (!term || !settings.webGLEnabled) return
   if (!webglUsable()) {
     disableWebGL()
-    console.info('[webgl] 界面缩放 ≠ 100% 且无法修正画布位图，已使用 Canvas 渲染')
-    logClient('info', `[webgl] uiScale=${settings.uiScale} → Canvas 渲染（画布位图补丁不可用）`)
+    console.info(t("[webgl] 界面缩放 ≠ 100% 且无法修正画布位图，已使用 DOM 渲染"))
+    logClient('info', t("[webgl] uiScale={0} → DOM 渲染（画布位图补丁不可用）", [settings.uiScale]))
     return
   }
   try {
     webglAddon?.dispose()
     webglAddon = new WebglAddon()
     webglAddon.onContextLoss(() => {
-      webglAddon?.dispose()
-      webglAddon = null
-      webglFallbackToast.value = 'WebGL 上下文丢失，已降级 Canvas 渲染'
+      disableWebGL()
+      logClient('warn', t("[webgl] 上下文丢失，已回退 DOM 渲染"))
+      webglFallbackToast.value = t("WebGL 上下文丢失，已降级 DOM 渲染")
       setTimeout(() => {
         webglFallbackToast.value = ''
       }, 4000)
     })
     term.loadAddon(webglAddon)
+    // 图集页合并/新增后，共享同一图集的其它终端模型会失效；合并到下一轮统一重绘。
+    webglAddon.onAddTextureAtlasCanvas(() => scheduleSharedAtlasReset())
     // CSS zoom 修正：必须在 loadAddon 之后（此时才拿得到渲染器实例）
     const patched = patchWebglZoomCanvas(webglAddon, uiZoom)
     if (webglZoomPatched === null) webglZoomPatched = patched
     if (!patched && uiZoom() !== 1) {
-      // 私有 API 变了 → 老策略兜底：缩放 ≠ 100% 时宁可用 Canvas，也不画错位
+      // 私有 API 变了 → 老策略兜底：缩放 ≠ 100% 时宁可用 DOM，也不画错位
       disableWebGL()
-      webglFallbackToast.value = 'WebGL 在界面缩放下不可用，已降级 Canvas 渲染'
+      webglFallbackToast.value = t("WebGL 在界面缩放下不可用，已降级 DOM 渲染")
       setTimeout(() => {
         webglFallbackToast.value = ''
       }, 4000)
-      logClient('warn', `[webgl] 画布位图补丁不可用（uiScale=${settings.uiScale}）→ Canvas 渲染`)
+      logClient('warn', t("[webgl] 画布位图补丁不可用（uiScale={0}）→ DOM 渲染", [settings.uiScale]))
       return
     }
     syncWebglCanvas(webglAddon)
     logClient('debug', `[webgl] enabled ${renderDiag()}`)
   } catch {
-    webglAddon = null
-    webglFallbackToast.value = '当前环境不支持 WebGL，已降级 Canvas 渲染'
+    disableWebGL()
+    logClient('warn', t("[webgl] 初始化失败，已回退 DOM 渲染"))
+    webglFallbackToast.value = t("当前环境不支持 WebGL，已降级 DOM 渲染")
     setTimeout(() => {
       webglFallbackToast.value = ''
     }, 4000)
@@ -332,11 +440,12 @@ function scheduleFocusActiveSurface() {
 
 function fit() {
   if (!term || !fitAddon || disposed) return
+  const {cols, rows} = term
   fitAddon.fit()
   // fit 改了网格尺寸：WebGL 下确保 canvas 位图 / GL viewport 跟着对齐
   // （CSS zoom 下观察器上报的是含 zoom 的尺寸，不能直接采用）
   if (webglAddon) syncWebglCanvas(webglAddon)
-  if (props.tab.sessionId) {
+  if (props.tab.sessionId && (cols !== term.cols || rows !== term.rows)) {
     sshService.resize(props.tab.sessionId, term.cols, term.rows).catch(() => {})
   }
 }
@@ -445,7 +554,7 @@ function isCopyCombo(e: KeyboardEvent): boolean {
 
 function doCopySelection() {
   const sel = term?.getSelection()
-  if (sel) void ClipboardSetText(sel)
+  if (sel) void ClipboardSetText(sel).catch(() => {})
 }
 
 /**
@@ -497,6 +606,7 @@ function doClear() {
 }
 
 function doSelectAll() {
+  selectionCopyGuard?.beginUserSelection()
   term?.selectAll()
   closeMenu()
   focusTerminal()
@@ -576,6 +686,16 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+function writeOutput(output: Uint8Array) {
+  if (!term || disposed || !output.length) return
+  const size = output.length
+  pendingOutputBytes += size
+  peakOutputBytes = Math.max(peakOutputBytes, pendingOutputBytes)
+  term.write(output, () => {
+    pendingOutputBytes -= size
+  })
+}
+
 async function setupZmodem(sessionId: string) {
   if (!term) return
   zmodem?.dispose()
@@ -584,6 +704,7 @@ async function setupZmodem(sessionId: string) {
     zmodem = await attachZmodem({
       term,
       sessionId,
+      writeOutput,
       onProgress: (p) => {
         zmodemProgress.value = p
         if (p.done) {
@@ -649,7 +770,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
   const sid = props.tab.clientId
   props.tab.sessionId = sid
   if (keepBuffer) {
-    term?.write('\r\n\x1b[33m── 重新连接 ──\x1b[0m\r\n')
+    term?.write(t("\r\n\u001b[33m── 重新连接 ──\u001b[0m\r\n"))
   } else {
     term?.reset()
   }
@@ -683,18 +804,19 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
   disposers.push(
     onSftpSyncPath(sid, (newPath) => {
       if (!settings.terminalToSftpSync) {
-        console.info('[sftp-sync] 开关已关，忽略', newPath)
+        console.info(t("[sftp-sync] 开关已关，忽略"), newPath)
         return
       }
       if (!newPath) {
-        console.info('[sftp-sync] 空路径，忽略')
+        console.info(t("[sftp-sync] 空路径，忽略"))
         return
       }
+      if (props.tab.node.jumpServerMode) return
       if (newPath === props.tab.sftpPath) {
-        console.info('[sftp-sync] 已在该目录，忽略', newPath)
+        console.info(t("[sftp-sync] 已在该目录，忽略"), newPath)
         return
       }
-      console.info('[sftp-sync] 写入 sftpPath', props.tab.sftpPath, '→', newPath)
+      console.info(t("[sftp-sync] 写入 sftpPath"), props.tab.sftpPath, '→', newPath)
       sessions.setSftpPath(props.tab.clientId, newPath)
     }),
   )
@@ -709,7 +831,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
       const bytes = base64ToBytes(data)
       if (zmodem) zmodem.consume(bytes)
       // 语义着色：只注入 SGR；off 档 / TUI（alt-buffer）内部直接原样返回输入字节
-      else term.write(colorize.feed(bytes))
+      else writeOutput(colorize.feed(bytes))
     }),
   )
 
@@ -732,6 +854,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
     if (!isLocal) {
       // 「登录后自动采集」开关关闭时，不在远端启动采集（status bar / 看板无数据）。
       if (settings.sysInfoCollectEnabled) {
+        disposers.push(onSysInfoSnapshot(result.sessionId, snap => cacheServerSnapshot(props.tab.node, snap)))
         void sysInfoService.start(result.sessionId).catch(() => {})
         disposers.push(() => {
           void sysInfoService.stop(result.sessionId).catch(() => {})
@@ -740,7 +863,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
     }
     fit()
   } catch (e) {
-    sessions.setStatus(props.tab.clientId, 'error', String(e))
+    sessions.setStatus(props.tab.clientId, 'error', errorText(e))
     return false
   }
   return true
@@ -786,8 +909,8 @@ function scheduleAutoReconnect() {
     autoReconnectCountdown.value = 0
     if (disposed || !settings.autoReconnect) return
     if (props.tab.status !== 'disconnected') return
-    term?.write(`\r\n\x1b[33m[自动重连] 第 ${autoReconnectAttempt} 次尝试…\x1b[0m\r\n`)
-    const ok = await reconnectSession()
+    term?.write(t("\r\n\u001b[33m[自动重连] 第 {0} 次尝试…\u001b[0m\r\n", [autoReconnectAttempt]))
+    const ok = await reconnectSession(false)
     if (ok) {
       autoReconnectAttempt = 0
     } else if (props.tab.status === 'disconnected' && settings.autoReconnect && !disposed) {
@@ -796,7 +919,7 @@ function scheduleAutoReconnect() {
   }, delay)
 }
 
-async function reconnectSession(): Promise<boolean> {
+async function reconnectSession(countLogin = true): Promise<boolean> {
   if (!term) return false
   cancelAutoReconnect()
   const prevStatus = props.tab.status
@@ -807,13 +930,13 @@ async function reconnectSession(): Promise<boolean> {
     try {
       await reconnect(props.tab.sessionId, term.cols, term.rows)
       sessions.setStatus(props.tab.clientId, 'connected')
-      recordRecentServer({id: props.tab.node.id, name: props.tab.serverName, host: props.tab.host, connectedAt: Date.now()})
+      recordRecentServer({id: props.tab.node.id, name: props.tab.serverName, host: props.tab.host, connectedAt: Date.now()}, countLogin)
       autoReconnectAttempt = 0
       await setupZmodem(props.tab.sessionId)
       fit()
       return true
     } catch (e) {
-      sessions.setStatus(props.tab.clientId, 'disconnected', String(e))
+      sessions.setStatus(props.tab.clientId, 'disconnected', errorText(e))
       return false
     }
   }
@@ -822,11 +945,11 @@ async function reconnectSession(): Promise<boolean> {
 }
 
 const CONNECT_STEPS: {key: string; label: string}[] = [
-  {key: 'dns', label: 'DNS / 直连'},
-  {key: 'tcp', label: 'TCP 握手'},
-  {key: 'auth', label: 'SSH 鉴权'},
-  {key: 'pty', label: '分配 PTY'},
-  {key: 'ready', label: '会话就绪'},
+  {key: 'dns', get label() { return t("DNS / 直连") }},
+  {key: 'tcp', get label() { return t("TCP 握手") }},
+  {key: 'auth', get label() { return t("SSH 鉴权") }},
+  {key: 'pty', get label() { return t("分配 PTY") }},
+  {key: 'ready', get label() { return t("会话就绪") }},
 ]
 
 type StepStatus = 'pending' | 'running' | 'done' | 'error'
@@ -878,6 +1001,10 @@ function closeTab() {
 
 function writeRaw(data: string) {
   if (!props.tab.sessionId) return
+  // 发往会话的输入（按键 / 粘贴 / 补全）先补写被语义着色挂起的提示符，并让回显逐字符透传。
+  // 否则逐字符输入会被当成「未完成的输出行」缓存，表现为输入了但屏幕不显示。
+  const pending = colorize.beginInput()
+  if (pending.length) term?.write(pending)
   // btoa 仅支持 latin1；对 Unicode 用 encodeURIComponent 兜底
   try {
     void sshService.write(props.tab.sessionId, btoa(data)).catch(() => {})
@@ -895,17 +1022,18 @@ onMounted(() => {
   term = new Terminal({
     allowProposedApi: true,
     allowTransparency: true,
-    fontWeight: 400,
-    fontWeightBold: 600,
+    minimumContrastRatio: 4.5,
+    fontWeight: terminalFontWeight(),
+    fontWeightBold: 700,
     cursorBlink: true,
     fontSize: effectiveFontSize(),
     fontFamily: monoFontStack(settings.fonts.terminalFont),
     theme: {
-      background: settings.theme.background,
-      foreground: settings.theme.foreground,
-      cursor: settings.theme.cursor,
-      cursorAccent: readableOn(settings.theme.cursor),
-      selectionBackground: settings.theme.selection,
+      background: terminalBackground.value,
+      foreground: resolveTerminalForeground(followsAppTheme.value, settings.theme.foreground, terminalBackground.value),
+      cursor: followsAppTheme.value ? terminalAccent.value : settings.theme.cursor,
+      cursorAccent: readableOn(followsAppTheme.value ? terminalAccent.value : settings.theme.cursor),
+      selectionBackground: followsAppTheme.value ? rgba(terminalAccent.value, 0.28) : settings.theme.selection,
     },
     scrollback: 5000,
     // 关闭「用户输入时强制滚到底部」：浏览历史时按普通键/粘贴不再跳转；
@@ -915,6 +1043,14 @@ onMounted(() => {
   fitAddon = new FitAddon()
   term.loadAddon(fitAddon)
   term.open(container.value!)
+  searchAddon = new SearchAddon({highlightLimit: 1000})
+  term.loadAddon(searchAddon)
+  const searchResults = searchAddon.onDidChangeResults(result => {
+    searchCount.value = result.resultCount
+    searchIndex.value = result.resultIndex
+  })
+  terminalDisposers.push(() => searchResults.dispose())
+  registerSharedAtlasTerminal(atlasEntry)
   // 调试模式：把自己注册进终端注册表，供调试 API 读取 xterm 内部状态 / 输入 / 滚动。
   // 放在 WebGL / 字号 / 事件接线之前：后面任何一步抛错都不该造成「终端已挂载、注册表却为空」
   //（调试 API 的 list_terminals / terminal.* 全都依赖这份登记）。
@@ -923,6 +1059,7 @@ onMounted(() => {
     title: props.tab.serverName,
     kind: props.tab.kind ?? 'ssh',
     term,
+    runtimeStatus: () => ({webgl: webglAddon !== null, pendingOutputBytes, peakOutputBytes}),
     container: () => container.value ?? null,
     write: writeRaw,
     reconnect: () => {
@@ -973,15 +1110,19 @@ onMounted(() => {
     if (settings.completionEnabled) scheduleSuggest()
   })
 
+  selectionCopyGuard = guardProgrammaticSelection(term)
+  container.value?.addEventListener('pointerdown', onUserSelection, true)
+  terminalDisposers.push(() => selectionCopyGuard?.dispose())
   term.onSelectionChange(() => {
-    if (!settings.copyOnSelect) return
+    if (!settings.copyOnSelect || selectionCopyGuard?.isProgrammatic()) return
     const selection = term?.getSelection()
-    if (selection) void ClipboardSetText(selection)
+    if (selection) void ClipboardSetText(selection).catch(() => {})
   })
 
   resizeObserver = new ResizeObserver(() => fit())
   resizeObserver.observe(container.value!)
   applyTheme()
+  applyFontSettings()
   container.value?.addEventListener('keydown', onKeydown, true)
   container.value?.addEventListener('compositionstart', () => {
     composing = true
@@ -998,8 +1139,12 @@ onMounted(() => {
 })
 
 watch(
-  () => [settings.theme, useGlassTerminal.value, settings.appearance.glassEnabled, settings.appearance.glassOpacity],
-  () => applyTheme(),
+  () => [settings.theme, terminalBackground.value, followsAppTheme.value, terminalAccent.value],
+  () => {
+    // Update xterm options only. The Terminal instance, SSH session, scroll
+    // position, input buffer and viewport size are never recreated here.
+    applyTheme()
+  },
   {deep: true},
 )
 
@@ -1052,6 +1197,9 @@ watch(
   () => [isActiveTab.value, props.tab.status] as const,
   ([active]) => {
     if (!active) return
+    // 共享字形图集可能在后台标签渲染时被清空/重排；切回时丢弃顶点模型并整屏重绘。
+    atlasEntry.invalidateModel()
+    atlasEntry.refresh()
     scheduleFocusActiveSurface()
   },
   {immediate: true},
@@ -1064,7 +1212,7 @@ watch(
     nextTick(() => {
       applyFontSize()
       // 缩放变化会改变 CSS zoom：补丁可用的环境继续用 WebGL（位图已在 fit() 里重新对齐），
-      // 补丁不可用且缩放 ≠ 100% 时回退 Canvas
+      // 补丁不可用且缩放 ≠ 100% 时回退 DOM
       if (!settings.webGLEnabled) return
       if (webglAddon && !webglUsable()) disableWebGL()
       else if (!webglAddon && webglUsable()) tryEnableWebGL()
@@ -1077,6 +1225,9 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  container.value?.removeEventListener('pointerdown', onUserSelection, true)
+  window.removeEventListener('keydown', onSearchShortcut, true)
+  searchAddon = null
   disposed = true
   // 带上自己那一份登记的引用：只有它还是注册表里的当前项才注销，
   // 避免 HMR「先挂新的、后卸旧的」时把新实例的登记顺手删掉（那会让注册表重新变空）。
@@ -1085,6 +1236,7 @@ onBeforeUnmount(() => {
   if (focusTimer) clearTimeout(focusTimer)
   cancelAutoReconnect()
   disposeCompletion()
+  terminalDisposers.forEach(dispose => dispose())
   disposers.forEach((d) => d())
   resizeObserver?.disconnect()
   container.value?.removeEventListener('paste', onPasteEvent, true)
@@ -1099,6 +1251,7 @@ onBeforeUnmount(() => {
     const tail = colorize.flush()
     if (tail.length) term.write(tail)
   }
+  unregisterSharedAtlasTerminal(atlasEntry)
   term?.dispose()
   term = null
 })
@@ -1106,6 +1259,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="relative h-full overflow-hidden terminal-theme" :style="terminalStyle">
+    <div v-if="searchOpen" ref="searchRoot" class="terminal-search" role="search" :aria-label="t('搜索终端输出')" @keydown.esc.stop.prevent="closeSearch">
+      <Input v-model="searchQuery" @keydown.enter.stop.prevent="findOutput($event.shiftKey)" class="min-w-0 flex-1" :placeholder="t('搜索终端输出')" :aria-label="t('搜索终端输出')" />
+      <span class="text-xs shrink-0" role="status">{{ searchQuery ? (searchCount ? `${searchIndex + 1}/${searchCount}` : t('无匹配结果')) : '' }}</span>
+      <Button size="icon" variant="ghost" :aria-pressed="searchCase" :title="t('区分大小写')" :aria-label="t('区分大小写')" @click="searchCase = !searchCase">Aa</Button>
+      <Button size="icon" variant="ghost" :aria-label="t('上一个匹配')" @click="findOutput(true)">↑</Button>
+      <Button size="icon" variant="ghost" :aria-label="t('下一个匹配')" @click="findOutput()">↓</Button>
+      <Button size="icon" variant="ghost" :aria-label="t('关闭搜索')" @click="closeSearch">×</Button>
+    </div>
     <div
       v-if="settings.theme.bgImage"
       class="absolute inset-0 bg-cover bg-center pointer-events-none"
@@ -1133,6 +1294,7 @@ onBeforeUnmount(() => {
       @close="closeTab"
       @connect="connect"
       @reconnect="reconnectSession"
+      @edit="ui.requestEditServer(tab.node.id)"
       @cancel-auto-reconnect="cancelAutoReconnect"
       @toggle-step="toggleStep"
     />
@@ -1175,11 +1337,16 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   width: 3px;
   align-self: stretch;
-  border-radius: 2px;
+  border-radius:var(--radius-small);
   background: var(--warning);
 }
 
 .completion-panel {
   animation: fadeRise 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+</style>
+
+<style scoped>
+.terminal-search{position:absolute;z-index:35;top:8px;right:8px;display:flex;align-items:center;gap:4px;padding:6px;width:min(400px,calc(100% - 16px));flex-wrap:wrap;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-2);color:var(--foreground);box-shadow:var(--shadow-overlay)}
+.terminal-search input{flex-basis:120px}
 </style>

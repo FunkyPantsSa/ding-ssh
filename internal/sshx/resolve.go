@@ -1,6 +1,7 @@
 package sshx
 
 import (
+	"ding-ssh/internal/i18n"
 	"ding-ssh/internal/models"
 	"fmt"
 )
@@ -20,11 +21,11 @@ func ResolveJumpChain(node models.ServerNode, servers []models.ServerNode) (mode
 	var visit func(string) error
 	visit = func(id string) error {
 		if seen[id] {
-			return fmt.Errorf("跳板路径包含循环或重复服务器：%s", id)
+			return fmt.Errorf(i18n.T("跳板路径包含循环或重复服务器：%s"), id)
 		}
 		hop, ok := byID[id]
 		if !ok {
-			return fmt.Errorf("找不到跳板服务器：%s", id)
+			return fmt.Errorf(i18n.T("找不到跳板服务器：%s"), id)
 		}
 		seen[id] = true
 		for _, parent := range hop.JumpServerIDs {
@@ -34,7 +35,7 @@ func ResolveJumpChain(node models.ServerNode, servers []models.ServerNode) (mode
 		}
 		resolved = append(resolved, hop)
 		if len(resolved) > 5 {
-			return fmt.Errorf("最多支持 5 级跳板机")
+			return fmt.Errorf("%s", i18n.T("最多支持 5 级跳板机"))
 		}
 		return nil
 	}

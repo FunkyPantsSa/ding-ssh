@@ -347,7 +347,7 @@ func uiToolEntries() []mcpTool {
 				"changedTiles": outProp("number"), "totalTiles": outProp("number"),
 				"regions": outProp("array"), "regionCount": outProp("number"),
 				"fingerprint": outProp("object"),
-				"pngA": outProp("string"), "pngB": outProp("string"), "diffPngPath": outProp("string"),
+				"pngA":        outProp("string"), "pngB": outProp("string"), "diffPngPath": outProp("string"),
 				"sizeMismatch": outProp("string"), "reloadWarning": outProp("string"), "note": outProp("string"),
 			}, "a", "b", "changedRatio", "regions", "fingerprint"),
 			structured: structuredIdentity},
@@ -364,7 +364,7 @@ func uiToolEntries() []mcpTool {
 				"styles":       map[string]any{"type": "object", "description": "断言计算样式：{属性名: 期望值}，比较时忽略首尾空白与大小写"},
 			}, "selector")},
 		{Name: OpUIStore, Description: "读取 Pinia store 快照：不传 name 返回 store 名列表；传 name 返回该 store 的 state（JSON 安全、限制体积、" +
-			"超限时截断并标注）；path 可只取子路径（如 theme / appearance.presetId）以减少体积。**只读**，不触发任何保存。",
+			"超限时截断并标注）；path 可只取子路径（如 theme / appearance.presetId）以减少体积。除 ui 导航状态与 store 名清单外，需要 secrets.read，以避免直接路径泄漏认证数据。**只读**，不触发任何保存。",
 			InputSchema: obj(map[string]any{
 				"name": strProp("store 名（如 ui / settings / sessions；缺省时只返回名字列表）"),
 				"path": strProp("state 内的点分路径（可选，如 appearance.presetId）"),
@@ -391,11 +391,11 @@ func uiToolEntries() []mcpTool {
 				"patch": map[string]any{"type": "object", "description": "要合并进 state 的字段（或 deep=true 时的深合并对象）"},
 				"deep":  boolProp("true 表示函数式深合并（$patch 的函数形式），默认 false（$patch 对象形式 = 浅合并）"),
 			}, "name", "patch")},
-		{Name: OpUINavigate, Description: "切换主导航视图：workspace | servers | tunnel | settings；view=settings 时可带 section" +
+		{Name: OpUINavigate, Description: "切换主导航视图：home | workspace | servers | tunnel | settings；view=settings 时可带 section" +
 			"（general/connectionInfo/theme/credentials/security/debug/logs/audit/migrate/about，通过点击设置页左侧分区实现）。" +
 			"返回前会等一帧，尽量让目标处于可截图状态。" + writeNote,
 			InputSchema: obj(map[string]any{
-				"view":    strProp("目标视图：workspace | servers | tunnel | settings"),
+				"view":    strProp("目标视图：home | workspace | servers | tunnel | settings"),
 				"section": strProp("设置页分区（仅 view=settings 时有效）"),
 			}, "view")},
 		{Name: OpUIWindow, Description: "调整应用窗口：width / height / x / y / minimize / maximize / restore，返回调整后的实际尺寸与位置。" +
@@ -779,6 +779,13 @@ func (s *Server) uiConsole(ctx context.Context, fe uiFrontend, args map[string]a
 func (s *Server) uiStore(ctx context.Context, fe uiFrontend, args map[string]any) (*UIResult, error) {
 	name := uiArgString(args, "name")
 	path := uiArgString(args, "path")
+	// Only the UI navigation store is safe to inspect without secret access.
+	// Gate before resolving paths: direct password paths must not bypass this.
+	if name != "" && name != "ui" {
+		if err := s.allowCap(CapSecretsRead, "ui.store: "+name); err != nil {
+			return nil, err
+		}
+	}
 	m, err := uiFetch(ctx, fe, OpUIStore, map[string]any{"name": name, "path": path, "maxBytes": uiStoreMaxBytes})
 	if err != nil {
 		return nil, err
@@ -845,9 +852,9 @@ func uiValidateWriteArgs(op string, args map[string]any) error {
 		}
 	case OpUINavigate:
 		switch uiArgString(args, "view") {
-		case "workspace", "servers", "tunnel", "settings":
+		case "home", "workspace", "servers", "tunnel", "settings":
 		default:
-			return fmt.Errorf("%w: view 必须是 workspace | servers | tunnel | settings（收到 %q）", ErrBadInput, uiArgString(args, "view"))
+			return fmt.Errorf("%w: view 必须是 home | workspace | servers | tunnel | settings（收到 %q）", ErrBadInput, uiArgString(args, "view"))
 		}
 	case OpUIType:
 		if _, has := args["text"]; !has {

@@ -39,6 +39,8 @@ func init() {
 
 // appctlToolNames 全部应用控制面工具（顺序 = tools/list 的展示顺序 = 能力位注册顺序）。
 var appctlToolNames = []string{
+	OpTabsActivate, OpPanelsSet, OpWorkspaceSplit,
+	OpGroupsList, OpGroupsCreate, OpGroupsRename, OpGroupsDelete, OpServersTest, OpHostTrustList,
 	// A. 服务器
 	OpServersList, OpServersGet, OpServersCreate, OpServersUpdate, OpServersDelete,
 	OpServersDuplicate, OpServersMoveGroup, OpServersExport, OpServersImport,
@@ -65,6 +67,8 @@ var appctlToolSet = func() map[string]bool {
 
 // appctlOps 宿主侧 op 集合（servers.export 没有 op，它在 debugsrv 侧组装，因此不在这里）。
 var appctlOps = map[string]bool{
+	OpTabsActivate: true, OpPanelsSet: true, OpWorkspaceSplit: true,
+	OpGroupsList: true, OpGroupsCreate: true, OpGroupsRename: true, OpGroupsDelete: true, OpServersTest: true, OpHostTrustList: true,
 	OpServersList: true,
 	OpServersGet:  true, OpServersCreate: true, OpServersUpdate: true, OpServersDelete: true,
 	OpServersDuplicate: true, OpServersMoveGroup: true, OpServersImport: true,
@@ -87,9 +91,12 @@ func IsAppctlOp(op string) bool {
 
 // registerAppctlCaps 登记全部应用控制面工具的能力位与确认动作（幂等，测试可重复调用）。
 func registerAppctlCaps() {
+	for _, name := range []string{OpTabsActivate, OpPanelsSet, OpWorkspaceSplit} {
+		RegisterToolCap(name, CapUIWrite)
+	}
 	// ---- 读类（永远允许；includeSecrets 的额外校验在 appctl.go 里做）----
 	for _, name := range []string{
-		OpServersList, OpServersGet, OpServersExport,
+		OpServersList, OpServersGet, OpServersExport, OpGroupsList, OpServersTest, OpHostTrustList,
 		OpCredentialsList,
 		OpTunnelsList,
 		OpSettingsSchema,
@@ -98,6 +105,9 @@ func registerAppctlCaps() {
 		RegisterToolCap(name, CapRead)
 	}
 
+	registerWrite(OpGroupsCreate, CapConfigWrite, OpGroupsCreate)
+	registerWrite(OpGroupsRename, CapConfigWrite, OpGroupsRename)
+	registerWrite(OpGroupsDelete, CapConfigWrite, OpGroupsDelete)
 	// ---- 服务器：config.write + 两段式确认 ----
 	registerWrite(OpServersCreate, CapConfigWrite, "servers.create")
 	registerWrite(OpServersUpdate, CapConfigWrite, "servers.update")
@@ -251,6 +261,15 @@ func appctlToolEntries() []mcpTool {
 	// 写工具统一带 token 参数：既有工具用 token，规格里写作 confirm，因此两个名字都收。
 	tokenProp := strProp("两段式确认 token（confirm.prepare 取得；别名 confirm 亦可）")
 	return []mcpTool{
+		{Name: OpTabsActivate, Description: "激活已有终端标签；不创建或断开连接。", InputSchema: obj(map[string]any{"id": strProp("标签 clientId")}, "id")},
+		{Name: OpPanelsSet, Description: "显示工作区右侧面板或收起面板；只修改当前界面。", InputSchema: obj(map[string]any{"panel": strProp("sftp | sysinfo | transfers | hidden")}, "panel")},
+		{Name: OpWorkspaceSplit, Description: "将两个已有标签组成分屏；不新建连接。enabled=false 仅取消分屏布局，保留全部标签及连接。", InputSchema: obj(map[string]any{"enabled": boolProp("默认 true"), "sourceId": strProp("已有标签 clientId"), "targetId": strProp("另一个已有标签 clientId"), "direction": strProp("left | right | up | down（默认 right）")})},
+		{Name: OpGroupsList, Description: "读取手动分组与服务器已使用分组的并集；不修改配置。", InputSchema: obj(nil), OutputSchema: outputObj(map[string]any{"groups": outProp("array"), "count": outProp("number")}, "groups", "count"), structured: structuredIdentity},
+		{Name: OpGroupsCreate, Description: "创建服务器分组；仅修改应用配置，不创建磁盘目录。", InputSchema: obj(map[string]any{"name": strProp("分组名"), "token": tokenProp}, "name")},
+		{Name: OpGroupsRename, Description: "重命名服务器分组，同时更新该分组下节点的分组字段；不修改远端文件。", InputSchema: obj(map[string]any{"oldName": strProp("原分组名"), "newName": strProp("新分组名"), "token": tokenProp}, "oldName", "newName")},
+		{Name: OpGroupsDelete, Description: "删除服务器分组，成员服务器转为未分组；不删除服务器或任何本地/远端目录。", InputSchema: obj(map[string]any{"name": strProp("分组名"), "token": tokenProp}, "name")},
+		{Name: OpServersTest, Description: "测试已保存服务器。mode=tcp 仅测试直连 TCP 端口；mode=login 使用保存的认证完成一次 SSH 握手，不执行命令、不打开终端。返回测试结果，不返回凭据。tcp 不适用于配置了跳板机的节点，请显式选择 login。", InputSchema: obj(map[string]any{"id": strProp("服务器 id"), "mode": strProp("tcp（默认）| login")}, "id"), OutputSchema: outputObj(map[string]any{"result": outProp("object"), "mode": outProp("string")}, "result", "mode"), structured: structuredIdentity},
+		{Name: OpHostTrustList, Description: "只读列出应用与 OpenSSH 的主机信任记录（含指纹与来源），不读取私钥、不改 known_hosts。", InputSchema: obj(nil), OutputSchema: outputObj(map[string]any{"records": outProp("array"), "count": outProp("number")}, "records", "count"), structured: structuredIdentity},
 		// ---- A. 服务器 ----
 		{Name: OpServersList, Description: "列出已保存的服务器（默认脱敏：password / keyContent 被清空，redactedFields 标出被清空的字段）。" + secretWarn,
 			InputSchema: obj(map[string]any{
@@ -355,15 +374,16 @@ func appctlToolEntries() []mcpTool {
 			"type=local（-L）：listenPort=本地监听端口，targetHost/targetPort=远端目标；" +
 			"type=remote（-R）：listenHost/listenPort=远端监听地址与端口，targetPort=本地目标端口（当前实现里本地目标固定 127.0.0.1）；" +
 			"type=dynamic（-D）：listenPort=本地 SOCKS5 端口，不需要 target*。" +
+			"type=reverse-dynamic（反向 SOCKS5）：listenPort=远端 SOCKS5 端口，固定请求服务器回环监听，不需要 target*。" +
 			"listenHost 在 local / dynamic 下当前固定为 127.0.0.1（传入会被忽略）。" +
 			"serverId 用已保存的服务器，sessionId 用某个已打开会话的服务器节点（二选一）。",
 			InputSchema: obj(map[string]any{
 				"serverId":   strProp("已保存的服务器 id（与 sessionId 二选一）"),
 				"sessionId":  strProp("已打开会话的 id（与 serverId 二选一）"),
-				"type":       strProp("local | remote | dynamic"),
+				"type":       strProp("local | remote | dynamic | reverse-dynamic"),
 				"name":       strProp("隧道名（可选，缺省自动生成）"),
 				"listenHost": strProp("监听地址（remote 模式 = 远端监听地址；可选）"),
-				"listenPort": intProp("监听端口（local: 本地；remote: 远端；dynamic: 本地 SOCKS5）"),
+				"listenPort": intProp("监听端口（local: 本地；remote: 远端；dynamic: 本地 SOCKS5；reverse-dynamic: 远端 SOCKS5）"),
 				"targetHost": strProp("目标主机（local 模式，缺省 127.0.0.1）"),
 				"targetPort": intProp("目标端口（local: 远端目标端口；remote: 本地目标端口）"),
 				"token":      tokenProp,
@@ -373,7 +393,7 @@ func appctlToolEntries() []mcpTool {
 				"id":         strProp("隧道 id（见 tunnels.list）"),
 				"serverId":   strProp("已保存的服务器 id（与 sessionId 二选一）"),
 				"sessionId":  strProp("已打开会话的 id（与 serverId 二选一）"),
-				"type":       strProp("local | remote | dynamic"),
+				"type":       strProp("local | remote | dynamic | reverse-dynamic"),
 				"name":       strProp("隧道名（可选）"),
 				"listenHost": strProp("监听地址（可选）"),
 				"listenPort": intProp("监听端口"),

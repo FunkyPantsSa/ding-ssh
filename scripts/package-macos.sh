@@ -11,10 +11,23 @@ if [[ ! -d "$APP" ]]; then
   exit 1
 fi
 
+# Detect the actual binary architecture rather than the build host architecture.
+BINARY_ARCH="$(lipo -archs "$APP/Contents/MacOS/ding-ssh")"
+case "$BINARY_ARCH" in
+  arm64) DETECTED_ARCH=arm64 ;;
+  x86_64) DETECTED_ARCH=amd64 ;;
+  *) echo "expected a single arm64 or x86_64 binary, got: $BINARY_ARCH" >&2; exit 1 ;;
+esac
+ARCH="${APP_ARCH:-$DETECTED_ARCH}"
+if [[ "$ARCH" != "$DETECTED_ARCH" ]]; then
+  echo "APP_ARCH=$ARCH does not match binary architecture $DETECTED_ARCH" >&2
+  exit 1
+fi
+
 mkdir -p "$DIST"
 chmod +x "$APP/Contents/MacOS/"* || true
 
-ZIP="$DIST/ding-ssh-${VERSION}-macos-universal.app.zip"
+ZIP="$DIST/ding-ssh-${VERSION}-macos-${ARCH}.app.zip"
 rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"
 
@@ -24,7 +37,7 @@ mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 
-DMG="$DIST/ding-ssh-${VERSION}-macos-universal.dmg"
+DMG="$DIST/ding-ssh-${VERSION}-macos-${ARCH}.dmg"
 rm -f "$DMG"
 hdiutil create -volname "ding-ssh" -srcfolder "$STAGE" -ov -format UDZO -imagekey zlib-level=9 "$DMG"
 rm -rf "$STAGE"

@@ -22,6 +22,16 @@
   --red-600: #dc2626;
   --red-500: #ef4444;
 
+  --shadow-overlay: 0 8px 24px rgb(0 0 0 / 20%);
+  --chart-compute: #60a5fa;
+  --chart-system: #a78bfa;
+  --chart-io: #fbbf24;
+  --chart-steal: #fb7185;
+  --chart-nice: #2dd4bf;
+  --chart-hardirq: #f97316;
+  --chart-softirq: #e879f9;
+  --chart-idle: #64748b;
+
   /* Spacing: 4px base. */
   --space-1: 4px;
   --space-2: 8px;

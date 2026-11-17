@@ -78,6 +78,15 @@ const (
 	//     避免宿主与 debugsrv 两处各抹一次、规则不一致）；
 	//   - servers.export：**没有 op** —— 导出文档完全在 debugsrv 侧组装（读 servers.list 后
 	//     脱敏 + 字节限额），因此不需要宿主实现。
+	OpTabsActivate      = "tabs.activate"
+	OpPanelsSet         = "panels.set"
+	OpWorkspaceSplit    = "workspace.split"
+	OpGroupsList        = "groups.list"
+	OpGroupsCreate      = "groups.create"
+	OpGroupsRename      = "groups.rename"
+	OpGroupsDelete      = "groups.delete"
+	OpServersTest       = "servers.test"
+	OpHostTrustList     = "hostTrust.list"
 	OpServersList       = "servers.list"
 	OpServersExport     = "servers.export"
 	OpServersGet        = "servers.get"

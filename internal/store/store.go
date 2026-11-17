@@ -3,6 +3,7 @@
 package store
 
 import (
+	"ding-ssh/internal/i18n"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,7 +34,7 @@ func NewJSONStore(path string) (*JSONStore, error) {
 		path = DefaultPath()
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, fmt.Errorf("创建配置目录失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("创建配置目录失败: %w"), err)
 	}
 	return &JSONStore{path: path}, nil
 }

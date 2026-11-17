@@ -1,3 +1,4 @@
+import {t} from '../i18n'
 import { computed, onBeforeUnmount, ref, type Ref } from 'vue'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import { GetAuditRecords, UndoAuditRecord } from '../../wailsjs/go/main/App'
@@ -46,7 +47,7 @@ export function useSettingsAudit(capInfo: Ref<CapabilitiesView | null>) {
     error.value = ''; message.value = ''
     try {
       await UndoAuditRecord(record.id, record.tool, record.args)
-      message.value = `已撤销 ${record.tool} 的改动（设置已恢复为改动前的值）`
+      message.value = t("已撤销 {0} 的改动（设置已恢复为改动前的值）", [record.tool])
       await refresh()
     } catch (cause) { error.value = String(cause) }
   }

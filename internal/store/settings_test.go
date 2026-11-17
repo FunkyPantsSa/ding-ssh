@@ -657,7 +657,7 @@ func TestSQLiteSettingsStoreDebugCapabilities(t *testing.T) {
 	settings.Debug.CapRemoteFSWrite = true
 	settings.Debug.CapLifecycle = true
 	settings.Debug.SFTPWriteAllowlist = []string{"/home/deploy", "/home/deploy"}
-	settings.Debug.CapSecretWrite = true // 但 AllowSecrets=false → 归一化时必须回落 false
+	settings.Debug.CapSecretWrite = true    // 但 AllowSecrets=false → 归一化时必须回落 false
 	settings.Debug.CapSudoCredential = true // 同上：不允许读取敏感数据时不可能用保存的密码提权
 	if err := s.Save(settings); err != nil {
 		t.Fatalf("保存设置失败: %v", err)
@@ -960,5 +960,52 @@ func TestSettingsTerminalColorModeDefaultStaysAuto(t *testing.T) {
 	}
 	if sqliteSettings.TerminalColorMode != models.ColorModeAuto {
 		t.Fatalf("新库 SQLite 默认语义着色 = %q，期望 %q", sqliteSettings.TerminalColorMode, models.ColorModeAuto)
+	}
+}
+
+func TestBehaviorSettingsDefaultsAndRoundTrip(t *testing.T) {
+	for _, sqlite := range []bool{false, true} {
+		t.Run(map[bool]string{false: "json", true: "sqlite"}[sqlite], func(t *testing.T) {
+			var s SettingsStore
+			if sqlite {
+				db, err := OpenSQLite(filepath.Join(t.TempDir(), "settings.db"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer db.Close()
+				s = NewSQLiteSettingsStore(db)
+			} else {
+				path := filepath.Join(t.TempDir(), "settings.json")
+				if err := os.WriteFile(path, []byte(`{"uiSchema":4}`), 0600); err != nil {
+					t.Fatal(err)
+				}
+				var err error
+				s, err = NewJSONSettingsStore(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			st, err := s.Get()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st.AutoStart || !st.ConfirmCloseTab || !st.ConfirmCloseApp || st.SmoothAnimations {
+				t.Fatalf("incorrect defaults: %+v", st)
+			}
+			st.AutoStart = true
+			st.ConfirmCloseTab = false
+			st.ConfirmCloseApp = false
+			st.SmoothAnimations = true
+			if err = s.Save(st); err != nil {
+				t.Fatal(err)
+			}
+			got, err := s.Get()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !got.AutoStart || got.ConfirmCloseTab || got.ConfirmCloseApp || !got.SmoothAnimations {
+				t.Fatal("explicit preferences were not preserved")
+			}
+		})
 	}
 }

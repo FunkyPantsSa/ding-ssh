@@ -1,4 +1,8 @@
 <script lang="ts" setup>
+import {t as $t} from '../i18n'
+
+import {t} from '../i18n'
+
 import {computed, reactive, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {useGroupsStore} from '../stores/groups'
@@ -67,7 +71,7 @@ const grouped = computed(() => {
   const keys = new Set<string>(groups.list)
   for (const k of map.keys()) keys.add(k)
   const sorted = [...keys].filter((k) => k !== '').sort((a, b) => a.localeCompare(b))
-  if (map.has('')) buckets.push({name: '未分组', items: map.get('')!})
+  if (map.has('')) buckets.push({get name() { return t("未分组") }, items: map.get('')!})
   for (const key of sorted) {
     buckets.push({name: key, items: map.get(key) ?? []})
   }
@@ -108,27 +112,27 @@ function isActiveNode(node: ServerNode): boolean {
     </Transition>
 
     <Transition name="qconn">
-      <aside v-show="open" class="qconn" aria-label="快速连接" data-ui="quick-connect">
+      <aside v-show="open" class="qconn" :aria-label="$t('快速连接')" data-ui="quick-connect">
         <div class="px-4 h-12 flex items-center justify-between shrink-0 inset-line-b">
           <div class="flex items-center gap-2">
             <Icon name="server" :size="16" extra-class="text-signal" />
-            <span class="text-[13px] font-semibold text-[var(--foreground)]">服务器</span>
+            <span class="text-[13px] font-semibold text-[var(--foreground)]">{{ $t('服务器') }}</span>
             <span class="text-[12px] text-mist">{{ servers.servers.length }}</span>
           </div>
-          <Button variant="ghost" size="icon" title="收起" aria-label="收起" @click="ui.closeTerminalSidebar()">
+          <Button variant="ghost" size="icon" :title="$t('收起')" :aria-label="$t('收起')" @click="ui.closeTerminalSidebar()">
             <Icon name="close" :size="14" />
           </Button>
         </div>
 
-        <div class="px-2.5 pb-2 shrink-0">
+        <div class="px-2.5 pt-2.5 pb-2 shrink-0">
           <div class="search">
             <Icon name="search" :size="14" extra-class="search-ico" />
             <Input
               v-model="keyword"
               type="text"
               class="qconn-search-input"
-              placeholder="搜索名称 / 主机 / 分组…"
-              aria-label="搜索服务器"
+              :placeholder="$t('搜索名称 / 主机 / 分组…')"
+              :aria-label="$t('搜索服务器')"
             />
           </div>
         </div>
@@ -141,12 +145,10 @@ function isActiveNode(node: ServerNode): boolean {
             </div>
           </div>
           <div v-else-if="!servers.servers.length" class="px-3 py-8 text-center text-xs text-mist flex flex-col items-center gap-3">
-            <span>暂无服务器</span>
-            <Button variant="primary" size="sm" @click="ui.showServers()">去添加服务器</Button>
+            <span>{{ $t('暂无服务器') }}</span>
+            <Button variant="primary" size="sm" @click="ui.showServers()">{{ $t('去添加服务器') }}</Button>
           </div>
-          <div v-else-if="!filtered.length" class="px-3 py-8 text-center text-xs text-mist">
-            无匹配服务器
-          </div>
+          <div v-else-if="!filtered.length" class="px-3 py-8 text-center text-xs text-mist">{{ $t('无匹配服务器') }}</div>
 
           <div v-for="bucket in grouped" :key="bucket.name" class="flex flex-col gap-0.5">
             <button class="group-h" @click="toggleGroup(bucket.name)">
@@ -165,7 +167,7 @@ function isActiveNode(node: ServerNode): boolean {
                 :key="node.id"
                 class="qconn-item group"
                 :class="isActiveNode(node) ? 'active' : ''"
-                :title="`连接 ${node.name}`"
+                :title="t('连接 {0}', [node.name])"
                 @click="connect(node)"
               >
                 <span class="status" :class="nodeStatus(node)"></span>
@@ -181,12 +183,13 @@ function isActiveNode(node: ServerNode): boolean {
 
         <div class="p-2.5 shrink-0 inset-line-t">
           <Button variant="ghost" size="sm" class="w-full" @click="ui.showServers()">
-            <Icon name="server" :size="14" />
-            管理服务器
-          </Button>
+            <Icon name="server" :size="14" />{{ $t('管理服务器') }}</Button>
         </div>
       </aside>
     </Transition>
   </Teleport>
 </template>
-<style scoped>.qconn-search-input{height:30px;padding-left:32px}</style>
+<style scoped>
+.qconn-search-input{height:30px}
+.search :deep(input.qconn-search-input){padding-left:32px}
+</style>

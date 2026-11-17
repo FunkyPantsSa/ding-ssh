@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import {t} from '../i18n'
+
 import {computed} from 'vue'
 import SplitDivider from './SplitDivider.vue'
 import {useSessionsStore} from '../stores/sessions'
@@ -68,7 +70,7 @@ function onHeaderDragStart(e: DragEvent) {
           @dragend="sessions.draggingSplitGroup = false"
         >
           <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot(paneTab(leafItem.paneId)?.status ?? 'closed')"></span>
-          <span class="truncate" :title="paneTab(leafItem.paneId)?.serverName">{{ paneTab(leafItem.paneId)?.serverName ?? '（空）' }}</span>
+          <span class="truncate" :title="paneTab(leafItem.paneId)?.serverName">{{ paneTab(leafItem.paneId)?.serverName ?? t('（空）') }}</span>
         </div>
       </div>
     </template>

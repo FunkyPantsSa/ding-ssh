@@ -1,6 +1,7 @@
 // 与 Go 端 models 包对应的类型定义。
 
 export interface ServerNode {
+  jumpServerMode?: boolean
   identityFiles?: string[]
   identityAgent?: string
   identitiesOnly?: boolean
@@ -106,16 +107,27 @@ export interface Theme {
   brightWhite: string
 }
 
-// UI 外观（对应 Go 端 models.UIAppearance）：品牌色 + 明暗模式。
+// UI 外观（对应 Go 端 models.UIAppearance）：配色种子 + 明暗模式 + 材质。
+export type MaterialMode = 'solid' | 'soft' | 'clear'
+
 export interface UIAppearance {
+  terminalBackgroundMode?: string
+  /** 主题氛围强度 0–100；旧字段 colorIntensity 作为兼容别名保留。 */
+  atmosphere?: number
+  /** 区域层级差异 0–100。 */
+  surfaceSeparation?: number
+  /** 材质模式：实色 / 柔和毛玻璃 / 通透毛玻璃。 */
+  materialMode?: MaterialMode
+  /** @deprecated 使用 atmosphere；旧配置迁移时自动同步。 */
+  colorIntensity?: number
   glassEnabled?: boolean
   mode: 'preset' | 'custom' // preset 预设 / custom 自定义
   presetId: string // 预设主题 ID（preset 模式）
   baseTone: 'auto' | 'light' | 'dark' // 明暗模式
-  primary: string // custom：主色（hex）
+  primary: string // custom：主色 / 配色种子（hex）
   secondary: string // custom：辅色（hex）
-  uiText: string // custom：界面主文字色（hex）
-  glassOpacity: number // 应用玻璃表面不透明度（40–100）
+  uiText: string // custom：界面主文字色（hex；旧字段，仅兼容）
+  glassOpacity: number // 应用玻璃表面不透明度（60–100）
   glassBlur: number // 应用玻璃表面模糊强度（0–60px）
 }
 
@@ -128,6 +140,11 @@ export interface Fonts {
 
 // 应用设置（对应 Go 端 models.Settings）。
 export interface Settings {
+  autoStart?: boolean
+  confirmCloseTab?: boolean
+  confirmCloseApp?: boolean
+  smoothAnimations?: boolean
+
   uiSchema?: number // UI presentation schema; 2 = Geist design system
   logEnabled: boolean
   copyOnSelect: boolean // 终端选中内容自动复制到剪贴板
@@ -144,6 +161,7 @@ export interface Settings {
   autoReconnect: boolean // 断开后自动重连，默认开启
   keepAliveEnabled: boolean // 心跳包防终端超时，默认开启
   // 登录 SSH 服务器后是否自动采集系统指标（默认开启）。关闭后连接服务器不会向远端执行任何采集命令。
+  sysInfoRealtimeEnabled?: boolean
   sysInfoCollectEnabled: boolean
   localShell: string // 本机终端：darwin zsh|bash；windows powershell|cmd；linux default
   // 启动（解锁）后自动重新连接「上次关闭时仍在打开的服务器」（默认关闭）
@@ -268,6 +286,7 @@ export interface SFTPEntry {
 
 // SFTP 传输进度事件（对应 Go 端 models.SFTPTransferEvent）。
 export interface SFTPTransferEvent {
+  transferId?: string
   sessionId: string
   direction: 'upload' | 'download'
   name: string
@@ -314,7 +333,9 @@ export interface TunnelInfo {
   name: string
   serverId: string
   serverName: string
-  mode: string // local | remote | dynamic
+  serverHost?: string
+  listenHost?: string
+  mode: string // local | remote | dynamic | reverse-dynamic
   localPort: number
   remoteHost: string
   remotePort: number
@@ -332,6 +353,12 @@ export interface TunnelStatusEvent {
 
 // 系统监控快照。
 export interface DiskInfo {
+ device?: string
+ fsType?: string
+ network?: boolean
+ uncertain?: boolean
+ totalBytes?: number
+ usedBytes?: number
   mountPoint: string
   totalGb: number
   usedGb: number
@@ -345,7 +372,30 @@ export interface NetIface {
   txMbps: number
 }
 
+export interface TopProcess {
+  pid: number
+  user: string
+  cpu: number
+  memory: number
+  resident: string
+  state: string
+  time: string
+  command: string
+}
+
 export interface SysInfoSnapshot {
+  topAvailable?: boolean
+  cpuDetail?: Record<string, number>
+  load?: number[]
+  processes?: TopProcess[]
+  swapTotalMb?: number
+  swapUsedMb?: number
+  memAvailableMb?: number
+
+ diskIncomplete?: boolean
+  osName?: string
+  architecture?: string
+  cpuCount?: number
   sessionId: string
   cpuUsage: number
   memUsedMb: number

@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/subtle"
+	"ding-ssh/internal/i18n"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -28,15 +29,15 @@ const (
 )
 
 var (
-	ErrLocked       = errors.New("保险库未解锁")
-	ErrBadPassword  = errors.New("主密码错误")
-	ErrNotEncrypted = errors.New("不是加密字段")
+	ErrLocked       = errors.New(i18n.T("保险库未解锁"))
+	ErrBadPassword  = errors.New(i18n.T("主密码错误"))
+	ErrNotEncrypted = errors.New(i18n.T("不是加密字段"))
 )
 
 // Encrypt 使用 AES-256-GCM 加密明文，返回带 Prefix 的密文字符串。
 func Encrypt(key []byte, plaintext string) (string, error) {
 	if len(key) != 32 {
-		return "", fmt.Errorf("密钥长度必须为 32 字节")
+		return "", fmt.Errorf("%s", i18n.T("密钥长度必须为 32 字节"))
 	}
 	if plaintext == "" {
 		return "", nil
@@ -66,14 +67,14 @@ func Decrypt(key []byte, ciphertext string) (string, error) {
 		return "", ErrNotEncrypted
 	}
 	if len(key) != 32 {
-		return "", fmt.Errorf("密钥长度必须为 32 字节")
+		return "", fmt.Errorf("%s", i18n.T("密钥长度必须为 32 字节"))
 	}
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(ciphertext, Prefix))
 	if err != nil {
-		return "", fmt.Errorf("密文解码失败: %w", err)
+		return "", fmt.Errorf(i18n.T("密文解码失败: %w"), err)
 	}
 	if len(raw) < nonceLen+1 {
-		return "", errors.New("密文过短")
+		return "", errors.New(i18n.T("密文过短"))
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -86,7 +87,7 @@ func Decrypt(key []byte, ciphertext string) (string, error) {
 	nonce, sealed := raw[:nonceLen], raw[nonceLen:]
 	plain, err := gcm.Open(nil, nonce, sealed, nil)
 	if err != nil {
-		return "", errors.New("解密失败")
+		return "", errors.New(i18n.T("解密失败"))
 	}
 	return string(plain), nil
 }
@@ -155,7 +156,7 @@ func SealPayload(password string, plaintext []byte) ([]byte, error) {
 // OpenPayload 用密码解密 SealPayload 产物。
 func OpenPayload(password string, blob []byte) ([]byte, error) {
 	if len(blob) < saltLen+nonceLen+1 {
-		return nil, errors.New("数据包损坏或过短")
+		return nil, errors.New(i18n.T("数据包损坏或过短"))
 	}
 	salt := blob[:saltLen]
 	nonce := blob[saltLen : saltLen+nonceLen]

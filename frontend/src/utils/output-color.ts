@@ -471,7 +471,8 @@ function scanEscapes(line: string): {sgr: boolean; unsafe: boolean} {
 
 /** 提示符行尾（光标停在提示符后，或命令回显行没匹配上时兜底）：不着色。 */
 const PROMPT_TAIL_RES: RegExp[] = [
-  /[$#]\s*$/,
+  // bash 的 `$` / root 的 `#`，以及 macOS 默认 zsh 的 `%`
+  /[%$#]\s*$/,
   /PS\s+[^>]{0,120}>\s*$/,
   /^[A-Za-z]:\\[^>]{0,120}>\s*$/,
 ]
@@ -505,6 +506,8 @@ export class Colorizer {
   private raw = false
   /** 最近执行的命令（latin1 + 词边界正则），用于跳过回显行。 */
   private commands: RegExp[] = []
+  /** 用户正在输入：回显必须逐字符透传，不能按「未完成输出行」缓存。 */
+  private inputEcho = false
 
   constructor(mode: TerminalColorMode = 'auto') {
     this.mode = mode
@@ -524,7 +527,23 @@ export class Colorizer {
     this.raw = false
     // 从 off / raw 回到着色档：丢弃在闸门里攒下的半行，避免把 TUI 残留当普通行处理
     this.pending = ''
+    this.inputEcho = false
     return EMPTY
+  }
+
+  /**
+   * 用户开始输入（按键 / 粘贴 / 补全写入）。
+   *
+   * 返回被挂起的半行（通常是还没被识别出来的提示符），调用方应立即 term.write。
+   * 之后直到换行的回显原样透传：语义着色会把「未完成的行」缓存到换行再处理，
+   * 若把用户逐字符回显也缓存，就会出现「输入了但屏幕不显示」的问题。
+   */
+  beginInput(): Uint8Array {
+    this.inputEcho = true
+    if (!this.pending) return EMPTY
+    const out = latin1ToBytes(this.pending)
+    this.pending = ''
+    return out
   }
 
   /** 记录刚执行的命令：命中该命令的行视为回显 / 提示符行，不着色。 */
@@ -541,6 +560,7 @@ export class Colorizer {
     this.pending = ''
     this.tail = ''
     this.raw = this.mode === 'off'
+    this.inputEcho = false
     this.commands = []
   }
 
@@ -561,6 +581,16 @@ export class Colorizer {
     // alt-buffer 切换可能跨块，用上一块的尾巴拼着扫；set/clear 幂等，重复扫无副作用
     this.scanLatch(this.tail + chunk)
     this.tail = chunk.length > 16 ? chunk.slice(-16) : chunk
+
+    // 全屏 TUI 内原样透传，输入回显状态不再适用
+    if (this.raw) this.inputEcho = false
+
+    // 用户正在输入：回显逐字符原样透传，遇到换行（命令提交）后恢复普通输出处理。
+    // 否则 `p`/`i`/`n`/`g` 这样的逐字符回显会一直挂在 pending 里不显示。
+    if (this.inputEcho) {
+      if (chunk.includes('\n')) this.inputEcho = false
+      return bytes
+    }
 
     if (this.raw) {
       // 闸门内（TUI / off）原样透传；退出闸门在下一块生效

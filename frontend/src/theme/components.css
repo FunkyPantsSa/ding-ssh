@@ -1,22 +1,28 @@
 /* Component-facing aliases. All values derive from semantic tokens so there is
    exactly one source of truth for colors, spacing, radii and motion. */
 :root {
-  --button-primary-bg: var(--primary);
-  --button-primary-fg: var(--primary-foreground);
-  --button-ghost-hover: var(--hover);
+  --button-primary-bg: var(--accent-bg);
+  --button-primary-fg: var(--accent-foreground);
+  --button-ghost-hover: var(--interactive-hover-bg);
   --input-bg: var(--field-bg);
   --input-border: var(--field-border);
-  --panel-bg: var(--surface-1);
-  --panel-border: var(--border);
-  --nav-bg: var(--surface-1);
-  --topbar-bg: var(--theme-bg-toolbar, var(--surface-1));
-  --statusbar-bg: var(--surface-1);
-  --context-panel-bg: var(--surface-1);
+  --panel-bg: var(--surface-bg);
+  --panel-border: var(--border-default);
+  --nav-bg: var(--sidebar-primary-bg);
+  --secondary-nav-bg: var(--sidebar-secondary-bg);
+  --topbar-bg: var(--toolbar-bg);
+  --statusbar-bg: var(--toolbar-bg);
+  --workspace-bg: var(--workspace-bg);
+  --card-bg: var(--surface-bg);
+  --card-raised-bg: var(--surface-raised-bg);
+  --context-panel-bg: var(--surface-overlay-bg);
+  --dialog-bg: var(--surface-overlay-bg);
+  --terminal-surface-bg: var(--terminal-bg);
 
   /* Legacy hairlines used by the shell styles. */
   --line: var(--border-subtle);
-  --line-strong: var(--border);
+  --line-strong: var(--border-default);
   --line-faint: var(--border-subtle);
-  --surface-hi: var(--hover);
+  --surface-hi: var(--interactive-hover-bg);
   --surface-border: var(--border-subtle);
 }

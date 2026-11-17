@@ -1,6 +1,7 @@
 package store
 
 import (
+	"ding-ssh/internal/i18n"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,7 +32,7 @@ func NewJSONSettingsStore(path string) (*JSONSettingsStore, error) {
 		path = DefaultSettingsPath()
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, fmt.Errorf("创建配置目录失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("创建配置目录失败: %w"), err)
 	}
 	return &JSONSettingsStore{path: path}, nil
 }
@@ -49,6 +50,8 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return models.Settings{
 			UISchema:             2,
+			ConfirmCloseTab:      true,
+			ConfirmCloseApp:      true,
 			WebGLEnabled:         true,
 			CompletionEnabled:    false,
 			CompletionNavHotkey:  "Alt+ArrowDown",
@@ -109,6 +112,12 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	}
 	if settings.UIScale <= 0 {
 		settings.UIScale = 100
+	}
+	if !bytesContains(data, []byte(`"confirmCloseTab"`)) {
+		settings.ConfirmCloseTab = true
+	}
+	if !bytesContains(data, []byte(`"confirmCloseApp"`)) {
+		settings.ConfirmCloseApp = true
 	}
 	if !bytesContains(data, []byte(`"autoReconnect"`)) {
 		settings.AutoReconnect = true

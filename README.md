@@ -1,3 +1,5 @@
+简体中文 | [English](README.en.md)
+
 <div align="center">
   <img src="frontend/icon/ding.png" width="280" alt="ding-ssh：猫咪终端应用图标">
   <h1>ding-ssh</h1>
@@ -6,7 +8,7 @@
 
 [![CI](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml)
 
-一个把 **SSH 终端 / SFTP / 端口转发 / 本机 shell** 装进同一窗口的桌面工作台，并额外内置一套**只监听本机**的控制面（HTTP + SSE + MCP），让脚本与 AI 客户端可以直接读写应用状态、驱动终端。
+一个把 **SSH 终端 / SFTP / 端口转发 / 本机 shell** 装进同一窗口的桌面工作台，并额外内置一套**默认监听本机**的控制面（HTTP + SSE + MCP），让脚本与 AI 客户端可以直接读写应用状态、驱动终端。
 
 | | |
 | --- | --- |
@@ -17,6 +19,8 @@
 | 变更记录 | [`CHANGELOG.md`](CHANGELOG.md) · [`docs/2.0设计规范.md`](docs/2.0设计规范.md) · [`docs/refactor-2.0/`](docs/refactor-2.0/) |
 
 ---
+
+设置 → 通用 → 语言支持简体中文和 English，默认中文，选择保存在本机。切换语言原地更新界面，不重载页面、不关闭终端会话。应用界面、说明、连接与传输提示及原生文件选择标题均提供英文；用户内容和远端终端输出保持原样。
 
 ## 目录
 
@@ -87,7 +91,27 @@
 
 **5. 传文件 / 开隧道**
 
-右侧面板切到 SFTP，路径与终端目录自动联动，拖文件进面板即上传。隧道页新建转发，模式选 `local` / `remote` / `dynamic`。
+右侧面板切到 SFTP，路径与终端目录自动联动，拖文件进面板即上传。隧道页新建转发，模式选本地转发、远程转发、动态 SOCKS5 或反向 SOCKS5。
+
+#### 动态 SOCKS5
+
+| 隧道模式 | 在哪配置代理 | 流量出口 |
+| --- | --- | --- |
+| SOCKS5 -D | 本机应用使用 `127.0.0.1:1080` | SSH 服务器 |
+| 反向 SOCKS5 -R | SSH 服务器上的应用使用 `127.0.0.1:1080` | 运行 Ding SSH 的本机 |
+
+在「隧道 → 新建隧道」中选择「反向 SOCKS5」，选中服务器并填写服务器代理端口，默认是 `1080`。Ding SSH 从本机连接服务器的 SSH 端口，服务器可以通过内网、VPN 或跳板机访问。服务器须允许远程 TCP 转发（OpenSSH 的 `AllowTcpForwarding remote` 或 `yes`，以及相应的 `PermitListen` 策略）。本机负责连接目标，直接使用本机可达的网络。若两端之间只有服务器能主动连接本机，需要先建立可达路径，或在服务器上使用 SSH 客户端连接本机的 SSH 服务。
+
+在服务器上验证代理，并把目标域名交给代理出口解析。
+
+```bash
+curl --proxy socks5h://127.0.0.1:1080 https://example.com
+```
+
+- **代理无认证。** 服务器上的其他用户、进程和容器也可能使用这个代理访问本机的回环服务、内网和公网，流量会从本机出口发出。仅对可信服务器启用，用完后停止隧道。
+- **限制监听范围。** 应用请求服务器绑定 `127.0.0.1`，并拒绝 SSH 服务报告的非回环来源。OpenSSH 请保持 `GatewayPorts no`，用防火墙阻止外部访问代理端口。`GatewayPorts yes` 会强制扩大监听范围，服务端配置和来源报告必须可信。[OpenSSH sshd_config 手册](https://man.openbsd.org/sshd_config)
+- **按应用启用。** SOCKS5 只支持 TCP CONNECT。应用需要显式配置代理。全局接管流量时，要为 SSH 对端保留直连路由，避免隧道路由环路。
+
 
 **6. 想给 AI 用？**
 
@@ -115,6 +139,14 @@
 - **快速连接**是从右侧贴边收起的侧栏，点选即开会话。
 - **命令面板**（`Ctrl+K`）是全局入口，`Esc` 关闭。
 
+### 启动、关闭确认与动效
+
+「设置 → 通用」新增：开机自启（默认关闭，登录当前系统用户后启动）、关闭标签页前确认（默认开启）、退出应用前确认（默认开启）和平滑过渡动画（默认关闭，遵循系统减少动态效果偏好）。批量关闭标签页只确认一次；取消不会断开会话。
+
+开机自启使用当前用户的 macOS LaunchAgent、Windows Run 注册表项或 Linux XDG autostart，不需要管理员权限。请从固定的安装位置启用；移动应用后可关闭再开启以更新路径。
+
+终端内按 `⌘F`（macOS）或 `Ctrl+F`（Windows/Linux）搜索当前终端缓冲区，包含仍保留的回滚输出。支持区分大小写、上一个/下一个匹配；输入框内 `Enter` / `Shift+Enter` 跳转，`Esc` 关闭并回到终端。搜索不会向远端发送按键，也不会搜索已被回滚上限淘汰的内容。
+
 ## 五、快捷键
 
 | 快捷键 | 作用 | 生效位置 |
@@ -130,6 +162,7 @@
 | `Ctrl+Shift+C` / `Cmd+C` | 复制选中内容（无选中时不动作） | 终端 |
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | 字号放大 / 缩小 / 恢复 13 | 终端 |
 | `F11` | 全屏 | 终端 |
+| `Cmd+F` / `Ctrl+F` | 搜索终端输出；Enter / Shift+Enter 跳转，Esc 关闭 | 终端 |
 | 自定义热键（默认 `Alt+↓`） | 进入补全候选导航 | 终端 |
 | `↑` `↓` `Tab` `Enter` | 候选切换 / 采纳插入 | 补全面板 |
 
@@ -175,7 +208,7 @@ Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前
 
 | 脚本 | 产物 |
 | --- | --- |
-| `package-macos.sh` | `ding-ssh-<ver>-macos-universal.dmg` / `.app.zip` |
+| `package-macos.sh` | `ding-ssh-<ver>-macos-<arch>.dmg` / `.app.zip`（`arm64` 为 M 系列，`amd64` 为 Intel） |
 | `package-windows.ps1` | `ding-ssh-<ver>-windows-amd64.zip` / `-setup.exe` |
 | `package-linux.sh` | `.tar.gz` / `.deb`（nfpm，声明 gtk3 + webkit2gtk-4.1 依赖）/ `.AppImage` |
 | `set-version.py` | 把版本号写进 `wails.json` 的 `info.productVersion` |
@@ -187,7 +220,7 @@ Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前
 
 本次不是换色或局部页面改版，而是一次保持业务能力与原信息架构的前端分层重构：
 
-- **设计系统成为单一来源**：样式从一个巨型 `style.css` 拆成 `tokens.css → semantic.css → components.css`，Tailwind v4 只映射语义令牌；主题引擎只写语义值，终端色板独立在 `terminal.css`。新安装默认使用 Geist + 蓝色强调，`uiSchema=2` 负责旧设置的幂等迁移。
+- **设计系统成为单一来源**：样式从一个巨型 `style.css` 拆成 `tokens.css → semantic.css → components.css`，Tailwind v4 只映射语义令牌；主题引擎只写语义值，终端色板独立在 `terminal.css`。配色由 Material Color Utilities 的 HCT / Tonal Spot 从用户种子动态派生（主导航、二级导航、工作区、卡片、交互、文字与状态各自成组），`uiSchema=4` 负责旧设置的幂等迁移；材质支持 Solid / Soft Glass / Clear Glass，详见 [`docs/theme-system.md`](docs/theme-system.md)。
 - **应用外壳与业务解耦**：`App.vue` 只负责组装与全局状态；侧栏、顶栏、解锁页进入 `layouts/`，终端工作区进入 `views/`，命令面板、服务器、设置、终端与隧道各自拆成领域组件。原有「工作区 / 服务器 / 隧道 / 设置」导航保持不变，传输历史仍属于工作区右侧面板。
 - **公共交互收口**：表单、对话框、状态与空态收口到 `components/ui/`；主题、快捷键、Toast、设置和终端补全状态下沉到 `composables/`。Dialog 和菜单补齐焦点陷阱、方向键 / Home / End / Esc、焦点恢复及 ARIA 语义。
 - **命令与自动化共用契约**：命令面板、`app.commands` 与快捷键来自统一注册表；关键区域使用 `data-ui`，动态项使用业务 id 的 `data-tab-id` / `data-testid`，避免调试工具依赖 Tailwind 类名与 DOM 下标。
@@ -253,8 +286,8 @@ UI 快照、`debug.json` 和本地测试密钥全部落入隔离目录。该模�
 
 **边界说明**
 
-- 应用不做统计上报与更新检查；除你主动连接的 SSH 主机外，只有调试模式会监听端口，且默认仅 `127.0.0.1`。
-- **主机密钥未强制校验**：连接进度日志里会展示服务端主机密钥类型与 `sha256` 指纹，但 `known_hosts` 校验在代码中标注为待办——请勿把它当作中间人防护。
+- 应用不做统计上报；自动更新检查可在更新面板关闭；在线字体首次使用可能连接字体源。调试端口仅在开启调试模式时监听，默认仅 `127.0.0.1`。
+- **SSH 主机信任校验**：首次连接需明确确认指纹，主机密钥变化会中止连接，撤销记录始终拒绝；应用独立信任记录与只读 OpenSSH 来源的处理方式见下方说明。
 - 日志与审计在写入前自动脱敏 token / 密码 / 私钥（覆盖 `key=value`、`?token=`、JSON 敏感字段、`Authorization: Bearer`、整段 PEM），固定开启、无法关闭；诊断包同样只含脱敏内容。
 - 调试模式的能力位**就地生效**：只有影响监听地址的字段（`enabled` / `port` / `bindLan`）变化才会重启服务，因此勾选能力位不会换端口 / token，也不会踢掉已连接的客户端。
 
@@ -456,7 +489,7 @@ go build -o ding-ssh-mcp ./cmd/ding-ssh-mcp
 
 **其他**
 
-- **主机密钥未强制校验**：只展示指纹，`known_hosts` 校验仍是待办。
+- **SSH 主机信任校验**：首次连接需确认指纹，密钥变化会中止连接；详情见下方主机信任说明。
 - **CDP 不可用**：WebView2 远程调试端口在 Wails v2.13 下无法从应用侧注入（框架会覆盖 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`），因此页面级能力由 `/v1/eval` 承担，截图走原生窗口捕获（受窗口遮挡影响）。
 - **`/v1/terminals/{id}/resize` 只改模拟器尺寸**，不改远端 PTY，仅用于复现布局 / 渲染问题。
 - **事件通道满会丢事件**：`/v1/stream`、`GET /mcp`（SSE）与终端自动化共用同一个 Hub 通道，订阅者消费不及时时该订阅者丢事件（Hub 不排队、不阻塞发布方）。`terminal.run` / `terminal.expect` 因此可能漏掉部分输出（看 `outputBytes` / `droppedOutput` 自查），需要完整历史时用 `read_terminal` 读缓冲。
@@ -508,7 +541,7 @@ git push origin v1.0.0
 
 **当前实现**
 
-1. **token 分层**：`theme/tokens.css` → `semantic.css` → `components.css`，主题引擎只写语义值。
+1. **token 分层**：`theme/tokens.css` → `semantic.css` → `components.css`，主题引擎只写语义值；动态配色架构、迁移与验收矩阵见 [`docs/theme-system.md`](docs/theme-system.md)。
 2. **无障碍基线**：命令面板具备 dialog/listbox 语义、循环键盘导航、焦点保护与输入法保护。
 3. **自动化契约**：关键区域使用 `data-ui`，动态项使用业务 id，`ui.layout` 只依赖稳定语义选择器。
 4. **资源治理**：字体支持可配置字体及对应许可；`scripts/verify-ui2.sh` 检查 CSS、JS、字体和 dist 预算。
@@ -532,8 +565,8 @@ git push origin v1.0.0
 
 ### SSH 主机信任、跳板机与 OpenSSH 导入
 
-- 首次手动连接会显示主机类型和 SHA256 指纹，核对后选择“信任并连接”。主机密钥变化或撤销会拒绝连接。取消不会保存信任。
-- “设置 → 安全 → SSH 主机信任管理”可查看、复制指纹和删除应用记录。合法密钥轮换需要先核对新指纹，再删除应用记录并重新连接。用户 `~/.ssh/known_hosts` 及服务器指定的额外信任源只读。
+- 首次手动连接会显示主机类型和 SHA256 指纹，核对后选择“信任并连接”。主机密钥变化会中止连接并显示内置确认弹窗，未经明确授权不会覆盖；撤销密钥始终拒绝。取消不会保存信任。
+- “设置 → 安全 → SSH 主机信任管理”可查看、复制指纹和删除应用记录。应用保存的密钥发生合法轮换时，可在内置变化提示中勾选已核对指纹后选择“覆盖当前密钥并连接”；撤销记录不能覆盖；只读来源的旧密钥经明确核对后可通过应用独立信任记录替代，源文件不变。用户 `~/.ssh/known_hosts` 及服务器指定的额外信任源只读。
 - 编辑服务器可添加最多 5 级已保存跳板机并调整顺序。各跳独立认证和校验身份；被引用服务器不能直接删除。终端、SFTP、状态采集和三类隧道使用统一连接链，不回退直连。
 - 认证新增 SSH Agent 和自动选择。Linux/macOS 使用 `SSH_AUTH_SOCK`，Windows 使用原生 OpenSSH Agent 命名管道，也可设置 `IdentityAgent`。支持查看公钥指纹；不启用 Agent Forwarding。
 - 服务器工具栏的“导入 SSH Config”提供预览、跳过、创建副本、覆盖及字段差异。导入生成快照，不回写源文件；请同时选择跳板依赖。SQLite 导入使用事务，JSON 回退使用原子替换。
@@ -543,3 +576,23 @@ git push origin v1.0.0
 导入支持 Host 多别名、默认/通配符/否定规则、首值优先、HostName、User、Port、IdentityFile、IdentityAgent、IdentitiesOnly、ProxyJump、HostKeyAlias、UserKnownHostsFile，以及有深度/循环限制的 Include。ProxyJump 当前要求引用同一配置中的明确 Host 别名，暂不支持内联 `user@host:port`。不执行 ProxyCommand、LocalCommand 或任何 shell 指令；不支持的关键字标记为人工检查，Match 整体拒绝。CanonicalizeHostname 等高级配置不宣称兼容。Include 相对路径按当前用户 `~/.ssh` 展开。
 
 未知主机的手动确认采用“中止首次握手 → 显式确认 → 重新连接”，确认前不会发送登录密码。无界面调用及自动重连不批准新信任。Windows/Linux SSH 包已提供平台适配；完整桌面端交互和远端环境仍需在对应系统实测。
+
+### 主机信任与 Windows 标题栏修复
+
+首次信任和密钥变化均使用 ding-ssh 内置弹窗，支持完整指纹展示和复制。后端签发有效期五分钟的一次性请求，确认时重新检查撤销及记录变化；应用自身的普通单主机记录可明确覆盖；只读来源的旧记录通过应用独立信任记录替代，不回写用户 OpenSSH 文件。信任管理支持按 IP、主机名及指纹搜索，每页十条并限制列表高度。
+
+Windows 改为应用自绘标题栏，提供拖动、双击最大化、最小化、还原和关闭按钮；顶部使用与 macOS 应用顶栏相同的主题材质，关闭毛玻璃后为纯色，避免系统原生 Acrylic 标题栏独立显示。系统窗口控制形态仍保留各平台习惯。Windows 运行时交互需在 Windows 实机复核。
+
+终端渲染会按实际背景校验正文颜色，并启用最低 4.5:1 对比度保护，避免浅色主题下白色或亮色输出不可读。该调整作用于显示，不修改远端输出、复制内容或服务器配置。
+
+Windows 自绘标题栏的拖动区与右侧窗口按钮分离；外框不做前端圆角裁切，由系统处理窗口轮廓。浅色终端关闭文字阴影，无背景图/玻璃时采用不透明渲染，Windows 正文字重提高以改善可读性。关闭毛玻璃的浅色界面采用明亮纯色底，避免大片灰色底。
+
+快速连接浮层使用独立明亮底色，避免背景遮罩透过面板造成发暗；首页在空终端页占满内容区域，并支持窄窗口、缩放后的自适应布局和纵向滚动。
+
+### 分支自动更新
+
+设置 → 关于 → 检查更新，支持 `main` / `dev` 更新通道。分支构建默认使用对应通道；默认每次启动检查，可关闭。发现更新后由用户选择“立即更新”或“退出时更新”，确认后才下载，SHA-256 校验通过后在正常退出时安装。立即更新会在安装后重启；退出时更新不会重新打开应用。原有版本需先手动安装一次包含更新器的构建。
+
+推送 main/dev 后，CI 测试、构建成功会更新对应的 `main-latest` / `dev-latest` 预发布中的 `update.json`，以 commit SHA 识别更新。历史提交的下载包使用独立文件名，避免正在下载时被覆盖。
+
+下载优先使用 `HTTPS_PROXY` / `HTTP_PROXY`（遵循 `NO_PROXY`），其次读取 macOS、Windows 的手动系统代理或 Linux GNOME 手动代理。PAC 自动代理尚不支持；Linux 其他桌面请设置代理环境变量。支持 macOS `.app`、Windows 程序、Linux 普通可执行文件和 AppImage；安装位置必须对当前用户可写，系统级 deb 安装请通过包管理器更新。安装失败尝试恢复旧程序，数据目录保持独立。

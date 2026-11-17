@@ -1,5 +1,6 @@
+import {copyText as ClipboardSetText} from '../utils/clipboard'
 import { onBeforeUnmount, ref } from 'vue'
-import { ClipboardSetText } from '../../wailsjs/runtime/runtime'
+
 import { useCredentialsStore } from '../stores/credentials'
 import type { Credential } from '../types'
 

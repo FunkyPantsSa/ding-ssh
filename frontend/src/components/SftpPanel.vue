@@ -1,4 +1,11 @@
 <script lang="ts" setup>
+import {errorText} from '../i18n'
+
+import {t as $t} from '../i18n'
+
+import {t as translate} from '../i18n'
+
+import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {onSftpTransfer, onSftpDirUpdated, sshService} from '../services/ssh'
@@ -14,13 +21,44 @@ const sessions = useSessionsStore()
 const settings = useSettingsStore()
 const transfersStore = useTransfersStore()
 
+function sftpError(e: unknown): string {
+  const message = errorText(e)
+  return props.tab.node.jumpServerMode && message.includes('please select one of the assets')
+    ? '请先进入目标资产和账号的文件目录，再进行操作（JumpServer 尚未选中资产）。'
+    : message
+}
+
+function canWrite(): boolean {
+  if (props.tab.node.jumpServerMode && (path.value === '/' || !!error.value || loading.value)) {
+    error.value = '请先进入目标资产和账号的文件目录，再进行操作。'
+    return false
+  }
+  return true
+}
+
 const entries = ref<SFTPEntry[]>([])
 const loading = ref(false)
 const error = ref('')
 
 // 交互状态：选中 / 右键菜单 / 重命名 / 删除确认 / 新建文件夹 / 路径编辑
 const selected = ref('')
-const menu = ref<{x: number; y: number; entry: SFTPEntry} | null>(null)
+const uploadMenuOpen = ref(false)
+const uploadMenuRoot = ref<HTMLElement>()
+async function toggleUploadMenu() {
+  uploadMenuOpen.value = !uploadMenuOpen.value
+  if (uploadMenuOpen.value) { await nextTick(); uploadMenuRoot.value?.querySelector<HTMLElement>('[role="menuitem"]')?.focus() }
+}
+function uploadMenuKey(event: KeyboardEvent) {
+  const buttons = Array.from(uploadMenuRoot.value?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
+  const index = buttons.indexOf(document.activeElement as HTMLElement)
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); uploadMenuOpen.value = false; uploadMenuRoot.value?.querySelector<HTMLElement>('[aria-haspopup]')?.focus() }
+  else if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) {
+    event.preventDefault()
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
+    buttons[next]?.focus()
+  } else if (event.key === 'Tab') uploadMenuOpen.value = false
+}
+const menu = ref<{x: number; y: number; entry: SFTPEntry | null} | null>(null)
 const renaming = ref<{path: string; name: string} | null>(null)
 const renameInput = ref('')
 const confirmDeletePath = ref('')
@@ -35,6 +73,7 @@ const newFolderInputEl = ref<FocusableInput | null>(null)
 const pathInputEl = ref<FocusableInput | null>(null)
 
 interface TransferItem {
+  transferId?: string
   key: string
   direction: 'upload' | 'download'
   name: string
@@ -56,6 +95,8 @@ interface TransferItem {
 }
 const transfers = ref<TransferItem[]>([])
 const disposers: Array<() => void> = []
+const transferTimers = new Set<ReturnType<typeof setTimeout>>()
+let disposed = false
 
 const path = computed({
   get: () => props.tab.sftpPath || '/',
@@ -74,6 +115,10 @@ const crumbs = computed(() => {
   }
   return out
 })
+
+const visibleCrumbs = computed(() => crumbs.value.length > 4
+  ? [crumbs.value[0], {...crumbs.value[crumbs.value.length - 3], label: '…'}, ...crumbs.value.slice(-2)]
+  : crumbs.value)
 
 function parentPath(p: string): string {
   if (p === '/') return '/'
@@ -95,7 +140,7 @@ async function load(dir: string) {
       a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
     )
   } catch (e) {
-    error.value = String(e)
+    error.value = sftpError(e)
   } finally {
     loading.value = false
   }
@@ -110,7 +155,7 @@ function enter(entry: SFTPEntry) {
 // 切换面板目录的同时把终端 cd 到同一目录（SFTP → 终端目录同步，受配置项控制）。
 function go(dir: string) {
   path.value = dir
-  if (settings.sftpToTerminalSync && props.tab.sessionId) {
+  if (!props.tab.node.jumpServerMode && settings.sftpToTerminalSync && props.tab.sessionId) {
     sshService.syncSftpToTerminal(props.tab.sessionId, dir).catch(() => {})
   }
 }
@@ -124,9 +169,10 @@ async function loadFromSync(dir: string) {
       a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
     )
     error.value = ''
-    console.info('[sftp-sync] 面板已切换', dir, '条目', list.length)
+    console.info(translate("[sftp-sync] 面板已切换"), dir, translate("条目"), list.length)
   } catch (e) {
-    console.warn('[sftp-sync] 列出失败，保持当前列表', dir, e)
+    error.value = sftpError(e)
+    console.warn(translate("[sftp-sync] 列出失败，保持当前列表"), dir, e)
   }
 }
 
@@ -139,31 +185,42 @@ function refresh() {
 }
 
 // ---- 右键菜单 ----
-function openMenu(e: MouseEvent, entry: SFTPEntry) {
-  selected.value = entry.path
+function openMenu(e: MouseEvent, entry: SFTPEntry | null = null) {
+  selected.value = entry?.path || ''
   menu.value = {
-    x: Math.min(e.clientX, window.innerWidth - 150),
-    y: Math.min(e.clientY, window.innerHeight - 120),
+    x: Math.max(0, Math.min(e.clientX, window.innerWidth - 200)),
+    y: Math.max(0, Math.min(e.clientY, window.innerHeight - 320)),
     entry,
   }
 }
 
+async function copyMenuPath(entry = false) {
+  const value = entry ? menu.value?.entry?.path : path.value
+  closeMenu()
+  if (!value) return
+  try { await ClipboardSetText(value) } catch (e) { error.value = translate("复制路径失败：{0}", [sftpError(e)]) }
+}
+function menuAction(action: () => unknown) {
+  closeMenu()
+  void action()
+}
 function closeMenu() {
+  uploadMenuOpen.value = false
   menu.value = null
 }
 
 function menuEnter() {
-  if (menu.value?.entry.isDir) enter(menu.value.entry)
+  if (menu.value?.entry?.isDir) enter(menu.value.entry)
   closeMenu()
 }
 
 function menuDownload() {
-  if (menu.value && !menu.value.entry.isDir) void download(menu.value.entry)
+  if (menu.value?.entry && !menu.value.entry.isDir) void download(menu.value.entry)
   closeMenu()
 }
 
 function menuDownloadFolder() {
-  if (menu.value?.entry.isDir) void downloadFolder(menu.value.entry)
+  if (menu.value?.entry?.isDir) void downloadFolder(menu.value.entry)
   closeMenu()
 }
 
@@ -176,6 +233,7 @@ function startRename(entry: SFTPEntry) {
 }
 
 async function doRename() {
+  if (!canWrite()) return
   const target = renaming.value
   renaming.value = null
   if (!target) return
@@ -186,7 +244,7 @@ async function doRename() {
     await sshService.sftpRename(props.tab.sessionId, target.path, newPath)
     await refresh()
   } catch (e) {
-    error.value = String(e)
+    error.value = sftpError(e)
   }
 }
 
@@ -197,6 +255,7 @@ function requestDelete(entry: SFTPEntry) {
 }
 
 async function doDelete() {
+  if (!canWrite()) return
   const target = confirmDeletePath.value
   confirmDeletePath.value = ''
   if (!target) return
@@ -204,7 +263,7 @@ async function doDelete() {
     await sshService.sftpRemove(props.tab.sessionId, target)
     await refresh()
   } catch (e) {
-    error.value = String(e)
+    error.value = sftpError(e)
   }
 }
 
@@ -216,6 +275,7 @@ function startNewFolder() {
 }
 
 async function doNewFolder() {
+  if (!canWrite()) return
   newFolderActive.value = false
   const name = newFolderName.value.trim()
   if (!name) return
@@ -223,7 +283,7 @@ async function doNewFolder() {
     await sshService.sftpMkdir(props.tab.sessionId, joinPath(path.value, name))
     await refresh()
   } catch (e) {
-    error.value = String(e)
+    error.value = sftpError(e)
   }
 }
 
@@ -243,6 +303,7 @@ function doPathEdit() {
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
+  uploadMenuOpen.value = false
   menu.value = null
   renaming.value = null
   confirmDeletePath.value = ''
@@ -288,8 +349,8 @@ function fmtEta(t: TransferItem): string {
   const rest = t.total - t.transferred
   if (rest <= 0) return ''
   const s = Math.round(rest / t.speed)
-  if (s < 60) return `约 ${s}s`
-  return `约 ${Math.floor(s / 60)}m${s % 60}s`
+  if (s < 60) return translate("约 {0}s", [s])
+  return translate("约 {0}m{1}s", [Math.floor(s / 60), s % 60])
 }
 
 function percent(t: TransferItem): number {
@@ -303,14 +364,17 @@ function percent(t: TransferItem): number {
  * 速度用「相邻事件差分 + 指数平滑」估算：事件本身按 100ms 节流，
  * 直接用瞬时差分抖动很大，平滑后读数稳定且能反映实时速率变化。
  */
-function onTransfer(evt: {direction: 'upload' | 'download'; name: string; transferred: number; total: number; done: boolean; error?: string}) {
-  const key = `${evt.direction}:${evt.name}`
-  let t = transfers.value.find((x) => x.key === key)
+function onTransfer(evt: {transferId?: string; direction: 'upload' | 'download'; name: string; transferred: number; total: number; done: boolean; error?: string}) {
+  let t = evt.transferId
+    ? transfers.value.find(x => x.transferId === evt.transferId)
+      ?? transfers.value.find(x => x.direction === evt.direction && x.name === evt.name && !x.done && !x.transferId)
+    : transfers.value.find(x => x.direction === evt.direction && x.name === evt.name && !x.done)
   if (!t) {
     if (evt.done && !evt.error) return
     t = newTransferItem(evt.direction, evt.name)
     transfers.value.push(t)
   }
+  if (evt.transferId) t.transferId = evt.transferId
   if (!evt.done && evt.transferred < t.transferred) return // 乱序的旧事件，丢弃
   const now = Date.now()
   if (t.startedAt < 0) t.startedAt = now
@@ -330,7 +394,7 @@ function onTransfer(evt: {direction: 'upload' | 'download'; name: string; transf
   if (evt.done) {
     t.done = true
     t.finishedAt = now
-    if (t.total > 0) t.transferred = Math.max(t.transferred, t.total)
+    if (!evt.error && t.total > 0) t.transferred = Math.max(t.transferred, t.total)
     if (evt.error) t.error = evt.error
   }
 }
@@ -338,7 +402,7 @@ function onTransfer(evt: {direction: 'upload' | 'download'; name: string; transf
 /** 新建一条进行中的传输项。 */
 function newTransferItem(direction: 'upload' | 'download', name: string): TransferItem {
   return {
-    key: `${direction}:${name}`,
+    key: `${direction}:${name}:${crypto.randomUUID()}`,
     direction,
     name,
     transferred: 0,
@@ -385,8 +449,7 @@ async function runTransfer(
   paths: {remotePath: string; localPath: string},
   task: () => Promise<void>,
 ) {
-  const key = `${direction}:${name}`
-  if (transfers.value.some((t) => t.key === key && !t.done)) return
+  if (transfers.value.some((t) => t.direction === direction && t.name === name && !t.done)) return
   const t = newTransferItem(direction, name)
   t.remotePath = paths.remotePath
   t.localPath = paths.localPath
@@ -403,23 +466,27 @@ async function runTransfer(
       if (dur > 0 && t.transferred > 0) t.speed = (t.transferred * 1000) / dur
     }
   } catch (e) {
-    t.error = String(e)
+    t.error = sftpError(e)
     t.done = true
     t.finishedAt = Date.now()
   }
   // 取消的判定：错误文案由后端在取消时给出「已取消」
-  if (t.error && t.error.includes('已取消')) cancelled = true
+  if (t.error && t.error.includes(translate("已取消"))) cancelled = true
   recordHistory(t, cancelled)
+  if (disposed) return
   // 完成的行保留一小会儿再移除，让用户看到「完成 / 失败」状态；
   // 记录本身已经进入「传输记录」页签，不会丢。
-  setTimeout(() => {
-    const idx = transfers.value.findIndex((x) => x.key === key)
+  const timer = setTimeout(() => {
+    transferTimers.delete(timer)
+    const idx = transfers.value.findIndex((x) => x.key === t.key)
     if (idx >= 0 && !transfers.value[idx].error) transfers.value.splice(idx, 1)
     void refresh()
   }, 1200)
+  transferTimers.add(timer)
 }
 
 async function upload() {
+  if (!canWrite()) return
   const files = await sshService.selectLocalFiles()
   if (!files.length) return
   for (const localPath of files) {
@@ -434,6 +501,7 @@ async function upload() {
 // 上传文件夹：选择本地文件夹后整体递归上传到当前远端目录，
 // 后端保留文件夹名（当前目录/<本地文件夹名>/...），整条传输显示一个聚合进度。
 async function uploadFolder() {
+  if (!canWrite()) return
   if (!props.tab.sessionId) return
   const localDir = await sshService.selectLocalFolder()
   if (!localDir) return
@@ -448,6 +516,7 @@ async function uploadFolder() {
 const dragOver = ref(false)
 
 async function uploadPaths(localPaths: string[]) {
+  if (!canWrite()) return
   if (!props.tab.sessionId || !localPaths.length) return
   for (const localPath of localPaths) {
     let isDir = false
@@ -495,7 +564,7 @@ function dismissTransfer(key: string) {
 async function cancelTransfer(t: TransferItem) {
   if (t.done) return
   try {
-    await sshService.sftpCancelTransfer(props.tab.sessionId, t.direction, t.name)
+    await sshService.sftpCancelTransfer(props.tab.sessionId, t.direction, t.transferId ? `@id:${t.transferId}` : t.name)
   } catch {
     // 传输可能已结束，忽略取消失败
   }
@@ -562,6 +631,9 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  disposed = true
+  transferTimers.forEach(clearTimeout)
+  transferTimers.clear()
   disposers.forEach((d) => d())
   window.removeEventListener('click', closeMenu)
   window.removeEventListener('keydown', onKeydown)
@@ -571,33 +643,33 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="tool" data-ui="context-panel">
-    <div class="tool-head">
-      <div class="seg">
+  <div class="tool sftp-panel" data-ui="context-panel">
+    <div class="tool-head tool-head-light">
+      <div class="seg tool-tabs">
         <button class="active">SFTP</button>
-        <button @click="sessions.showRightPanel('sysinfo')">看板</button>
+        <button @click="sessions.showRightPanel('sysinfo')">{{ $t('运行状态') }}</button>
       </div>
       <Button
         variant="ghost"
         size="icon"
         class="ml-auto"
-        :title="transfersStore.records.length ? `传输记录（${transfersStore.records.length} 条）` : '传输记录'"
-        aria-label="传输记录"
+        :title="transfersStore.records.length ? translate('传输记录（{0} 条）', [transfersStore.records.length]) : translate('传输记录')"
+        :aria-label="$t('传输记录')"
         @click="sessions.showRightPanel('transfers')"
       >
         <Icon name="clock" :size="14" />
       </Button>
-      <Button variant="ghost" size="icon" title="收起" aria-label="收起侧栏" @click="sessions.sftpVisible = false">
+      <Button variant="ghost" size="icon" :title="$t('收起')" :aria-label="$t('收起侧栏')" @click="sessions.sftpVisible = false">
         <Icon name="close" :size="14" />
       </Button>
     </div>
 
-    <!-- 工具条：面板宽度可拖动（最窄 260px），窄的时候让按钮换行而不是溢出到终端上 -->
-    <div class="flex flex-wrap items-center gap-1.5 p-3 inset-line-b">
-      <Button variant="ghost" size="icon" title="上级" aria-label="返回上级目录" @click="up">
+    <!-- 导航独占一行，操作区单独排列，避免按钮挤压路径。 -->
+    <div data-testid="sftp-navigation" class="sftp-navigation flex items-center gap-1 px-3 py-1">
+      <Button variant="ghost" size="icon" :title="$t('上级')" :aria-label="$t('返回上级目录')" @click="up">
         <Icon name="up" :size="14" />
       </Button>
-      <Button variant="ghost" size="icon" title="刷新" aria-label="刷新目录" @click="refresh">
+      <Button variant="ghost" size="icon" :title="$t('刷新')" :aria-label="$t('刷新目录')" @click="refresh">
         <Icon name="refresh" :size="14" />
       </Button>
       <Input
@@ -606,35 +678,45 @@ onBeforeUnmount(() => {
         v-model="pathInput"
         class="flex-1 font-mono text-[12px]"
         spellcheck="false"
-        aria-label="远程路径"
+        :aria-label="$t('远程路径')"
         @keyup.enter="doPathEdit"
         @keyup.esc="editingPath = false"
         @blur="doPathEdit"
       />
       <div
         v-else
-        class="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar text-[12px] font-mono text-mist cursor-text"
-        title="点击编辑完整路径"
+        data-testid="sftp-breadcrumbs" class="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar text-[12px] font-mono text-mist cursor-text"
+        :title="path"
+        :aria-label="`${translate('远程路径')}: ${path}`"
         @click="startPathEdit"
       >
-        <template v-for="(c, i) in crumbs" :key="c.path">
-          <button class="shrink-0 hover:text-signal" @click.stop="go(c.path)">{{ c.label }}</button>
-          <span v-if="i < crumbs.length - 1" class="shrink-0 opacity-40">/</span>
+        <template v-for="(c, i) in visibleCrumbs" :key="c.path">
+          <button class="sftp-crumb" :class="{'sftp-crumb-current': i === visibleCrumbs.length - 1}" :title="path" @click.stop="go(c.path)">{{ c.label }}</button>
+          <span v-if="i > 0 && i < visibleCrumbs.length - 1" class="shrink-0 opacity-40">/</span>
         </template>
       </div>
-      <Button variant="ghost" size="sm" data-testid="sftp-create-folder" @click="startNewFolder">新建</Button>
-      <Button variant="ghost" size="sm" data-testid="sftp-upload" @click="upload">上传</Button>
-      <Button variant="ghost" size="sm" title="选择本地文件夹，整体递归上传到当前目录（保留文件夹名）" data-testid="sftp-upload-folder" @click="uploadFolder">上传文件夹</Button>
+    </div>
+    <div data-testid="sftp-actions" class="sftp-actions flex items-center gap-1.5 px-3 pt-0.5 pb-2">
+      <div ref="uploadMenuRoot" class="sftp-upload-group" @click.stop @keydown="uploadMenuKey">
+        <Button class="sftp-upload-primary" variant="secondary" data-testid="sftp-upload-menu" aria-haspopup="menu" :aria-expanded="uploadMenuOpen" @click="toggleUploadMenu" @keydown.down.prevent="uploadMenuOpen || toggleUploadMenu()">
+          {{ $t('上传') }}<Icon name="chevron-down" :size="13" />
+        </Button>
+        <div v-if="uploadMenuOpen" role="menu" :aria-label="$t('上传')" class="menu-pop sftp-upload-menu">
+          <button role="menuitem" data-testid="sftp-upload" @click="menuAction(upload)">{{ $t('上传文件') }}</button>
+          <button role="menuitem" data-testid="sftp-upload-folder" @click="menuAction(uploadFolder)">{{ $t('上传文件夹') }}</button>
+        </div>
+      </div>
+      <Button class="sftp-create-folder" variant="ghost" data-testid="sftp-create-folder" @click="startNewFolder"><Icon name="folder" :size="14" />{{ $t('新建文件夹') }}</Button>
     </div>
 
     <div v-if="newFolderActive" class="flex items-center gap-2 px-3 py-2 inset-line-b">
-      <span class="text-[12px] text-mist shrink-0">名称</span>
+      <span class="text-[12px] text-mist shrink-0">{{ $t('名称') }}</span>
       <Input
         ref="newFolderInputEl"
         v-model="newFolderName"
         class="flex-1"
-        placeholder="新文件夹名称"
-        aria-label="新文件夹名称"
+        :placeholder="$t('新文件夹名称')"
+        :aria-label="$t('新文件夹名称')"
         @keyup.enter="doNewFolder"
         @keyup.esc="newFolderActive = false"
         @blur="doNewFolder"
@@ -645,15 +727,18 @@ onBeforeUnmount(() => {
       class="flex-1 overflow-y-auto px-2 py-1.5 relative transition-colors"
       style="--wails-drop-target: drop"
       :class="dragOver ? 'bg-[var(--primary-weak)]' : ''"
+      data-testid="sftp-file-list"
+      @contextmenu.prevent="openMenu($event)"
       @dragenter.prevent="dragOver = true"
       @dragover.prevent="dragOver = true"
       @dragleave.prevent="dragOver = false"
       @drop.prevent="dragOver = false"
     >
       <div v-if="dragOver" class="absolute inset-2 rounded-[10px] border-2 border-dashed border-[var(--primary-hover)] bg-[var(--primary-glow-soft)] grid place-items-center pointer-events-none z-10">
-        <p class="text-xs text-[var(--primary-hover)]">松开以上传到当前目录</p>
+        <p class="text-xs text-[var(--primary-hover)]">{{ $t('松开以上传到当前目录') }}</p>
       </div>
-      <div v-if="!entries.length && !loading && !error" class="py-6 text-center text-xs text-mist">空目录</div>
+      <p v-if="props.tab.node.jumpServerMode" class="px-2 py-2 text-xs text-mist">JumpServer 模式：请逐级进入资产、账号的文件目录；终端目录不会与此处同步。</p>
+      <div v-if="!entries.length && !loading && !error" class="py-6 text-center text-xs text-mist">{{ $t('空目录') }}</div>
       <div
         v-for="e in entries"
         :key="e.path"
@@ -661,19 +746,19 @@ onBeforeUnmount(() => {
         :data-path="e.path"
         :data-dir="e.isDir ? 'true' : 'false'"
         class="grid grid-cols-[20px_1fr_auto] items-center gap-2 h-9 px-2 rounded-[6px] text-xs cursor-pointer"
-        :class="selected === e.path ? 'bg-[var(--primary-weak)]' : 'hover:bg-[var(--hover)]'"
+        :class="selected === e.path ? 'sftp-entry-selected' : 'hover:bg-[var(--hover)]'"
         @click="selected = e.path"
         @dblclick="onDblClick(e)"
-        @contextmenu.prevent="openMenu($event, e)"
+        @contextmenu.stop.prevent="openMenu($event, e)"
       >
-        <Icon :name="e.isDir ? 'folder' : 'file'" :size="14" :extra-class="e.isDir ? 'text-copper' : 'text-mist'" />
+        <Icon :name="e.isDir ? 'folder' : 'file'" :size="14" extra-class="text-mist" />
         <template v-if="renaming?.path === e.path">
           <Input
             ref="renameInputEl"
             v-model="renameInput"
             class="col-span-2"
             spellcheck="false"
-            aria-label="重命名条目"
+            :aria-label="$t('重命名条目')"
             @click.stop
             @keyup.enter="doRename"
             @keyup.esc="renaming = null"
@@ -681,10 +766,10 @@ onBeforeUnmount(() => {
           />
         </template>
         <template v-else-if="confirmDeletePath === e.path">
-          <span class="text-[12px] text-danger truncate">删除「{{ e.name }}」？</span>
+          <span class="text-[12px] text-danger truncate">{{ $t('删除「') }} {{ e.name }}」？</span>
           <div class="flex gap-1">
-            <Button variant="danger" size="sm" @click.stop="doDelete">确认</Button>
-            <Button variant="ghost" size="sm" @click.stop="confirmDeletePath = ''">取消</Button>
+            <Button variant="danger" size="sm" @click.stop="doDelete">{{ $t('确认') }}</Button>
+            <Button variant="ghost" size="sm" @click.stop="confirmDeletePath = ''">{{ $t('取消') }}</Button>
           </div>
         </template>
         <template v-else>
@@ -692,12 +777,10 @@ onBeforeUnmount(() => {
           <span class="font-mono text-[11px] text-mist">{{ e.isDir ? '—' : fmtSize(e.size) }}</span>
         </template>
       </div>
-      <div v-if="loading" class="sticky bottom-0 flex items-center justify-center gap-2 py-2 text-[12px] text-mist">
-        加载中…
-      </div>
+      <div v-if="loading" class="sticky bottom-0 flex items-center justify-center gap-2 py-2 text-[12px] text-mist">{{ $t('加载中…') }}</div>
       <div v-if="error" class="sticky bottom-0 px-2 py-2 text-[12px] text-danger break-all">
         {{ error }}
-        <button class="ml-1 underline hover:text-signal" @click="refresh">重试</button>
+        <button class="ml-1 underline hover:text-signal" @click="refresh">{{ $t('重试') }}</button>
       </div>
     </div>
 
@@ -705,25 +788,25 @@ onBeforeUnmount(() => {
       <div v-for="t in transfers" :key="t.key" class="grid grid-cols-[1fr_auto] gap-1 text-[12px]">
         <span class="truncate text-[var(--foreground)]">{{ t.direction === 'upload' ? '↑' : '↓' }} {{ t.name }}</span>
         <span class="flex items-center gap-2">
-          <Button v-if="!t.done && !t.error" variant="ghost" size="sm" @click="cancelTransfer(t)">取消</Button>
+          <Button v-if="!t.done && !t.error" variant="ghost" size="sm" @click="cancelTransfer(t)">{{ $t('取消') }}</Button>
           <span class="font-mono" :class="t.error ? 'text-danger' : 'text-signal'">
-            {{ t.error ? (t.error.includes('已取消') ? '已取消' : '失败') : percent(t) + '%' }}
+            {{ t.error ? (t.error.includes(translate('已取消')) ? translate('已取消') : translate('失败')) : percent(t) + '%' }}
           </span>
         </span>
         <div class="prog col-span-2" :class="{indeterminate: !t.done && !t.error && percent(t) === 0}">
           <i :style="{width: (percent(t) === 0 && !t.done ? 30 : percent(t)) + '%'}"></i>
         </div>
         <div class="col-span-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-mist">
-          <span>{{ t.total ? `${fmtSize(t.transferred)} / ${fmtSize(t.total)}` : t.done ? '完成' : fmtSize(t.transferred) }}</span>
-          <span v-if="!t.error" :title="t.done ? '平均速度' : '当前速度'">
-            {{ t.done ? '平均' : '' }}{{ fmtSpeed(t.speed) }}
+          <span>{{ t.total ? `${fmtSize(t.transferred)} / ${fmtSize(t.total)}` : t.done ? translate('完成') : fmtSize(t.transferred) }}</span>
+          <span v-if="!t.error" :title="t.done ? translate('平均速度') : translate('当前速度')">
+            {{ t.done ? translate('平均') : '' }} {{ fmtSpeed(t.speed) }}
           </span>
           <span>{{ fmtElapsed(t) }}</span>
           <span v-if="fmtEta(t)">{{ fmtEta(t) }}</span>
         </div>
         <div v-if="t.error" class="col-span-2 flex justify-between text-danger">
           <span class="break-all">{{ t.error }}</span>
-          <button @click="dismissTransfer(t.key)"><Icon name="close" :size="12" /></button>
+          <Button variant="ghost" size="icon" :aria-label="$t('关闭')" @click="dismissTransfer(t.key)"><Icon name="close" :size="12" /></Button>
         </div>
       </div>
     </div>
@@ -733,16 +816,45 @@ onBeforeUnmount(() => {
         v-if="menu"
         class="menu-pop neo fixed z-50"
         data-ui="context-menu"
+        @keydown.esc="closeMenu"
         :style="{left: menu.x + 'px', top: menu.y + 'px'}"
         @contextmenu.prevent
         @click.stop
       >
-        <button v-if="menu.entry.isDir" @click="menuEnter">进入目录</button>
-        <button v-if="menu.entry.isDir" @click="menuDownloadFolder">下载文件夹到本地</button>
-        <button v-else @click="menuDownload">下载到本地</button>
-        <button @click="startRename(menu.entry)">重命名</button>
-        <button class="danger" @click="requestDelete(menu.entry)">删除</button>
+        <button @click="menuAction(refresh)">{{ $t('刷新') }}</button>
+        <button @click="copyMenuPath()">{{ $t('复制当前目录路径') }}</button>
+        <template v-if="menu.entry">
+          <button @click="copyMenuPath(true)">{{ $t('复制完整路径') }}</button>
+          <button v-if="menu.entry.isDir" @click="menuEnter">{{ $t('进入目录') }}</button>
+          <button v-if="menu.entry.isDir" @click="menuDownloadFolder">{{ $t('下载文件夹到本地') }}</button>
+          <button v-else @click="menuDownload">{{ $t('下载到本地') }}</button>
+          <button @click="startRename(menu.entry)">{{ $t('重命名') }}</button>
+          <button class="danger" @click="requestDelete(menu.entry)">{{ $t('删除') }}</button>
+        </template>
+        <template v-else>
+          <button @click="menuAction(up)">{{ $t('返回上级目录') }}</button>
+          <button @click="menuAction(startNewFolder)">{{ $t('新建文件夹') }}</button>
+          <button @click="menuAction(upload)">{{ $t('上传文件') }}</button>
+          <button @click="menuAction(uploadFolder)">{{ $t('上传文件夹') }}</button>
+        </template>
       </div>
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.sftp-navigation{gap:2px;padding-top:6px;padding-bottom:2px}
+.sftp-navigation :deep(.ui-button-icon){height:28px;width:28px;color:var(--muted-foreground)}
+.sftp-crumb{flex:0 1 auto;min-width:12px;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 2px;color:var(--muted-foreground)}
+.sftp-crumb:hover{background:var(--hover);border-radius:var(--radius-sm);color:var(--foreground)}
+.sftp-crumb-current{flex-shrink:1;max-width:none;color:var(--foreground-secondary)}
+.sftp-actions{padding-left:12px;padding-top:2px;padding-bottom:8px;border-bottom:1px solid var(--border-subtle)}
+.sftp-actions :deep(.ui-button){height:32px;border-radius:var(--radius-sm);padding:0 9px;font-size:13px;font-weight:500;gap:5px}
+.sftp-actions :deep(.sftp-upload-primary){background:transparent;color:var(--foreground-secondary);border-color:transparent}
+.sftp-actions :deep(.sftp-upload-primary:hover){background:color-mix(in srgb,#6897b4 8%,var(--surface-2))}
+.sftp-actions :deep(.sftp-create-folder){color:var(--foreground-secondary);border-color:transparent;background:transparent;font-size:13px}
+.sftp-actions :deep(.sftp-create-folder:hover){background:color-mix(in srgb,#6897b4 8%,var(--surface-2));color:var(--foreground-secondary)}
+.sftp-entry-selected{background:color-mix(in srgb,#6897b4 16%,var(--surface-2))}
+.sftp-upload-group{position:relative}
+.sftp-upload-menu{position:absolute;left:0;top:calc(100% + 4px);z-index:45;min-width:152px}
+</style>

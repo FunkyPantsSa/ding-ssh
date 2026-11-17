@@ -1,3 +1,4 @@
+import {errorText} from '../i18n'
 // 调试模式：前端桥。
 //
 // 后端（internal/debugsrv + debug.go）通过 `debug:request` 事件下发操作，这里执行后调用
@@ -5,6 +6,8 @@
 //
 // 之所以需要桥：xterm 的缓冲区、滚动位置、DOM 几何只有页面里才知道；后端 API 负责鉴权、
 // 会话管理与对外协议，前端桥负责「页面内视角」的能力（读状态 / 输入 / 滚动 / eval）。
+import {nextTick} from 'vue'
+import type {SplitDirection} from '../types'
 import {EventsOn} from '../../wailsjs/runtime/runtime'
 import {DebugReply} from '../../wailsjs/go/main/App'
 import {buildCommands, runCommand} from '../commands'
@@ -140,6 +143,37 @@ async function handle(req: DebugRequest): Promise<unknown> {
   const ui = useUIStore()
 
   switch (req.op) {
+    case 'tabs.activate': {
+      const id = str(args.id).trim()
+      if (!sessions.tabs.some(t => t.clientId === id)) throw new Error(`未找到标签: ${id}`)
+      sessions.activateTab(id)
+      ui.showWorkspace()
+      await nextTick()
+      return {activeId: sessions.activeId, splitShown: sessions.splitShown}
+    }
+    case 'panels.set': {
+      const panel = str(args.panel).trim()
+      if (panel === 'hidden') sessions.sftpVisible = false
+      else if (panel === 'sftp' || panel === 'sysinfo' || panel === 'transfers') sessions.showRightPanel(panel)
+      else throw new Error('panel 必须为 sftp | sysinfo | transfers | hidden')
+      ui.showWorkspace()
+      await nextTick()
+      return {panel: sessions.rightPanel, visible: sessions.sftpVisible}
+    }
+    case 'workspace.split': {
+      if (args.enabled !== undefined && typeof args.enabled !== 'boolean') throw new Error('enabled 必须为布尔值')
+      if (args.enabled === false) sessions.cancelSplit()
+      else {
+        const sourceId = str(args.sourceId).trim(), targetId = str(args.targetId).trim()
+        const direction = str(args.direction).trim() || 'right'
+        if (!['left','right','up','down'].includes(direction)) throw new Error('分屏方向无效')
+        if (sourceId === targetId || ![sourceId,targetId].every(id => sessions.tabs.some(t => t.clientId === id))) throw new Error('分屏需要两个不同的已有标签')
+        sessions.mergeTabsForSplit(sourceId,targetId,direction as SplitDirection)
+      }
+      ui.showWorkspace()
+      await nextTick()
+      return {splitShown: sessions.splitShown, panes: sessions.panes}
+    }
     case 'state': {
       const settings = useSettingsStore()
       return {
@@ -284,7 +318,7 @@ export function installDebugBridge(): void {
       const data = await handle(payload)
       await DebugReply(payload.id, JSON.stringify({ok: true, data: data ?? null}))
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
+      const msg = e instanceof Error ? e.message : errorText(e)
       try {
         await DebugReply(payload.id, JSON.stringify({ok: false, error: msg}))
       } catch {

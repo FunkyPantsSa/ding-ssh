@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import {t} from '../i18n'
+
 import {onBeforeUnmount, ref} from 'vue'
 import {unzoom} from '../utils/dom'
 
@@ -85,8 +87,8 @@ onBeforeUnmount(() => {
     :style="side === 'left' ? {left: inset} : {right: inset}"
     role="separator"
     aria-orientation="vertical"
-    :aria-label="label + '宽度'"
-    :title="'拖动调整' + label + '宽度 · 双击复位'"
+    :aria-label="label + t('宽度')"
+    :title="t('拖动调整') + label + t('宽度 · 双击复位')"
     @mousedown="onMousedown"
     @dblclick="emit('reset')"
   >

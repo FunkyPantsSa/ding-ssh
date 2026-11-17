@@ -1,6 +1,7 @@
 package store
 
 import (
+	"ding-ssh/internal/i18n"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -23,10 +24,10 @@ type DingpackPayload struct {
 // BuildDingpack 序列化并加密配置包。
 func BuildDingpack(passphrase string, servers []models.ServerNode, creds []models.Credential, groups []string) ([]byte, error) {
 	if passphrase == "" {
-		return nil, fmt.Errorf("导出密码不能为空")
+		return nil, fmt.Errorf("%s", i18n.T("导出密码不能为空"))
 	}
 	if len(servers) > 500 {
-		return nil, fmt.Errorf("服务器数量超过上限 500")
+		return nil, fmt.Errorf("%s", i18n.T("服务器数量超过上限 500"))
 	}
 	payload := DingpackPayload{
 		Magic:       dingpackMagic,
@@ -45,7 +46,7 @@ func BuildDingpack(passphrase string, servers []models.ServerNode, creds []model
 // ParseDingpack 解密并解析配置包。
 func ParseDingpack(passphrase string, blob []byte) (*DingpackPayload, error) {
 	if passphrase == "" {
-		return nil, fmt.Errorf("导入密码不能为空")
+		return nil, fmt.Errorf("%s", i18n.T("导入密码不能为空"))
 	}
 	raw, err := cryptox.OpenPayload(passphrase, blob)
 	if err != nil {
@@ -53,10 +54,10 @@ func ParseDingpack(passphrase string, blob []byte) (*DingpackPayload, error) {
 	}
 	var payload DingpackPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, fmt.Errorf("配置包损坏: %w", err)
+		return nil, fmt.Errorf(i18n.T("配置包损坏: %w"), err)
 	}
 	if payload.Magic != dingpackMagic {
-		return nil, fmt.Errorf("不是有效的 .dingpack 文件")
+		return nil, fmt.Errorf("%s", i18n.T("不是有效的 .dingpack 文件"))
 	}
 	return &payload, nil
 }

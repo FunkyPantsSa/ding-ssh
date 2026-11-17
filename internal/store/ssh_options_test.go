@@ -18,7 +18,7 @@ func TestSSHOptionsSQLiteMigrationRoundTrip(t *testing.T) {
 	if err := store.Save(old); err != nil {
 		t.Fatal(err)
 	}
-	options := models.SSHOptions{JumpServerIDs: []string{"jump"}, IdentityFiles: []string{"~/.ssh/key"}, IdentityAgent: "agent-path", IdentitiesOnly: true, HostKeyAlias: "alias", KnownHostsSources: []string{"known"}, ImportAlias: "source", ImportSource: "config"}
+	options := models.SSHOptions{JumpServerMode: true, JumpServerIDs: []string{"jump"}, IdentityFiles: []string{"~/.ssh/key"}, IdentityAgent: "agent-path", IdentitiesOnly: true, HostKeyAlias: "alias", KnownHostsSources: []string{"known"}, ImportAlias: "source", ImportSource: "config"}
 	node := models.ServerNode{ID: "new", Name: "new", AuthType: "agent", SSHOptions: options}
 	if err := store.SaveBatch([]models.ServerNode{node}); err != nil {
 		t.Fatal(err)

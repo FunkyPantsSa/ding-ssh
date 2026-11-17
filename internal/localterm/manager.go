@@ -1,6 +1,7 @@
 package localterm
 
 import (
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"sync"
 
@@ -53,7 +54,7 @@ func (m *Manager) Has(sessionID string) bool {
 // Connect 启动本机终端会话。shellPref 为空时使用设置中的默认值。
 func (m *Manager) Connect(sessionID string, shellPref string, cols, rows int) error {
 	if sessionID == "" {
-		return fmt.Errorf("sessionID 不能为空")
+		return fmt.Errorf("%s", i18n.T("sessionID 不能为空"))
 	}
 	if shellPref == "" {
 		shellPref = m.shellPref()
@@ -64,7 +65,7 @@ func (m *Manager) Connect(sessionID string, shellPref string, cols, rows int) er
 	if old, ok := m.sessions[sessionID]; ok {
 		delete(m.sessions, sessionID)
 		m.mu.Unlock()
-		old.close(models.StatusClosed, "被新连接替换")
+		old.close(models.StatusClosed, i18n.T("被新连接替换"))
 		m.mu.Lock()
 	}
 	m.mu.Unlock()
@@ -140,7 +141,7 @@ func (m *Manager) Disconnect(sessionID string) error {
 	if err != nil {
 		return err
 	}
-	s.close(models.StatusClosed, "用户主动断开")
+	s.close(models.StatusClosed, i18n.T("用户主动断开"))
 	return nil
 }
 
@@ -154,7 +155,7 @@ func (m *Manager) CloseAll() {
 	m.sessions = make(map[string]*Session)
 	m.mu.Unlock()
 	for _, s := range list {
-		s.close(models.StatusClosed, "应用退出")
+		s.close(models.StatusClosed, i18n.T("应用退出"))
 	}
 }
 
@@ -163,7 +164,7 @@ func (m *Manager) get(sessionID string) (*Session, error) {
 	defer m.mu.RUnlock()
 	s, ok := m.sessions[sessionID]
 	if !ok {
-		return nil, fmt.Errorf("本地会话不存在")
+		return nil, fmt.Errorf("%s", i18n.T("本地会话不存在"))
 	}
 	return s, nil
 }

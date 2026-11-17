@@ -1,6 +1,7 @@
 package localterm
 
 import (
+	"ding-ssh/internal/i18n"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -55,11 +56,11 @@ func newSession(
 
 	pt, err := gopty.New()
 	if err != nil {
-		return nil, fmt.Errorf("创建本地 PTY 失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("创建本地 PTY 失败: %w"), err)
 	}
 	if err := pt.Resize(cols, rows); err != nil {
 		_ = pt.Close()
-		return nil, fmt.Errorf("设置本地终端尺寸失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("设置本地终端尺寸失败: %w"), err)
 	}
 
 	cmd := pt.Command(path, args...)
@@ -82,7 +83,7 @@ func newSession(
 
 	if err := cmd.Start(); err != nil {
 		_ = pt.Close()
-		return nil, fmt.Errorf("启动本地 Shell（%s）失败: %w", label, err)
+		return nil, fmt.Errorf(i18n.T("启动本地 Shell（%s）失败: %w"), label, err)
 	}
 	logx.Debugf("本地终端已启动: session=%s shell=%s path=%s", id, label, path)
 
@@ -143,7 +144,7 @@ func (s *Session) Write(data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return fmt.Errorf("本地会话已关闭")
+		return fmt.Errorf("%s", i18n.T("本地会话已关闭"))
 	}
 	_, err := s.pty.Write(data)
 	return err
@@ -154,7 +155,7 @@ func (s *Session) Resize(cols, rows int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return fmt.Errorf("本地会话已关闭")
+		return fmt.Errorf("%s", i18n.T("本地会话已关闭"))
 	}
 	if cols <= 0 || rows <= 0 {
 		return nil
@@ -188,7 +189,7 @@ func (s *Session) close(status models.SessionStatus, message string) {
 func (s *Session) Info() models.SessionInfo {
 	return models.SessionInfo{
 		SessionID:  s.ID,
-		ServerName: "本机 · " + s.label,
+		ServerName: i18n.T("本机 · ") + s.label,
 		Host:       "localhost",
 		User:       s.label,
 		Status:     models.StatusConnected,

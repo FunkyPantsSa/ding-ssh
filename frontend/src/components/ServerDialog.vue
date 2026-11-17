@@ -1,4 +1,10 @@
 <script lang="ts" setup>
+import {errorText} from '../i18n'
+
+import {t as $t} from '../i18n'
+
+import {t} from '../i18n'
+
 import {computed, onMounted, reactive, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {sshService} from '../services/ssh'
@@ -7,7 +13,8 @@ import {useServersStore} from '../stores/servers'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import type {Credential, ServerNode} from '../types'
-import {Button, Dialog, Field, Input, Select, Textarea} from './ui'
+import SearchSelect from './ui/select/SearchSelect.vue'
+import {Button, Dialog, Field, Input, Textarea} from './ui'
 
 /**
  * editing：编辑对象（null = 新建）。
@@ -28,7 +35,7 @@ const testOk = ref(false)
 const agentIdentities = ref<Array<{keyType: string; fingerprint: string}>>([])
 async function inspectAgent() {
  try { agentIdentities.value = await (window as any).go.main.App.GetAgentIdentities({...form}); errorMsg.value = '' }
- catch (e) { errorMsg.value = String(e) }
+ catch (e) { errorMsg.value = errorText(e) }
 }
 const keySource = ref<'file' | 'content'>('file')
 const selectedCred = ref('')
@@ -38,8 +45,9 @@ const credentialsUsed = ref('')
 const groups = computed(() => {
   const set = new Set(servers.servers.map((s) => s.group.trim()).filter(Boolean))
   // 左栏选中的分组可能还没有任何服务器（手动建的空分组），也要出现在可选项里。
+  // 'all' 是「全部服务器」的哨兵值，不是真实分组，不能出现在下拉选项里。
   const current = (props.defaultGroup ?? '').trim()
-  if (current) set.add(current)
+  if (current && current !== 'all') set.add(current)
   return [...set].sort((a, b) => a.localeCompare(b))
 })
 
@@ -47,6 +55,9 @@ const groups = computed(() => {
 const groupMode = ref<'select' | 'create'>('select')
 const selectedGroup = ref('')
 const newGroupName = ref('')
+
+/** 高级连接配置（跳板机 / 主机密钥别名 / known_hosts）默认折叠，已有配置时自动展开。 */
+const advancedOpen = ref(false)
 
 const form = reactive<ServerNode>({
   id: '',
@@ -63,6 +74,13 @@ const form = reactive<ServerNode>({
   blurAmount: 12,
   envVars: {},
 })
+
+const configuredAdvanced = computed(() => !!(
+  form.jumpServerMode ||
+  form.jumpServerIds?.length ||
+  form.hostKeyAlias?.trim() ||
+  form.knownHostsSources?.length
+))
 
 function syncGroupFromForm(group: string) {
   const g = (group || '').trim()
@@ -133,6 +151,7 @@ watch(
       identityFiles: [...(editing?.identityFiles ?? [])],
       identityAgent: editing?.identityAgent ?? '',
       identitiesOnly: editing?.identitiesOnly ?? false,
+      jumpServerMode: editing?.jumpServerMode ?? false,
       jumpServerIds: [...(editing?.jumpServerIds ?? [])],
       hostKeyAlias: editing?.hostKeyAlias ?? '',
       knownHostsSources: [...(editing?.knownHostsSources ?? [])],
@@ -146,6 +165,7 @@ watch(
       envVars: {},
     })
     syncGroupFromForm(editing?.group ?? presetGroup)
+    advancedOpen.value = configuredAdvanced.value
   },
 )
 
@@ -154,7 +174,7 @@ async function pickKeyFile() {
     const path = await sshService.selectKeyFile()
     if (path) form.keyPath = path
   } catch (e) {
-    errorMsg.value = String(e)
+    errorMsg.value = errorText(e)
   }
 }
 
@@ -182,26 +202,26 @@ function resolveKeyContent(): string {
  */
 function buildPayload(requireName: boolean): ServerNode | null {
   if (requireName && !form.name.trim()) {
-    errorMsg.value = '请填写名称'
+    errorMsg.value = t("请填写名称")
     return null
   }
   if (!form.host.trim()) {
-    errorMsg.value = '请填写主机'
+    errorMsg.value = t("请填写主机")
     return null
   }
   if (!form.user.trim()) {
-    errorMsg.value = '请填写用户名'
+    errorMsg.value = t("请填写用户名")
     return null
   }
   const node: ServerNode = {...form}
   if (form.authType === 'password' && !form.password) {
-    errorMsg.value = '请填写密码'
+    errorMsg.value = t("请填写密码")
     return null
   }
   if (form.authType === 'privateKey') {
     if (keySource.value === 'file') {
       if (!(form.keyPath ?? '').trim()) {
-        errorMsg.value = '请选择私钥文件'
+        errorMsg.value = t("请选择私钥文件")
         return null
       }
       // 文件来源：清掉可能残留的粘贴内容，优先用文件。
@@ -210,8 +230,8 @@ function buildPayload(requireName: boolean): ServerNode | null {
       const content = resolveKeyContent()
       if (!content) {
         errorMsg.value = usingStoredKeyContent.value
-          ? '所选凭证的私钥内容为空，请重新选择或粘贴私钥'
-          : '请粘贴私钥内容'
+          ? t("所选凭证的私钥内容为空，请重新选择或粘贴私钥")
+          : t("请粘贴私钥内容")
         return null
       }
       node.keyContent = content
@@ -228,10 +248,11 @@ async function save() {
   saving.value = true
   errorMsg.value = ''
   try {
-    await servers.save({...payload, group: payload.group.trim()})
+    const saved = await servers.save({...payload, group: payload.group.trim()})
+    sessions.syncServerNode(saved)
     show.value = false
   } catch (e) {
-    errorMsg.value = String(e)
+    errorMsg.value = errorText(e)
   } finally {
     saving.value = false
   }
@@ -246,11 +267,12 @@ async function saveAndConnect() {
   errorMsg.value = ''
   try {
     const saved = await servers.save({...payload, group: payload.group.trim()})
+    sessions.syncServerNode(saved)
     show.value = false
     ui.showWorkspace()
     sessions.openTab(saved)
   } catch (e) {
-    errorMsg.value = String(e)
+    errorMsg.value = errorText(e)
   } finally {
     saving.value = false
   }
@@ -268,14 +290,14 @@ async function testConnection() {
     const res = await sshService.testServerLogin(payload)
     if (res.reachable) {
       testOk.value = true
-      testMsg.value = `登录成功，耗时 ${res.latencyMs}ms`
+      testMsg.value = t("登录成功，耗时 {0}ms", [res.latencyMs])
     } else {
       testOk.value = false
-      testMsg.value = `登录失败：${res.error || '未知错误'}`
+      testMsg.value = t("登录失败：{0}", [res.error || '未知错误'])
     }
   } catch (e) {
     testOk.value = false
-    testMsg.value = `登录失败：${String(e)}`
+    testMsg.value = t("登录失败：{0}", [errorText(e)])
   } finally {
     testing.value = false
   }
@@ -319,7 +341,7 @@ function clearCredentialRef() {
 
 /** 凭证下拉里的说明文案：明确标注认证方式（私钥类凭证不会展示私钥内容）。 */
 function credentialLabel(c: Credential): string {
-  const kind = c.authType === 'privateKey' ? '私钥' : '密码'
+  const kind = c.authType === 'privateKey' ? t("私钥") : t("密码")
   return `${c.name}（${c.user} · ${kind}）`
 }
 
@@ -349,15 +371,15 @@ onMounted(() => {
 </script>
 
 <template>
-  <Dialog v-model="show" :title="editing ? '编辑服务器' : '新建服务器'" :width="560" :close-disabled="saving || testing">
+  <Dialog v-model="show" :title="editing ? t('编辑服务器') : t('新建服务器')" :width="560" :close-disabled="saving || testing">
     <div class="flex flex-col gap-4">
-      <p class="text-[12px] text-mist">配置主机、认证方式与分组。私钥内容本地加密存储。</p>
+      <p class="text-[12px] text-mist">{{ $t('配置主机、认证方式与分组。私钥内容本地加密存储。') }}</p>
 
       <div class="grid grid-cols-2 gap-3">
-        <Field label="名称 *" html-for="server-name">
-          <Input id="server-name" v-model="form.name" placeholder="例如：生产服务器" autocomplete="off" />
+        <Field :label="$t('名称 *')" html-for="server-name">
+          <Input id="server-name" v-model="form.name" :placeholder="$t('例如：生产服务器')" autocomplete="off" />
         </Field>
-        <Field label="端口" html-for="server-port">
+        <Field :label="$t('端口')" html-for="server-port">
           <Input
             id="server-port"
             :model-value="form.port"
@@ -371,7 +393,7 @@ onMounted(() => {
 
       <div>
         <div class="flex items-center justify-between gap-2">
-          <span class="field-label">分组（可选）</span>
+          <span class="field-label">{{ $t('分组（可选）') }}</span>
           <div class="flex gap-1">
             <Button
               type="button"
@@ -379,24 +401,23 @@ onMounted(() => {
               :variant="groupMode === 'select' ? 'secondary' : 'ghost'"
               :aria-pressed="groupMode === 'select'"
               @click="groupMode = 'select'"
-            >
-              选择已有
-            </Button>
+            >{{ $t('选择已有') }}</Button>
             <Button
               type="button"
               size="sm"
               :variant="groupMode === 'create' ? 'secondary' : 'ghost'"
               :aria-pressed="groupMode === 'create'"
               @click="groupMode = 'create'"
-            >
-              新建分组
-            </Button>
+            >{{ $t('新建分组') }}</Button>
           </div>
         </div>
-        <Select v-if="groupMode === 'select'" v-model="selectedGroup" class="mt-1" aria-label="服务器分组">
-          <option value="">未分组</option>
-          <option v-for="g in groups" :key="g" :value="g">{{ g }}</option>
-        </Select>
+        <SearchSelect
+          v-if="groupMode === 'select'"
+          v-model="selectedGroup"
+          class="mt-1"
+          :aria-label="$t('服务器分组')"
+          :options="[{value: '', label: t('未分组')}, ...groups.map(g => ({value: g, label: g}))]"
+        />
         <Input
           v-else
           v-model="newGroupName"
@@ -407,114 +428,121 @@ onMounted(() => {
           spellcheck="false"
           name="ding-ssh-new-group"
           class="mt-1"
-          aria-label="新分组名称"
-          placeholder="输入新分组名称"
+          :aria-label="$t('新分组名称')"
+          :placeholder="$t('输入新分组名称')"
         />
         <p class="mt-1 text-[12px] text-slate-500">
-          {{ groupMode === 'select' ? '从已有分组中选择；无合适项可切换到「新建分组」。' : '输入新名称保存后即出现在分组列表中。' }}
+          {{ groupMode === 'select' ? t('从已有分组中选择；无合适项可切换到「新建分组」。') : t('输入新名称保存后即出现在分组列表中。') }}
         </p>
       </div>
 
       <div class="grid grid-cols-2 gap-3">
-        <Field label="主机 / IP *" html-for="server-host">
+        <Field :label="$t('主机 / IP *')" html-for="server-host">
           <Input id="server-host" v-model="form.host" placeholder="example.com" autocomplete="off" />
         </Field>
-        <Field label="用户名 *" html-for="server-user">
+        <Field :label="$t('用户名 *')" html-for="server-user">
           <Input id="server-user" v-model="form.user" placeholder="root" autocomplete="off" />
         </Field>
       </div>
 
       <div>
-        <span class="field-label">认证方式</span>
+        <span class="field-label">{{ $t('认证方式') }}</span>
         <div class="seg mt-1">
-          <button type="button" :class="form.authType === 'password' ? 'active' : ''" :aria-pressed="form.authType === 'password'" @click="form.authType = 'password'">密码</button>
-          <button type="button" :class="form.authType === 'privateKey' ? 'active' : ''" :aria-pressed="form.authType === 'privateKey'" @click="form.authType = 'privateKey'">私钥</button>
+          <button type="button" :class="form.authType === 'password' ? 'active' : ''" :aria-pressed="form.authType === 'password'" @click="form.authType = 'password'">{{ $t('密码') }}</button>
+          <button type="button" :class="form.authType === 'privateKey' ? 'active' : ''" :aria-pressed="form.authType === 'privateKey'" @click="form.authType = 'privateKey'">{{ $t('私钥') }}</button>
           <button type="button" :class="form.authType === 'agent' ? 'active' : ''" @click="form.authType = 'agent'">SSH Agent</button>
-          <button type="button" :class="form.authType === 'auto' ? 'active' : ''" @click="form.authType = 'auto'">自动选择</button>
+          <button type="button" :class="form.authType === 'auto' ? 'active' : ''" @click="form.authType = 'auto'">{{ $t('自动选择') }}</button>
         </div>
       </div>
 
-      <div class="space-y-3">
-        <Field label="跳板机连接路径（最多 5 级）">
-          <div v-for="(jump, index) in form.jumpServerIds" :key="index" class="flex flex-wrap items-center gap-2 mb-2">
-            <Select class="flex-1 basis-40" :model-value="jump" @update:model-value="value => { if (form.jumpServerIds) form.jumpServerIds[index] = String(value) }">
-              <option value="">请选择跳板机</option>
-              <option v-for="server in servers.servers.filter(s => s.id !== form.id)" :key="server.id" :value="server.id">{{ server.name }} · {{ server.host }}</option>
-            </Select>
-            <Button size="sm" :disabled="index === 0" @click="() => { const items = form.jumpServerIds!; [items[index - 1], items[index]] = [items[index]!, items[index - 1]!] }">上移</Button>
-            <Button size="sm" @click="form.jumpServerIds?.splice(index, 1)">删除</Button>
-          </div>
-          <Button size="sm" :disabled="(form.jumpServerIds?.length ?? 0) >= 5" @click="(form.jumpServerIds ??= []).push('')">添加下一跳</Button>
-          <p class="text-xs text-mist mt-2">本机 → {{ (form.jumpServerIds ?? []).map(id => servers.servers.find(s => s.id === id)?.name ?? '请选择').concat(form.name || '目标服务器').join(' → ') }}</p>
-        </Field>
-        <template v-if="form.authType === 'agent' || form.authType === 'auto'">
-          <Field label="Agent 地址（留空使用系统默认）"><Input v-model="form.identityAgent" placeholder="SSH_AUTH_SOCK / Windows OpenSSH Agent" /></Field>
-          <Field label="身份文件（每行一个路径）"><Textarea :model-value="(form.identityFiles ?? []).join('\n')" @update:model-value="value => form.identityFiles = String(value).split('\n').filter(Boolean)" /></Field>
-          <Button size="sm" @click="inspectAgent">查看 Agent 公钥</Button>
-          <p v-for="identity in agentIdentities" :key="identity.fingerprint" class="text-xs break-all select-text">{{ identity.keyType }} · {{ identity.fingerprint }}</p>
-          <label class="flex items-center gap-2 text-sm"><input v-model="form.identitiesOnly" type="checkbox" />仅使用指定身份（IdentitiesOnly）</label>
-        </template>
-        <Field label="主机密钥别名（可选）"><Input v-model="form.hostKeyAlias" /></Field>
-        <Field label="额外 known_hosts 文件（每行一个，只读）"><Textarea :model-value="(form.knownHostsSources ?? []).join('\n')" @update:model-value="value => form.knownHostsSources = String(value).split('\n').filter(Boolean)" /></Field>
+      <div v-if="form.authType === 'agent' || form.authType === 'auto'" class="space-y-3">
+        <Field :label="$t('Agent 地址（留空使用系统默认）')"><Input v-model="form.identityAgent" placeholder="SSH_AUTH_SOCK / Windows OpenSSH Agent" /></Field>
+        <Field :label="$t('身份文件（每行一个路径）')"><Textarea :model-value="(form.identityFiles ?? []).join('\n')" @update:model-value="value => form.identityFiles = String(value).split('\n').filter(Boolean)" /></Field>
+        <Button size="sm" @click="inspectAgent">{{ $t('查看 Agent 公钥') }}</Button>
+        <p v-for="identity in agentIdentities" :key="identity.fingerprint" class="text-xs break-all select-text">{{ identity.keyType }} · {{ identity.fingerprint }}</p>
+        <label class="flex items-center gap-2 text-sm"><input v-model="form.identitiesOnly" type="checkbox" />{{ $t('仅使用指定身份（IdentitiesOnly）') }}</label>
+      </div>
+
+      <div class="server-advanced">
+        <button type="button" class="server-advanced-toggle" :aria-expanded="advancedOpen" @click="advancedOpen = !advancedOpen">
+          <Icon name="chevron-down" :size="14" extra-class="advanced-chevron" />
+          <span>{{ $t('高级设置') }}</span>
+          <span class="server-advanced-hint">{{ $t('跳板机 · 主机密钥别名 · known_hosts') }}</span>
+          <span v-if="!advancedOpen && configuredAdvanced" class="server-advanced-badge">{{ $t('已配置') }}</span>
+        </button>
+        <div v-show="advancedOpen" class="server-advanced-body space-y-3">
+          <label class="flex items-center gap-2 text-sm"><input v-model="form.jumpServerMode" type="checkbox" data-testid="jumpserver-mode" />JumpServer 模式</label>
+          <p class="text-xs text-mist">连接 JumpServer 堡垒机时开启：终端与 SFTP 目录独立，请在 SFTP 中选择资产和账号后上传。与 SSH 跳板机配置独立，保存后重新连接生效。</p>
+          <Field :label="$t('跳板机连接路径（最多 5 级）')">
+            <div v-for="(jump, index) in form.jumpServerIds" :key="index" class="flex flex-wrap items-center gap-2 mb-2">
+              <SearchSelect
+                class="flex-1 basis-40"
+                :model-value="jump"
+                :aria-label="t('第 {0} 级跳板机', [index + 1])"
+                :options="[{value: '', label: t('请选择跳板机')}, ...servers.servers.filter(s => s.id !== form.id).map(s => ({value: s.id, label: `${s.name} · ${s.host}`, keywords: `${s.user} ${s.group}`}))]"
+                @update:model-value="value => { if (form.jumpServerIds) form.jumpServerIds[index] = value }"
+              />
+              <Button size="sm" :disabled="index === 0" @click="() => { const items = form.jumpServerIds!; [items[index - 1], items[index]] = [items[index]!, items[index - 1]!] }">{{ $t('上移') }}</Button>
+              <Button size="sm" @click="form.jumpServerIds?.splice(index, 1)">{{ $t('删除') }}</Button>
+            </div>
+            <Button size="sm" :disabled="(form.jumpServerIds?.length ?? 0) >= 5" @click="(form.jumpServerIds ??= []).push('')">{{ $t('添加下一跳') }}</Button>
+            <p class="text-xs text-mist mt-2">{{ $t('本机 →') }} {{ (form.jumpServerIds ?? []).map(id => servers.servers.find(s => s.id === id)?.name ?? t('请选择')).concat(form.name || t('目标服务器')).join(' → ') }}</p>
+          </Field>
+          <Field :label="$t('主机密钥别名（可选）')"><Input v-model="form.hostKeyAlias" /></Field>
+          <Field :label="$t('额外 known_hosts 文件（每行一个，只读）')"><Textarea :model-value="(form.knownHostsSources ?? []).join('\n')" @update:model-value="value => form.knownHostsSources = String(value).split('\n').filter(Boolean)" /></Field>
+        </div>
       </div>
 
       <div v-if="form.authType === 'password'" class="space-y-3">
-        <Field label="密码 *" html-for="server-password">
-          <Input id="server-password" v-model="form.password" type="password" placeholder="登录密码" autocomplete="current-password" />
+        <Field :label="$t('密码 *')" html-for="server-password">
+          <Input id="server-password" v-model="form.password" type="password" :placeholder="$t('登录密码')" autocomplete="current-password" />
         </Field>
-        <Field v-if="credentials.list.length" label="使用已保存凭证（可选）" html-for="server-credential">
-          <Select id="server-credential" v-model="selectedCred" @change="applyCredential(selectedCred)">
-            <option value="">— 不使用 —</option>
-            <option v-for="c in credentials.list" :key="c.id" :value="c.id">{{ credentialLabel(c) }}</option>
-          </Select>
-          <p class="text-[12px] text-slate-500">私钥类凭证同样可选：会带出用户名与认证方式，私钥内容不会显示在界面上。</p>
+        <Field v-if="credentials.list.length" :label="$t('使用已保存凭证（可选）')" html-for="server-credential">
+          <SearchSelect
+            id="server-credential"
+            v-model="selectedCred"
+            :options="[{value: '', label: t('— 不使用 —')}, ...credentials.list.map(c => ({value: c.id, label: credentialLabel(c)}))]"
+            @update:model-value="applyCredential"
+          />
+          <p class="text-[12px] text-slate-500">{{ $t('私钥类凭证同样可选：会带出用户名与认证方式，私钥内容不会显示在界面上。') }}</p>
         </Field>
       </div>
 
       <div v-else-if="form.authType === 'privateKey'" class="space-y-3">
         <div>
-          <span class="field-label">私钥来源</span>
+          <span class="field-label">{{ $t('私钥来源') }}</span>
           <div class="mt-1 flex gap-2">
             <Button
               class="flex-1"
               :variant="keySource === 'file' ? 'secondary' : 'ghost'"
               :aria-pressed="keySource === 'file'"
               @click="setKeySource('file')"
-            >
-              密钥文件
-            </Button>
+            >{{ $t('密钥文件') }}</Button>
             <Button
               class="flex-1"
               :variant="keySource === 'content' ? 'secondary' : 'ghost'"
               :aria-pressed="keySource === 'content'"
               @click="setKeySource('content')"
-            >
-              粘贴内容
-            </Button>
+            >{{ $t('粘贴内容') }}</Button>
           </div>
         </div>
 
-        <Field v-if="keySource === 'file'" label="私钥文件 *" html-for="server-key-path">
+        <Field v-if="keySource === 'file'" :label="$t('私钥文件 *')" html-for="server-key-path">
           <div class="flex gap-2">
             <Input id="server-key-path" v-model="form.keyPath" readonly class="flex-1" placeholder="~/.ssh/id_rsa" />
-            <Button variant="secondary" size="sm" @click="pickKeyFile">选择…</Button>
+            <Button variant="secondary" size="sm" @click="pickKeyFile">{{ $t('选择…') }}</Button>
           </div>
         </Field>
 
         <div v-else>
-          <span class="field-label">私钥内容 *</span>
+          <span class="field-label">{{ $t('私钥内容 *') }}</span>
           <div
             v-if="usingStoredKeyContent"
             class="mt-1 rounded-md border border-[var(--field-border)] bg-[var(--hover)] px-3 py-3 text-[12px] leading-relaxed text-slate-400"
           >
             <div class="flex items-center gap-2 text-[var(--foreground)]">
-              <Icon name="lock" :size="13" />
-              已使用保存的私钥
-            </div>
-            <p class="mt-1">
-              私钥内容保存在凭据库中，出于安全考虑不在界面上回显；保存后会自动写入该服务器。
-              需要换成别的私钥时，切换上方「密钥文件」，或重新选择 / 粘贴内容。
-            </p>
+              <Icon name="lock" :size="13" />{{ $t('已使用保存的私钥') }}</div>
+            <p class="mt-1">{{ $t('私钥内容保存在凭据库中，出于安全考虑不在界面上回显；保存后会自动写入该服务器。\n              需要换成别的私钥时，切换上方「密钥文件」，或重新选择 / 粘贴内容。') }}</p>
           </div>
           <Textarea
             v-else
@@ -523,21 +551,23 @@ onMounted(() => {
             spellcheck="false"
             autocomplete="off"
             class="mt-1 font-mono"
-            aria-label="私钥内容"
+            :aria-label="$t('私钥内容')"
             placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
             @input="clearCredentialRef"
           />
         </div>
 
-        <Field v-if="credentials.list.length" label="使用已保存凭证（可选）" html-for="server-key-credential">
-          <Select id="server-key-credential" v-model="selectedCred" @change="applyCredential(selectedCred)">
-            <option value="">— 不使用 —</option>
-            <option v-for="c in credentials.list" :key="c.id" :value="c.id">{{ credentialLabel(c) }}</option>
-          </Select>
+        <Field v-if="credentials.list.length" :label="$t('使用已保存凭证（可选）')" html-for="server-key-credential">
+          <SearchSelect
+            id="server-key-credential"
+            v-model="selectedCred"
+            :options="[{value: '', label: t('— 不使用 —')}, ...credentials.list.map(c => ({value: c.id, label: credentialLabel(c)}))]"
+            @update:model-value="applyCredential"
+          />
         </Field>
 
-        <Field label="私钥口令（可选）" html-for="server-key-passphrase">
-          <Input id="server-key-passphrase" v-model="form.password" type="password" placeholder="加密私钥的 passphrase" autocomplete="current-password" />
+        <Field :label="$t('私钥口令（可选）')" html-for="server-key-passphrase">
+          <Input id="server-key-passphrase" v-model="form.password" type="password" :placeholder="$t('加密私钥的 passphrase')" autocomplete="current-password" />
         </Field>
       </div>
 
@@ -549,18 +579,43 @@ onMounted(() => {
     </div>
 
     <template #footer>
-      <Button variant="ghost" :disabled="saving || testing" @click="close">取消</Button>
+      <Button variant="ghost" :disabled="saving || testing" @click="close">{{ $t('取消') }}</Button>
       <Button variant="ghost" :loading="testing" :disabled="testing || saving" @click="testConnection">
         <Icon v-if="!testing" name="activity" :size="14" />
-        {{ testing ? '测试中…' : '测试连接' }}
+        {{ testing ? t('测试中…') : t('测试连接') }}
       </Button>
       <Button variant="ghost" :loading="saving" :disabled="saving || testing" @click="save">
-        {{ saving ? '保存中…' : '保存' }}
+        {{ saving ? t('保存中…') : t('保存') }}
       </Button>
       <Button variant="primary" :loading="saving" :disabled="saving || testing" @click="saveAndConnect">
-        <Icon v-if="!saving" name="check" :size="14" />
-        保存并连接
-      </Button>
+        <Icon v-if="!saving" name="check" :size="14" />{{ $t('保存并连接') }}</Button>
     </template>
   </Dialog>
 </template>
+
+<style scoped>
+.server-advanced { border-top: 1px solid var(--line); }
+.server-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 2px;
+  font-size: 12.5px;
+  color: var(--foreground-secondary);
+  text-align: left;
+}
+.server-advanced-toggle:hover { color: var(--foreground); }
+.advanced-chevron { color: var(--muted-foreground); transform: rotate(-90deg); transition: transform 160ms ease; }
+.server-advanced-toggle[aria-expanded='true'] .advanced-chevron { transform: rotate(0deg); }
+.server-advanced-hint { margin-left: auto; font-size: 11.5px; color: var(--muted-foreground); }
+.server-advanced-badge {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 10.5px;
+  color: var(--accent-bg);
+  background: var(--primary-weak);
+}
+.server-advanced-body { padding-bottom: 4px; }
+</style>

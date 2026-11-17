@@ -2,6 +2,7 @@ package sshx
 
 import (
 	"context"
+	"ding-ssh/internal/i18n"
 	"errors"
 	"fmt"
 	"io"
@@ -30,22 +31,28 @@ type Session struct {
 	server    models.ServerNode
 	createdAt int64
 
-	mu         sync.Mutex
-	closed     bool
-	closeOnce  sync.Once
-	onClosed   func(id string)
-	onOutput   func(id string, data []byte)
-	onStatus   func(id string, status models.SessionStatus, message string)
-	onDirSync  func(id string, path string)
-	onProgress func(id, step, status, log, message string) // 连接过程分步日志
-	lastDir    string                                      // 最近一次同步的路径，用于去重避免重复事件
+	mu           sync.Mutex
+	writeMu      sync.Mutex
+	closed       bool
+	closing      bool
+	reconnecting bool
+	onClosed     func(id string)
+	onOutput     func(id string, data []byte)
+	onStatus     func(id string, status models.SessionStatus, message string)
+	onDirSync    func(id string, path string)
+	onProgress   func(id, step, status, log, message string) // 连接过程分步日志
+	lastDir      string                                      // 最近一次同步的路径，用于去重避免重复事件
 
-	sftpOnce sync.Once
-	sftpErr  error
-	sftp     *sftp.Client
-	home     string // 远程 home，用于把提示符里的 ~ 展开成绝对路径
+	sftpState *sessionSFTP
+	home      string // 远程 home，用于把提示符里的 ~ 展开成绝对路径
 
 	keepAliveEnabled bool // 是否发送心跳包（由应用设置控制）
+}
+
+type sessionSFTP struct {
+	once   sync.Once
+	client *sftp.Client
+	err    error
 }
 
 // noopProgress 无操作进度回调，用于无需展示连接过程日志的调用方（如隧道）。
@@ -74,7 +81,7 @@ func newSession(
 			onProgress(id, step, status, log, message)
 		}
 	}
-	report(models.ConnectStepDNS, "running", "正在初始化连接…", "")
+	report(models.ConnectStepDNS, "running", i18n.T("正在初始化连接…"), "")
 	ctx := context.Background()
 	if len(contexts) > 0 {
 		ctx = contexts[0]
@@ -88,15 +95,15 @@ func newSession(
 	logx.Debugf("SSH TCP 连接已建立: session=%s host=%s:%d", id, node.Host, node.Port)
 
 	// 分配 PTY，使用 256 色终端。
-	report(models.ConnectStepPTY, "running", "正在创建 SSH 会话通道…", "")
+	report(models.ConnectStepPTY, "running", i18n.T("正在创建 SSH 会话通道…"), "")
 	shell, err := client.NewSession()
 	if err != nil {
 		client.Close()
-		report(models.ConnectStepPTY, "error", fmt.Sprintf("创建 SSH 会话失败：%v", err), "创建 SSH 会话失败")
-		return nil, fmt.Errorf("创建 SSH 会话失败: %w", err)
+		report(models.ConnectStepPTY, "error", fmt.Sprintf(i18n.T("创建 SSH 会话失败：%v"), err), i18n.T("创建 SSH 会话失败"))
+		return nil, fmt.Errorf(i18n.T("创建 SSH 会话失败: %w"), err)
 	}
 
-	report(models.ConnectStepPTY, "running", fmt.Sprintf("请求 PTY（xterm-256color %d×%d）…", cols, rows), "")
+	report(models.ConnectStepPTY, "running", fmt.Sprintf(i18n.T("请求 PTY（xterm-256color %d×%d）…"), cols, rows), "")
 	modes := ssh.TerminalModes{
 		ssh.ECHO:          1,
 		ssh.TTY_OP_ISPEED: 14400,
@@ -105,43 +112,43 @@ func newSession(
 	if err := shell.RequestPty("xterm-256color", rows, cols, modes); err != nil {
 		shell.Close()
 		client.Close()
-		report(models.ConnectStepPTY, "error", fmt.Sprintf("请求 PTY 失败：%v", err), "请求 PTY 失败")
-		return nil, fmt.Errorf("请求 PTY 失败: %w", err)
+		report(models.ConnectStepPTY, "error", fmt.Sprintf(i18n.T("请求 PTY 失败：%v"), err), i18n.T("请求 PTY 失败"))
+		return nil, fmt.Errorf(i18n.T("请求 PTY 失败: %w"), err)
 	}
-	report(models.ConnectStepPTY, "done", "PTY 分配成功", "")
+	report(models.ConnectStepPTY, "done", i18n.T("PTY 分配成功"), "")
 
-	report(models.ConnectStepReady, "running", "正在获取 IO 管道…", "")
+	report(models.ConnectStepReady, "running", i18n.T("正在获取 IO 管道…"), "")
 	stdin, err := shell.StdinPipe()
 	if err != nil {
 		shell.Close()
 		client.Close()
-		report(models.ConnectStepReady, "error", fmt.Sprintf("获取 stdin 失败：%v", err), "获取 stdin 失败")
-		return nil, fmt.Errorf("获取 stdin 失败: %w", err)
+		report(models.ConnectStepReady, "error", fmt.Sprintf(i18n.T("获取 stdin 失败：%v"), err), i18n.T("获取 stdin 失败"))
+		return nil, fmt.Errorf(i18n.T("获取 stdin 失败: %w"), err)
 	}
 	stdout, err := shell.StdoutPipe()
 	if err != nil {
 		shell.Close()
 		client.Close()
-		report(models.ConnectStepReady, "error", fmt.Sprintf("获取 stdout 失败：%v", err), "获取 stdout 失败")
-		return nil, fmt.Errorf("获取 stdout 失败: %w", err)
+		report(models.ConnectStepReady, "error", fmt.Sprintf(i18n.T("获取 stdout 失败：%v"), err), i18n.T("获取 stdout 失败"))
+		return nil, fmt.Errorf(i18n.T("获取 stdout 失败: %w"), err)
 	}
 	stderr, err := shell.StderrPipe()
 	if err != nil {
 		shell.Close()
 		client.Close()
-		report(models.ConnectStepReady, "error", fmt.Sprintf("获取 stderr 失败：%v", err), "获取 stderr 失败")
-		return nil, fmt.Errorf("获取 stderr 失败: %w", err)
+		report(models.ConnectStepReady, "error", fmt.Sprintf(i18n.T("获取 stderr 失败：%v"), err), i18n.T("获取 stderr 失败"))
+		return nil, fmt.Errorf(i18n.T("获取 stderr 失败: %w"), err)
 	}
 
-	report(models.ConnectStepReady, "running", "正在启动 Shell…", "")
+	report(models.ConnectStepReady, "running", i18n.T("正在启动 Shell…"), "")
 	if err := shell.Shell(); err != nil {
 		shell.Close()
 		client.Close()
-		report(models.ConnectStepReady, "error", fmt.Sprintf("启动 Shell 失败：%v", err), "启动 Shell 失败")
-		return nil, fmt.Errorf("启动 Shell 失败: %w", err)
+		report(models.ConnectStepReady, "error", fmt.Sprintf(i18n.T("启动 Shell 失败：%v"), err), i18n.T("启动 Shell 失败"))
+		return nil, fmt.Errorf(i18n.T("启动 Shell 失败: %w"), err)
 	}
 	logx.Debugf("SSH Shell 已就绪: session=%s server=%s", id, node.Name)
-	report(models.ConnectStepReady, "done", "Shell 已启动，会话就绪", "")
+	report(models.ConnectStepReady, "done", i18n.T("Shell 已启动，会话就绪"), "")
 
 	s := &Session{
 		ID:               id,
@@ -156,10 +163,11 @@ func newSession(
 		onDirSync:        onDirSync,
 		onProgress:       onProgress,
 		keepAliveEnabled: keepAliveEnabled,
+		sftpState:        &sessionSFTP{},
 	}
 
 	// 启动 SSH KeepAlive 心跳 Goroutine
-	go s.keepAliveLoop()
+	go s.keepAliveLoop(client)
 
 	go s.pump(stdout)
 	go s.pump(stderr)
@@ -168,7 +176,7 @@ func newSession(
 	// 等待 Shell 退出，统一触发清理。
 	go func() {
 		_ = shell.Wait()
-		s.close(models.StatusClosed, "")
+		s.closeClient(client, models.StatusClosed, "")
 	}()
 
 	return s, nil
@@ -190,7 +198,7 @@ func (s *Session) pump(r io.Reader) {
 			if len(acc) > 64*1024 {
 				acc = acc[len(acc)-64*1024:]
 			}
-			if s.onDirSync != nil {
+			if s.onDirSync != nil && !s.server.JumpServerMode {
 				if dir, src, ok := ParseDirFromOutput(acc); ok {
 					if dir = s.expandPath(dir); dir != "" {
 						s.mu.Lock()
@@ -220,30 +228,41 @@ func (s *Session) pump(r io.Reader) {
 // Write 向前端写入终端输入。
 func (s *Session) Write(data []byte) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return fmt.Errorf("会话已关闭")
+	stdin, closed := s.stdin, s.closed || s.closing
+	s.mu.Unlock()
+	if closed {
+		return fmt.Errorf("%s", i18n.T("会话已关闭"))
 	}
-	_, err := s.stdin.Write(data)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, err := stdin.Write(data)
 	return err
 }
 
 // Resize 调整终端窗口尺寸。
 func (s *Session) Resize(cols, rows int) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	shell, closed := s.shell, s.closed || s.closing
+	s.mu.Unlock()
+	if closed {
 		return nil
 	}
-	return s.shell.WindowChange(rows, cols)
+	return shell.WindowChange(rows, cols)
 }
 
-// SftpClient 返回会话对应的 SFTP 客户端（按需懒创建，随会话关闭）。
+// SftpClient 返回会话对应的 SFTP 客户端（按需懒创建，随 SSH 连接关闭）。
 func (s *Session) SftpClient() (*sftp.Client, error) {
-	s.sftpOnce.Do(func() {
-		s.sftp, s.sftpErr = sftp.NewClient(s.client)
+	s.mu.Lock()
+	if s.closed || s.closing {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%s", i18n.T("会话已关闭"))
+	}
+	state, client := s.sftpState, s.client
+	s.mu.Unlock()
+	state.once.Do(func() {
+		state.client, state.err = sftp.NewClient(client)
 	})
-	return s.sftp, s.sftpErr
+	return state.client, state.err
 }
 
 // guessHome 在尚未探测到远程 home 时给出常见默认值。
@@ -295,6 +314,9 @@ func (s *Session) expandPath(p string) string {
 // prefetchHomeAndSync 用 SFTP Getwd 校正 home，并在尚未同步过目录时推一次，
 // 避免登录提示符是 ~ 时 SFTP 停在 /。
 func (s *Session) prefetchHomeAndSync() {
+	if s.server.JumpServerMode {
+		return
+	}
 	c, err := s.SftpClient()
 	if err == nil && c != nil {
 		if wd, werr := c.Getwd(); werr == nil && strings.HasPrefix(wd, "/") {
@@ -331,30 +353,34 @@ func (s *Session) Info() models.SessionInfo {
 }
 
 func (s *Session) close(status models.SessionStatus, message string) {
-	s.closeOnce.Do(func() {
-		s.mu.Lock()
-		if s.closed {
-			s.mu.Unlock()
-			return
-		}
-		s.closed = true
+	s.closeClient(nil, status, message)
+}
+
+func (s *Session) closeClient(expected *ssh.Client, status models.SessionStatus, message string) {
+	s.mu.Lock()
+	client := s.client
+	if s.closed || s.closing || (expected != nil && expected != client) {
 		s.mu.Unlock()
+		return
+	}
+	s.closing = true
+	s.mu.Unlock()
 
-		logx.Debugf("SSH 会话关闭: session=%s status=%s message=%q", s.ID, status, message)
-		if s.sftp != nil {
-			_ = s.sftp.Close()
-		}
-		_ = s.shell.Close()
-		_ = s.client.Close()
+	// 先关闭传输，解除等待 SSH 通道读写和回复的操作。
+	_ = client.Close()
 
-		if s.onStatus != nil {
-			s.onStatus(s.ID, status, message)
-		}
-		// disconnected 状态保留会话在 Manager 中，支持一键重新连接
-		if s.onClosed != nil && status != models.StatusDisconnected {
-			s.onClosed(s.ID)
-		}
-	})
+	s.mu.Lock()
+	s.closed = true
+	s.closing = false
+	s.mu.Unlock()
+
+	logx.Debugf("SSH 会话关闭: session=%s status=%s message=%q", s.ID, status, message)
+	if s.onStatus != nil {
+		s.onStatus(s.ID, status, message)
+	}
+	if s.onClosed != nil && status != models.StatusDisconnected {
+		s.onClosed(s.ID)
+	}
 }
 
 // buildClientConfig 根据节点配置构造 SSH 客户端配置。
@@ -365,35 +391,35 @@ func buildClientConfig(node models.ServerNode, report progressFn) (*ssh.ClientCo
 		return nil, err
 	}
 	if node.AuthType == "privateKey" {
-		report(models.ConnectStepAuth, "running", "鉴权配置：私钥认证", "")
+		report(models.ConnectStepAuth, "running", i18n.T("鉴权配置：私钥认证"), "")
 	} else if node.AuthType == "agent" || node.AuthType == "auto" {
-		report(models.ConnectStepAuth, "running", "鉴权配置："+node.AuthType, "")
+		report(models.ConnectStepAuth, "running", i18n.T("鉴权配置：")+node.AuthType, "")
 	} else {
-		report(models.ConnectStepAuth, "running", "鉴权配置：密码认证（含键盘交互）", "")
+		report(models.ConnectStepAuth, "running", i18n.T("鉴权配置：密码认证（含键盘交互）"), "")
 	}
 	return &ssh.ClientConfig{
 		User: node.User,
 		Auth: auths,
 		HostKeyCallback: func(host string, remote net.Addr, key ssh.PublicKey) error {
 			report(models.ConnectStepAuth, "running",
-				fmt.Sprintf("服务端主机密钥：%s 指纹 sha256:%s", key.Type(), ssh.FingerprintSHA256(key)), "")
+				fmt.Sprintf(i18n.T("服务端主机密钥：%s 指纹 sha256:%s"), key.Type(), ssh.FingerprintSHA256(key)), "")
 			if node.HostKeyAlias != "" {
 				host = net.JoinHostPort(node.HostKeyAlias, strconv.Itoa(node.Port))
 			}
 			return verifyConnectionHostSources(host, remote, key, node.KnownHostsSources)
 		},
 		BannerCallback: func(message string) error {
-			report(models.ConnectStepAuth, "running", fmt.Sprintf("服务端横幅：%s", message), "")
+			report(models.ConnectStepAuth, "running", fmt.Sprintf(i18n.T("服务端横幅：%s"), message), "")
 			return nil
 		},
 		AuthCallback: func(ctx *ssh.ClientAuthContext) (ssh.AuthMethod, error) {
 			if len(ctx.AllowedMethods) > 0 {
 				report(models.ConnectStepAuth, "running",
-					fmt.Sprintf("服务器允许的鉴权方式：%s", strings.Join(ctx.AllowedMethods, ", ")), "")
+					fmt.Sprintf(i18n.T("服务器允许的鉴权方式：%s"), strings.Join(ctx.AllowedMethods, ", ")), "")
 			}
 			if len(ctx.TriedMethods) > 0 {
 				report(models.ConnectStepAuth, "running",
-					fmt.Sprintf("已失败的鉴权尝试：%s", strings.Join(ctx.TriedMethods, ", ")), "")
+					fmt.Sprintf(i18n.T("已失败的鉴权尝试：%s"), strings.Join(ctx.TriedMethods, ", ")), "")
 			}
 			return nil, nil
 		},
@@ -433,7 +459,7 @@ func buildAuthMethods(node models.ServerNode) ([]ssh.AuthMethod, error) {
 			}),
 		}, nil
 	default:
-		return nil, fmt.Errorf("不支持的认证方式：%s", node.AuthType)
+		return nil, fmt.Errorf(i18n.T("不支持的认证方式：%s"), node.AuthType)
 	}
 }
 
@@ -447,35 +473,35 @@ func dialSSH(host string, port int, config *ssh.ClientConfig, report progressFn)
 }
 func dialSSHContext(ctx context.Context, host string, port int, config *ssh.ClientConfig, report progressFn) (*ssh.Client, error) {
 	// 步骤 1：DNS / 直连。
-	report(models.ConnectStepDNS, "running", fmt.Sprintf("目标主机：%s", host), "")
+	report(models.ConnectStepDNS, "running", fmt.Sprintf(i18n.T("目标主机：%s"), host), "")
 	if ip := net.ParseIP(host); ip != nil {
-		report(models.ConnectStepDNS, "running", fmt.Sprintf("主机为 IP 地址，采用直连（%s）", ip), "")
+		report(models.ConnectStepDNS, "running", fmt.Sprintf(i18n.T("主机为 IP 地址，采用直连（%s）"), ip), "")
 	} else {
 		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 		if err != nil || len(ips) == 0 {
-			msg := "DNS 解析失败"
-			report(models.ConnectStepDNS, "error", fmt.Sprintf("解析 %s 失败：%v", host, err), msg)
+			msg := i18n.T("DNS 解析失败")
+			report(models.ConnectStepDNS, "error", fmt.Sprintf(i18n.T("解析 %s 失败：%v"), host, err), msg)
 			return nil, fmt.Errorf("%s: %w", msg, err)
 		}
 		addrs := make([]string, 0, len(ips))
 		for _, ip := range ips {
 			addrs = append(addrs, ip.String())
 		}
-		report(models.ConnectStepDNS, "running", fmt.Sprintf("DNS 解析成功：%s", strings.Join(addrs, ", ")), "")
+		report(models.ConnectStepDNS, "running", fmt.Sprintf(i18n.T("DNS 解析成功：%s"), strings.Join(addrs, ", ")), "")
 	}
-	report(models.ConnectStepDNS, "done", fmt.Sprintf("目标地址已确定：%s:%d", host, port), "")
+	report(models.ConnectStepDNS, "done", fmt.Sprintf(i18n.T("目标地址已确定：%s:%d"), host, port), "")
 
 	// 步骤 2：TCP 握手。
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	report(models.ConnectStepTCP, "running", fmt.Sprintf("正在建立 TCP 连接 %s …", addr), "")
+	report(models.ConnectStepTCP, "running", fmt.Sprintf(i18n.T("正在建立 TCP 连接 %s …"), addr), "")
 	dialStart := time.Now()
 	conn, err := (&net.Dialer{Timeout: connectTimeout}).DialContext(ctx, "tcp", addr)
 	if err != nil {
 		cerr := connectError(err)
-		report(models.ConnectStepTCP, "error", fmt.Sprintf("TCP 连接失败：%v", err), cerr.Error())
+		report(models.ConnectStepTCP, "error", fmt.Sprintf(i18n.T("TCP 连接失败：%v"), err), cerr.Error())
 		return nil, cerr
 	}
-	report(models.ConnectStepTCP, "done", fmt.Sprintf("TCP 连接成功，耗时 %dms，对端 %s",
+	report(models.ConnectStepTCP, "done", fmt.Sprintf(i18n.T("TCP 连接成功，耗时 %dms，对端 %s"),
 		time.Since(dialStart).Milliseconds(), conn.RemoteAddr().String()), "")
 
 	stopCancel := context.AfterFunc(ctx, func() { conn.Close() })
@@ -484,22 +510,22 @@ func dialSSHContext(ctx context.Context, host string, port int, config *ssh.Clie
 	// 握手阶段受 10 秒 deadline 约束，避免服务端无响应时无限等待。
 	if err := conn.SetDeadline(time.Now().Add(connectTimeout)); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("SSH 连接失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("SSH 连接失败: %w"), err)
 	}
-	report(models.ConnectStepAuth, "running", "开始 SSH 版本协商与密钥交换…", "")
+	report(models.ConnectStepAuth, "running", i18n.T("开始 SSH 版本协商与密钥交换…"), "")
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
 		conn.Close()
 		cerr := connectError(err)
-		report(models.ConnectStepAuth, "error", fmt.Sprintf("SSH 握手失败：%v", err), cerr.Error())
+		report(models.ConnectStepAuth, "error", fmt.Sprintf(i18n.T("SSH 握手失败：%v"), err), cerr.Error())
 		return nil, cerr
 	}
-	report(models.ConnectStepAuth, "running", fmt.Sprintf("服务端版本：%s", sshConn.ServerVersion()), "")
+	report(models.ConnectStepAuth, "running", fmt.Sprintf(i18n.T("服务端版本：%s"), sshConn.ServerVersion()), "")
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		sshConn.Close()
-		return nil, fmt.Errorf("SSH 连接失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("SSH 连接失败: %w"), err)
 	}
-	report(models.ConnectStepAuth, "done", fmt.Sprintf("SSH 鉴权成功（用户 %s）", config.User), "")
+	report(models.ConnectStepAuth, "done", fmt.Sprintf(i18n.T("SSH 鉴权成功（用户 %s）"), config.User), "")
 	return ssh.NewClient(sshConn, chans, reqs), nil
 }
 
@@ -507,9 +533,9 @@ func dialSSHContext(ctx context.Context, host string, port int, config *ssh.Clie
 func connectError(err error) error {
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
-		return errors.New("SSH 连接超时（10 秒）")
+		return errors.New(i18n.T("SSH 连接超时（10 秒）"))
 	}
-	return fmt.Errorf("SSH 连接失败: %w", err)
+	return fmt.Errorf(i18n.T("SSH 连接失败: %w"), err)
 }
 
 // privateKeyData 返回私钥内容：优先使用粘贴的私钥内容，其次读取私钥文件。
@@ -518,7 +544,7 @@ func privateKeyData(node models.ServerNode) ([]byte, error) {
 		return []byte(content), nil
 	}
 	if strings.TrimSpace(node.KeyPath) == "" {
-		return nil, errors.New("请填写私钥内容或选择私钥文件")
+		return nil, errors.New(i18n.T("请填写私钥内容或选择私钥文件"))
 	}
 	return readKey(node.KeyPath)
 }
@@ -527,7 +553,7 @@ func privateKeyData(node models.ServerNode) ([]byte, error) {
 func readKey(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("读取私钥文件失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("读取私钥文件失败: %w"), err)
 	}
 	return data, nil
 }
@@ -536,43 +562,54 @@ func parsePrivateKey(data []byte, passphrase string) (ssh.Signer, error) {
 	if passphrase != "" {
 		key, err := ssh.ParsePrivateKeyWithPassphrase(data, []byte(passphrase))
 		if err != nil {
-			return nil, fmt.Errorf("解析加密私钥失败: %w", err)
+			return nil, fmt.Errorf(i18n.T("解析加密私钥失败: %w"), err)
 		}
 		return key, nil
 	}
 	key, err := ssh.ParsePrivateKey(data)
 	if err != nil {
-		return nil, fmt.Errorf("解析私钥失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("解析私钥失败: %w"), err)
 	}
 	return key, nil
 }
 
-// keepAliveLoop 定期发送 SSH keepalive 心跳包，防止 NAT 或防火墙超时断开。
-// 当 keepAliveEnabled 为 false 时仅发送空请求保持终端活跃，不做失败检测。
-// 连续失败立即触发连接断开事件，前端保留终端上下文并提供重新连接入口。
-func (s *Session) keepAliveLoop() {
+// keepAliveLoop 定期发送心跳。服务端拒绝请求也表示 SSH 连接仍能收发。
+func (s *Session) keepAliveLoop(client *ssh.Client) {
+	const replyTimeout = 10 * time.Second
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
 		s.mu.Lock()
-		closed := s.closed
-		client := s.client
-		kaEnabled := s.keepAliveEnabled
+		closed := s.closed || s.closing || s.client != client
+		enabled := s.keepAliveEnabled
 		s.mu.Unlock()
-		if closed || client == nil {
+		if closed {
 			return
 		}
-		if !kaEnabled {
-			// 心跳关闭时仍发送 no-op 请求防止服务端终端超时，但不处理错误
+		if !enabled {
 			_, _, _ = client.SendRequest("keepalive@openssh.com", false, nil)
 			continue
 		}
-		_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-		if err != nil {
-			logx.Debugf("SSH keepalive 失败，触发断开事件: session=%s err=%v", s.ID, err)
-			s.close(models.StatusDisconnected, "连接已断开（心跳超时）")
-			return
+
+		result := make(chan error, 1)
+		go func() {
+			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+			result <- err
+		}()
+		timer := time.NewTimer(replyTimeout)
+		select {
+		case err := <-result:
+			timer.Stop()
+			if err == nil {
+				continue
+			}
+			logx.Warnf("SSH 心跳请求失败: session=%s err=%v", s.ID, err)
+			s.closeClient(client, models.StatusDisconnected, i18n.T("连接已断开（心跳请求失败）"))
+		case <-timer.C:
+			logx.Warnf("SSH 心跳未在期限内收到回复: session=%s timeout=%s", s.ID, replyTimeout)
+			s.closeClient(client, models.StatusDisconnected, i18n.T("连接已断开（心跳超时）"))
 		}
+		return
 	}
 }
 
@@ -588,47 +625,42 @@ func (s *Session) SetKeepAliveEnabled(enabled bool) {
 // keepAliveEnabled 用于更新心跳开关设置。
 func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 	s.mu.Lock()
-	wasClosed := s.closed
-	if !wasClosed {
+	if !s.closed || s.closing || s.reconnecting {
 		s.mu.Unlock()
-		return fmt.Errorf("会话仍在连接中，无需重连")
+		return fmt.Errorf("%s", i18n.T("会话仍在连接中，无需重连"))
 	}
 	server := s.server
 	onStatus := s.onStatus
 	onProgress := s.onProgress
-	oldClient := s.client
-	oldSftp := s.sftp
+	s.reconnecting = true
 	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.reconnecting = false
+		s.mu.Unlock()
+	}()
 
 	report := func(step, status, log, message string) {
 		if onProgress != nil {
 			onProgress(s.ID, step, status, log, message)
 		}
 	}
-	report(models.ConnectStepDNS, "running", "正在重新连接…", "")
-
-	// 先清理旧连接，避免重连过程中残留占用端口或 SFTP 句柄。
-	if oldSftp != nil {
-		_ = oldSftp.Close()
-	}
-	if oldClient != nil {
-		_ = oldClient.Close()
-	}
+	report(models.ConnectStepDNS, "running", i18n.T("正在重新连接…"), "")
 
 	client, err := dialNode(server, report)
 	if err != nil {
 		return err
 	}
 
-	report(models.ConnectStepPTY, "running", "正在创建 SSH 会话通道…", "")
+	report(models.ConnectStepPTY, "running", i18n.T("正在创建 SSH 会话通道…"), "")
 	shell, err := client.NewSession()
 	if err != nil {
 		client.Close()
-		report(models.ConnectStepPTY, "error", fmt.Sprintf("创建 SSH 会话失败：%v", err), "创建 SSH 会话失败")
-		return fmt.Errorf("创建 SSH 会话失败: %w", err)
+		report(models.ConnectStepPTY, "error", fmt.Sprintf(i18n.T("创建 SSH 会话失败：%v"), err), i18n.T("创建 SSH 会话失败"))
+		return fmt.Errorf(i18n.T("创建 SSH 会话失败: %w"), err)
 	}
 
-	report(models.ConnectStepPTY, "running", fmt.Sprintf("请求 PTY（xterm-256color %d×%d）…", cols, rows), "")
+	report(models.ConnectStepPTY, "running", fmt.Sprintf(i18n.T("请求 PTY（xterm-256color %d×%d）…"), cols, rows), "")
 	modes := ssh.TerminalModes{
 		ssh.ECHO:          1,
 		ssh.TTY_OP_ISPEED: 14400,
@@ -637,66 +669,63 @@ func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 	if err := shell.RequestPty("xterm-256color", rows, cols, modes); err != nil {
 		shell.Close()
 		client.Close()
-		report(models.ConnectStepPTY, "error", fmt.Sprintf("请求 PTY 失败：%v", err), "请求 PTY 失败")
-		return fmt.Errorf("请求 PTY 失败: %w", err)
+		report(models.ConnectStepPTY, "error", fmt.Sprintf(i18n.T("请求 PTY 失败：%v"), err), i18n.T("请求 PTY 失败"))
+		return fmt.Errorf(i18n.T("请求 PTY 失败: %w"), err)
 	}
-	report(models.ConnectStepPTY, "done", "PTY 分配成功", "")
+	report(models.ConnectStepPTY, "done", i18n.T("PTY 分配成功"), "")
 
-	report(models.ConnectStepReady, "running", "正在获取 IO 管道…", "")
+	report(models.ConnectStepReady, "running", i18n.T("正在获取 IO 管道…"), "")
 	stdin, err := shell.StdinPipe()
 	if err != nil {
 		shell.Close()
 		client.Close()
-		report(models.ConnectStepReady, "error", fmt.Sprintf("获取 stdin 失败：%v", err), "获取 stdin 失败")
-		return fmt.Errorf("获取 stdin 失败: %w", err)
+		report(models.ConnectStepReady, "error", fmt.Sprintf(i18n.T("获取 stdin 失败：%v"), err), i18n.T("获取 stdin 失败"))
+		return fmt.Errorf(i18n.T("获取 stdin 失败: %w"), err)
 	}
 	stdout, err := shell.StdoutPipe()
 	if err != nil {
 		shell.Close()
 		client.Close()
-		report(models.ConnectStepReady, "error", fmt.Sprintf("获取 stdout 失败：%v", err), "获取 stdout 失败")
-		return fmt.Errorf("获取 stdout 失败: %w", err)
+		report(models.ConnectStepReady, "error", fmt.Sprintf(i18n.T("获取 stdout 失败：%v"), err), i18n.T("获取 stdout 失败"))
+		return fmt.Errorf(i18n.T("获取 stdout 失败: %w"), err)
 	}
 	stderr, err := shell.StderrPipe()
 	if err != nil {
 		shell.Close()
 		client.Close()
-		report(models.ConnectStepReady, "error", fmt.Sprintf("获取 stderr 失败：%v", err), "获取 stderr 失败")
-		return fmt.Errorf("获取 stderr 失败: %w", err)
+		report(models.ConnectStepReady, "error", fmt.Sprintf(i18n.T("获取 stderr 失败：%v"), err), i18n.T("获取 stderr 失败"))
+		return fmt.Errorf(i18n.T("获取 stderr 失败: %w"), err)
 	}
 
-	report(models.ConnectStepReady, "running", "正在启动 Shell…", "")
+	report(models.ConnectStepReady, "running", i18n.T("正在启动 Shell…"), "")
 	if err := shell.Shell(); err != nil {
 		shell.Close()
 		client.Close()
-		report(models.ConnectStepReady, "error", fmt.Sprintf("启动 Shell 失败：%v", err), "启动 Shell 失败")
-		return fmt.Errorf("启动 Shell 失败: %w", err)
+		report(models.ConnectStepReady, "error", fmt.Sprintf(i18n.T("启动 Shell 失败：%v"), err), i18n.T("启动 Shell 失败"))
+		return fmt.Errorf(i18n.T("启动 Shell 失败: %w"), err)
 	}
-	report(models.ConnectStepReady, "done", "Shell 已启动，会话就绪", "")
+	report(models.ConnectStepReady, "done", i18n.T("Shell 已启动，会话就绪"), "")
 
 	s.mu.Lock()
 	s.client = client
 	s.shell = shell
 	s.stdin = stdin
-	s.sftp = nil
-	s.sftpOnce = sync.Once{}
-	s.sftpErr = nil
+	s.sftpState = &sessionSFTP{}
 	s.closed = false
-	s.closeOnce = sync.Once{}
 	s.keepAliveEnabled = keepAliveEnabled
 	s.mu.Unlock()
 
-	go s.keepAliveLoop()
+	go s.keepAliveLoop(client)
 	go s.pump(stdout)
 	go s.pump(stderr)
 
 	go func() {
 		_ = shell.Wait()
-		s.close(models.StatusClosed, "")
+		s.closeClient(client, models.StatusClosed, "")
 	}()
 
 	if onStatus != nil {
-		onStatus(s.ID, models.StatusConnected, "已重新连接")
+		onStatus(s.ID, models.StatusConnected, i18n.T("已重新连接"))
 	}
 
 	return nil

@@ -1,6 +1,11 @@
 <script lang="ts" setup>
+import {t as $t} from '../i18n'
+
+import {t} from '../i18n'
+
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
+import {copyText} from '../utils/clipboard'
 import {onSysInfoSnapshot, sysInfoService} from '../services/sysinfo'
 import {getElementRect} from '../utils/dom'
 import {useSettingsStore} from '../stores/settings'
@@ -15,6 +20,7 @@ const diskKey = ref('')
 const netKey = ref('')
 const openMenu = ref<'disk' | 'net' | null>(null)
 const menuStyle = ref<Record<string, string>>({})
+const menuElement = ref<HTMLElement | null>(null)
 let dispose: (() => void) | null = null
 
 const storagePrefix = computed(() => `ding-ssh:statusbar:${props.tab?.node?.id || 'default'}`)
@@ -104,12 +110,12 @@ const selectedNet = computed(() => {
 
 const menuItems = computed(() => {
   if (openMenu.value === 'disk') {
-    return disks.value.map((d) => ({value: d.mountPoint, label: d.mountPoint}))
+    return disks.value.map((d) => ({value: d.mountPoint, label: d.mountPoint, detail: `${d.usagePct.toFixed(0)}%`}))
   }
   if (openMenu.value === 'net') {
     return nets.value.map((n) => ({
       value: n.name,
-      label: n.ip ? `${n.name}  ${n.ip}` : n.name,
+      label: n.name, detail: n.ip || t("无 IP"),
     }))
   }
   return []
@@ -132,11 +138,14 @@ async function toggleMenu(kind: 'disk' | 'net', ev: MouseEvent) {
   const rect = getElementRect(btn)
   openMenu.value = kind
   await nextTick()
-  const menuH = Math.min(220, (menuItems.value.length || 1) * 28 + 8)
+  if (openMenu.value !== kind) return
+  const menuRect = menuElement.value ? getElementRect(menuElement.value) : null
+  const menuH = menuRect?.height || 220
+  const menuWidth = menuRect?.width || 140
   const spaceBelow = window.innerHeight - rect.bottom
   const openUp = spaceBelow < menuH + 8
   menuStyle.value = {
-    left: `${Math.max(8, Math.min(rect.left, window.innerWidth - 180))}px`,
+    left: `${Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8))}px`,
     ...(openUp
       ? {bottom: `${window.innerHeight - rect.top + 4}px`, top: 'auto'}
       : {top: `${rect.bottom + 4}px`, bottom: 'auto'}),
@@ -145,7 +154,11 @@ async function toggleMenu(kind: 'disk' | 'net', ev: MouseEvent) {
 
 function pickItem(value: string) {
   if (openMenu.value === 'disk') diskKey.value = value
-  if (openMenu.value === 'net') netKey.value = value
+  if (openMenu.value === 'net') {
+    netKey.value = value
+    const ip = nets.value.find(n => n.name === value)?.ip
+    if (ip) void copyText(ip).catch(() => {})
+  }
   closeMenu()
 }
 
@@ -235,7 +248,7 @@ function fmtMbps(v: number): string {
       <div class="metric" :class="(selectedDisk?.usagePct ?? 0) > 75 ? 'warn' : ''">
         <span>DISK</span>
         <template v-if="disks.length">
-          <button type="button" data-statusbar-trigger class="statusbar-pick" @click="toggleMenu('disk', $event)">
+          <button type="button" data-statusbar-trigger class="statusbar-pick" :aria-label="$t('选择分区')" :aria-expanded="openMenu === 'disk'" @click="toggleMenu('disk', $event)">
             <span class="truncate max-w-16">{{ selectedDisk?.mountPoint }}</span>
             <Icon name="chevron-down" :size="10" />
           </button>
@@ -247,10 +260,11 @@ function fmtMbps(v: number): string {
       <div class="metric">
         <span>NET</span>
         <template v-if="nets.length">
-          <button type="button" data-statusbar-trigger class="statusbar-pick" @click="toggleMenu('net', $event)">
+          <button type="button" data-statusbar-trigger class="statusbar-pick" :aria-label="$t('选择网卡')" :aria-expanded="openMenu === 'net'" @click="toggleMenu('net', $event)">
             <span class="truncate max-w-16">{{ selectedNet?.name }}</span>
             <Icon name="chevron-down" :size="10" />
           </button>
+          <button v-if="selectedNet?.ip" type="button" class="statusbar-pick" :title="$t('点击复制 IP 地址')" @click="copyText(selectedNet.ip).catch(() => {})">{{ selectedNet.ip }}</button>
           <span class="text-signal">↓{{ fmtMbps(selectedNet?.rxMbps ?? 0) }}Mb/s</span>
           <span class="text-copper">↑{{ fmtMbps(selectedNet?.txMbps ?? 0) }}Mb/s</span>
         </template>
@@ -260,40 +274,75 @@ function fmtMbps(v: number): string {
       <span v-if="snap?.error" class="text-warn truncate max-w-[14rem]" :title="snap.error">{{ snap.error }}</span>
     </template>
     <template v-else>
-      <span v-if="settings.sysInfoCollectEnabled">连接服务器后显示 CPU / 内存 / 磁盘 / 网卡状态</span>
-      <span v-else class="text-warn">「登录后自动采集」已关闭：登录服务器不执行任何采集命令</span>
+      <span v-if="settings.sysInfoCollectEnabled">{{ $t('连接服务器后显示 CPU / 内存 / 磁盘 / 网卡状态') }}</span>
+      <span v-else class="text-warn">{{ $t('「登录后自动采集」已关闭：登录服务器不执行任何采集命令') }}</span>
     </template>
   </footer>
 
   <Teleport to="body">
-    <div v-if="openMenu" data-statusbar-menu data-ui="context-menu" class="menu-pop neo fixed z-[80]" :style="menuStyle">
+    <div v-if="openMenu" ref="menuElement" data-statusbar-menu data-ui="context-menu" class="menu-pop statusbar-menu neo fixed z-[80]" :style="menuStyle">
       <button
         v-for="item in menuItems"
         :key="item.value"
+        :title="openMenu === 'net' && item.detail !== t('无 IP') ? t('点击选择并复制 IP 地址') : item.label"
         type="button"
         :class="item.value === menuActive ? 'is-active' : ''"
         @click="pickItem(item.value)"
       >
-        {{ item.label }}
+        <span class="statusbar-menu-label" :title="item.label">{{ item.label }}</span>
+        <span class="statusbar-menu-detail">{{ item.detail }}</span>
       </button>
     </div>
   </Teleport>
 </template>
 
 <style scoped>
+.statusbar-menu {
+  width: max-content;
+  min-width: 140px;
+  max-width: calc(100vw - 16px);
+  max-height: min(220px, calc(100vh - 16px));
+  overflow-y: auto;
+}
+.statusbar-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: 100%;
+}
+.statusbar-menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.statusbar-menu-detail {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+  opacity: .75;
+}
+
 .statusbar-pick {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   height: 22px;
   padding: 0 6px;
-  border-radius: 4px;
+  border-radius:var(--radius-small);
   background: var(--hover);
   box-shadow: inset 0 0 0 1px var(--line-strong);
   color: var(--foreground);
   font-family: var(--font-mono);
   font-size: 11px;
   cursor: pointer;
+}
+.statusbar-pick:focus-visible,
+.statusbar-menu button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 .statusbar-pick:hover {
   background: var(--hover-strong);

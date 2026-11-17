@@ -2,7 +2,7 @@ import {defineStore} from 'pinia'
 import {DEFAULT_COMPLETION_NAV_HOTKEY} from '../completion/hotkey'
 import {settingsService} from '../services/settings'
 import {paletteToTheme, defaultPreset} from '../theme/presets'
-import {migrateUiSettings, UI_SCHEMA, UI2_MIGRATION_BACKUP_KEY} from '../theme/migrate'
+import {migrateUiSettings, normalizeAppearance, UI_SCHEMA, UI2_MIGRATION_BACKUP_KEY, THEME_V4_MIGRATION_BACKUP_KEY} from '../theme/migrate'
 import type {DebugSettings, Fonts, LogLevel, NavSectionOrder, RightClickAction, TabBarPlacement, TerminalColorMode, Theme, UIAppearance} from '../types'
 
 // 默认终端主题（与 Go 端 models.DefaultTheme 保持一致，含 ANSI 16 色）。
@@ -10,15 +10,19 @@ export function defaultTheme(): Theme {
   return paletteToTheme(defaultPreset().dark)
 }
 
-// 默认 UI 外观（Geist 预设 + 跟随系统明暗）。
+// 默认 UI 外观（天空蓝 + 深色 + 实色）。颜色由种子动态派生，不再是固定灰阶。
 export function defaultAppearance(): UIAppearance {
   return {
+    terminalBackgroundMode: 'follow',
+    atmosphere: 75,
+    surfaceSeparation: 65,
+    materialMode: 'solid',
     glassEnabled: false,
     mode: 'preset',
-    presetId: 'geist',
-    baseTone: 'auto',
-    primary: '#3b82f6',
-    secondary: '#a1a1aa',
+    presetId: 'sky',
+    baseTone: 'dark',
+    primary: '#71B5D2',
+    secondary: '#71B5D2',
     uiText: '#fafafa',
     glassOpacity: 85,
     glassBlur: 24,
@@ -29,7 +33,7 @@ export function defaultAppearance(): UIAppearance {
 export function defaultFonts(): Fonts {
   return {
     uiFont: 'Geist Sans',
-    terminalFont: 'Geist Mono',
+    terminalFont: 'JetBrains Mono + Sarasa Mono SC',
     terminalFontSize: 13,
   }
 }
@@ -71,9 +75,14 @@ export const useSettingsStore = defineStore('settings', {
     theme: defaultTheme() as Theme,
     appearance: defaultAppearance() as UIAppearance,
     fonts: defaultFonts() as Fonts,
+    autoStart: false,
+    confirmCloseTab: true,
+    confirmCloseApp: true,
+    smoothAnimations: false,
     autoReconnect: true,
     keepAliveEnabled: true,
     // 登录 SSH 服务器后自动采集系统指标（默认开启）。关闭后连接服务器不执行任何采集命令。
+    sysInfoRealtimeEnabled: false,
     sysInfoCollectEnabled: true,
     localShell: '',
     // 启动时自动重新连接「上次关闭时仍在打开的服务器」：默认关闭
@@ -98,7 +107,10 @@ export const useSettingsStore = defineStore('settings', {
       let settings = await settingsService.getSettings()
       const migrated = migrateUiSettings(settings, window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
       if (migrated.migrated) {
-        try { localStorage.setItem(UI2_MIGRATION_BACKUP_KEY, migrated.backup ?? '') } catch { /* storage is optional */ }
+        try {
+          localStorage.setItem(THEME_V4_MIGRATION_BACKUP_KEY, migrated.backup ?? '')
+          localStorage.setItem(UI2_MIGRATION_BACKUP_KEY, migrated.backup ?? '')
+        } catch { /* storage is optional */ }
       }
       settings = migrated.settings
       this.uiSchema = settings.uiSchema ?? UI_SCHEMA
@@ -112,11 +124,24 @@ export const useSettingsStore = defineStore('settings', {
       this.terminalToSftpSync = settings.terminalToSftpSync ?? true
       this.uiScale = clampUIScale(settings.uiScale)
       this.theme = {...defaultTheme(), ...(settings.theme ?? {})}
-      this.appearance = {...defaultAppearance(), ...(settings.appearance ?? {})}
+      const loadedAppearance = settings.appearance ?? {}
+      this.appearance = normalizeAppearance({
+        ...defaultAppearance(),
+        ...loadedAppearance,
+        // Do not let the default "solid" mask a legacy glass switch.
+        materialMode:
+          loadedAppearance.materialMode ??
+          (loadedAppearance.glassEnabled ? 'soft' : defaultAppearance().materialMode),
+      })
       this.fonts = {...defaultFonts(), ...(settings.fonts ?? {})}
+      this.autoStart = settings.autoStart ?? false
+      this.confirmCloseTab = settings.confirmCloseTab ?? true
+      this.confirmCloseApp = settings.confirmCloseApp ?? true
+      this.smoothAnimations = settings.smoothAnimations ?? false
       this.autoReconnect = settings.autoReconnect ?? true
       this.keepAliveEnabled = settings.keepAliveEnabled ?? true
       // 登录后自动采集：缺省 / 非法值一律回落「开启」（与 Go 端默认一致）
+      this.sysInfoRealtimeEnabled = settings.sysInfoRealtimeEnabled ?? false
       this.sysInfoCollectEnabled = settings.sysInfoCollectEnabled ?? true
       this.localShell = settings.localShell ?? ''
       this.autoLoginLastServer = settings.autoLoginLastServer ?? false
@@ -180,7 +205,7 @@ export const useSettingsStore = defineStore('settings', {
       await this.save()
     },
     async setAppearance(appearance: UIAppearance) {
-      this.appearance = appearance
+      this.appearance = normalizeAppearance(appearance)
       await this.save()
     },
     async setFonts(fonts: Fonts) {
@@ -189,7 +214,7 @@ export const useSettingsStore = defineStore('settings', {
     },
     // 外观页批量应用：UI 外观 / 终端主题 / 字体一次持久化
     async applyLook(appearance: UIAppearance, theme: Theme, fonts: Fonts) {
-      this.appearance = appearance
+      this.appearance = normalizeAppearance(appearance)
       this.theme = theme
       this.fonts = fonts
       await this.save()
@@ -200,6 +225,10 @@ export const useSettingsStore = defineStore('settings', {
     },
     async setKeepAliveEnabled(v: boolean) {
       this.keepAliveEnabled = v
+      await this.save()
+    },
+    async setSysInfoRealtimeEnabled(v: boolean) {
+      this.sysInfoRealtimeEnabled = v
       await this.save()
     },
     async setSysInfoCollectEnabled(v: boolean) {
@@ -251,6 +280,11 @@ export const useSettingsStore = defineStore('settings', {
       if (patch.logTraceTabs !== undefined) this.logTraceTabs = normalizeLogTraceTabs(patch.logTraceTabs)
       await this.save()
     },
+    async setBehavior(key: 'autoStart' | 'confirmCloseTab' | 'confirmCloseApp' | 'smoothAnimations', value: boolean) {
+      const previous = this[key]
+      this[key] = value
+      try { await this.save() } catch (error) { this[key] = previous; throw error }
+    },
     async save() {
       await settingsService.saveSettings({
         uiSchema: UI_SCHEMA,
@@ -264,10 +298,15 @@ export const useSettingsStore = defineStore('settings', {
         terminalToSftpSync: this.terminalToSftpSync,
         uiScale: clampUIScale(this.uiScale),
         theme: this.theme,
-        appearance: this.appearance,
+        appearance: normalizeAppearance(this.appearance),
         fonts: this.fonts,
+        autoStart: this.autoStart,
+        confirmCloseTab: this.confirmCloseTab,
+        confirmCloseApp: this.confirmCloseApp,
+        smoothAnimations: this.smoothAnimations,
         autoReconnect: this.autoReconnect,
         keepAliveEnabled: this.keepAliveEnabled,
+        sysInfoRealtimeEnabled: this.sysInfoRealtimeEnabled,
         sysInfoCollectEnabled: this.sysInfoCollectEnabled,
         localShell: this.localShell,
         autoLoginLastServer: this.autoLoginLastServer,

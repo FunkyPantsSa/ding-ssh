@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"ding-ssh/internal/i18n"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -76,24 +77,24 @@ func OpenSQLite(path string) (*sql.DB, error) {
 		path = DefaultSQLitePath()
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, fmt.Errorf("创建数据目录失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("创建数据目录失败: %w"), err)
 	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
-		return nil, fmt.Errorf("打开数据库失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("打开数据库失败: %w"), err)
 	}
 	// WAL 提升并发读写体验；busy_timeout 避免多连接写冲突。
 	if _, err := db.Exec(`PRAGMA journal_mode = WAL`); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("设置 WAL 模式失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("设置 WAL 模式失败: %w"), err)
 	}
 	if _, err := db.Exec(`PRAGMA busy_timeout = 5000`); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("设置 busy_timeout 失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("设置 busy_timeout 失败: %w"), err)
 	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("初始化表结构失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("初始化表结构失败: %w"), err)
 	}
 	// 凭证表新列迁移（旧数据库可能不含 auth_type / key_path / key_content）。
 	for _, stmt := range []string{
@@ -136,7 +137,7 @@ func scanServer(row interface{ Scan(...any) error }) (models.ServerNode, error) 
 		return n, err
 	}
 	if err := json.Unmarshal([]byte(options), &n.SSHOptions); err != nil {
-		return n, fmt.Errorf("解析 SSH 配置失败: %w", err)
+		return n, fmt.Errorf(i18n.T("解析 SSH 配置失败: %w"), err)
 	}
 	n.Group = group
 	n.EnvVars = map[string]string{}
@@ -194,15 +195,15 @@ func (s *SQLiteStore) saveWith(executor interface {
 	}
 	env, err := json.Marshal(node.EnvVars)
 	if err != nil {
-		return fmt.Errorf("序列化环境变量失败: %w", err)
+		return fmt.Errorf(i18n.T("序列化环境变量失败: %w"), err)
 	}
 	password, err := cryptox.SealPlain(s.cipher, node.Password)
 	if err != nil {
-		return fmt.Errorf("加密密码失败: %w", err)
+		return fmt.Errorf(i18n.T("加密密码失败: %w"), err)
 	}
 	keyContent, err := cryptox.SealPlain(s.cipher, node.KeyContent)
 	if err != nil {
-		return fmt.Errorf("加密私钥失败: %w", err)
+		return fmt.Errorf(i18n.T("加密私钥失败: %w"), err)
 	}
 	_, err = executor.Exec(`
 		INSERT INTO servers (id, name, grp, host, port, user, auth_type, password,
@@ -219,7 +220,7 @@ func (s *SQLiteStore) saveWith(executor interface {
 		node.BgImage, node.BlurAmount, string(env), string(options),
 	)
 	if err != nil {
-		return fmt.Errorf("保存服务器失败: %w", err)
+		return fmt.Errorf(i18n.T("保存服务器失败: %w"), err)
 	}
 	return nil
 }
@@ -227,11 +228,11 @@ func (s *SQLiteStore) saveWith(executor interface {
 func (s *SQLiteStore) decryptServer(n *models.ServerNode) error {
 	pw, err := cryptox.OpenField(s.cipher, n.Password)
 	if err != nil {
-		return fmt.Errorf("解密服务器密码失败: %w", err)
+		return fmt.Errorf(i18n.T("解密服务器密码失败: %w"), err)
 	}
 	kc, err := cryptox.OpenField(s.cipher, n.KeyContent)
 	if err != nil {
-		return fmt.Errorf("解密服务器私钥失败: %w", err)
+		return fmt.Errorf(i18n.T("解密服务器私钥失败: %w"), err)
 	}
 	n.Password = pw
 	n.KeyContent = kc
@@ -241,7 +242,7 @@ func (s *SQLiteStore) decryptServer(n *models.ServerNode) error {
 // Delete 按 ID 删除服务器节点。
 func (s *SQLiteStore) Delete(id string) error {
 	if _, err := s.db.Exec(`DELETE FROM servers WHERE id = ?`, id); err != nil {
-		return fmt.Errorf("删除服务器失败: %w", err)
+		return fmt.Errorf(i18n.T("删除服务器失败: %w"), err)
 	}
 	return nil
 }
@@ -276,6 +277,8 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	}
 	st := models.Settings{
 		UISchema:             2,
+		ConfirmCloseTab:      true,
+		ConfirmCloseApp:      true,
 		Theme:                models.DefaultTheme(),
 		Appearance:           models.DefaultAppearance(),
 		Fonts:                models.DefaultFonts(),
@@ -337,6 +340,18 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 			st.UIScale = n
 		}
 	}
+	if v, ok := values["autoStart"]; ok {
+		st.AutoStart = v == "true"
+	}
+	if v, ok := values["confirmCloseTab"]; ok {
+		st.ConfirmCloseTab = v == "true"
+	}
+	if v, ok := values["confirmCloseApp"]; ok {
+		st.ConfirmCloseApp = v == "true"
+	}
+	if v, ok := values["smoothAnimations"]; ok {
+		st.SmoothAnimations = v == "true"
+	}
 	if v, ok := values["autoReconnect"]; ok {
 		st.AutoReconnect = v == "true"
 	}
@@ -344,6 +359,9 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		st.KeepAliveEnabled = v == "true"
 	}
 	// 登录后自动采集系统指标：旧库没有该键 → 保持默认（开启）
+	if v, ok := values["sysInfoRealtimeEnabled"]; ok {
+		st.SysInfoRealtimeEnabled = v == "true"
+	}
 	if v, ok := values["sysInfoCollectEnabled"]; ok {
 		st.SysInfoCollectEnabled = v == "true"
 	}
@@ -446,15 +464,15 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 	}
 	theme, err := json.Marshal(st.Theme)
 	if err != nil {
-		return fmt.Errorf("序列化主题失败: %w", err)
+		return fmt.Errorf(i18n.T("序列化主题失败: %w"), err)
 	}
 	appearance, err := json.Marshal(st.Appearance)
 	if err != nil {
-		return fmt.Errorf("序列化外观失败: %w", err)
+		return fmt.Errorf(i18n.T("序列化外观失败: %w"), err)
 	}
 	fonts, err := json.Marshal(st.Fonts)
 	if err != nil {
-		return fmt.Errorf("序列化字体失败: %w", err)
+		return fmt.Errorf(i18n.T("序列化字体失败: %w"), err)
 	}
 	if st.CompletionNavHotkey == "" {
 		st.CompletionNavHotkey = "Alt+ArrowDown"
@@ -480,18 +498,18 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 	st.Debug = models.NormalizeDebugSettings(st.Debug)
 	debugJSON, err := json.Marshal(st.Debug)
 	if err != nil {
-		return fmt.Errorf("序列化调试模式设置失败: %w", err)
+		return fmt.Errorf(i18n.T("序列化调试模式设置失败: %w"), err)
 	}
 	// 日志：级别非法回落 info，跟踪列表落库为 JSON 数组字符串
 	st.LogLevel = models.NormalizeLogLevel(st.LogLevel)
 	traceJSON, err := json.Marshal(models.NormalizeLogTraceTabs(st.LogTraceTabs))
 	if err != nil {
-		return fmt.Errorf("序列化日志跟踪列表失败: %w", err)
+		return fmt.Errorf(i18n.T("序列化日志跟踪列表失败: %w"), err)
 	}
 	// 上次打开的服务器 ID 列表：去空白项、保持顺序与重复项，落库为 JSON 数组字符串
 	openServersJSON, err := json.Marshal(models.NormalizeLastOpenServers(st.LastOpenServers))
 	if err != nil {
-		return fmt.Errorf("序列化上次打开的服务器列表失败: %w", err)
+		return fmt.Errorf(i18n.T("序列化上次打开的服务器列表失败: %w"), err)
 	}
 	entries := []struct{ k, v string }{
 		{"uiSchema", fmt.Sprintf("%d", st.UISchema)},
@@ -512,8 +530,14 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"appearance", string(appearance)},
 		{"fonts", string(fonts)},
 		{"autoReconnect", boolStr(st.AutoReconnect)},
+		{"autoStart", boolStr(st.AutoStart)},
+		{"confirmCloseTab", boolStr(st.ConfirmCloseTab)},
+		{"confirmCloseApp", boolStr(st.ConfirmCloseApp)},
+		{"smoothAnimations", boolStr(st.SmoothAnimations)},
+
 		{"keepAliveEnabled", boolStr(st.KeepAliveEnabled)},
 		{"sysInfoCollectEnabled", boolStr(st.SysInfoCollectEnabled)},
+		{"sysInfoRealtimeEnabled", boolStr(st.SysInfoRealtimeEnabled)},
 		{"autoLoginLastServer", boolStr(st.AutoLoginLastServer)},
 		{"lastOpenServers", string(openServersJSON)},
 		{"localShell", st.LocalShell},
@@ -527,7 +551,7 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		if _, err := s.db.Exec(`
 			INSERT INTO settings (key, value) VALUES (?, ?)
 			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, e.k, e.v); err != nil {
-			return fmt.Errorf("保存设置失败: %w", err)
+			return fmt.Errorf(i18n.T("保存设置失败: %w"), err)
 		}
 	}
 	return nil
@@ -571,11 +595,11 @@ func (s *SQLiteCredentialStore) List() ([]models.Credential, error) {
 		}
 		pw, err := cryptox.OpenField(s.cipher, c.Password)
 		if err != nil {
-			return nil, fmt.Errorf("解密凭证密码失败: %w", err)
+			return nil, fmt.Errorf(i18n.T("解密凭证密码失败: %w"), err)
 		}
 		kc, err := cryptox.OpenField(s.cipher, c.KeyContent)
 		if err != nil {
-			return nil, fmt.Errorf("解密凭证私钥失败: %w", err)
+			return nil, fmt.Errorf(i18n.T("解密凭证私钥失败: %w"), err)
 		}
 		c.Password = pw
 		c.KeyContent = kc
@@ -591,11 +615,11 @@ func (s *SQLiteCredentialStore) Save(c models.Credential) error {
 	}
 	password, err := cryptox.SealPlain(s.cipher, c.Password)
 	if err != nil {
-		return fmt.Errorf("加密凭证密码失败: %w", err)
+		return fmt.Errorf(i18n.T("加密凭证密码失败: %w"), err)
 	}
 	keyContent, err := cryptox.SealPlain(s.cipher, c.KeyContent)
 	if err != nil {
-		return fmt.Errorf("加密凭证私钥失败: %w", err)
+		return fmt.Errorf(i18n.T("加密凭证私钥失败: %w"), err)
 	}
 	_, err = s.db.Exec(`
 		INSERT INTO credentials (id, name, user, password, auth_type, key_path, key_content) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -604,7 +628,7 @@ func (s *SQLiteCredentialStore) Save(c models.Credential) error {
 			key_path = excluded.key_path, key_content = excluded.key_content`,
 		c.ID, c.Name, c.User, password, c.AuthType, c.KeyPath, keyContent)
 	if err != nil {
-		return fmt.Errorf("保存凭证失败: %w", err)
+		return fmt.Errorf(i18n.T("保存凭证失败: %w"), err)
 	}
 	return nil
 }
@@ -612,7 +636,7 @@ func (s *SQLiteCredentialStore) Save(c models.Credential) error {
 // Delete 按 ID 删除凭证。
 func (s *SQLiteCredentialStore) Delete(id string) error {
 	if _, err := s.db.Exec(`DELETE FROM credentials WHERE id = ?`, id); err != nil {
-		return fmt.Errorf("删除凭证失败: %w", err)
+		return fmt.Errorf(i18n.T("删除凭证失败: %w"), err)
 	}
 	return nil
 }
@@ -654,7 +678,7 @@ func (s *SQLiteGroupStore) List() ([]string, error) {
 func (s *SQLiteGroupStore) Add(name string) error {
 	_, err := s.db.Exec(`INSERT INTO groups (name) VALUES (?) ON CONFLICT(name) DO NOTHING`, name)
 	if err != nil {
-		return fmt.Errorf("新增分组失败: %w", err)
+		return fmt.Errorf(i18n.T("新增分组失败: %w"), err)
 	}
 	return nil
 }
@@ -662,7 +686,7 @@ func (s *SQLiteGroupStore) Add(name string) error {
 // Rename 重命名分组。
 func (s *SQLiteGroupStore) Rename(oldName, newName string) error {
 	if _, err := s.db.Exec(`UPDATE groups SET name = ? WHERE name = ?`, newName, oldName); err != nil {
-		return fmt.Errorf("重命名分组失败: %w", err)
+		return fmt.Errorf(i18n.T("重命名分组失败: %w"), err)
 	}
 	return nil
 }
@@ -670,7 +694,7 @@ func (s *SQLiteGroupStore) Rename(oldName, newName string) error {
 // Remove 删除分组。
 func (s *SQLiteGroupStore) Remove(name string) error {
 	if _, err := s.db.Exec(`DELETE FROM groups WHERE name = ?`, name); err != nil {
-		return fmt.Errorf("删除分组失败: %w", err)
+		return fmt.Errorf(i18n.T("删除分组失败: %w"), err)
 	}
 	return nil
 }
@@ -689,7 +713,7 @@ func MigrateLegacyJSON(db *sql.DB) error {
 				ss := NewSQLiteStore(db)
 				for _, n := range nodes {
 					if serr := ss.Save(n); serr != nil {
-						return fmt.Errorf("迁移服务器数据失败: %w", serr)
+						return fmt.Errorf(i18n.T("迁移服务器数据失败: %w"), serr)
 					}
 				}
 			}
@@ -703,7 +727,7 @@ func MigrateLegacyJSON(db *sql.DB) error {
 		if jerr == nil {
 			if st, serr := js.Get(); serr == nil && (st.LogEnabled || st.CopyOnSelect || !themeIsDefault(st.Theme)) {
 				if serr := NewSQLiteSettingsStore(db).Save(st); serr != nil {
-					return fmt.Errorf("迁移设置数据失败: %w", serr)
+					return fmt.Errorf(i18n.T("迁移设置数据失败: %w"), serr)
 				}
 			}
 		}
@@ -718,7 +742,7 @@ func MigrateLegacyJSON(db *sql.DB) error {
 				cs := NewSQLiteCredentialStore(db)
 				for _, c := range list {
 					if serr := cs.Save(c); serr != nil {
-						return fmt.Errorf("迁移凭证数据失败: %w", serr)
+						return fmt.Errorf(i18n.T("迁移凭证数据失败: %w"), serr)
 					}
 				}
 			}
@@ -734,7 +758,7 @@ func MigrateLegacyJSON(db *sql.DB) error {
 				gs := NewSQLiteGroupStore(db)
 				for _, g := range list {
 					if serr := gs.Add(g); serr != nil {
-						return fmt.Errorf("迁移分组数据失败: %w", serr)
+						return fmt.Errorf(i18n.T("迁移分组数据失败: %w"), serr)
 					}
 				}
 			}

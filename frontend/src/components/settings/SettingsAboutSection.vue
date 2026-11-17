@@ -1,26 +1,98 @@
 <script lang="ts" setup>
-import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {t as $t} from '../../i18n'
+
+import {t} from '../../i18n'
+
+import {copyText as ClipboardSetText} from '../../utils/clipboard'
+import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from '../Icon.vue'
+import ToggleSwitch from '../ToggleSwitch.vue'
 import {Button} from '../ui'
+import {frontendRuntimeStatus} from '../../utils/runtime-status'
 import {sshService} from '../../services/ssh'
 import {APP_COMMIT, APP_VERSION, buildDateLabel, buildTimeLabel, detectPlatform, platformLabel} from '../../version'
-import {ClipboardSetText} from '../../../wailsjs/runtime/runtime'
+import {GetRuntimeStatus} from '../../../wailsjs/go/main/App'
+
+import {updateChannel, checkUpdatesOnStartup, updateBusy, updateReady, updateMessage, setUpdateChannel, setStartupCheck, checkUpdates} from '../../services/updates'
+
 import appLogo from '../../assets/images/ding-logo.png'
+
+const props = withDefaults(defineProps<{active?: boolean}>(), {active: true})
+const autoRefresh = ref(false)
+
 
 const platform = ref('')
 const copied = ref(false)
 let copiedTimer: number | undefined
 
+const status = ref<Record<string, number>>()
+const frontend = ref<ReturnType<typeof frontendRuntimeStatus>>()
+const cpuPercent = ref<number>()
+let cpuSample: {cpuMs: number; timeMs: number} | undefined
+const bridge = ref(t("等待检测"))
+const sampledAt = ref('')
+const refreshing = ref(false)
+let slowTimer: number | undefined
+
+function formatBytes(bytes: number | undefined) {
+  return bytes === undefined ? t("不可用") : `${(bytes / 1048576).toFixed(1)} MiB`
+}
+
+const runtimeRows = computed(() => [
+  {get label() { return t("应用桥接") }, value: bridge.value},
+  {get label() { return t("采样时间") }, value: sampledAt.value || '—'},
+  {get label() { return t("已运行") }, value: status.value ? t("{0} 秒", [status.value.uptimeSec]) : '—'},
+  {get label() { return t("Go 协程") }, value: status.value?.goroutines ?? '—'},
+  {get label() { return t("主进程 CPU（单核为 100%）") }, value: cpuPercent.value === undefined ? (status.value?.processCPUms === undefined ? t("不可用") : t("再次刷新计算")) : `${cpuPercent.value.toFixed(1)}%`},
+  {get label() { return t("主进程当前常驻内存") }, value: formatBytes(status.value?.processRSSBytes)},
+  {get label() { return t("主进程峰值常驻内存") }, value: formatBytes(status.value?.processPeakRSSBytes)},
+  {get label() { return t("Go 运行时内存（估算）") }, value: formatBytes(status.value?.goMemoryBytes)},
+  {get label() { return t("Go 堆内存") }, value: formatBytes(status.value?.heapBytes)},
+  {get label() { return t("WebView JS 堆内存") }, value: formatBytes(frontend.value?.jsHeapBytes)},
+  {get label() { return t("前端定时器延迟（最近 / 峰值）") }, value: frontend.value ? `${frontend.value.lastDelayMs} / ${frontend.value.maxDelayMs} ms` : '—'},
+  {get label() { return t("终端渲染（实际）") }, value: frontend.value ? t("{0} 个终端 · WebGL {1} · DOM {2}", [frontend.value.terminalCount, frontend.value.webglCount, frontend.value.domCount]) : '—'},
+  {get label() { return t("单终端待解析输出峰值") }, value: frontend.value ? `${frontend.value.peakOutputBytes.toLocaleString()} B` : '—'},
+  {get label() { return t("终端待解析输出") }, value: frontend.value ? `${frontend.value.pendingOutputBytes.toLocaleString()} B` : '—'},
+])
+
+async function refreshStatus() {
+  if (!props.active || refreshing.value) return
+  refreshing.value = true
+  bridge.value = t("检测中")
+  frontend.value = frontendRuntimeStatus()
+  const started = performance.now()
+  slowTimer = window.setTimeout(() => {
+    bridge.value = t("超过 3 秒未收到后端回复")
+  }, 3000)
+  try {
+    status.value = await GetRuntimeStatus()
+    const cpuMs = status.value.processCPUms
+    const timeMs = performance.now()
+    if (cpuMs !== undefined) {
+      if (cpuSample) cpuPercent.value = 100 * (cpuMs - cpuSample.cpuMs) / (timeMs - cpuSample.timeMs)
+      cpuSample = {cpuMs, timeMs}
+    }
+    frontend.value = frontendRuntimeStatus()
+    bridge.value = t("已响应（{0} ms）", [Math.round(performance.now() - started)])
+    sampledAt.value = new Date().toLocaleString()
+  } catch {
+    bridge.value = t("读取后端状态失败")
+  } finally {
+    window.clearTimeout(slowTimer)
+    refreshing.value = false
+  }
+}
+
 const rows = computed(() => [
-  {label: '版本标签', value: APP_VERSION || 'dev'},
-  {label: '构建日期', value: buildDateLabel()},
-  {label: '构建时间', value: buildTimeLabel()},
-  {label: '代码提交', value: APP_COMMIT || '未知'},
-  {label: '运行平台', value: platformLabel(platform.value || detectPlatform())},
+  {get label() { return t("版本标签") }, value: APP_VERSION || 'dev'},
+  {get label() { return t("构建日期") }, value: buildDateLabel()},
+  {get label() { return t("构建时间") }, value: buildTimeLabel()},
+  {get label() { return t("代码提交") }, value: APP_COMMIT || t("未知")},
+  {get label() { return t("运行平台") }, value: platformLabel(platform.value || detectPlatform())},
 ])
 
 async function copyAbout() {
-  const text = ['ding-ssh', ...rows.value.map((r) => `${r.label}: ${r.value}`)].join('\n')
+  const text = ['ding-ssh', ...[...rows.value, ...runtimeRows.value].map((r) => `${r.label}: ${r.value}`)].join('\n')
   try {
     await ClipboardSetText(text)
     copied.value = true
@@ -33,7 +105,19 @@ async function copyAbout() {
   }
 }
 
+watch(() => props.active, (active) => {
+  if (!active) autoRefresh.value = false
+})
+
+watch(autoRefresh, (enabled, _, onCleanup) => {
+  if (!enabled || !props.active) return
+  void refreshStatus()
+  const timer = window.setInterval(refreshStatus, 5000)
+  onCleanup(() => window.clearInterval(timer))
+})
+
 onMounted(async () => {
+  void refreshStatus()
   try {
     platform.value = await sshService.getPlatform()
   } catch {
@@ -41,16 +125,36 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(() => window.clearTimeout(copiedTimer))
+onBeforeUnmount(() => {
+  window.clearTimeout(copiedTimer)
+  window.clearTimeout(slowTimer)
+})
 </script>
 
 <template>
   <section class="max-w-2xl space-y-6 fade-rise" data-section-content="about" aria-labelledby="settings-about-title">
     <div>
-      <h3 id="settings-about-title" class="text-[18px] font-semibold text-white tracking-tight">关于</h3>
-      <p class="text-[13px] text-mist mt-1.5">版本信息与构建详情，反馈问题时请一并附上。</p>
+      <h3 id="settings-about-title" class="text-[18px] font-semibold text-white tracking-tight">{{ $t('关于') }}</h3>
+      <p class="text-[13px] text-mist mt-1.5">{{ $t('版本信息与构建详情，反馈问题时请一并附上。') }}</p>
     </div>
 
+    <div class="neo px-5 py-4 space-y-4">
+      <h4 class="text-sm font-medium text-slate-200">应用更新</h4>
+      <label class="flex items-center justify-between gap-4 text-sm text-slate-300">
+        更新渠道
+        <select :value="updateChannel" :disabled="updateBusy || updateReady" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2" @change="setUpdateChannel(($event.target as HTMLSelectElement).value)">
+          <option value="main">main（稳定版）</option><option value="dev">dev（测试版）</option>
+        </select>
+      </label>
+      <div class="flex items-center justify-between gap-4">
+        <div><p id="startup-update-label" class="text-sm text-slate-300">启动时检查更新</p><p class="mt-1 text-xs text-slate-500">发现新版本后在左下角提示，确认后才下载安装。</p></div>
+        <ToggleSwitch :model-value="checkUpdatesOnStartup" aria-labelledby="startup-update-label" @update:model-value="setStartupCheck" />
+      </div>
+      <div class="flex items-center gap-3">
+        <Button variant="ghost" size="sm" :disabled="updateBusy || updateReady" @click="checkUpdates(true)">{{ $t('检查更新') }}</Button>
+        <p class="text-xs text-slate-500" aria-live="polite">{{ updateMessage }}</p>
+      </div>
+    </div>
     <div class="neo">
       <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-800/60">
         <div class="brand-mark">
@@ -74,12 +178,35 @@ onBeforeUnmount(() => window.clearTimeout(copiedTimer))
       </div>
     </div>
 
+    <div class="neo px-5 py-3">
+      <div class="flex items-center justify-between gap-4 py-1">
+        <h4 class="text-sm font-medium text-slate-200">{{ $t('当前运行状态') }}</h4>
+        <Button variant="ghost" size="sm" :disabled="refreshing" @click="refreshStatus">{{ $t('刷新状态') }}</Button>
+      </div>
+      <div class="flex items-center justify-between gap-4 border-b border-slate-800/40 py-3">
+        <div class="min-w-0">
+          <p id="runtime-auto-refresh-label" class="text-sm font-medium text-slate-200">{{ $t('自动刷新') }}</p>
+          <p class="mt-1 text-xs leading-relaxed text-slate-500">{{ $t('每 5 秒刷新一次，离开此页后自动关闭。') }}</p>
+        </div>
+        <ToggleSwitch v-model="autoRefresh" aria-labelledby="runtime-auto-refresh-label" />
+      </div>
+      <p class="py-2 text-xs text-slate-500">{{ $t('主进程数据仅覆盖应用本体。WebView 子进程、GPU 和其他辅助进程单独计量，页面无法汇总。JS 堆仅在 WebView 提供指标时显示。') }}</p>
+      <div
+        v-for="row in runtimeRows"
+        :key="row.label"
+        class="flex items-center justify-between gap-4 py-2.5 border-b border-slate-800/40 last:border-b-0"
+      >
+        <span class="text-xs text-slate-500">{{ row.label }}</span>
+        <span class="font-mono text-xs text-slate-200 text-right">{{ row.value }}</span>
+      </div>
+    </div>
+
     <div class="flex items-center gap-3">
       <Button variant="ghost" size="sm" @click="copyAbout">
         <Icon name="copy" :size="14" />
-        {{ copied ? '已复制' : '复制版本信息' }}
+        {{ copied ? t('已复制') : t('复制版本和运行状态') }}
       </Button>
-      <p class="text-xs text-slate-500">构建时间取本次打包时的时间戳，可用于确认是否运行了最新版本。</p>
+      <p class="text-xs text-slate-500">{{ $t('构建时间取本次打包时的时间戳，可用于确认是否运行了最新版本。') }}</p>
     </div>
   </section>
 </template>

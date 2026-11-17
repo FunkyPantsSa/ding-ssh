@@ -41,6 +41,23 @@ describe('ui.Dialog accessibility', () => {
     wrapper.unmount()
   })
 
+  it('keeps an explicit-decision dialog open on backdrop and Escape', async () => {
+    const wrapper = mount(Dialog, {
+      attachTo: document.body,
+      props: {modelValue: true, title: '恢复会话', closeOnOverlay: false, closeOnEscape: false, showClose: false},
+      slots: {footer: '<button id="restore-cancel">取消</button><button>自动连接</button>'},
+    })
+    await nextTick()
+    await nextTick()
+    document.querySelector('.ui-dialog-root')!.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}))
+    document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true, cancelable: true}))
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(document.querySelector('.ui-dialog-close')).toBeNull()
+    expect(document.activeElement?.id).toBe('restore-cancel')
+    wrapper.unmount()
+  })
+
   it('prefers the first form control as the initial focus target', async () => {
     const wrapper = mount(Dialog, {
       attachTo: document.body,

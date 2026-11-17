@@ -5,6 +5,7 @@ import "strings"
 
 // ServerNode 服务器节点定义（与设计文档第 4 节保持一致）。
 type SSHOptions struct {
+	JumpServerMode    bool     `json:"jumpServerMode,omitempty"`
 	IdentityFiles     []string `json:"identityFiles,omitempty"`
 	IdentityAgent     string   `json:"identityAgent,omitempty"`
 	IdentitiesOnly    bool     `json:"identitiesOnly,omitempty"`
@@ -104,6 +105,11 @@ type ProgressEvent struct {
 
 // Settings 应用设置（持久化到 settings.json / SQLite settings 表）。
 type Settings struct {
+	AutoStart        bool `json:"autoStart"`
+	ConfirmCloseTab  bool `json:"confirmCloseTab"`
+	ConfirmCloseApp  bool `json:"confirmCloseApp"`
+	SmoothAnimations bool `json:"smoothAnimations"`
+
 	UISchema             int          `json:"uiSchema"`             // UI 外观配置版本；2 为 Geist 设计系统
 	LogEnabled           bool         `json:"logEnabled"`           // 是否输出调试日志（默认关闭）
 	LogToFile            bool         `json:"logToFile"`            // 是否把日志写入文件（默认关闭）
@@ -126,8 +132,9 @@ type Settings struct {
 	KeepAliveEnabled     bool         `json:"keepAliveEnabled"`     // 发送心跳包防止终端超时（默认开启）
 	// SysInfoCollectEnabled 登录 SSH 服务器后是否自动采集系统指标（默认开启）。
 	// 关闭后连接服务器不再向远端执行任何采集命令；系统看板与底部状态栏不再有数据。
-	SysInfoCollectEnabled bool   `json:"sysInfoCollectEnabled"`
-	LocalShell            string `json:"localShell"` // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
+	SysInfoRealtimeEnabled bool   `json:"sysInfoRealtimeEnabled"`
+	SysInfoCollectEnabled  bool   `json:"sysInfoCollectEnabled"`
+	LocalShell             string `json:"localShell"` // 本机终端 Shell：darwin zsh|bash；windows powershell|cmd；linux default
 	// AutoLoginLastServer 启动（解锁）后自动重新连接「上次关闭时仍在打开的服务器」（默认关闭）。
 	// LastOpenServers 记录上次关闭应用时仍在打开的服务器 ID 列表（按打开顺序，可重复），
 	// 由前端在标签页增删时写入，启动时据此提示并恢复会话。
@@ -433,17 +440,23 @@ type Theme struct {
 	BrightWhite   string `json:"brightWhite"`
 }
 
-// UIAppearance UI 外观：品牌色与明暗模式。
+// UIAppearance UI 外观：配色种子、明暗模式与材质模式。
+// 具体色板由前端 HCT 动态配色引擎从 Primary 种子派生。
 type UIAppearance struct {
-	GlassEnabled bool   `json:"glassEnabled"`
-	Mode         string `json:"mode"`         // preset | custom
-	PresetID     string `json:"presetId"`     // 预设主题 ID（preset 模式）
-	BaseTone     string `json:"baseTone"`     // auto | light | dark
-	Primary      string `json:"primary"`      // custom：主色（hex）
-	Secondary    string `json:"secondary"`    // custom：辅色（hex）
-	UiText       string `json:"uiText"`       // custom：界面主文字色（hex）
-	GlassOpacity int    `json:"glassOpacity"` // 应用玻璃表面不透明度（40–100）
-	GlassBlur    int    `json:"glassBlur"`    // 应用玻璃表面模糊强度（0–60px）
+	Atmosphere             *int   `json:"atmosphere,omitempty"`        // 主题氛围强度 0–100
+	SurfaceSeparation      *int   `json:"surfaceSeparation,omitempty"` // 区域层级差异 0–100
+	MaterialMode           string `json:"materialMode,omitempty"`      // solid | soft | clear
+	ColorIntensity         *int   `json:"colorIntensity,omitempty"`    // 旧字段：atmosphere 的兼容别名
+	TerminalBackgroundMode string `json:"terminalBackgroundMode"`
+	GlassEnabled           bool   `json:"glassEnabled"`
+	Mode                   string `json:"mode"`         // preset | custom
+	PresetID               string `json:"presetId"`     // 预设主题 ID（preset 模式）
+	BaseTone               string `json:"baseTone"`     // auto | light | dark
+	Primary                string `json:"primary"`      // custom：配色种子（hex）
+	Secondary              string `json:"secondary"`    // custom：辅色（hex）
+	UiText                 string `json:"uiText"`       // custom：界面主文字色（hex；旧字段）
+	GlassOpacity           int    `json:"glassOpacity"` // 应用玻璃表面不透明度（60–100）
+	GlassBlur              int    `json:"glassBlur"`    // 应用玻璃表面模糊强度（0–60px）
 }
 
 // Fonts 字体设置。
@@ -453,17 +466,24 @@ type Fonts struct {
 	TerminalFontSize int    `json:"terminalFontSize"` // 终端字号（默认 13）
 }
 
-// DefaultAppearance 返回默认外观（Geist + 跟随系统明暗）。
+// DefaultAppearance 返回默认外观（天空蓝 + 深色 + 实色）。
 func DefaultAppearance() UIAppearance {
+	atmosphere := 75
+	separation := 65
 	return UIAppearance{
-		Mode:         "preset",
-		PresetID:     "geist",
-		BaseTone:     "auto",
-		Primary:      "#3b82f6",
-		Secondary:    "#a1a1aa",
-		UiText:       "#fafafa",
-		GlassOpacity: 85,
-		GlassBlur:    24,
+		Atmosphere:             &atmosphere,
+		SurfaceSeparation:      &separation,
+		MaterialMode:           "solid",
+		TerminalBackgroundMode: "follow",
+		GlassEnabled:           false,
+		Mode:                   "preset",
+		PresetID:               "sky",
+		BaseTone:               "dark",
+		Primary:                "#71B5D2",
+		Secondary:              "#71B5D2",
+		UiText:                 "#fafafa",
+		GlassOpacity:           85,
+		GlassBlur:              24,
 	}
 }
 
@@ -471,7 +491,7 @@ func DefaultAppearance() UIAppearance {
 func DefaultFonts() Fonts {
 	return Fonts{
 		UiFont:           "Geist Sans",
-		TerminalFont:     "Geist Mono",
+		TerminalFont:     "JetBrains Mono + Sarasa Mono SC",
 		TerminalFontSize: 13,
 	}
 }
@@ -479,10 +499,10 @@ func DefaultFonts() Fonts {
 // DefaultTheme 返回默认终端主题。
 func DefaultTheme() Theme {
 	return Theme{
-		Background: "#223550",
+		Background: "#18252b",
 		Foreground: "#fafafa",
-		Cursor:     "#3b82f6",
-		Selection:  "rgba(59, 130, 246, 0.28)",
+		Cursor:     "#71B5D2",
+		Selection:  "rgba(113, 181, 210, 0.28)",
 		BgImage:    "",
 		BlurAmount: 12,
 		TextShadow: false,
@@ -577,6 +597,8 @@ type TunnelInfo struct {
 	Name       string `json:"name"`
 	ServerID   string `json:"serverId"`
 	ServerName string `json:"serverName"`
+	ServerHost string `json:"serverHost,omitempty"`
+	ListenHost string `json:"listenHost,omitempty"`
 	Mode       string `json:"mode"`       // local | remote | dynamic
 	LocalPort  int    `json:"localPort"`  // 本地监听端口（local/dynamic）或本地目标端口（remote）
 	RemoteHost string `json:"remoteHost"` // 远程目标主机（local）或远程监听地址（remote）
@@ -594,20 +616,49 @@ type TunnelStatusEvent struct {
 }
 
 // SysInfoSnapshot 系统信息快照（SysInfo Dashboard / 状态栏）。
+type TopProcess struct {
+	PID      int     `json:"pid"`
+	User     string  `json:"user"`
+	CPU      float64 `json:"cpu"`
+	Memory   float64 `json:"memory"`
+	Resident string  `json:"resident"`
+	State    string  `json:"state"`
+	Time     string  `json:"time"`
+	Command  string  `json:"command"`
+}
+
 type SysInfoSnapshot struct {
-	SessionID   string     `json:"sessionId"`
-	CPUUsage    float64    `json:"cpuUsage"`
-	MemUsedMB   uint64     `json:"memUsedMb"`
-	MemTotalMB  uint64     `json:"memTotalMb"`
-	DiskUsage   []DiskInfo `json:"diskUsage"`
-	NetIfaces   []NetIface `json:"netIfaces"`
-	Uptime      string     `json:"uptime"`
-	CollectedAt int64      `json:"collectedAt"`
-	Error       string     `json:"error,omitempty"`
+	TopAvailable   bool               `json:"topAvailable"`
+	CPUDetail      map[string]float64 `json:"cpuDetail"`
+	Load           []float64          `json:"load"`
+	Processes      []TopProcess       `json:"processes"`
+	SwapTotalMB    float64            `json:"swapTotalMb"`
+	SwapUsedMB     float64            `json:"swapUsedMb"`
+	MemAvailableMB float64            `json:"memAvailableMb"`
+
+	DiskIncomplete bool       `json:"diskIncomplete"`
+	OSName         string     `json:"osName"`
+	Architecture   string     `json:"architecture"`
+	CPUCount       int        `json:"cpuCount"`
+	SessionID      string     `json:"sessionId"`
+	CPUUsage       float64    `json:"cpuUsage"`
+	MemUsedMB      uint64     `json:"memUsedMb"`
+	MemTotalMB     uint64     `json:"memTotalMb"`
+	DiskUsage      []DiskInfo `json:"diskUsage"`
+	NetIfaces      []NetIface `json:"netIfaces"`
+	Uptime         string     `json:"uptime"`
+	CollectedAt    int64      `json:"collectedAt"`
+	Error          string     `json:"error,omitempty"`
 }
 
 // DiskInfo 磁盘分区用量。
 type DiskInfo struct {
+	Device     string  `json:"device"`
+	FSType     string  `json:"fsType"`
+	Network    bool    `json:"network"`
+	Uncertain  bool    `json:"uncertain"`
+	TotalBytes uint64  `json:"totalBytes"`
+	UsedBytes  uint64  `json:"usedBytes"`
 	MountPoint string  `json:"mountPoint"`
 	TotalGB    uint64  `json:"totalGb"`
 	UsedGB     uint64  `json:"usedGb"`
@@ -648,6 +699,7 @@ type SFTPEntry struct {
 
 // SFTPTransferEvent SFTP 传输进度事件。
 type SFTPTransferEvent struct {
+	TransferID  string `json:"transferId,omitempty"`
 	SessionID   string `json:"sessionId"`
 	Direction   string `json:"direction"` // upload | download
 	Name        string `json:"name"`

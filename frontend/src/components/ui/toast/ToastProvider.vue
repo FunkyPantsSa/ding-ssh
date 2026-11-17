@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import {t as $t} from '../../../i18n'
+
 import Icon from '@/components/Icon.vue'
 import {useToast} from '@/composables/useToast'
 const toast = useToast()
@@ -10,7 +12,7 @@ const toast = useToast()
         <article v-for="item in toast.items" :key="item.id" class="toast-item" :data-state="item.tone" role="status">
           <Icon :name="item.tone === 'success' ? 'check' : item.tone === 'error' ? 'alert-circle' : 'info'" :size="16" />
           <div><strong>{{ item.title }}</strong><p v-if="item.detail">{{ item.detail }}</p></div>
-          <button type="button" aria-label="关闭通知" @click="toast.dismiss(item.id)"><Icon name="x" :size="14" /></button>
+          <button type="button" :aria-label="$t('关闭通知')" @click="toast.dismiss(item.id)"><Icon name="x" :size="14" /></button>
         </article>
       </TransitionGroup>
     </div>

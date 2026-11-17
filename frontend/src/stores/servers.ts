@@ -1,3 +1,5 @@
+import {errorText} from '../i18n'
+import {clearServerSnapshot} from '../services/serverSnapshot'
 import {defineStore} from 'pinia'
 import {sshService} from '../services/ssh'
 import type {ServerNode, ServerTestResult} from '../types'
@@ -24,7 +26,7 @@ export const useServersStore = defineStore('servers', {
         this.servers = await sshService.getServers()
         this.loadedOnce = true
       } catch (e) {
-        this.error = e instanceof Error ? e.message : String(e)
+        this.error = e instanceof Error ? e.message : errorText(e)
         throw e
       } finally {
         this.loading = false
@@ -33,12 +35,17 @@ export const useServersStore = defineStore('servers', {
     async save(node: ServerNode) {
       const saved = await sshService.saveServer(node)
       const idx = this.servers.findIndex((s) => s.id === saved.id)
-      if (idx >= 0) this.servers[idx] = saved
+      if (idx >= 0) {
+        const old = this.servers[idx]
+        if (old.host !== saved.host || old.port !== saved.port || old.user !== saved.user) clearServerSnapshot(saved.id)
+        this.servers[idx] = saved
+      }
       else this.servers.push(saved)
       return saved
     },
     async remove(id: string) {
       await sshService.deleteServer(id)
+      clearServerSnapshot(id)
       this.servers = this.servers.filter((s) => s.id !== id)
       delete this.testResults[id]
       delete this.testing[id]

@@ -29,6 +29,7 @@
 package debugsrv
 
 import (
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"sort"
 	"strings"
@@ -107,7 +108,7 @@ var capabilityDescriptions = map[Capability]string{
 	CapSecretsRead:   "读取敏感数据：放开服务器 / 设置里可能含密钥字段的读取（同「允许读取敏感数据」开关）。",
 	CapSecretsWrite:  "凭据写入：新增 / 修改 / 删除保存的凭据。需同时开启「允许读取敏感数据」与两段式确认。",
 	CapRemoteFSWrite: "远端文件写入：SFTP 写入 / 删除 / 改名 / 建目录 / 上传。仅白名单前缀（SFTPWriteAllowlist）内的路径允许；留空 = 禁止任何写入路径。写入 / 删除属不可逆操作，需两段式确认。",
-	CapSudoCredential: "sudo 凭证提权：允许 AI 在**当前会话对应的服务器**上，用**应用里保存的密码**执行 sudo -i（等于把该机器的 root 权限交给 AI）。" +
+	CapSudoCredential: "sudo 凭证提权：允许 AI 在当前会话对应的服务器上，用应用里保存的密码执行 sudo -i（等于把该机器的 root 权限交给 AI）。" +
 		"前置条件：必须同时开启「允许读取敏感数据」（secrets.read），因为密码只从凭据库读取；缺哪一项都会被明确拒绝。" +
 		"密码不会出现在 MCP 参数 / 返回值 / 日志 / 审计里（工具 schema 里也没有 password 字段），也不接受调用方直接传入密码；" +
 		"密码只写进远端随机临时文件（/tmp/.ding-sudo-<随机 12 位十六进制>、chmod 600、用完即删并校验），" +
@@ -119,14 +120,14 @@ var capabilityDescriptions = map[Capability]string{
 
 // CapabilityDescription 返回能力的中文说明；未知能力返回空串。
 func CapabilityDescription(cap Capability) string {
-	return capabilityDescriptions[cap]
+	return i18n.T(capabilityDescriptions[cap])
 }
 
 // CapabilityDescriptions 返回「能力 → 中文说明」的副本，供 app.permissions / GetCapabilities 直接序列化。
 func CapabilityDescriptions() map[string]string {
 	out := make(map[string]string, len(capabilityDescriptions))
 	for c, d := range capabilityDescriptions {
-		out[string(c)] = d
+		out[string(c)] = i18n.T(d)
 	}
 	return out
 }
@@ -144,25 +145,25 @@ func KnownCapability(name string) (Capability, bool) {
 func CapabilityLabel(c Capability) string {
 	switch c {
 	case CapRead:
-		return "读取"
+		return i18n.T("读取")
 	case CapTerminalInput:
-		return "终端输入"
+		return i18n.T("终端输入")
 	case CapUIWrite:
-		return "界面写入"
+		return i18n.T("界面写入")
 	case CapConfigWrite:
-		return "配置写入"
+		return i18n.T("配置写入")
 	case CapSecretsRead:
-		return "读取敏感数据"
+		return i18n.T("读取敏感数据")
 	case CapSecretsWrite:
-		return "凭据写入"
+		return i18n.T("凭据写入")
 	case CapRemoteFSWrite:
-		return "远端文件写入"
+		return i18n.T("远端文件写入")
 	case CapSudoCredential:
-		return "sudo 凭证提权"
+		return i18n.T("sudo 凭证提权")
 	case CapLifecycle:
-		return "应用生命周期"
+		return i18n.T("应用生命周期")
 	case CapEval:
-		return "执行 JS"
+		return i18n.T("执行 JS")
 	}
 	return string(c)
 }
@@ -553,7 +554,7 @@ func CapabilityOfAction(action string) (Capability, bool) {
 		return CapTerminalInput, true
 	case string(CapUIWrite):
 		return CapUIWrite, true
-	case "servers.create", "servers.update", "servers.delete",
+	case "groups.create", "groups.rename", "groups.delete", "servers.create", "servers.update", "servers.delete",
 		"tunnels.create", "tunnels.update", "tunnels.delete", "tunnels.start", "tunnels.stop",
 		"settings.update", "settings.reset":
 		return CapConfigWrite, true

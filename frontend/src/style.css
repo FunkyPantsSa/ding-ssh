@@ -6,9 +6,12 @@
 @import "@fontsource/geist-mono/latin-400.css";
 @import "@fontsource/geist-mono/latin-500.css";
 @import "@fontsource/geist-mono/latin-600.css";
+@import "@fontsource/geist-mono/latin-700.css";
 @import "@fontsource/jetbrains-mono/latin-400.css";
+@import "@fontsource/jetbrains-mono/latin-500.css";
 @import "@fontsource/jetbrains-mono/latin-700.css";
 @import "@fontsource/fira-code/latin-400.css";
+@import "@fontsource/fira-code/latin-500.css";
 @import "@fontsource/fira-code/latin-700.css";
 @import "@fontsource/noto-sans-sc/400.css";
 @import "./theme/tokens.css";
@@ -51,6 +54,7 @@ html, body, #app {
   margin: 0;
   overflow: hidden;
 }
+html { background: var(--app-bg, transparent); }
 body {
   font-family: var(--font-sans);
   background: transparent;
@@ -70,7 +74,7 @@ img, svg { display: block; max-width: 100%; }
 
 /* ---------- 焦点可见性（键盘导航） ---------- */
 :focus-visible {
-  outline: 2px solid var(--primary-hover);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
@@ -85,19 +89,22 @@ img, svg { display: block; max-width: 100%; }
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-window);
-  background: transparent;
+  /* Solid mode paints an opaque root; glass mode resolves this token to
+     transparent so the native backdrop remains visible. */
+  background: var(--app-bg, transparent);
   overflow: hidden;
 }
-.app-shell.platform-macos { padding-top: 28px; }
+.app-shell.platform-macos,.app-shell.platform-windows { padding-top: 28px; }
 .window-drag-region {
   position: absolute;
   inset: 0 0 auto 0;
   height: 28px;
-  background: var(--theme-bg-sidebar, var(--surface-1));
-  box-shadow: inset 0 -1px 0 var(--line);
+  background: var(--sidebar-primary-bg, var(--surface-1));
+  box-shadow: inset 0 -1px 0 var(--border-subtle);
   -webkit-app-region: drag;
   --wails-draggable: drag;
-  z-index: 70;
+  /* Keep native window dragging and controls accessible above modal overlays. */
+  z-index: 10000;
 }
 /* 顶栏一条极细的品牌色高光线，替代原先的噪点 + 网格纹理 */
 .app-shell::before {
@@ -141,9 +148,11 @@ body.col-resizing * { cursor: col-resize !important; }
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--theme-bg-sidebar, var(--surface-1));
-  backdrop-filter: blur(var(--theme-glass-blur, 0)) saturate(120%);
-  -webkit-backdrop-filter: blur(var(--theme-glass-blur, 0)) saturate(120%);
+  /* Tier 1: the only large region that carries a visible ambient ramp.
+     The token includes the material alpha, so Solid / Glass share one path. */
+  background: var(--sidebar-primary-gradient, var(--sidebar-primary-bg, var(--surface-1)));
+  backdrop-filter: blur(var(--glass-shell-blur, 0px)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-shell-blur, 0px)) saturate(120%);
   border: 0;
   border-right: 1px solid var(--border-subtle);
   border-radius: var(--radius-layout);
@@ -222,20 +231,15 @@ body.col-resizing * { cursor: col-resize !important; }
   white-space: nowrap;
   transition: background var(--dur), color var(--dur);
 }
-.nav-item:hover { background: var(--hover); color: var(--foreground); }
-.nav-item.active { background: var(--hover-strong); color: var(--foreground); }
-.nav-item.active::before {
-  content: "";
-  position: absolute;
-  left: -8px;
-  top: 7px;
-  bottom: 7px;
-  width: 2px;
-  background: var(--primary-hover);
+.nav-item:hover { background: var(--interactive-hover-bg); color: var(--text-primary); }
+.nav-item.active {
+  background: var(--interactive-active-bg);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
 }
-.nav-item .nav-ico { color: var(--muted-foreground); flex-shrink: 0; }
-.nav-item:hover .nav-ico { color: var(--foreground); }
-.nav-item.active .nav-ico { color: var(--primary-hover); }
+.nav-item .nav-ico { color: var(--text-muted); flex-shrink: 0; }
+.nav-item:hover .nav-ico { color: var(--text-primary); }
+.nav-item.active .nav-ico { color: var(--accent-bg); }
 .nav-item .nav-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .nav-item .nav-count {
   font-family: var(--font-mono);
@@ -270,7 +274,6 @@ body.col-resizing * { cursor: col-resize !important; }
 .nav-collapsed .nav-body { padding: 8px 6px; align-items: center; }
 .nav-collapsed .nav-item { width: 38px; }
 .nav-collapsed .nav-brand .btn-icon { display: none; }
-.nav-collapsed .nav-item.active::before { left: -6px; }
 .nav-collapsed .nav-foot { padding: 0 6px; }
 
 /* ---------- 导航内标签页（设置：标签页位置 = 左侧导航；作为「标签页」区段并入 nav-body） ---------- */
@@ -321,8 +324,8 @@ body.col-resizing * { cursor: col-resize !important; }
   gap: 10px;
   padding: 0 12px 0 14px;
   border-radius: var(--radius-layout);
-  background: var(--surface-1);
-  box-shadow: inset 0 -1px 0 var(--line);
+  background: var(--toolbar-bg, var(--surface-1));
+  box-shadow: inset 0 -1px 0 var(--border-subtle);
   flex-shrink: 0;
 }
 .topbar h1 {
@@ -409,31 +412,33 @@ body.col-resizing * { cursor: col-resize !important; }
    面板 / 卡片
    ============================================================ */
 .panel {
-  background: var(--surface-1);
+  background: var(--surface-bg);
   border-radius: var(--radius-card);
-  box-shadow: inset 0 0 0 1px var(--line);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
 }
 .panel-head {
+  border-start-start-radius: inherit;
+  border-start-end-radius: inherit;
   height: 40px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  box-shadow: inset 0 -1px 0 var(--line);
+  box-shadow: inset 0 -1px 0 var(--border-subtle);
   flex-shrink: 0;
 }
 /* 兼容旧类名：neo 系列改为平面卡片 */
 .neo {
-  background: var(--surface-2);
+  background: var(--surface-bg);
   border-radius: var(--radius-card);
-  box-shadow: inset 0 0 0 1px var(--line);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
   transition: box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.neo-hover:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.neo-hover:hover { box-shadow: inset 0 0 0 1px var(--border-default); }
 .neo-flat {
-  background: var(--surface-3);
+  background: var(--surface-raised-bg);
   border-radius: var(--radius-sm);
-  box-shadow: inset 0 0 0 1px var(--line);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
 }
 .surface-quiet {
   background: var(--field-bg);
@@ -527,7 +532,12 @@ body.col-resizing * { cursor: col-resize !important; }
   transition: box-shadow var(--dur), background var(--dur);
 }
 .textarea { height: auto; min-height: 84px; padding: 8px 10px; line-height: 1.55; resize: vertical; }
-.input::placeholder, .textarea::placeholder { color: var(--muted-foreground); }
+.input::placeholder, .textarea::placeholder { color: var(--text-muted); }
+.input:disabled, .select:disabled, .textarea:disabled {
+  color: var(--text-disabled);
+  background: var(--interactive-disabled-bg);
+  cursor: not-allowed;
+}
 .input:hover, .select:hover, .textarea:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
 .input:focus, .select:focus, .textarea:focus {
   outline: none;
@@ -547,6 +557,7 @@ body.col-resizing * { cursor: col-resize !important; }
 /* 搜索框 */
 .search { position: relative; }
 .search .search-ico {
+  z-index: 1;
   position: absolute;
   left: 10px;
   top: 50%;
@@ -624,12 +635,14 @@ body.col-resizing * { cursor: col-resize !important; }
   padding: 2px;
   border-radius: var(--radius-sm);
   background: var(--field-bg);
+  /* 只保留外框这一层；选中项不再单独描边，避免「按钮 + 外框」两层轮廓 */
   box-shadow: inset 0 0 0 1px var(--line);
 }
 .seg button {
   height: 26px;
   padding: 0 10px;
-  border-radius: var(--radius-small);
+  /* 与外框同心：外圆角 - 内边距，避免内层圆角比外框更“方”而被切出缺口 */
+  border-radius: calc(var(--radius-sm) - 2px);
   font-size: 12px;
   font-weight: 500;
   color: var(--muted-foreground);
@@ -639,7 +652,6 @@ body.col-resizing * { cursor: col-resize !important; }
 .seg button.active {
   color: var(--foreground);
   background: var(--primary-weak);
-  box-shadow: inset 0 0 0 1px var(--primary-border);
 }
 .toggle {
   width: 36px; height: 20px;
@@ -733,13 +745,14 @@ body.col-resizing * { cursor: col-resize !important; }
 
 /* 服务器管理页：双栏 */
 .server-sidebar {
+  overflow: hidden;
   width: 196px;
   display: flex;
   flex-direction: column;
   min-height: 0;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--surface-2) var(--theme-glass-opacity, 88%), transparent);
+  background: var(--sidebar-secondary-bg);
   box-shadow: 0 14px 36px rgb(0 0 0 / 6%);
 }
 .side-group-item {
@@ -753,9 +766,13 @@ body.col-resizing * { cursor: col-resize !important; }
   color: var(--foreground-secondary);
   transition: color var(--dur), background var(--dur);
 }
-.side-group-item:hover { background: var(--hover); color: var(--foreground); }
-.side-group-item.active { color: var(--foreground); background: var(--hover-strong); }
-.side-group-item.active .count { color: var(--primary-hover); }
+.side-group-item:hover { background: var(--interactive-hover-bg); color: var(--text-primary); }
+.side-group-item.active {
+  color: var(--text-primary);
+  background: var(--interactive-active-bg);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+.side-group-item.active .count { color: var(--accent-bg); }
 .side-group-item .count {
   min-width: 18px;
   padding: 0 5px;
@@ -769,9 +786,10 @@ body.col-resizing * { cursor: col-resize !important; }
   background: var(--hover);
 }
 .server-list-panel {
+  container: server-list / inline-size;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--surface-2) var(--theme-glass-opacity, 88%), transparent);
+  background: var(--surface-bg);
   box-shadow: 0 14px 36px rgb(0 0 0 / 6%);
 }
 /* 列表行：密集、发丝分隔 */
@@ -784,9 +802,18 @@ body.col-resizing * { cursor: col-resize !important; }
   cursor: pointer;
   transition: background var(--dur);
 }
+/* Edge rows share the panel's inner radius, including their active inset border. */
+.server-list-panel > .server-row:first-child {
+  border-start-start-radius: max(0px, calc(var(--radius-card) - 1px));
+  border-start-end-radius: max(0px, calc(var(--radius-card) - 1px));
+}
+.server-list-panel > .server-row:last-child {
+  border-end-start-radius: max(0px, calc(var(--radius-card) - 1px));
+  border-end-end-radius: max(0px, calc(var(--radius-card) - 1px));
+}
 .server-row + .server-row { box-shadow: inset 0 1px 0 var(--line); }
-.server-row:hover { background: var(--hover); }
-.server-row.active { background: var(--primary-weak); }
+.server-row:hover { background: var(--interactive-hover-bg); }
+.server-row.active { background: var(--interactive-active-bg); box-shadow: inset 0 0 0 1px var(--accent-border); }
 .server-row .latency {
   display: inline-flex;
   align-items: center;
@@ -896,8 +923,10 @@ body.col-resizing * { cursor: col-resize !important; }
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--surface-1);
-  box-shadow: inset 1px 0 0 var(--line);
+  background: var(--surface-bg);
+  backdrop-filter: blur(var(--glass-shell-blur, 0px)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-shell-blur, 0px)) saturate(120%);
+  box-shadow: inset 1px 0 0 var(--border-subtle);
   flex-shrink: 0;
   /* 宽度可拖动（最窄 260px）：兜底裁剪，避免内部不换行的工具条把内容溢出到终端上。
      面板内的右键菜单是 Teleport 到 body 的，不受这里裁剪影响。 */
@@ -925,9 +954,9 @@ body.col-resizing * { cursor: col-resize !important; }
   border-radius: var(--radius-layout);
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--muted-foreground);
-  background: var(--surface-1);
-  box-shadow: inset 0 1px 0 var(--line);
+  color: var(--text-muted);
+  background: var(--toolbar-bg, var(--surface-1));
+  box-shadow: inset 0 1px 0 var(--border-subtle);
   flex-shrink: 0;
 }
 .metric { display: flex; align-items: center; gap: 6px; }
@@ -973,9 +1002,9 @@ body.col-resizing * { cursor: col-resize !important; }
   padding: var(--space-5);
   max-height: min(90vh, 720px);
   overflow: auto;
-  background: var(--surface-2);
+  background: var(--surface-overlay-bg);
   border-radius: var(--radius-md);
-  box-shadow: inset 0 0 0 1px var(--line-strong), var(--shadow-pop);
+  box-shadow: inset 0 0 0 1px var(--border-strong), var(--shadow-pop);
 }
 .modal.wide { width: min(560px, 100%); padding: 0; }
 .modal h3 { font-size: 15px; font-weight: 600; color: var(--foreground); }
@@ -985,9 +1014,9 @@ body.col-resizing * { cursor: col-resize !important; }
   padding: 4px;
   z-index: 80;
   font-size: 12.5px;
-  background: var(--surface-2);
+  background: var(--surface-overlay-bg);
   border-radius: var(--radius-md);
-  box-shadow: inset 0 0 0 1px var(--line-strong), var(--shadow-pop);
+  box-shadow: inset 0 0 0 1px var(--border-strong), var(--shadow-pop);
 }
 .menu-pop button {
   display: flex;
@@ -998,10 +1027,11 @@ body.col-resizing * { cursor: col-resize !important; }
   border-radius: var(--radius-sm);
   color: var(--foreground);
 }
-.menu-pop button:hover { background: var(--hover-strong); color: var(--foreground); }
+.menu-pop button:hover { background: var(--interactive-hover-bg); color: var(--text-primary); }
+.menu-pop button:focus-visible { outline:none; background:var(--interactive-hover-bg); color:var(--text-primary); box-shadow:inset 0 0 0 1px var(--border-strong); }
 .menu-pop button.danger { color: var(--destructive); }
 .menu-pop button.danger:hover { background: var(--destructive-weak-hover); }
-.menu-pop button.is-active { background: var(--primary-weak); color: var(--primary-hover); }
+.menu-pop button.is-active { background: var(--interactive-active-bg); color: var(--accent-bg); }
 .menu-pop button:disabled { opacity: 0.4; cursor: not-allowed; }
 .toast-root {
   position: fixed;
@@ -1023,8 +1053,8 @@ body.col-resizing * { cursor: col-resize !important; }
   gap: 10px;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--foreground);
-  background: var(--surface-2);
+  color: var(--text-primary);
+  background: var(--surface-overlay-bg);
   border-radius: var(--radius-md);
   box-shadow: inset 0 0 0 1px var(--line-strong), var(--shadow-pop);
   animation: fadeRise 200ms var(--ease);
@@ -1144,7 +1174,7 @@ body.col-resizing * { cursor: col-resize !important; }
   padding: var(--space-3);
   border-radius: var(--radius-layout);
   border-right: 1px solid var(--border-subtle);
-  background: var(--surface-1);
+  background: var(--sidebar-secondary-bg);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -1164,9 +1194,12 @@ body.col-resizing * { cursor: col-resize !important; }
   width: 100%;
   transition: background var(--dur), color var(--dur);
 }
-.set-nav button:hover { color: var(--foreground); background: var(--hover); }
-.set-nav button.active { color: var(--foreground); background: var(--hover-strong); }
-.set-nav button.active svg { color: var(--primary-hover); }
+.set-nav button:hover { color: var(--text-primary); background: var(--interactive-hover-bg); }
+/* Active state uses the same full 1px accent outline as other selected rows.
+   A solid 2px inset-left bar was clipped by the pill radius and read as a
+   stray bright crescent, especially on the darker settings sidebar. */
+.set-nav button.active { color: var(--text-primary); background: var(--interactive-active-bg); box-shadow: inset 0 0 0 1px var(--accent-border); }
+.set-nav button.active svg { color: var(--accent-bg); }
 .set-block {
   padding: var(--space-5);
   margin-bottom: var(--space-4);
@@ -1209,11 +1242,13 @@ body.col-resizing * { cursor: col-resize !important; }
   min-height: 0;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--surface-2) var(--theme-glass-opacity, 90%), transparent);
+  background: var(--surface-overlay-bg);
   box-shadow: var(--shadow-side-panel), inset 0 1px rgb(255 255 255 / 5%);
-  backdrop-filter: blur(var(--theme-glass-blur, 24px));
+  backdrop-filter: blur(var(--glass-overlay-blur, 0px));
+  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 0px));
   /* 面板内部重绘不外溢：开合位移时模糊阴影与列表内容不会牵连整屏 */
   contain: paint;
+  overflow: hidden;
 }
 .qconn-item {
   display: grid;
@@ -1227,13 +1262,13 @@ body.col-resizing * { cursor: col-resize !important; }
   text-align: left;
   transition: background var(--dur);
 }
-.qconn-item:hover { background: var(--hover); }
-.qconn-item.active { background: var(--primary-weak); box-shadow: inset 0 0 0 1px var(--primary-border); }
+.qconn-item:hover { background: var(--interactive-hover-bg); }
+.qconn-item.active { background: var(--interactive-active-bg); box-shadow: inset 0 0 0 1px var(--accent-border); }
 
 /* ============================================================
    终端
    ============================================================ */
-.terminal-bg { background: transparent; }
+.terminal-bg { background: var(--terminal-bg, #11171a); }
 .xterm { height: 100%; padding: 14px 16px; }
 .xterm .xterm-rows { text-shadow: var(--terminal-text-shadow); }
 .xterm-viewport { background: transparent !important; }
@@ -1279,8 +1314,8 @@ body.col-resizing * { cursor: col-resize !important; }
   display: grid; place-items: center;
   padding: 1px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--surface-2) 82%, transparent);
-  box-shadow: inset 0 0 0 1px var(--primary-border);
+  background: var(--surface-raised-bg);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 .brand-name { font-size: 16px; font-weight: 600; letter-spacing: -0.02em; color: var(--foreground); }
 .brand-name span { color: var(--primary-hover); }
@@ -1344,18 +1379,86 @@ body.col-resizing * { cursor: col-resize !important; }
 
 } /* @layer components */
 
-/* One glass layer per shell region, with opaque fallback on unsupported engines. */
-.topbar,.status-bar{background:var(--theme-bg-toolbar,var(--surface-2));backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%);-webkit-backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%)}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.nav,.window-drag-region{background:var(--surface-1)}.topbar,.status-bar{background:var(--surface-2)}}
+/* ============================================================
+   Unified material layer
 
-/* Main pages share the same tinted material; terminal glyphs remain opaque. */
-.app-layout-main{background:var(--theme-bg-main)}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.app-layout-main{background:var(--background)}}
+   1. Native backdrop: macOS NSVisualEffectView / Windows Acrylic owns
+      desktop blur. The web layer never adds a full-window backdrop-filter.
+   2. Theme tint: every shell region has its own alpha background token.
+   3. Surface opacity: computed by the engine from the material mode.
+   4. Readability protection: terminal, inputs and overlays stay opaque or
+      near-opaque.
+   5. Fallback: unsupported platforms receive solid tokens automatically.
+   ============================================================ */
+.topbar,.status-bar{background:var(--toolbar-bg)}
+/* Tier 2: one wide, low-strength diagonal ramp for the whole workspace.
+   Cards, fields, dialogs and the terminal sit on their own solid tokens. */
+.app-layout-main{background:var(--workspace-gradient,var(--workspace-bg))}
+.app-layout-main:has(.workspace-home){background:var(--workspace-gradient,var(--workspace-bg))}
+.server-sidebar{background:var(--sidebar-secondary-bg)}
+.server-list-panel{background:var(--surface-bg)}
+.panel,.neo,.neo-flat{background:var(--surface-bg)}
 
-/* Keep page backgrounds on the shared native material rather than hiding it
-   behind opaque cards. Server data uses a quieter blur for legibility. */
-.app-layout-main{backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%);-webkit-backdrop-filter:blur(var(--theme-glass-blur,0px)) saturate(120%)}
-.app-layout-main:has(.workspace-home){background:var(--theme-bg-sidebar,var(--surface-1))}
-.server-sidebar,.server-list-panel{background:var(--theme-bg-surface,var(--surface-2));backdrop-filter:blur(calc(var(--theme-glass-blur,0px) / 2));-webkit-backdrop-filter:blur(calc(var(--theme-glass-blur,0px) / 2))}
-.panel,.neo,.neo-flat{background:var(--theme-bg-surface,var(--surface-2))}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.app-layout-main:has(.workspace-home){background:var(--background)}.server-sidebar,.server-list-panel,.panel,.neo,.neo-flat{background:var(--surface-2)}}
+/* Shell regions rely on the native backdrop + their own tint. Applying another
+   compositor blur here would blur the already-blurred desktop twice. */
+.nav,.topbar,.status-bar,.app-layout-main,.server-sidebar,.server-list-panel,.tool,.home-panel{
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+
+.window-controls{position:absolute;right:0;top:0;bottom:0;width:max-content;display:flex;justify-content:flex-end;height:100%;margin-left:auto;--wails-draggable:no-drag}
+.window-controls button{width:42px;height:100%;color:var(--text-primary);font-size:16px;--wails-draggable:no-drag}
+.window-controls button:hover{background:var(--interactive-hover-bg)}
+.window-controls button:last-child:hover{background:var(--status-error);color:var(--destructive-foreground)}
+
+/* Native Windows owns the window outline; do not cut transparent CSS corners. */
+.app-shell.platform-windows{border-radius:0;-webkit-font-smoothing:auto}
+.platform-windows .terminal-theme{-webkit-font-smoothing:auto;text-rendering:auto}
+
+/* Floating surfaces may blur app content behind them (never the desktop).
+   Their own tint token is near-opaque so text stays readable over any page. */
+:root body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item){
+  background:var(--surface-overlay-bg);
+  backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);
+  -webkit-backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);
+  border-color:var(--border-strong);
+  box-shadow:var(--shadow-pop);
+}
+.menu-pop{max-width:min(560px,calc(100vw - 24px));overflow-x:hidden}
+.menu-pop button{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Solid mode and platforms without a native backdrop get no compositor filter. */
+html[data-material="solid"] :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.tool,.nav,.topbar,.status-bar,.app-layout-main){
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item){backdrop-filter:none;-webkit-backdrop-filter:none}
+}
+
+/* Tool panels share the shell material, including SFTP, history and system info. */
+.tool{background:var(--surface-bg)}
+
+/* Opt-in timing uses existing transition properties, avoiding layout/terminal animation. */
+:root[data-smooth-animations], .app-shell.smooth-animations {
+  --dur: var(--duration-base);
+  --dur-slow: var(--duration-slow);
+  --ease: var(--ease-out);
+  --duration-fast: 140ms;
+  --duration-base: 220ms;
+  --duration-slow: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+.app-shell.smooth-animations :where(button, .nav-item, .neo, .seg, .tag) {
+  transition-timing-function: var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-smooth-animations], .app-shell.smooth-animations { --duration-fast: 0ms; --duration-base: 0ms; --duration-slow: 0ms; }
+}
+
+/* Shared right-panel tabs: keep SFTP, metrics and history visually consistent. */
+.tool-head-light{height:40px;gap:4px;padding:4px 10px;box-shadow:none;border-bottom:1px solid var(--border-subtle)}
+.tool-head-light .tool-tabs{gap:12px;padding:0;background:transparent;box-shadow:none}
+.tool-head-light .tool-tabs button{height:28px;padding:0 2px;border-radius:0;font-size:12px;font-weight:500;color:var(--muted-foreground)}
+.tool-head-light .tool-tabs button.active{background:transparent;box-shadow:none;color:var(--foreground);border-bottom:2px solid color-mix(in srgb,#6897b4 65%,var(--border-subtle))}
+.tool-head-light .ui-button-icon{height:28px;width:28px;color:var(--muted-foreground)}
