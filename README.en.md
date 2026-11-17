@@ -12,7 +12,7 @@ A desktop workspace combining **SSH / SFTP / port forwarding / local shells**, w
 
 | Item | Details |
 | --- | --- |
-| Platforms | Windows x64 · macOS Universal · Linux x64 |
+| Platforms | Windows x64 · macOS (Apple Silicon / Intel builds) · Linux x64 |
 | Stack | Go 1.25 + Wails v2.13 · Vue 3.5 + Pinia + Tailwind v4 + Vite 7 · xterm.js 6 |
 | Storage | Local SQLite (WAL) + system keychain; no cloud synchronization or telemetry |
 | Branches | `dev` for development; `main` for integration |
@@ -37,6 +37,7 @@ Choose **Settings → General → Language** for Simplified Chinese or English. 
 13. [UI 2.0 design system](#13-ui-20-design-system)
 14. [Documentation and licensing](#14-documentation-and-licensing)
 15. [1.1.1 updates](#111-updates)
+16. [1.2.1 updates](#121-updates)
 
 ## 1. Purpose
 
@@ -53,7 +54,7 @@ The application does not provide server-side bastion auditing, fleet configurati
 | Module | Features | Implementation |
 | --- | --- | --- |
 | Terminal | Multiple tabs; horizontal / vertical splits; drag tabs to split; draggable dividers | xterm.js with WebGL at all supported interface scales; DOM fallback when unsupported or context is lost; 5,000 scrollback lines; font-size shortcuts |
-| Connections | Password, private key, Agent and automatic authentication; groups, search, availability tests | DNS/direct → TCP → authentication → PTY → ready, with progress logs; 15s keepalive; 2/5/10/20/30s reconnect backoff; preserves screen on reconnect |
+| Connections | Password, private key, Agent and automatic authentication; groups, search, availability tests; JumpServer bastion mode | DNS/direct → TCP → authentication → PTY → ready, with progress logs; 15s keepalive; 2/5/10/20/30s reconnect backoff; preserves screen on reconnect |
 | SFTP | Browse, multi-file / drag uploads, downloads, rename, delete, folders, editable path, cancelable transfers | SWR directory cache (`sync.Map`, asynchronous revalidation, incremental events); concurrency = CPU cores × 2; token-bucket rate limiting, unlimited by default; rz/sz through Zmodem |
 | Directory sync | Shell cd follows into SFTP; SFTP navigation follows into terminal | OSC 7 preferred, prompt parsing as fallback; independently configurable directions |
 | Tunnels | Local, remote, dynamic SOCKS5 and reverse SOCKS5; start, stop, restart, edit, delete | State updates through events |
@@ -550,3 +551,16 @@ Terminal text is checked against its actual background with at least 4.5:1 contr
 The Windows drag region is separate from window buttons. The system handles the window outline without frontend rounded clipping. Light terminals disable text shadow; without backgrounds/glass they render opaquely, and Windows uses heavier text for readability. Light interfaces use bright solid surfaces when glass is off.
 
 Quick connect uses an independent light surface to avoid backdrop darkening. Home fills an empty terminal page and supports narrow windows, scaling and vertical scrolling.
+
+## 1.2.1 updates
+
+- **Simplified Chinese and English**: Settings → General → Language switches in place without reloading the page or rebuilding terminal sessions. Pages, help text, connection and transfer messages, and native file dialog titles are translated; user content and remote terminal output are untouched.
+- **JumpServer bastion mode**: a new toggle under server advanced settings. Terminal and SFTP directories stay independent, so you enter the target asset and account directory in SFTP before uploading, renaming or deleting; the panel no longer writes its path back into the terminal.
+- **Automatic update channels**: Settings → About → Check for updates supports `main` and `dev`, each reading `update.json` from its own prerelease. Downloads are verified with SHA-256 and can be installed immediately or on exit. Branch builds are tagged with their channel so development builds are no longer mistaken for releases.
+- **Tunnels**: reverse SOCKS5 (`-R`) forwarding; a client address can be selected when creating a tunnel, and listening/running state is shown live in the list.
+- **Appearance and terminal**: dynamic theming moved to HCT tone mapping with Solid / Soft Glass / Clear Glass materials; the dark skeleton was lightened and re-layered, keeping the terminal Ink in the same hue family as navigation, toolbar and SFTP; terminal font presets can be downloaded and cached on demand.
+- **Workflow**: startup and close preferences, terminal buffer search (`Cmd/Ctrl+F`), server configuration summary with collection switches, SFTP context menus, unified UI tokens and management boundaries, and focus traps with keyboard navigation in dialogs and menus.
+- **Fixes**: garbled glyphs after switching tabs caused by the shared WebGL atlas; per-keystroke input not echoing in local terminals with zsh `%` prompts; the status bar freezing after closing the system board; drag-highlight colliding with the "ungrouped" sentinel; misaligned server rows and dialog focus in narrow windows; hardened MCP controls and transfer state.
+- **Packaging**: macOS now ships separate Apple Silicon and Intel builds (`macos-arm64` / `macos-amd64`) instead of a Universal package.
+
+Validation: Go `internal` tests pass; frontend `vue-tsc --noEmit` and `npm run build` pass with 51 test files and 228 tests. Installers for all three platforms are produced by the release workflow; real-remote and cross-platform desktop smoke tests were not run for this release.
