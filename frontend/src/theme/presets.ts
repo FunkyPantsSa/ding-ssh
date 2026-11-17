@@ -31,12 +31,12 @@ export const PRESETS: ThemePreset[] = [
     primary: '#3b82f6',
     secondary: '#a1a1aa',
     dark: {
-      background: '#09090b', foreground: '#fafafa', cursor: '#3b82f6', selection: 'rgba(59, 130, 246, 0.28)',
+      background: '#223550', foreground: '#fafafa', cursor: '#3b82f6', selection: 'rgba(59, 130, 246, 0.28)',
       ansi: ['#09090b', '#ef4444', '#22c55e', '#f59e0b', '#3b82f6', '#a855f7', '#06b6d4', '#fafafa'],
       bright: ['#52525b', '#f87171', '#4ade80', '#fbbf24', '#60a5fa', '#c084fc', '#22d3ee', '#ffffff'],
     },
     light: {
-      background: '#ffffff', foreground: '#18181b', cursor: '#2563eb', selection: 'rgba(37, 99, 235, 0.22)',
+      background: '#f5f6f7', foreground: '#18181b', cursor: '#2563eb', selection: 'rgba(37, 99, 235, 0.22)',
       ansi: ['#18181b', '#dc2626', '#16a34a', '#d97706', '#2563eb', '#9333ea', '#0891b2', '#f4f4f5'],
       bright: ['#71717a', '#ef4444', '#22c55e', '#f59e0b', '#3b82f6', '#a855f7', '#06b6d4', '#ffffff'],
     },

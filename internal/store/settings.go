@@ -50,7 +50,7 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 		return models.Settings{
 			UISchema:             2,
 			WebGLEnabled:         true,
-			CompletionEnabled:    true,
+			CompletionEnabled:    false,
 			CompletionNavHotkey:  "Alt+ArrowDown",
 			CompletionPanelLimit: 8,
 			SftpToTerminalSync:   true,
@@ -87,7 +87,7 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 		settings.WebGLEnabled = true
 	}
 	if !bytesContains(data, []byte(`"completionEnabled"`)) {
-		settings.CompletionEnabled = true
+		settings.CompletionEnabled = false
 	}
 	// 能力位：升级前的配置完全没有这些字段，反序列化会得到「全 false」，
 	// 但默认值要求「终端输入」开启 —— 因此只在缺字段时补默认值，

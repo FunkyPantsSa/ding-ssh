@@ -142,7 +142,7 @@ onMounted(() => {
 
     <div class="neo border border-amber-500/30">
       <div class="px-5 py-4 flex items-start gap-3">
-        <div class="min-w-0 text-xs text-amber-200/90 leading-relaxed">
+        <div class="min-w-0 debug-notice-text text-xs leading-relaxed">
           调试模式允许调用方读写终端；「允许执行 JS」等于把整个界面交出去。请只在可信环境开启，
           不用时立刻关闭。token 与端口写在
           <span class="font-mono">{{ debugInfo?.infoFile || '%APPDATA%\\ding-ssh\\debug.json' }}</span>。
@@ -314,3 +314,7 @@ onMounted(() => {
     </div>
   </section>
 </template>
+
+<style scoped>
+.debug-notice-text{color:var(--foreground-secondary);overflow-wrap:anywhere}
+</style>

@@ -117,8 +117,9 @@ export const useSessionsStore = defineStore('sessions', {
     },
   },
   actions: {
-    openTab(node: ServerNode): SessionTab {
+    openTab(node: ServerNode, securityPrompts = true): SessionTab {
       const tab: SessionTab = {
+        securityPrompts,
         clientId: `tab-${Date.now()}-${seq++}`,
         sessionId: '',
         serverName: node.name || `${node.user}@${node.host}`,

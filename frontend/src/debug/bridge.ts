@@ -234,7 +234,7 @@ async function handle(req: DebugRequest): Promise<unknown> {
         if (!node) throw new Error(`未找到服务器: ${serverId}`)
       }
       if (!node || !node.id) throw new Error('tab.open 需要 serverId / node，或 local=true')
-      sessions.openTab(node as never)
+      sessions.openTab(node as never, false)
       return {ok: true, kind: 'ssh', node: node.id}
     }
 

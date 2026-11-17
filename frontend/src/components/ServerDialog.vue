@@ -25,6 +25,11 @@ const testing = ref(false)
 const errorMsg = ref('')
 const testMsg = ref('')
 const testOk = ref(false)
+const agentIdentities = ref<Array<{keyType: string; fingerprint: string}>>([])
+async function inspectAgent() {
+ try { agentIdentities.value = await (window as any).go.main.App.GetAgentIdentities({...form}); errorMsg.value = '' }
+ catch (e) { errorMsg.value = String(e) }
+}
 const keySource = ref<'file' | 'content'>('file')
 const selectedCred = ref('')
 /** 当前选中的凭证 id：用于「私钥内容不展示、保存时按 id 取回」的间接引用。 */
@@ -125,6 +130,14 @@ watch(
       port: editing?.port ?? 22,
       user: editing?.user ?? 'root',
       authType: editing?.authType ?? 'password',
+      identityFiles: [...(editing?.identityFiles ?? [])],
+      identityAgent: editing?.identityAgent ?? '',
+      identitiesOnly: editing?.identitiesOnly ?? false,
+      jumpServerIds: [...(editing?.jumpServerIds ?? [])],
+      hostKeyAlias: editing?.hostKeyAlias ?? '',
+      knownHostsSources: [...(editing?.knownHostsSources ?? [])],
+      importAlias: editing?.importAlias,
+      importSource: editing?.importSource,
       password: editing?.password ?? '',
       keyPath: editing?.keyPath ?? '',
       keyContent: editing?.keyContent ?? '',
@@ -416,7 +429,33 @@ onMounted(() => {
         <div class="seg mt-1">
           <button type="button" :class="form.authType === 'password' ? 'active' : ''" :aria-pressed="form.authType === 'password'" @click="form.authType = 'password'">密码</button>
           <button type="button" :class="form.authType === 'privateKey' ? 'active' : ''" :aria-pressed="form.authType === 'privateKey'" @click="form.authType = 'privateKey'">私钥</button>
+          <button type="button" :class="form.authType === 'agent' ? 'active' : ''" @click="form.authType = 'agent'">SSH Agent</button>
+          <button type="button" :class="form.authType === 'auto' ? 'active' : ''" @click="form.authType = 'auto'">自动选择</button>
         </div>
+      </div>
+
+      <div class="space-y-3">
+        <Field label="跳板机连接路径（最多 5 级）">
+          <div v-for="(jump, index) in form.jumpServerIds" :key="index" class="flex flex-wrap items-center gap-2 mb-2">
+            <Select class="flex-1 basis-40" :model-value="jump" @update:model-value="value => { if (form.jumpServerIds) form.jumpServerIds[index] = String(value) }">
+              <option value="">请选择跳板机</option>
+              <option v-for="server in servers.servers.filter(s => s.id !== form.id)" :key="server.id" :value="server.id">{{ server.name }} · {{ server.host }}</option>
+            </Select>
+            <Button size="sm" :disabled="index === 0" @click="() => { const items = form.jumpServerIds!; [items[index - 1], items[index]] = [items[index]!, items[index - 1]!] }">上移</Button>
+            <Button size="sm" @click="form.jumpServerIds?.splice(index, 1)">删除</Button>
+          </div>
+          <Button size="sm" :disabled="(form.jumpServerIds?.length ?? 0) >= 5" @click="(form.jumpServerIds ??= []).push('')">添加下一跳</Button>
+          <p class="text-xs text-mist mt-2">本机 → {{ (form.jumpServerIds ?? []).map(id => servers.servers.find(s => s.id === id)?.name ?? '请选择').concat(form.name || '目标服务器').join(' → ') }}</p>
+        </Field>
+        <template v-if="form.authType === 'agent' || form.authType === 'auto'">
+          <Field label="Agent 地址（留空使用系统默认）"><Input v-model="form.identityAgent" placeholder="SSH_AUTH_SOCK / Windows OpenSSH Agent" /></Field>
+          <Field label="身份文件（每行一个路径）"><Textarea :model-value="(form.identityFiles ?? []).join('\n')" @update:model-value="value => form.identityFiles = String(value).split('\n').filter(Boolean)" /></Field>
+          <Button size="sm" @click="inspectAgent">查看 Agent 公钥</Button>
+          <p v-for="identity in agentIdentities" :key="identity.fingerprint" class="text-xs break-all select-text">{{ identity.keyType }} · {{ identity.fingerprint }}</p>
+          <label class="flex items-center gap-2 text-sm"><input v-model="form.identitiesOnly" type="checkbox" />仅使用指定身份（IdentitiesOnly）</label>
+        </template>
+        <Field label="主机密钥别名（可选）"><Input v-model="form.hostKeyAlias" /></Field>
+        <Field label="额外 known_hosts 文件（每行一个，只读）"><Textarea :model-value="(form.knownHostsSources ?? []).join('\n')" @update:model-value="value => form.knownHostsSources = String(value).split('\n').filter(Boolean)" /></Field>
       </div>
 
       <div v-if="form.authType === 'password'" class="space-y-3">
@@ -432,7 +471,7 @@ onMounted(() => {
         </Field>
       </div>
 
-      <div v-else class="space-y-3">
+      <div v-else-if="form.authType === 'privateKey'" class="space-y-3">
         <div>
           <span class="field-label">私钥来源</span>
           <div class="mt-1 flex gap-2">

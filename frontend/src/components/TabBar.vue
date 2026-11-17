@@ -303,7 +303,7 @@ onBeforeUnmount(() => {
         :data-tab-id="item.tab.clientId"
         :data-state="item.tab.status"
         :class="[
-          item.tab.clientId === sessions.activeId ? 'active' : '',
+          ui.view === 'workspace' && item.tab.clientId === sessions.activeId ? 'active' : '',
           draggingId === item.tab.clientId ? 'dragging' : '',
           dropState?.clientId === item.tab.clientId && dropState.position === 'before' ? 'drop-before' : '',
           dropState?.clientId === item.tab.clientId && dropState.position === 'after' ? 'drop-after' : '',
@@ -369,7 +369,7 @@ onBeforeUnmount(() => {
         :data-tab-id="item.tab.clientId"
         :data-state="item.tab.status"
         :class="[
-          item.tab.clientId === sessions.activeId ? 'active' : '',
+          ui.view === 'workspace' && item.tab.clientId === sessions.activeId ? 'active' : '',
           draggingId === item.tab.clientId ? 'dragging' : '',
           dropState?.clientId === item.tab.clientId && dropState.position === 'before' ? 'drop-before' : '',
           dropState?.clientId === item.tab.clientId && dropState.position === 'after' ? 'drop-after' : '',

@@ -22,8 +22,16 @@ export function ClearLogs() {
   return window['go']['main']['App']['ClearLogs']();
 }
 
+export function ConfirmHostTrust(arg1, arg2) {
+  return window['go']['main']['App']['ConfirmHostTrust'](arg1, arg2);
+}
+
 export function Connect(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['Connect'](arg1, arg2, arg3, arg4);
+}
+
+export function ConnectAuthenticated(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['ConnectAuthenticated'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function ConnectLocal(arg1, arg2, arg3) {
@@ -40,6 +48,10 @@ export function DebugReply(arg1, arg2) {
 
 export function DeleteCredential(arg1) {
   return window['go']['main']['App']['DeleteCredential'](arg1);
+}
+
+export function DeleteHostTrust(arg1, arg2) {
+  return window['go']['main']['App']['DeleteHostTrust'](arg1, arg2);
 }
 
 export function DeleteServer(arg1) {
@@ -66,6 +78,10 @@ export function ExportDiagnostics() {
   return window['go']['main']['App']['ExportDiagnostics']();
 }
 
+export function GetAgentIdentities(arg1) {
+  return window['go']['main']['App']['GetAgentIdentities'](arg1);
+}
+
 export function GetAuditRecords(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetAuditRecords'](arg1, arg2, arg3);
 }
@@ -80,6 +96,10 @@ export function GetCredentials() {
 
 export function GetGroups() {
   return window['go']['main']['App']['GetGroups']();
+}
+
+export function GetHostTrust() {
+  return window['go']['main']['App']['GetHostTrust']();
 }
 
 export function GetLocalShellOptions() {
@@ -110,6 +130,10 @@ export function ImportConfig(arg1, arg2) {
   return window['go']['main']['App']['ImportConfig'](arg1, arg2);
 }
 
+export function ImportSSHConfig(arg1, arg2) {
+  return window['go']['main']['App']['ImportSSHConfig'](arg1, arg2);
+}
+
 export function ListSessions() {
   return window['go']['main']['App']['ListSessions']();
 }
@@ -128,6 +152,10 @@ export function LogClient(arg1, arg2) {
 
 export function OpenLogFolder() {
   return window['go']['main']['App']['OpenLogFolder']();
+}
+
+export function PreviewSSHConfig(arg1) {
+  return window['go']['main']['App']['PreviewSSHConfig'](arg1);
 }
 
 export function QueryCommandHistory(arg1, arg2, arg3) {
@@ -200,6 +228,10 @@ export function SelectLocalFiles() {
 
 export function SelectLocalFolder() {
   return window['go']['main']['App']['SelectLocalFolder']();
+}
+
+export function SelectSSHConfig() {
+  return window['go']['main']['App']['SelectSSHConfig']();
 }
 
 export function SelectSaveFolder() {
@@ -278,6 +310,10 @@ export function StartTunnel(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['StartTunnel'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
+export function StartTunnelAuthenticated(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['StartTunnelAuthenticated'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+
 export function Startup(arg1) {
   return window['go']['main']['App']['Startup'](arg1);
 }
@@ -300,6 +336,10 @@ export function TestServer(arg1) {
 
 export function TestServerLogin(arg1) {
   return window['go']['main']['App']['TestServerLogin'](arg1);
+}
+
+export function TestServerLoginAuthenticated(arg1, arg2) {
+  return window['go']['main']['App']['TestServerLoginAuthenticated'](arg1, arg2);
 }
 
 export function TestServers(arg1) {

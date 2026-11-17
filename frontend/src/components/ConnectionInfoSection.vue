@@ -1,12 +1,12 @@
 <script lang="ts" setup>
-import {computed} from 'vue'
+import {ref} from 'vue'
 import Icon from './Icon.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 import {useSettingsStore} from '../stores/settings'
 
 const settings = useSettingsStore()
 
-const collecting = computed(() => settings.sysInfoCollectEnabled)
+const savingCollecting = ref(false)
 
 // 与 Go 端 internal/sshx/sysinfo.go 的 sysInfoScript 保持一致（转义展示用）。
 const collectScript = [
@@ -25,12 +25,18 @@ const collectScript = [
 ].join('\n')
 
 async function setCollecting(v: boolean) {
-  await settings.setSysInfoCollectEnabled(v)
+  if (savingCollecting.value || v === settings.sysInfoCollectEnabled) return
+  savingCollecting.value = true
+  try {
+    await settings.setSysInfoCollectEnabled(v)
+  } finally {
+    savingCollecting.value = false
+  }
 }
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="connection-info space-y-6">
     <!-- 概览 -->
     <div>
       <h3 class="text-[18px] font-semibold text-white tracking-tight">连接说明</h3>
@@ -54,12 +60,13 @@ async function setCollecting(v: boolean) {
           </div>
           <ToggleSwitch
             class="mt-0.5"
-            :model-value="collecting"
+            :model-value="settings.sysInfoCollectEnabled"
+            :disabled="savingCollecting"
             @update:model-value="setCollecting"
           />
         </div>
         <div
-          v-if="!collecting"
+          v-if="!settings.sysInfoCollectEnabled"
           class="px-5 py-3 border-t border-slate-800/60 flex items-start gap-2 text-[12px] text-amber-300/90 leading-relaxed"
         >
           <Icon name="info" :size="14" class="mt-0.5 shrink-0" />
@@ -242,3 +249,15 @@ async function setCollecting(v: boolean) {
       </section>
   </div>
 </template>
+
+<style scoped>
+/* 连接说明最初按深色页编写；统一改由主题令牌控制，避免浅色主题出现白字与深色硬编码边框。 */
+.connection-info :deep(.text-white),
+.connection-info :deep(.text-slate-200),
+.connection-info :deep(.text-slate-300) { color: var(--foreground); }
+.connection-info :deep(.text-mist),
+.connection-info :deep(.text-slate-400),
+.connection-info :deep(.text-slate-500) { color: var(--muted-foreground); }
+.connection-info :deep(.border-slate-800\/60),
+.connection-info :deep(.border-slate-800\/40) { border-color: var(--border-subtle); }
+</style>

@@ -13,12 +13,13 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
   refresh: []
   testAll: []
+  importConfig: []
   create: []
 }>()
 </script>
 
 <template>
-  <div class="server-toolbar flex items-center gap-2 shrink-0" data-testid="server-toolbar">
+  <div class="server-toolbar flex flex-wrap items-center gap-2 shrink-0" data-testid="server-toolbar">
     <div class="search server-search">
       <Icon name="search" :size="14" extra-class="search-ico" />
       <Input
@@ -31,7 +32,7 @@ const emit = defineEmits<{
         @update:model-value="emit('update:modelValue', String($event))"
       />
     </div>
-    <div class="ml-auto flex items-center gap-2">
+    <div class="ml-auto flex flex-wrap items-center gap-2">
       <span class="chip" data-testid="server-online-count"><span class="dot"></span>{{ online }}/{{ total }} 台在线</span>
       <Button
         variant="ghost"
@@ -44,6 +45,7 @@ const emit = defineEmits<{
         <Icon name="activity" :size="14" :extra-class="testing ? 'animate-spin' : ''" />测试全部
       </Button>
       <Button variant="ghost" size="sm" title="刷新" aria-label="刷新" data-testid="server-refresh" @click="emit('refresh')"><Icon name="refresh" :size="14" />刷新</Button>
+      <Button variant="ghost" size="sm" @click="emit('importConfig')">导入 SSH Config</Button>
       <Button variant="primary" size="sm" data-testid="server-create" @click="emit('create')"><Icon name="plus" :size="14" />新建服务器</Button>
     </div>
   </div>

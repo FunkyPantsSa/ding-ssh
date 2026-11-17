@@ -1,6 +1,15 @@
 // 与 Go 端 models 包对应的类型定义。
 
 export interface ServerNode {
+  identityFiles?: string[]
+  identityAgent?: string
+  identitiesOnly?: boolean
+  jumpServerIds?: string[]
+  hostKeyAlias?: string
+  knownHostsSources?: string[]
+  importAlias?: string
+  importSource?: string
+
   id: string
   name: string
   group: string // 分组名，空为未分组
@@ -53,6 +62,7 @@ export interface StatusEvent {
 
 // 前端会话标签（连接建立前尚无后端 sessionId）。
 export interface SessionTab {
+  securityPrompts?: boolean
   clientId: string
   sessionId: string
   serverName: string
@@ -98,6 +108,7 @@ export interface Theme {
 
 // UI 外观（对应 Go 端 models.UIAppearance）：品牌色 + 明暗模式。
 export interface UIAppearance {
+  glassEnabled?: boolean
   mode: 'preset' | 'custom' // preset 预设 / custom 自定义
   presetId: string // 预设主题 ID（preset 模式）
   baseTone: 'auto' | 'light' | 'dark' // 明暗模式

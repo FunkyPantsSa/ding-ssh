@@ -13,6 +13,7 @@ export function defaultTheme(): Theme {
 // 默认 UI 外观（Geist 预设 + 跟随系统明暗）。
 export function defaultAppearance(): UIAppearance {
   return {
+    glassEnabled: false,
     mode: 'preset',
     presetId: 'geist',
     baseTone: 'auto',
@@ -61,7 +62,7 @@ export const useSettingsStore = defineStore('settings', {
     uiSchema: UI_SCHEMA,
     copyOnSelect: false,
     webGLEnabled: true,
-    completionEnabled: true,
+    completionEnabled: false,
     completionNavHotkey: DEFAULT_COMPLETION_NAV_HOTKEY,
     completionPanelLimit: 8,
     sftpToTerminalSync: true,
@@ -104,7 +105,7 @@ export const useSettingsStore = defineStore('settings', {
       this.logEnabled = settings.logEnabled
       this.copyOnSelect = settings.copyOnSelect ?? false
       this.webGLEnabled = settings.webGLEnabled ?? true
-      this.completionEnabled = settings.completionEnabled ?? true
+      this.completionEnabled = settings.completionEnabled ?? false
       this.completionNavHotkey = settings.completionNavHotkey || DEFAULT_COMPLETION_NAV_HOTKEY
       this.completionPanelLimit = clampPanelLimit(settings.completionPanelLimit)
       this.sftpToTerminalSync = settings.sftpToTerminalSync ?? true

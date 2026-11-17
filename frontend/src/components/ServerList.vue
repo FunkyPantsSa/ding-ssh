@@ -6,6 +6,7 @@ import {useServersStore} from '../stores/servers'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import ServerDialog from './ServerDialog.vue'
+import SSHConfigImportDialog from './SSHConfigImportDialog.vue'
 import ServerGroupSidebar from './servers/ServerGroupSidebar.vue'
 import ServerToolbar from './servers/ServerToolbar.vue'
 import ServerContextMenu from './servers/ServerContextMenu.vue'
@@ -29,6 +30,7 @@ watch(
 const keyword = ref('')
 const activeGroup = ref('all') // 'all' | ''（未分组）| 分组名
 const showDialog = ref(false)
+const showSSHImport = ref(false)
 const editing = ref<ServerNode | null>(null)
 const confirmNode = ref<ServerNode | null>(null)
 
@@ -366,7 +368,7 @@ onBeforeUnmount(() => {
         <!-- 右：列表区域 -->
         <div class="flex-1 min-w-0 flex flex-col gap-3">
           <!-- 工具栏 -->
-        <ServerToolbar v-model="keyword" :total="servers.servers.length" :online="onlineServers" :testing="servers.testingAll" @test-all="servers.testAll()" @refresh="servers.load()" @create="openNew" />
+        <ServerToolbar @import-config="showSSHImport = true" v-model="keyword" :total="servers.servers.length" :online="onlineServers" :testing="servers.testingAll" @test-all="servers.testAll()" @refresh="servers.load()" @create="openNew" />
 
           <!-- 列表 -->
           <div class="flex-1 min-h-0 overflow-y-auto server-list-panel">
@@ -403,6 +405,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <SSHConfigImportDialog v-model="showSSHImport" />
     <ServerDialog v-model="showDialog" :editing="editing" :default-group="activeGroup" />
 
     <ServerContextMenu v-if="serverMenu" :node="serverMenu.node" :position="serverMenu" :copied="copiedHostId === serverMenu.node.id" :cloning="cloning" @edit="menuEdit" @copy="menuCopyHost" @duplicate="menuDuplicate" @test="menuTest" @remove="confirmNode = serverMenu!.node; closeRowMenu()" @close="closeRowMenu" />

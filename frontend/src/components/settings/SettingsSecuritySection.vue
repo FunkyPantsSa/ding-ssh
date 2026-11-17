@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import {Button, Field, Input} from '../ui'
+import HostTrustSection from './HostTrustSection.vue'
 import {useSettingsSecurity} from '../../composables/useSettingsSecurity'
 
 const {security, form: secForm, error: secError, message: secMsg, busy: secBusy, enableMaster, disableMaster, changeMaster} = useSettingsSecurity()
@@ -14,7 +15,7 @@ const {security, form: secForm, error: secError, message: secMsg, busy: secBusy,
       </p>
     </div>
 
-    <div class="rounded-xl border border-slate-700/60 bg-slate-900/60 px-5 py-4 text-xs space-y-2">
+    <div class="rounded-lg border border-slate-700/60 bg-slate-900/60 px-5 py-4 text-xs space-y-2">
       <p class="text-slate-300">
         状态：
         <span :class="security?.unlocked ? 'text-emerald-400' : 'text-amber-400'">
@@ -85,5 +86,6 @@ const {security, form: secForm, error: secError, message: secMsg, busy: secBusy,
         </div>
       </div>
     </template>
+    <HostTrustSection />
   </section>
 </template>

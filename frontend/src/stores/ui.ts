@@ -1,17 +1,18 @@
 import {defineStore} from 'pinia'
 
-export type ViewName = 'workspace' | 'servers' | 'tunnel' | 'settings'
+export type ViewName = 'home' | 'workspace' | 'servers' | 'tunnel' | 'settings'
 
 // 主导航视图切换（左侧导航轨）。
 export const useUIStore = defineStore('ui', {
   state: () => ({
-    view: 'workspace' as ViewName,
+    view: 'home' as ViewName,
     cmdOpen: false,
     newServerTick: 0,
     // 终端页左侧「快速连接」侧边栏是否展开
     terminalSidebarOpen: false,
   }),
   actions: {
+    showHome() { this.view = 'home'; this.terminalSidebarOpen = false },
     showWorkspace() {
       this.view = 'workspace'
       this.terminalSidebarOpen = false

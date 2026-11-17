@@ -1,1 +1,2 @@
-.terminal-bg { background: var(--terminal-bg, var(--background)); }
+/* The workspace owns the single glass tint; terminal wrappers must not add another. */
+.terminal-bg { background: transparent; }
