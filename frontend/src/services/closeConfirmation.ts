@@ -35,6 +35,7 @@ function requestCloseConfirmation(title: string, message: string): Promise<boole
         title,
         width: 440,
         initialFocus: '[data-close-cancel]',
+        footerNavigation: true,
         'onUpdate:modelValue': () => finish(false),
       }, {
         default: () => h('p', {class: 'text-sm text-mist leading-relaxed break-words'},

@@ -50,6 +50,7 @@ function onMainKeydown(event: KeyboardEvent) {
       </span>
     </button>
     <ServerConfigSummary :node="node" :status="status" />
+    <div class="server-row-operations">
     <button
       v-if="badge"
       type="button"
@@ -69,15 +70,44 @@ function onMainKeydown(event: KeyboardEvent) {
       <button class="row-act" type="button" :title="$t('编辑')" :aria-label="$t('编辑')" @click="emit('edit')"><Icon name="pencil" :size="14" /><span>{{ $t('编辑') }}</span></button>
       <button class="row-act row-act-danger" type="button" :title="$t('删除')" :aria-label="$t('删除')" :data-testid="`server-delete-${node.id}`" @click="emit('remove')"><Icon name="trash" :size="14" /><span>{{ $t('删除') }}</span></button>
     </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.server-row { container-type: inline-size; }
+.server-row {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: minmax(180px, .85fr) minmax(0, 1.4fr) max-content;
+}
+.server-row-operations {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+}
+.server-row :deep(.summary) { margin: 0; flex-wrap: wrap; row-gap: 4px; }
+.server-row :deep(.summary > .tag) { min-width: 0; }
+@container server-list (max-width: 1050px) {
+  .server-row { grid-template-columns: minmax(160px, 1fr) minmax(0, 1fr) max-content; }
+  .server-row-operations { gap: 6px; }
+  .row-act { padding-inline: 6px; }
+  .row-act span { display: none; }
+}
+@container server-list (max-width: 650px) {
+  .server-row { grid-template-columns: minmax(0, 1fr) max-content; row-gap: 6px; }
+  .server-row-main { grid-column: 1; grid-row: 1; }
+  .server-row :deep(.summary) { grid-column: 1; grid-row: 2; }
+  .server-row-operations { grid-column: 2; grid-row: 1 / 3; flex-direction: column; align-items: flex-end; gap: 4px; }
+}
+@container server-list (max-width: 380px) {
+  .server-row { grid-template-columns: minmax(0, 1fr); }
+  .server-row-operations { grid-column: 1; grid-row: 3; flex-direction: row; justify-content: flex-end; flex-wrap: wrap; }
+}
 .server-row-main {
   min-width: 0;
-  flex: 1 0 190px;
-  max-width: 340px;
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 12px;

@@ -150,6 +150,7 @@ function onKeydown(event: KeyboardEvent) {
       <Input
         v-bind="$attrs"
         v-model="text"
+        :clearable="open && query.length > 0"
         role="combobox"
         autocomplete="off"
         aria-autocomplete="list"
@@ -187,6 +188,8 @@ function onKeydown(event: KeyboardEvent) {
 .search-select{min-width:0;width:100%;position:relative}
 .search-select-input{position:relative}
 .search-select-input :deep(input){padding-right:28px}
+.search-select-input :deep(input.has-clear){padding-right:72px}
+.search-select-input :deep(.ui-input-clear){right:24px}
 .search-select-input :deep(svg){position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--muted-foreground)}
 .search-select-list{position:fixed;z-index:1100;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;margin:0;padding:4px;list-style:none;background:var(--surface-overlay-bg);border:1px solid var(--border-strong);border-radius:var(--radius-md);color:var(--foreground);box-shadow:var(--shadow-pop)}
 .search-select-list li{padding:6px 8px;overflow-wrap:anywhere;border-radius:var(--radius-sm);cursor:pointer}

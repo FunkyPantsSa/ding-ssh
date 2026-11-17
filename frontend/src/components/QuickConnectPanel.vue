@@ -124,7 +124,7 @@ function isActiveNode(node: ServerNode): boolean {
           </Button>
         </div>
 
-        <div class="px-2.5 pb-2 shrink-0">
+        <div class="px-2.5 pt-2.5 pb-2 shrink-0">
           <div class="search">
             <Icon name="search" :size="14" extra-class="search-ico" />
             <Input
@@ -189,4 +189,7 @@ function isActiveNode(node: ServerNode): boolean {
     </Transition>
   </Teleport>
 </template>
-<style scoped>.qconn-search-input{height:30px;padding-left:32px}</style>
+<style scoped>
+.qconn-search-input{height:30px}
+.search :deep(input.qconn-search-input){padding-left:32px}
+</style>

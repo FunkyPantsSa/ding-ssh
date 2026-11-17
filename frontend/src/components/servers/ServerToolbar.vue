@@ -56,5 +56,6 @@ const emit = defineEmits<{
 
 <style scoped>
 .server-search { max-width: 340px; }
-.server-search-input { height: 30px; padding-left: 32px; }
+.server-search-input { height: 30px; }
+.server-search :deep(input.server-search-input) { padding-left: 32px; }
 </style>

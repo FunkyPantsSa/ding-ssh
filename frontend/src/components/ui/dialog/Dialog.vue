@@ -6,8 +6,10 @@ import {t} from '../../../i18n'
 import {nextTick, onBeforeUnmount, ref, useId, watch} from 'vue'
 
 const open = defineModel<boolean>({default: false})
-const props = withDefaults(defineProps<{title?: string; closeOnOverlay?: boolean; closeDisabled?: boolean; width?: number | string; initialFocus?: string}>(), {
+const props = withDefaults(defineProps<{title?: string; closeOnOverlay?: boolean; closeOnEscape?: boolean; showClose?: boolean; closeDisabled?: boolean; width?: number | string; initialFocus?: string; footerNavigation?: boolean}>(), {
   closeOnOverlay: true,
+  closeOnEscape: true,
+  showClose: true,
   closeDisabled: false,
   width: 560,
 })
@@ -54,8 +56,20 @@ function onKey(e: KeyboardEvent) {
     if (e.isComposing || (e.target instanceof HTMLElement && e.target.matches('[role=combobox][aria-expanded=true]'))) return
     e.preventDefault()
     e.stopPropagation()
-    close()
+    if (props.closeOnEscape) close()
     return
+  }
+  if (props.footerNavigation && panel.value && !e.isComposing
+    && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab'].includes(e.key)) {
+    const buttons = Array.from(panel.value.querySelectorAll<HTMLButtonElement>('footer button:not([disabled])'))
+    const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+    if (index >= 0 && buttons.length) {
+      e.preventDefault()
+      e.stopPropagation()
+      const previous = e.key === 'ArrowLeft' || e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)
+      buttons[(index + (previous ? -1 : 1) + buttons.length) % buttons.length]?.focus()
+      return
+    }
   }
   if (e.key !== 'Tab' || !panel.value) return
   const items = focusables()
@@ -120,7 +134,7 @@ onBeforeUnmount(cleanup)
       >
         <header v-if="title || $slots.header">
           <slot name="header"><h2 :id="titleId">{{ title }}</h2></slot>
-          <button type="button" class="ui-dialog-close" :aria-label="$t('关闭对话框')" @click="close">×</button>
+          <button v-if="showClose" type="button" class="ui-dialog-close" :aria-label="$t('关闭对话框')" @click="close">×</button>
         </header>
         <div class="ui-dialog-body"><slot /></div>
         <footer v-if="$slots.footer"><slot name="footer" /></footer>
@@ -134,6 +148,7 @@ onBeforeUnmount(cleanup)
 .ui-dialog{width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:var(--space-5);background:var(--surface-overlay-bg);backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);-webkit-backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);border:1px solid var(--border-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow-pop)}
 .ui-dialog:focus{outline:none}
 .ui-dialog:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+.ui-dialog :deep(footer button:focus){outline:none;box-shadow:0 0 0 3px var(--primary-weak);border-color:var(--primary-hover)}
 header,footer{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)}
 footer{justify-content:flex-end;margin-top:var(--space-5)}
 h2{margin:0;font-size:var(--text-md);color:var(--foreground)}

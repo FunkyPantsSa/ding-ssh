@@ -556,7 +556,7 @@ onBeforeUnmount(() => {
     <QuickConnectPanel v-if="!needsUnlock" />
 
     <!-- 启动恢复确认框 -->
-    <Dialog v-model="restorePromptVisible" :title="$t('恢复上次的会话')" :width="460" @close="cancelRestore">
+    <Dialog :close-on-overlay="false" :close-on-escape="false" :show-close="false" v-model="restorePromptVisible" :title="$t('恢复上次的会话')" :width="460" @close="cancelRestore">
       <p class="text-[12.5px] text-mist leading-relaxed">{{ $t('检测到上次关闭应用时有') }} {{ restorePromptCount }} {{ $t('台服务器仍在连接，是否自动重新连接？') }}</p>
       <template #footer>
         <Button variant="ghost" size="sm" @click="cancelRestore">{{ $t('取消') }}</Button>
