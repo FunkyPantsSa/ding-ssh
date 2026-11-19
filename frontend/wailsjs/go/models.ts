@@ -32,18 +32,18 @@ export namespace apphost {
 	    manifest: updater.Manifest;
 	    available: boolean;
 	    current: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new UpdateInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.manifest = this.convertValues(source["manifest"], updater.Manifest);
 	        this.available = source["available"];
 	        this.current = source["current"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -641,15 +641,15 @@ export namespace sshx {
 }
 
 export namespace updater {
-
+	
 	export class Asset {
 	    name: string;
 	    sha256: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Asset(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -661,11 +661,11 @@ export namespace updater {
 	    channel: string;
 	    builtAt: string;
 	    assets: Record<string, Asset>;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Manifest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.commit = source["commit"];
@@ -673,7 +673,7 @@ export namespace updater {
 	        this.builtAt = source["builtAt"];
 	        this.assets = this.convertValues(source["assets"], Asset, true);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
