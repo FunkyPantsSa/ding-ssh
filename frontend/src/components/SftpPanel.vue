@@ -10,6 +10,7 @@ import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {onSftpTransfer, onSftpDirUpdated, sshService} from '../services/ssh'
 import {useSessionsStore} from '../stores/sessions'
+import {useMenuPlacement} from '../composables/useMenuPlacement'
 import {useSettingsStore} from '../stores/settings'
 import {useTransfersStore} from '../stores/transfers'
 import {OnFileDrop, OnFileDropOff} from '../../wailsjs/runtime/runtime'
@@ -59,6 +60,8 @@ function uploadMenuKey(event: KeyboardEvent) {
   } else if (event.key === 'Tab') uploadMenuOpen.value = false
 }
 const menu = ref<{x: number; y: number; entry: SFTPEntry | null} | null>(null)
+// 文件右键菜单：打开后按真实高度定位，贴底时上移，避免操作项被窗口裁掉
+const {menuEl: fileMenuEl, menuStyle: fileMenuStyle, place: placeFileMenu} = useMenuPlacement()
 const renaming = ref<{path: string; name: string} | null>(null)
 const renameInput = ref('')
 const confirmDeletePath = ref('')
@@ -187,11 +190,8 @@ function refresh() {
 // ---- 右键菜单 ----
 function openMenu(e: MouseEvent, entry: SFTPEntry | null = null) {
   selected.value = entry?.path || ''
-  menu.value = {
-    x: Math.max(0, Math.min(e.clientX, window.innerWidth - 200)),
-    y: Math.max(0, Math.min(e.clientY, window.innerHeight - 320)),
-    entry,
-  }
+  menu.value = {x: e.clientX, y: e.clientY, entry}
+  void placeFileMenu(e.clientX, e.clientY)
 }
 
 async function copyMenuPath(entry = false) {
@@ -814,10 +814,11 @@ onBeforeUnmount(() => {
     <Teleport to="body">
       <div
         v-if="menu"
+        ref="fileMenuEl"
         class="menu-pop neo fixed z-50"
         data-ui="context-menu"
         @keydown.esc="closeMenu"
-        :style="{left: menu.x + 'px', top: menu.y + 'px'}"
+        :style="fileMenuStyle"
         @contextmenu.prevent
         @click.stop
       >

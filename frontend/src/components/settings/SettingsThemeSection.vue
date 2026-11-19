@@ -4,6 +4,7 @@ import {t as $t} from '../../i18n'
 import {t} from '../../i18n'
 
 import {computed, onMounted, ref, watch} from 'vue'
+import {getDisplayRect} from '../../utils/dom'
 import Icon from '../Icon.vue'
 import SearchSelect from '../ui/select/SearchSelect.vue'
 import ToggleSwitch from '../ToggleSwitch.vue'
@@ -134,8 +135,10 @@ function hsvToHex(h: number, s: number, v: number) {
   return `#${rgb.map((n) => Math.round((n + m) * 255).toString(16).padStart(2, '0')).join('')}`.toUpperCase()
 }
 function updateFromPointer(event: PointerEvent) {
-  const rect = picker.value?.getBoundingClientRect()
-  if (!rect) return
+  // 指针 clientX/Y 是显示坐标；picker 在缩放后的 app-shell 内，gBCR 在 WKWebView 下是布局坐标。
+  // 用 getDisplayRect 统一到显示坐标，避免 uiScale≠100% 时取色点偏移。
+  const rect = getDisplayRect(picker.value)
+  if (!rect.width || !rect.height) return
   const s = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
   const v = 1 - Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height))
   void setSeedColor(hsvToHex(hsv.value.h, s, v))

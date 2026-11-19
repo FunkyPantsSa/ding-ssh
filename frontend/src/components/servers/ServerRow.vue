@@ -5,6 +5,7 @@ import {t} from '../../i18n'
 
 import ServerConfigSummary from './ServerConfigSummary.vue'
 import Icon from '../Icon.vue'
+import {getDisplayRect} from '../../utils/dom'
 import type {ServerNode} from '../../types'
 type Badge = {dot: string; text: string; textClass: string; tip?: string} | null
 defineProps<{node: ServerNode; status: string; active: boolean; dragging: boolean; badge: Badge; copied: boolean}>()
@@ -15,7 +16,8 @@ function onMainKeydown(event: KeyboardEvent) {
   if (!(event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) return
   event.preventDefault()
   const row = (event.currentTarget as HTMLElement | null)?.closest('.server-row') as HTMLElement | null
-  const rect = row?.getBoundingClientRect()
+  // 合成事件的 clientX/Y 必须是显示坐标（菜单是 fixed 弹层），gBCR 在 WKWebView 下是布局坐标
+  const rect = getDisplayRect(row)
   emit('menu', new MouseEvent('contextmenu', {
     bubbles: true,
     clientX: rect ? rect.left + Math.min(rect.width / 2, 160) : 0,

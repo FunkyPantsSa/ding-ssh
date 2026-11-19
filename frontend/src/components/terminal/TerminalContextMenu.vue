@@ -3,14 +3,16 @@ import {t as $t} from '../../i18n'
 
 import {t} from '../../i18n'
 
-import {nextTick, onMounted, ref} from 'vue'
+import {nextTick, onMounted} from 'vue'
+import {useMenuPlacement} from '../../composables/useMenuPlacement'
 
-defineProps<{ position: {x: number; y: number}; logTracking: boolean }>()
+const props = defineProps<{ position: {x: number; y: number}; logTracking: boolean }>()
 const emit = defineEmits<{ copy: []; paste: []; selectAll: []; clear: []; font: [delta: number]; fullscreen: []; logTrace: []; close: [] }>()
-const root = ref<HTMLElement | null>(null)
+// 打开后按真实高度定位，贴底/贴右时自动上移或翻转，避免被窗口裁掉
+const {menuEl, menuStyle, place} = useMenuPlacement()
 
 function items(): HTMLElement[] {
-  return Array.from(root.value?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])
+  return Array.from(menuEl.value?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])
 }
 
 function focusAt(index: number) {
@@ -44,19 +46,20 @@ function onKeydown(event: KeyboardEvent) {
 onMounted(async () => {
   await nextTick()
   focusAt(0)
+  void place(props.position.x, props.position.y)
 })
 </script>
 
 <template>
   <Teleport to="body">
     <div
-      ref="root"
+      ref="menuEl"
       class="menu-pop neo fixed z-50"
       role="menu"
       :aria-label="$t('终端操作')"
       data-ui="context-menu"
       data-testid="terminal-context-menu"
-      :style="{left: position.x + 'px', top: position.y + 'px'}"
+      :style="menuStyle"
       @contextmenu.prevent
       @click.stop
       @keydown="onKeydown"

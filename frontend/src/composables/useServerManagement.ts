@@ -136,12 +136,8 @@ const cloning = ref(false)
 
 function openRowMenu(e: MouseEvent, node: ServerNode) {
   e.preventDefault()
-  // 菜单高度约 250px：贴底时上移，避免被窗口裁掉
-  serverMenu.value = {
-    x: Math.min(e.clientX, window.innerWidth - 180),
-    y: Math.min(e.clientY, Math.max(8, window.innerHeight - 250)),
-    node,
-  }
+  // 原始点击坐标交给 ServerContextMenu：渲染后按真实尺寸贴边/上移
+  serverMenu.value = {x: e.clientX, y: e.clientY, node}
 }
 
 function closeRowMenu() {

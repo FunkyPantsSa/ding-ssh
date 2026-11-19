@@ -23,6 +23,21 @@ export function currentZoom(el: Element | null | undefined): number {
   return Number.isFinite(n) && n > 0 ? n : 1
 }
 
+/** 元素所处的累计 zoom（含祖先；Chromium 的 currentCSSZoom 直接给出有效值）。 */
+function effectiveZoom(el: Element | null | undefined): number {
+  if (!el) return 1
+  const direct = (el as Element & {currentCSSZoom?: number}).currentCSSZoom
+  if (typeof direct === 'number' && Number.isFinite(direct) && direct > 0) return direct
+  let zoom = 1
+  for (let node: Element | null = el; node; node = node.parentElement) {
+    const raw = window.getComputedStyle(node).zoom
+    if (!raw || raw === 'normal') continue
+    const value = parseFloat(raw)
+    if (Number.isFinite(value) && value > 0) zoom *= value
+  }
+  return zoom > 0 ? zoom : 1
+}
+
 export interface PlainRect {
   left: number
   top: number
@@ -48,6 +63,43 @@ export function getElementRect(el: Element | null | undefined): PlainRect {
     bottom: r.bottom / z,
     width: r.width / z,
     height: r.height / z,
+  }
+}
+
+/**
+ * 返回元素在「视口显示坐标」中的矩形：用于 Teleport 到 body、以 fixed 定位的弹层
+ * （下拉菜单、浮层），这些弹层的 left/top/bottom 都按显示像素解释。
+ *
+ * 坐标系判定与 xterm 缩放修正一致：
+ *   - getBoundingClientRect / offsetWidth ≈ zoom → gBCR 已含 zoom（Chromium），直接用；
+ *   - 比例≈1 → gBCR 仍是布局坐标（WKWebView），乘 zoom 回到显示坐标。
+ * 本应用唯一的 zoom 根是铺满窗口的 `.app-shell`（视口原点 0,0），因此乘法成立。
+ */
+export function getDisplayRect(el: Element | null | undefined): PlainRect {
+  const zero = {left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0}
+  if (!el) return zero
+  const r = el.getBoundingClientRect()
+  const zoom = effectiveZoom(el)
+  const raw = {left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height}
+  if (Math.abs(zoom - 1) < 1e-4) return raw
+
+  const html = el as HTMLElement
+  const ratios: number[] = []
+  if (html.offsetWidth > 0 && r.width > 0) ratios.push(r.width / html.offsetWidth)
+  if (html.offsetHeight > 0 && r.height > 0) ratios.push(r.height / html.offsetHeight)
+  const ratio = ratios.length ? ratios.reduce((sum, value) => sum + value, 0) / ratios.length : 1
+  // 判定 gBCR 所在的坐标系：更接近 zoom → 显示坐标（Chromium）；更接近 1 → 布局坐标（WebKit）。
+  // 不用固定阈值：小元素（按钮）的 offset* 与 gBCR 会因边框/亚像素舍入产生几个百分点差异，
+  // 固定 2% 阈值会把 WebKit 误判成 Chromium。
+  const closerToZoom = Math.abs(ratio - zoom) < Math.abs(ratio - 1)
+  if (closerToZoom) return raw
+  return {
+    left: r.left * zoom,
+    top: r.top * zoom,
+    right: r.right * zoom,
+    bottom: r.bottom * zoom,
+    width: r.width * zoom,
+    height: r.height * zoom,
   }
 }
 

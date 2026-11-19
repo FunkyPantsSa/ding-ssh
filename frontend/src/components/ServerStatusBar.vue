@@ -3,11 +3,13 @@ import {t as $t} from '../i18n'
 
 import {t} from '../i18n'
 
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
+import {Tooltip} from './ui'
 import {copyText} from '../utils/clipboard'
-import {onSysInfoSnapshot, sysInfoService} from '../services/sysinfo'
-import {getElementRect} from '../utils/dom'
+import {onSysInfoSnapshot, setSysInfoRealtime, sysInfoRealtimeFor, sysInfoService} from '../services/sysinfo'
+import {getDisplayRect} from '../utils/dom'
+import {useMenuPlacement} from '../composables/useMenuPlacement'
 import {useSettingsStore} from '../stores/settings'
 import type {SessionTab, SysInfoSnapshot} from '../types'
 
@@ -19,8 +21,9 @@ const snap = ref<SysInfoSnapshot | null>(null)
 const diskKey = ref('')
 const netKey = ref('')
 const openMenu = ref<'disk' | 'net' | null>(null)
-const menuStyle = ref<Record<string, string>>({})
-const menuElement = ref<HTMLElement | null>(null)
+// 状态栏在窗口底部：菜单默认向上翻；定位用视口显示坐标（fixed 弹层），
+// 不能拿 getElementRect（布局坐标）去定位，否则 uiScale≠100% 时会跑到触发器外。
+const {menuEl, menuStyle, place: placeStatusMenu} = useMenuPlacement()
 let dispose: (() => void) | null = null
 
 const storagePrefix = computed(() => `ding-ssh:statusbar:${props.tab?.node?.id || 'default'}`)
@@ -123,33 +126,51 @@ const menuItems = computed(() => {
 
 const menuActive = computed(() => (openMenu.value === 'disk' ? diskKey.value : netKey.value))
 
+/** 上次更新的可读时间，用于状态栏提示，避免「看起来没刷新」。 */
+const updatedLabel = computed(() =>
+  snap.value?.collectedAt ? new Date(snap.value.collectedAt).toLocaleTimeString() : '',
+)
+
+/** 会话级实时刷新状态；未切换过的会话回落到全局默认。 */
+const realtime = computed(() => sysInfoRealtimeFor(props.tab?.sessionId, settings.sysInfoRealtimeEnabled))
+
+const updatedSuffix = computed(() =>
+  updatedLabel.value ? `\n${t('更新于')} ${updatedLabel.value}` : '',
+)
+const liveTip = computed(() => {
+  const mode = realtime.value
+    ? t('当前为实时刷新：前台约 3 秒 / 后台约 10 秒。点击关闭，恢复单次快照。')
+    : t('当前为单次快照：每次连接后只采集一次。点击开启实时刷新（前台约 3 秒 / 后台约 10 秒）。')
+  return mode + updatedSuffix.value
+})
+
+/** 单个按钮在「单次 / 实时」之间切换：只改当前会话，不写全局设置；切到实时时立刻补采一帧。 */
+function toggleRealtime() {
+  const id = props.tab?.sessionId
+  if (!id) return
+  const enabled = !realtime.value
+  void setSysInfoRealtime(id, enabled)
+    .then(() => {
+      if (enabled) void sysInfoService.start(id).catch(() => {})
+    })
+    .catch(() => {})
+}
+
 function closeMenu() {
   openMenu.value = null
 }
 
-async function toggleMenu(kind: 'disk' | 'net', ev: MouseEvent) {
+function toggleMenu(kind: 'disk' | 'net', ev: MouseEvent) {
   if (openMenu.value === kind) {
     closeMenu()
     return
   }
   const btn = ev.currentTarget as HTMLElement
-  // 菜单 Teleport 到 body 且用绝对定位（未缩放坐标），按钮 rect 需折算为布局像素，
-  // 避免 app-shell zoom 导致菜单整体偏移/错位。
-  const rect = getElementRect(btn)
+  // 触发器在缩放后的 app-shell 内，gBCR 在 WKWebView 下是布局坐标；菜单是 fixed 弹层，
+  // 需要显示坐标。getDisplayRect 统一换算，再交给共享定位逻辑（底部自动向上翻转）。
+  const rect = getDisplayRect(btn)
   openMenu.value = kind
-  await nextTick()
-  if (openMenu.value !== kind) return
-  const menuRect = menuElement.value ? getElementRect(menuElement.value) : null
-  const menuH = menuRect?.height || 220
-  const menuWidth = menuRect?.width || 140
-  const spaceBelow = window.innerHeight - rect.bottom
-  const openUp = spaceBelow < menuH + 8
-  menuStyle.value = {
-    left: `${Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8))}px`,
-    ...(openUp
-      ? {bottom: `${window.innerHeight - rect.top + 4}px`, top: 'auto'}
-      : {top: `${rect.bottom + 4}px`, bottom: 'auto'}),
-  }
+  void placeStatusMenu(rect.left, rect.bottom + 4, {anchor: rect, flipX: false})
 }
 
 function pickItem(value: string) {
@@ -270,6 +291,18 @@ function fmtMbps(v: number): string {
         </template>
         <strong v-else>—</strong>
       </div>
+      <Tooltip :text="liveTip" align="right">
+        <button
+          type="button"
+          class="statusbar-live"
+          :class="{live: realtime}"
+          :aria-pressed="realtime"
+          :aria-label="liveTip"
+          @click="toggleRealtime"
+        >
+          <span class="statusbar-live-dot" aria-hidden="true"></span>{{ realtime ? $t('实时') : $t('单次') }}
+        </button>
+      </Tooltip>
       <div class="flex-1"></div>
       <span v-if="snap?.error" class="text-warn truncate max-w-[14rem]" :title="snap.error">{{ snap.error }}</span>
     </template>
@@ -280,7 +313,7 @@ function fmtMbps(v: number): string {
   </footer>
 
   <Teleport to="body">
-    <div v-if="openMenu" ref="menuElement" data-statusbar-menu data-ui="context-menu" class="menu-pop statusbar-menu neo fixed z-[80]" :style="menuStyle">
+    <div v-if="openMenu" ref="menuEl" data-statusbar-menu data-ui="context-menu" class="menu-pop statusbar-menu neo fixed z-[80]" :style="menuStyle">
       <button
         v-for="item in menuItems"
         :key="item.value"

@@ -153,6 +153,8 @@ export function SetSftpPathFromTerminal(arg1:string,arg2:string):Promise<void>;
 
 export function SetSysInfoIdle(arg1:string,arg2:boolean):Promise<void>;
 
+export function SetSysInfoRealtime(arg1:string,arg2:boolean):Promise<void>;
+
 export function SetUILanguage(arg1:string):Promise<void>;
 
 export function SftpCancelTransfer(arg1:string,arg2:string,arg3:string):Promise<void>;

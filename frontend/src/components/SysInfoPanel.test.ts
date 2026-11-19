@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({start: vi.fn().mockResolvedValue(undefined), of
 vi.mock('../services/sysinfo', () => ({
   sysInfoService: {start: mocks.start, setIdle: vi.fn()},
   onSysInfoSnapshot: (_id: string, handler: (s: any) => void) => {mocks.snapshot = handler; return mocks.off},
+  sysInfoRealtimeFor: (_id: string, fallback: boolean) => fallback,
+  setSysInfoRealtime: vi.fn(async () => {}),
 }))
 vi.mock('../stores/settings', () => ({useSettingsStore: () => ({sysInfoCollectEnabled: true, sysInfoRealtimeEnabled: false})}))
 vi.mock('../stores/sessions', () => ({useSessionsStore: () => ({showRightPanel: vi.fn()})}))

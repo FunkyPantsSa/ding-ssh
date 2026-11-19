@@ -9,6 +9,8 @@ it('shows full configuration together in the expandable card', async () => {
  expect(wrapper.find('.collapsed-label').text()).toContain('配置信息')
  await wrapper.find('.config-trigger').trigger('click')
  const card = wrapper.find('.details')
+ // 浮层材质由 style.css 的 :is(..., .config-popover) 规则提供（近不透明底 + 高斯模糊）
+ expect(card.classes()).toContain('config-popover')
  for (const value of ['openEuler 22.03','aarch64','24 核','64 GiB','本地文件系统']) expect(card.text()).toContain(value)
  expect(wrapper.find('.config-trigger').attributes('aria-expanded')).toBe('true')
  wrapper.unmount()

@@ -576,7 +576,8 @@ function openMenu(e: MouseEvent) {
     void pasteFromClipboard()
     return
   }
-  menu.value = {x: Math.min(e.clientX, window.innerWidth - 160), y: Math.min(e.clientY, window.innerHeight - 160)}
+  // 原始点击坐标交给 TerminalContextMenu：它在渲染后按真实尺寸贴边/翻转
+  menu.value = {x: e.clientX, y: e.clientY}
 }
 
 function closeMenu(restoreFocus = false) {

@@ -4,6 +4,7 @@ import {t as $t} from '../../../i18n'
 import {t} from '../../../i18n'
 
 import {computed, nextTick, onBeforeUnmount, ref, useId} from 'vue'
+import {getDisplayRect} from '../../../utils/dom'
 import Icon from '../../Icon.vue'
 import Input from '../input/Input.vue'
 
@@ -74,7 +75,9 @@ function onBlur(event: FocusEvent) {
 function positionList() {
   const el = root.value
   if (!el) return
-  const rect = el.getBoundingClientRect()
+  // 选项面板 Teleport 到 body、fixed 定位（显示坐标）；触发器在缩放后的 app-shell 内，
+  // WKWebView 的 gBCR 是布局坐标，需统一换算，否则 uiScale≠100% 时面板会整体偏移。
+  const rect = getDisplayRect(el)
   const height = Math.min(LIST_MAX_HEIGHT, list.value?.scrollHeight || LIST_MAX_HEIGHT)
   const spaceBelow = window.innerHeight - rect.bottom - LIST_GAP
   const spaceAbove = rect.top - LIST_GAP

@@ -987,6 +987,28 @@ body.col-resizing * { cursor: col-resize !important; }
 }
 .statusbar-pick:hover { background: var(--hover); color: var(--foreground); }
 
+/* 状态栏「单次 / 实时」单按钮切换：文案与脉冲点反映当前模式 */
+.statusbar-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 16px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.statusbar-live:hover { background: var(--hover); color: var(--foreground); }
+.statusbar-live.live { color: var(--status-success); background: var(--status-success-bg); border-color: var(--status-success-border); }
+.statusbar-live-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .35; }
+.statusbar-live.live .statusbar-live-dot { opacity: 1; animation: statusbar-live-pulse 2s ease-in-out infinite; }
+@keyframes statusbar-live-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
+
 /* ============================================================
    弹层：模态 / 菜单 / 提示
    ============================================================ */
@@ -1420,23 +1442,31 @@ body.col-resizing * { cursor: col-resize !important; }
 
 /* Floating surfaces may blur app content behind them (never the desktop).
    Their own tint token is near-opaque so text stays readable over any page. */
-:root body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item){
+:root body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover){
   background:var(--surface-overlay-bg);
   backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);
   -webkit-backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);
   border-color:var(--border-strong);
   box-shadow:var(--shadow-pop);
 }
+/* Config popover: same overlay material as menus, but a softer edge, deeper lift and
+   a faint vertical sheen so the card reads as a deliberate floating surface. */
+:root body .config-popover.config-popover{
+  border-color:var(--border-default);
+  background-image:linear-gradient(180deg,transparent 58%,rgb(9 12 16 / 3%));
+  box-shadow:var(--shadow-pop),0 24px 56px -24px rgb(9 12 16 / 26%);
+}
+
 .menu-pop{max-width:min(560px,calc(100vw - 24px));overflow-x:hidden}
 .menu-pop button{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* Solid mode and platforms without a native backdrop get no compositor filter. */
-html[data-material="solid"] :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.tool,.nav,.topbar,.status-bar,.app-layout-main){
+html[data-material="solid"] :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover,.tool,.nav,.topbar,.status-bar,.app-layout-main){
   backdrop-filter:none;
   -webkit-backdrop-filter:none;
 }
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item){backdrop-filter:none;-webkit-backdrop-filter:none}
+  :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover){backdrop-filter:none;-webkit-backdrop-filter:none}
 }
 
 /* Tool panels share the shell material, including SFTP, history and system info. */

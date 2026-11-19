@@ -10,7 +10,7 @@ import Icon from './Icon.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 import {useSettingsStore} from '../stores/settings'
 import {Button} from './ui'
-import {onSysInfoSnapshot, sysInfoService} from '../services/sysinfo'
+import {onSysInfoSnapshot, setSysInfoRealtime, sysInfoRealtimeFor, sysInfoService} from '../services/sysinfo'
 import {useSessionsStore} from '../stores/sessions'
 import type {SessionTab, SysInfoSnapshot} from '../types'
 
@@ -37,6 +37,8 @@ function moveCard(card: Card, direction: number) {
   order.value = next
   try { localStorage.setItem('sysinfo-card-order', JSON.stringify(next)) } catch { /* optional preference */ }
 }
+/** 当前会话的实时刷新状态（会话级覆盖，未切换时回落到全局默认）。 */
+const realtime = computed(() => sysInfoRealtimeFor(props.tab.sessionId, settings.sysInfoRealtimeEnabled))
 const refreshing = ref(false)
 async function refresh() {
   if (refreshing.value || props.tab.status !== 'connected' || !settings.sysInfoCollectEnabled) return
@@ -162,6 +164,16 @@ function onVis() {
   if (props.tab.sessionId) void sysInfoService.setIdle(props.tab.sessionId, document.hidden)
 }
 
+/** 开启实时刷新时立刻补一帧，不必等下一个 3 秒周期；只作用于当前会话。 */
+function setRealtime(enabled: boolean) {
+  if (!props.tab.sessionId) return
+  void setSysInfoRealtime(props.tab.sessionId, enabled)
+    .then(() => {
+      if (enabled) void sysInfoService.start(props.tab.sessionId).catch(() => {})
+    })
+    .catch(() => {})
+}
+
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVis)
   void stop()
@@ -201,10 +213,10 @@ onBeforeUnmount(() => {
           </div>
           <p class="font-semibold">{{ summary }}</p>
           <p class="text-mist mt-2">{{ $t('来源：top · 磁盘：df ·') }} {{ snap?.collectedAt ? new Date(snap.collectedAt).toLocaleTimeString() : t('等待采集') }}</p>
-          <p class="text-mist mt-1">{{ settings.sysInfoRealtimeEnabled ? t('前台约 3 秒刷新，后台约 10 秒') : t('当前为单次快照') }}</p>
+          <p class="text-mist mt-1">{{ realtime ? t('前台约 3 秒刷新，后台约 10 秒') : t('当前为单次快照') }}</p>
           <label class="mt-3 flex items-center justify-between gap-3 cursor-pointer">
             <span>{{ $t('自动刷新') }}</span>
-            <ToggleSwitch :model-value="settings.sysInfoRealtimeEnabled" :aria-label="$t('自动刷新')" @update:model-value="settings.setSysInfoRealtimeEnabled" />
+            <ToggleSwitch :model-value="realtime" :aria-label="$t('自动刷新')" @update:model-value="setRealtime" />
           </label>
           <p v-if="!settings.sysInfoCollectEnabled" class="text-warn mt-2">{{ $t('系统信息采集已关闭，请在设置中开启。') }}</p>
           <p v-if="tab.status !== 'connected'" class="text-warn mt-2">{{ $t('连接已断开，当前为最后一次快照。') }}</p>
