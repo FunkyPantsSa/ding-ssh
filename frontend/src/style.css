@@ -794,6 +794,7 @@ body.col-resizing * { cursor: col-resize !important; }
 }
 /* 列表行：密集、发丝分隔 */
 .server-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -802,6 +803,8 @@ body.col-resizing * { cursor: col-resize !important; }
   cursor: pointer;
   transition: background var(--dur);
 }
+/* 展开配置浮层的行要盖住后面的行，浮层才能完整覆盖相邻行。 */
+.server-row:has(.pinned) { z-index: 2; }
 /* Edge rows share the panel's inner radius, including their active inset border. */
 .server-list-panel > .server-row:first-child {
   border-start-start-radius: max(0px, calc(var(--radius-card) - 1px));
