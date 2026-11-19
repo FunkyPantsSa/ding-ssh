@@ -21,6 +21,32 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// dirLineCarryMax 限制"尚未成行"尾部的最大保留长度，避免没有换行的巨量输出占内存。
+// 正常的一行终端输出远小于该值；超长行会被截断，其中的 cd 回显不再解析。
+const dirLineCarryMax = 4 * 1024
+
+const (
+	// dirJobQueue 目录同步队列长度。目录事件只在路径真正变化时入队，正常远小于该值。
+	dirJobQueue = 64
+	// dirVerifyTimeout 单次远端目录存在性校验的超时；超时按"无法判断"处理，不阻塞终端。
+	dirVerifyTimeout = 800 * time.Millisecond
+	// dirVerifyCooldown 校验超时后的冷却时间，避免 SFTP 卡住时为每次 cd 反复起协程。
+	dirVerifyCooldown = 30 * time.Second
+)
+
+// dirCandidate 解析出的目录变更候选：src 为 "cd" 时 value 是回显参数（可能是相对路径），
+// 其余 src 的 value 已经是绝对目录（提示符 / OSC 7 / OSC 3008）。
+type dirCandidate struct {
+	value string
+	src   string
+}
+
+// dirJob 交给串行同步协程处理的目录事件。gen 用于丢弃旧连接（含重连前）遗留的任务。
+type dirJob struct {
+	dirCandidate
+	gen uint64
+}
+
 // Session 表示一条已建立的 SSH 终端会话。
 type Session struct {
 	ID     string
@@ -42,6 +68,18 @@ type Session struct {
 	onDirSync    func(id string, path string)
 	onProgress   func(id, step, status, log, message string) // 连接过程分步日志
 	lastDir      string                                      // 最近一次同步的路径，用于去重避免重复事件
+
+	// 终端目录同步：解析结果入队，由单个协程串行处理（必要时做远端存在性校验），
+	// 避免 SFTP 请求阻塞终端输出读取，也保证相对 cd 按顺序解析。
+	dirJobs   chan dirJob
+	dirStop   chan struct{}
+	dirGen    uint64                                // 每次启动/停止同步协程递增；旧任务据此丢弃
+	dirSignal string                                // 最近一次入队的绝对目录，用于抑制提示符重复入队
+	verifyDir func(dir string) (exists, known bool) // 远端目录校验，测试可替换
+
+	dirVerifyMu         sync.Mutex
+	dirVerifyQuietUntil time.Time // 校验超时后的冷却截止时间
+	dirVerifyBroken     bool      // SFTP 与 Shell 目录视图不一致，停用校验
 
 	sftpState *sessionSFTP
 	home      string // 远程 home，用于把提示符里的 ~ 展开成绝对路径
@@ -169,6 +207,11 @@ func newSession(
 	// 启动 SSH KeepAlive 心跳 Goroutine
 	go s.keepAliveLoop(client)
 
+	// 目录同步解析结果串行处理（含 SFTP 存在性校验），与终端输出读取解耦。
+	if onDirSync != nil && !node.JumpServerMode {
+		s.startDirSync()
+	}
+
 	go s.pump(stdout)
 	go s.pump(stderr)
 	go s.prefetchHomeAndSync()
@@ -186,6 +229,7 @@ func newSession(
 func (s *Session) pump(r io.Reader) {
 	buf := make([]byte, 32*1024)
 	acc := make([]byte, 0, 64*1024)
+	var carry []byte // 尚未成行的尾部：同一条输出行被拆成多次 Read 时仍只解析一次
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
@@ -199,23 +243,10 @@ func (s *Session) pump(r io.Reader) {
 				acc = acc[len(acc)-64*1024:]
 			}
 			if s.onDirSync != nil && !s.server.JumpServerMode {
-				if dir, src, ok := ParseDirFromOutput(acc); ok {
-					if dir = s.expandPath(dir); dir != "" {
-						s.mu.Lock()
-						same := dir == s.lastDir
-						s.lastDir = dir
-						s.mu.Unlock()
-						if same {
-							if containsNewline(chunk) {
-								logx.Debugf("目录同步跳过(未变化): session=%s path=%s src=%s", s.ID, dir, src)
-							}
-						} else {
-							logx.Infof("目录同步: session=%s path=%s src=%s", s.ID, dir, src)
-							s.onDirSync(s.ID, dir)
-						}
-					}
-				} else if containsNewline(chunk) {
-					logx.Debugf("目录同步未解析: session=%s tail=%q", s.ID, previewTail(acc, 120))
+				candidates, next := s.resolveDirChange(acc, carry, chunk)
+				carry = next
+				for _, c := range candidates {
+					s.enqueueDir(c)
 				}
 			}
 		}
@@ -223,6 +254,262 @@ func (s *Session) pump(r io.Reader) {
 			return
 		}
 	}
+}
+
+// resolveDirChange 从一块新到达的终端输出中解析目录变更候选。
+//   - cd 回显只在"本次补齐的完整行"里匹配，每条回显最多消费一次，避免历史回显被反复叠加；
+//   - 提示符 / OSC 7 / OSC 3008 给出的都是绝对路径，重复解析结果稳定，仍在滚动缓冲上匹配；
+//   - 优先级与 ParseDirFromOutput 一致：提示符 > cd > OSC 7 > OSC 3008。
+//
+// cd 候选只返回回显参数（可能是相对路径），由串行同步协程按"执行该命令前"的目录补全，
+// 这样即使存在待校验的历史 cd，顺序也不会错。carry 是上一块未成行的尾部。
+func (s *Session) resolveDirChange(acc, carry, chunk []byte) ([]dirCandidate, []byte) {
+	lines, nextCarry := splitOutputLines(carry, chunk)
+
+	if p, matched := ParsePrompt(acc); matched {
+		if d := s.expandPath(p); d != "" {
+			return []dirCandidate{{value: d, src: "prompt"}}, nextCarry
+		}
+	}
+
+	var cds []dirCandidate
+	for _, line := range lines {
+		if p, matched := parseCdLine(line); matched {
+			cds = append(cds, dirCandidate{value: p, src: "cd"})
+		}
+	}
+	if len(cds) > 0 {
+		return cds, nextCarry
+	}
+	if p, matched := ParseOSC7(acc); matched {
+		if d := s.expandPath(p); d != "" {
+			return []dirCandidate{{value: d, src: "osc7"}}, nextCarry
+		}
+	}
+	if p, matched := ParseOSC3008(acc); matched {
+		if d := s.expandPath(p); d != "" {
+			return []dirCandidate{{value: d, src: "osc3008"}}, nextCarry
+		}
+	}
+	return nil, nextCarry
+}
+
+// splitOutputLines 按换行把新输出拆成完整行，返回这些行与尚未成行的尾部。
+// 每条完整行只会返回一次 —— 这是"cd 回显不被重复消费"的关键。
+func splitOutputLines(carry, chunk []byte) ([][]byte, []byte) {
+	if len(chunk) == 0 {
+		return nil, carry
+	}
+	data := make([]byte, 0, len(carry)+len(chunk))
+	data = append(data, carry...)
+	data = append(data, chunk...)
+
+	var lines [][]byte
+	start := 0
+	for i := 0; i < len(data); i++ {
+		if data[i] != '\n' && data[i] != '\r' {
+			continue
+		}
+		if i > start {
+			lines = append(lines, data[start:i])
+		}
+		start = i + 1
+	}
+	rest := data[start:]
+	if len(rest) > dirLineCarryMax {
+		rest = rest[len(rest)-dirLineCarryMax:]
+	}
+	return lines, rest
+}
+
+// startDirSync 启动串行目录同步协程（新建会话与重连都会调用）。
+// 解析结果集中到一个协程处理，终端输出读取不会因为 SFTP 校验而阻塞。
+func (s *Session) startDirSync() {
+	s.mu.Lock()
+	if s.dirJobs != nil {
+		s.mu.Unlock()
+		return
+	}
+	s.dirGen++
+	s.dirSignal = ""
+	jobs := make(chan dirJob, dirJobQueue)
+	stop := make(chan struct{})
+	s.dirJobs, s.dirStop = jobs, stop
+	s.mu.Unlock()
+
+	s.dirVerifyMu.Lock()
+	s.dirVerifyQuietUntil = time.Time{}
+	s.dirVerifyBroken = false
+	s.dirVerifyMu.Unlock()
+
+	go s.dirSyncLoop(jobs, stop)
+}
+
+// stopDirSync 停止同步协程并丢弃尚未处理的任务（关闭 / 重连时调用）。
+func (s *Session) stopDirSync() {
+	s.mu.Lock()
+	stop := s.dirStop
+	if stop == nil {
+		s.mu.Unlock()
+		return
+	}
+	s.dirGen++ // 让正在校验或已出队的旧任务失效
+	s.dirJobs, s.dirStop = nil, nil
+	s.mu.Unlock()
+	close(stop)
+}
+
+func (s *Session) dirSyncLoop(jobs <-chan dirJob, stop <-chan struct{}) {
+	for {
+		select {
+		case <-stop:
+			return
+		case job := <-jobs:
+			s.processDirJob(job)
+		}
+	}
+}
+
+// enqueueDir 把候选目录交给同步协程。提示符 / OSC 的绝对目录连续重复时不再入队，
+// 避免每个输出块都触发一次；队列满时丢弃并记日志（目录事件只在路径变化时产生，正常不会发生）。
+func (s *Session) enqueueDir(c dirCandidate) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dirJobs == nil {
+		return
+	}
+	if c.src != "cd" && c.value == s.dirSignal {
+		return
+	}
+	select {
+	case s.dirJobs <- dirJob{dirCandidate: c, gen: s.dirGen}:
+		// 只有真正入队后才记录，避免队列满丢事件后把同样的提示符永久抑制掉。
+		if c.src != "cd" {
+			s.dirSignal = c.value
+		}
+	default:
+		logx.Debugf("目录同步队列已满，丢弃: session=%s path=%s src=%s", s.ID, c.value, c.src)
+	}
+}
+
+// processDirJob 串行处理一条目录事件：补全路径、校验目标是否真实存在、去重上报。
+// cd 回显可能来自失败的命令（目录不存在 / 是文件），只按回显上报会把 SFTP 面板带到
+// 不存在的路径；因此上报前用 SFTP Stat 校验一次。校验不可用（SFTP 被禁用、超时等）
+// 时退回旧行为直接上报，保证目录同步本身仍可用。
+func (s *Session) processDirJob(job dirJob) {
+	if !s.dirJobValid(job.gen) {
+		return
+	}
+	if job.src != "cd" {
+		s.reportDir(job.value, job.src)
+		return
+	}
+	dir := s.expandPath(job.value)
+	if dir == "" {
+		return
+	}
+	if exists, known := s.remoteDirExists(dir); known && !exists {
+		// 有些部署的 SFTP 根目录与 Shell 不同（如 chroot 的 sftp-server）：目标在 SFTP 视角
+		// "不存在"并不代表 cd 失败。当前目录也 Stat 不到时判定为视图不一致，停用校验。
+		if s.sftpViewMismatch(dir) {
+			s.disableDirVerify()
+			logx.Debugf("SFTP 与 Shell 目录视图不一致，停用存在性校验: session=%s", s.ID)
+			if s.dirJobValid(job.gen) {
+				s.reportDir(dir, "cd")
+			}
+			return
+		}
+		logx.Debugf("目录同步忽略不可进入的目标: session=%s path=%s", s.ID, dir)
+		return
+	}
+	if !s.dirJobValid(job.gen) {
+		return
+	}
+	s.reportDir(dir, "cd")
+}
+
+// dirJobValid 判断任务是否仍属于当前连接：重连 / 关闭后旧任务（含校验中的）应被丢弃。
+func (s *Session) dirJobValid(gen uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dirGen == gen && !s.closed && !s.closing
+}
+
+// sftpViewMismatch 判断"目标不存在"是否源于 SFTP 与 Shell 的目录视图差异：
+// 若当前目录本身在 SFTP 视角也 Stat 不到，则目标路径不可信，调用方应停用校验。
+func (s *Session) sftpViewMismatch(dir string) bool {
+	base := s.currentDir()
+	if base == "" || base == dir {
+		return false
+	}
+	exists, known := s.remoteDirExists(base)
+	return known && !exists
+}
+
+func (s *Session) disableDirVerify() {
+	s.dirVerifyMu.Lock()
+	s.dirVerifyBroken = true
+	s.dirVerifyMu.Unlock()
+}
+
+// remoteDirExists 通过 SFTP 判断目录是否存在且确实是目录。
+// exists 为结果，known 表示是否得到了确定结论；known=false 时调用方应退回乐观上报。
+func (s *Session) remoteDirExists(dir string) (exists, known bool) {
+	s.dirVerifyMu.Lock()
+	skip := s.dirVerifyBroken || time.Now().Before(s.dirVerifyQuietUntil)
+	s.dirVerifyMu.Unlock()
+	if skip {
+		return false, false
+	}
+	if s.verifyDir != nil {
+		return s.verifyDir(dir)
+	}
+	c, err := s.SftpClient()
+	if err != nil || c == nil {
+		return false, false
+	}
+
+	type statResult struct {
+		fi  os.FileInfo
+		err error
+	}
+	done := make(chan statResult, 1)
+	go func() {
+		fi, err := c.Stat(dir)
+		done <- statResult{fi: fi, err: err}
+	}()
+	select {
+	case r := <-done:
+		if r.err != nil {
+			if errors.Is(r.err, os.ErrNotExist) {
+				return false, true
+			}
+			return false, false
+		}
+		return r.fi.IsDir(), true
+	case <-time.After(dirVerifyTimeout):
+		s.dirVerifyMu.Lock()
+		s.dirVerifyQuietUntil = time.Now().Add(dirVerifyCooldown)
+		s.dirVerifyMu.Unlock()
+		logx.Debugf("目录校验超时，暂时跳过校验: session=%s path=%s", s.ID, dir)
+		return false, false
+	}
+}
+
+// reportDir 上报目录变更：与上次相同时只记调试日志，避免重复推送。
+func (s *Session) reportDir(dir, src string) {
+	s.mu.Lock()
+	same := dir == s.lastDir
+	if !same {
+		s.lastDir = dir
+	}
+	s.mu.Unlock()
+	if same {
+		logx.Debugf("目录同步跳过(未变化): session=%s path=%s src=%s", s.ID, dir, src)
+		return
+	}
+	logx.Infof("目录同步: session=%s path=%s src=%s", s.ID, dir, src)
+	s.onDirSync(s.ID, dir)
 }
 
 // Write 向前端写入终端输入。
@@ -286,8 +573,14 @@ func (s *Session) guessHome() string {
 //   - 其余（提示符后 cd 回显的相对参数，如 ..、subdir）：基于最近一次已知目录 lastDir 解析。
 //
 // 只有 cd 回显会产生相对参数（prompt / osc7 / osc3008 给出的都是绝对路径或 ~），
-// 因此这里按 lastDir 拼接是安全的；解析不了时返回空串。
+// 每条回显只会被消费一次，因此这里按当时的目录拼接是安全的；解析不了时返回空串。
 func (s *Session) expandPath(p string) string {
+	return s.expandPathFrom(p, s.currentDir())
+}
+
+// expandPathFrom 以 base 为基准补全路径。相对参数必须用"该 cd 命令执行前"的目录解析；
+// 流式场景由串行同步协程保证这一点，不要在一条回显上二次复用它更新后的目录。
+func (s *Session) expandPathFrom(p, base string) string {
 	p = strings.TrimSpace(p)
 	if strings.HasPrefix(p, "/") {
 		return path.Clean(p)
@@ -302,13 +595,17 @@ func (s *Session) expandPath(p string) string {
 	if p == "-" || p == "" || p == "." {
 		return ""
 	}
-	s.mu.Lock()
-	base := s.lastDir
-	s.mu.Unlock()
 	if base == "" {
 		return ""
 	}
 	return path.Clean(path.Join(base, p))
+}
+
+// currentDir 返回最近一次同步（或探测）到的目录。
+func (s *Session) currentDir() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastDir
 }
 
 // prefetchHomeAndSync 用 SFTP Getwd 校正 home，并在尚未同步过目录时推一次，
@@ -373,6 +670,9 @@ func (s *Session) closeClient(expected *ssh.Client, status models.SessionStatus,
 	s.closed = true
 	s.closing = false
 	s.mu.Unlock()
+
+	// 停掉目录同步协程：连接已关，未处理的事件不再有参考价值。
+	s.stopDirSync()
 
 	logx.Debugf("SSH 会话关闭: session=%s status=%s message=%q", s.ID, status, message)
 	if s.onStatus != nil {
@@ -716,6 +1016,9 @@ func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 	s.mu.Unlock()
 
 	go s.keepAliveLoop(client)
+	if s.onDirSync != nil && !s.server.JumpServerMode {
+		s.startDirSync()
+	}
 	go s.pump(stdout)
 	go s.pump(stderr)
 
