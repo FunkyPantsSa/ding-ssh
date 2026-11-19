@@ -3,6 +3,7 @@
 package sshx
 
 import (
+	"ding-ssh/internal/logx"
 	"golang.org/x/sys/windows"
 	"net"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 func defaultAgentSocket() string { return `\\.\pipe\openssh-ssh-agent` }
 func dialAgent(socket string) (net.Conn, error) {
+	logx.Debugf("[sshx] SSH Agent 拨号: network=pipe socket=%q", socket)
 	name, err := windows.UTF16PtrFromString(socket)
 	if err != nil {
 		return nil, err

@@ -42,6 +42,10 @@ type AuditRecord struct {
 // auditRingLimit 环形缓冲容量（超出后丢弃最旧记录）。
 const auditRingLimit = 500
 
+// auditOverflowLog 限流「审计缓冲溢出」告警：溢出后会持续逐条丢弃，
+// 不采样会把日志本身也刷爆。
+var auditOverflowLog = logx.NewSampler(64, 5*time.Second)
+
 // AuditLog 审计环形缓冲（并发安全，容量固定，不落盘）。
 type AuditLog struct {
 	mu   sync.Mutex
@@ -51,6 +55,7 @@ type AuditLog struct {
 
 // NewAuditLog 创建审计日志。
 func NewAuditLog() *AuditLog {
+	logx.Debugf("[debugsrv/audit] 创建审计缓冲: capacity=%d", auditRingLimit)
 	return &AuditLog{ring: make([]AuditRecord, 0, auditRingLimit)}
 }
 
@@ -68,10 +73,18 @@ func (a *AuditLog) Append(rec AuditRecord) AuditRecord {
 	a.seq++
 	rec.ID = fmt.Sprintf("a%d", a.seq)
 	a.ring = append(a.ring, rec)
+	dropped := 0
 	if len(a.ring) > auditRingLimit {
+		dropped = len(a.ring) - auditRingLimit
 		a.ring = a.ring[len(a.ring)-auditRingLimit:]
 	}
 	a.mu.Unlock()
+	logx.Debugf("[debugsrv/audit] 审计记录已写入: id=%s tool=%s source=%s cap=%s ok=%v elapsed=%dms argsBytes=%d",
+		rec.ID, rec.Tool, rec.Source, rec.Cap, rec.OK, rec.DurationMS, len(rec.Args))
+	if dropped > 0 {
+		logx.WarnSampled(auditOverflowLog, "[debugsrv/audit] 审计缓冲已满，丢弃最旧记录: dropped=%d capacity=%d",
+			dropped, auditRingLimit)
+	}
 	return rec
 }
 
@@ -104,6 +117,7 @@ func (a *AuditLog) Recent(limit int, cap, source string) []AuditRecord {
 		}
 		out = append(out, rec)
 	}
+	logx.Debugf("[debugsrv/audit] 读取审计记录: limit=%d cap=%s source=%s count=%d", limit, cap, source, len(out))
 	return out
 }
 
@@ -143,7 +157,12 @@ func RedactArgsJSON(s string) string {
 	}
 	out := logx.Redact(s)
 	out = reEscapedSecretValue.ReplaceAllString(out, "${1}***${2}")
-	return scrubJSONSecrets(out)
+	out = scrubJSONSecrets(out)
+	if out != s {
+		// 只记「发生过脱敏」与原始大小：原值可能是密码 / 私钥，绝不再回显。
+		logx.Debugf("[debugsrv/audit] 审计参数已脱敏: bytes=%d", len(s))
+	}
+	return out
 }
 
 // scrubJSONSecrets 逐键扫描 JSON 文本，把敏感键的字符串值替换为 ***。
@@ -271,6 +290,8 @@ func (r *auditRecorder) finish(err error, reversible bool, revertHint string) Au
 	if r.log != nil {
 		out = r.log.Append(rec)
 	} else {
+		// 未注入 AuditLog：记录不进环形缓冲，但仍会作为 debug.audit 事件推给前端。
+		logx.Debugf("[debugsrv/audit] 审计未启用，记录未入缓冲: tool=%s source=%s ok=%v", rec.Tool, rec.Source, rec.OK)
 		out = rec
 	}
 	publishAudit(r.hub, out)

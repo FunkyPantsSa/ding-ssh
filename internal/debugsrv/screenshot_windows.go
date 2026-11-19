@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"ding-ssh/internal/logx"
 )
 
 // 通过 GDI 抓取应用窗口（标题固定为 ding-ssh）的位图：CDP 在 Wails v2.13 下不可用，
@@ -65,15 +67,19 @@ type bitmapInfo struct {
 // captureWindowPNG 抓取窗口当前显示内容并编码为 PNG。
 // 说明：走桌面 DC 的 BitBlt，窗口被完全遮挡或最小化时会抓到遮挡内容/空白。
 func captureWindowPNG() ([]byte, error) {
+	start := time.Now()
 	title, err := syscall.UTF16PtrFromString("ding-ssh")
 	if err != nil {
+		logx.Warnf("[debugsrv/screenshot] 窗口标题转码失败: err=%v", err)
 		return nil, err
 	}
 	hwnd, _, _ := procFindWindowW.Call(0, uintptr(unsafe.Pointer(title)))
 	if hwnd == 0 {
+		logx.Warnf("[debugsrv/screenshot] 未找到应用窗口: title=ding-ssh")
 		return nil, fmt.Errorf("未找到窗口（标题应为 ding-ssh）")
 	}
 	if iconic, _, _ := procIsIconic.Call(hwnd); iconic != 0 {
+		logx.Warnf("[debugsrv/screenshot] 窗口已最小化，无法截图: hwnd=%d", hwnd)
 		return nil, fmt.Errorf("窗口已最小化，无法截图")
 	}
 	var r rect
@@ -83,6 +89,7 @@ func captureWindowPNG() ([]byte, error) {
 	w := int(r.Right - r.Left)
 	h := int(r.Bottom - r.Top)
 	if w <= 0 || h <= 0 || w > 10000 || h > 10000 {
+		logx.Warnf("[debugsrv/screenshot] 窗口尺寸异常，放弃截图: size=%dx%d", w, h)
 		return nil, fmt.Errorf("窗口尺寸异常: %dx%d", w, h)
 	}
 
@@ -108,10 +115,12 @@ func captureWindowPNG() ([]byte, error) {
 	// 首选 PrintWindow(PW_RENDERFULLCONTENT)：直接让窗口自己渲染，不依赖是否在前台，
 	// 也不会抓到遮挡它的其他窗口。失败时才回退到桌面 BitBlt（需要窗口可见且尽量置前）。
 	if ret, _, _ := procPrintWindow.Call(hwnd, hdcMem, pwRenderFullContent); ret == 0 {
+		logx.Warnf("[debugsrv/screenshot] PrintWindow 失败，降级到桌面 BitBlt: hwnd=%d size=%dx%d", hwnd, w, h)
 		_, _, _ = procSetForegroundWindow.Call(hwnd)
 		time.Sleep(320 * time.Millisecond)
 		if ret, _, _ := procBitBlt.Call(hdcMem, 0, 0, uintptr(w), uintptr(h), hdcScreen,
 			uintptr(r.Left), uintptr(r.Top), srcCopy); ret == 0 {
+			logx.Warnf("[debugsrv/screenshot] PrintWindow 与 BitBlt 均失败: hwnd=%d size=%dx%d", hwnd, w, h)
 			return nil, fmt.Errorf("PrintWindow 与 BitBlt 均失败")
 		}
 	}
@@ -126,6 +135,7 @@ func captureWindowPNG() ([]byte, error) {
 	buf := make([]byte, w*h*4)
 	if ret, _, _ := procGetDIBits.Call(hdcMem, hbm, 0, uintptr(h),
 		uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&bi)), dibRGBColors); ret == 0 {
+		logx.Warnf("[debugsrv/screenshot] GetDIBits 失败: size=%dx%d", w, h)
 		return nil, fmt.Errorf("GetDIBits 失败")
 	}
 
@@ -138,7 +148,10 @@ func captureWindowPNG() ([]byte, error) {
 	}
 	var out bytes.Buffer
 	if err := png.Encode(&out, img); err != nil {
+		logx.Warnf("[debugsrv/screenshot] PNG 编码失败: size=%dx%d err=%v", w, h, err)
 		return nil, err
 	}
+	logx.Infof("[debugsrv/screenshot] 窗口截图完成: size=%dx%d bytes=%d elapsed=%s",
+		w, h, out.Len(), time.Since(start))
 	return out.Bytes(), nil
 }

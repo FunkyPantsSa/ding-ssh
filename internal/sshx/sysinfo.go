@@ -12,16 +12,27 @@ import (
 	"sync"
 	"time"
 
+	"ding-ssh/internal/logx"
 	"ding-ssh/internal/models"
 
 	"golang.org/x/crypto/ssh"
 )
 
-const (
+// 采集间隔在测试中可以临时缩短；生产值：前台 3s / 后台 10s。
+var (
 	sysInfoIntervalActive = 3 * time.Second
 	sysInfoIntervalIdle   = 10 * time.Second
+)
+
+const (
 	sysInfoCollectTimeout = 8 * time.Second
 	sysInfoMaxAttempts    = 2
+)
+
+// 采集是 3s/10s 一轮的周期任务：每轮细节与持续失败都必须采样限流。
+var (
+	sysInfoRoundLog = logx.NewSampler(0, 10*time.Second) // 每轮解析摘要
+	sysInfoErrLog   = logx.NewSampler(0, 30*time.Second) // 持续失败/降级告警
 )
 
 // 明确用 sh -c 执行；段落失败不影响后续（各命令独立 2>/dev/null）。
@@ -69,9 +80,13 @@ type SysInfoCollector struct {
 	prevNet  map[string]netSample
 	prevCPU  *cpuSample
 	lastGood *models.SysInfoSnapshot // 最近一次有效快照，供短暂失败时保留展示
+
+	collectFn func(context.Context) // 测试钩子：替换远端采集，验证轮询节奏
 }
 
 func newSysInfoCollector(sessionID string, client *ssh.Client, onSnap func(models.SysInfoSnapshot), onError func(string)) *SysInfoCollector {
+	logx.Debugf("[sshx] 创建系统指标采集器: session=%s activeInterval=%s idleInterval=%s",
+		sessionID, sysInfoIntervalActive, sysInfoIntervalIdle)
 	return &SysInfoCollector{
 		sessionID: sessionID,
 		client:    client,
@@ -98,6 +113,8 @@ func (c *SysInfoCollector) Start() error {
 	c.running = true
 	c.wg.Add(1)
 	go c.loop(ctx)
+	logx.Infof("[sshx] 系统指标采集已启动: session=%s activeInterval=%s idleInterval=%s",
+		c.sessionID, sysInfoIntervalActive, sysInfoIntervalIdle)
 	return nil
 }
 
@@ -113,6 +130,7 @@ func (c *SysInfoCollector) Stop() {
 	}
 	c.mu.Unlock()
 	c.wg.Wait()
+	logx.Infof("[sshx] 系统指标采集已停止: session=%s", c.sessionID)
 }
 
 func (c *SysInfoCollector) SetIdle(idle bool) {
@@ -121,9 +139,17 @@ func (c *SysInfoCollector) SetIdle(idle bool) {
 	c.mu.Unlock()
 }
 
+func (c *SysInfoCollector) collect(ctx context.Context) {
+	if c.collectFn != nil {
+		c.collectFn(ctx)
+		return
+	}
+	c.collectOnce(ctx)
+}
+
 func (c *SysInfoCollector) loop(ctx context.Context) {
 	defer c.wg.Done()
-	c.collectOnce(ctx)
+	c.collect(ctx)
 	for {
 		c.mu.Lock()
 		idle := c.idle
@@ -136,12 +162,12 @@ func (c *SysInfoCollector) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-c.refresh:
-			c.collectOnce(ctx)
+			c.collect(ctx)
 		case <-time.After(interval):
 			if c.realtime != nil && !c.realtime() {
 				continue
 			}
-			c.collectOnce(ctx)
+			c.collect(ctx)
 		}
 	}
 }
@@ -149,11 +175,13 @@ func (c *SysInfoCollector) loop(ctx context.Context) {
 func (c *SysInfoCollector) collectOnce(ctx context.Context) {
 	var raw string
 	var lastErr error
+	start := time.Now()
 	for attempt := 0; attempt < sysInfoMaxAttempts; attempt++ {
 		if ctx.Err() != nil {
 			return
 		}
 		if attempt > 0 {
+			logx.Debugf("[sshx] 系统指标采集重试: session=%s attempt=%d err=%v", c.sessionID, attempt, lastErr)
 			select {
 			case <-ctx.Done():
 				return
@@ -164,6 +192,9 @@ func (c *SysInfoCollector) collectOnce(ctx context.Context) {
 		if strings.TrimSpace(out) != "" {
 			raw = out
 			lastErr = err // 非零退出但有 stdout 时仍解析
+			if attempt > 0 {
+				logx.Warnf("[sshx] 系统指标采集重试后成功: session=%s attempt=%d", c.sessionID, attempt)
+			}
 			break
 		}
 		if err != nil {
@@ -188,6 +219,10 @@ func (c *SysInfoCollector) collectOnce(ctx context.Context) {
 	// CPU and memory come exclusively from top.
 	_ = cpuRaw
 	snap.NetIfaces = c.ratesFromCounters(counters, ips)
+	logx.DebugSampled(sysInfoRoundLog,
+		"[sshx] 系统指标采集轮次: session=%s rawBytes=%d os=%q arch=%s cpuCount=%d memTotalMB=%d disks=%d ifaces=%d top=%v elapsed=%s",
+		c.sessionID, len(raw), snap.OSName, snap.Architecture, snap.CPUCount, snap.MemTotalMB,
+		len(snap.DiskUsage), len(snap.NetIfaces), snap.TopAvailable, time.Since(start))
 
 	hasData := snap.MemTotalMB > 0 || len(snap.DiskUsage) > 0 || len(snap.NetIfaces) > 0 || cpuRaw != nil
 	if !hasData {
@@ -216,6 +251,7 @@ func (c *SysInfoCollector) collectOnce(ctx context.Context) {
 
 // runRemoteScript 在独立 exec 通道上用 sh -c 跑采集脚本（不占用主 PTY）。
 func (c *SysInfoCollector) runRemoteScript(ctx context.Context) (string, error) {
+	start := time.Now()
 	sess, err := c.client.NewSession()
 	if err != nil {
 		return "", fmt.Errorf(i18n.T("创建采集会话失败: %w"), err)
@@ -243,9 +279,12 @@ func (c *SysInfoCollector) runRemoteScript(ctx context.Context) (string, error) 
 		_ = sess.Close()
 		runErr = fmt.Errorf("%s", i18n.T("采集超时"))
 		<-done
+		logx.WarnSampled(sysInfoErrLog, "[sshx] 系统指标采集超时: session=%s timeout=%s", c.sessionID, sysInfoCollectTimeout)
 	}
 
 	out := stdout.String()
+	logx.Debugf("[sshx] 系统采集脚本执行结束: session=%s stdoutBytes=%d stderrBytes=%d elapsed=%s err=%v",
+		c.sessionID, len(out), stderr.Len(), time.Since(start), runErr)
 	// stderr 仅作补充诊断，绝不因 stderr/非零退出丢弃已有 stdout
 	if strings.TrimSpace(out) == "" && stderr.Len() > 0 {
 		errMsg := strings.TrimSpace(stderr.String())
@@ -265,6 +304,8 @@ func (c *SysInfoCollector) emitSoftError(msg string) {
 	c.mu.Lock()
 	prev := c.lastGood
 	c.mu.Unlock()
+	logx.WarnSampled(sysInfoErrLog, "[sshx] 系统指标采集降级: session=%s keepLastSnapshot=%v reason=%s",
+		c.sessionID, prev != nil, msg)
 	if prev != nil {
 		snap := *prev
 		snap.Error = msg

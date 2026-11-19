@@ -34,7 +34,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
+
+	"ding-ssh/internal/logx"
 )
+
+// denyGateLog 限流「未注入 Gate」的告警：每次能力校验都会走兜底实现，
+// 逐条 WARN 会把日志刷满（同一进程只会真的发生一次配置失误）。
+var denyGateLog = logx.NewSampler(8, 10*time.Second)
 
 // 能力位（权限内核）。
 //
@@ -208,6 +215,9 @@ func (s *Server) gate() Gate {
 	if s.opts.Gate != nil {
 		return s.opts.Gate
 	}
+	// 兜底策略只允许 read：这是「宿主忘记接线」的信号，必须留 WARN 便于排查
+	// （采样限流，避免每次写工具调用都刷一条）。
+	logx.WarnSampled(denyGateLog, "[debugsrv/caps] 能力校验降级: reason=未注入 Gate 策略=拒绝全部写能力")
 	return denyAllGate{}
 }
 
@@ -216,7 +226,13 @@ func (s *Server) allowCap(cap Capability, detail string) error {
 	if cap == CapRead {
 		return nil
 	}
-	return s.gate().Allow(cap, detail)
+	err := s.gate().Allow(cap, detail)
+	if err != nil {
+		// WARN：能力位拒绝是「可恢复异常」——按提示开启能力后重试即可。
+		// detail 只可能是路径 / id 这类定位信息，不含凭据（见 docs/logging.md §6）。
+		logx.Warnf("[debugsrv/caps] 能力位校验拒绝: cap=%s detail=%q reason=%v", cap, detail, err)
+	}
+	return err
 }
 
 // CapabilitySnapshot 返回当前能力快照（用于 initialize.instructions 与 app.permissions）。
@@ -353,6 +369,7 @@ func RegisterToolCap(tool string, caps ...Capability) {
 	toolCapRegistryMu.Lock()
 	toolCapRegistry[tool] = cp
 	toolCapRegistryMu.Unlock()
+	logx.Debugf("[debugsrv/caps] 已注册工具能力: tool=%s caps=%v", tool, caps)
 }
 
 // RegisterToolConfirm 注册「该工具执行前必须先两段式确认」。
@@ -384,6 +401,7 @@ func RegisterToolConfirm(tool, action string) {
 	toolCapRegistryMu.Lock()
 	toolConfirmRegistry[tool] = action
 	toolCapRegistryMu.Unlock()
+	logx.Debugf("[debugsrv/caps] 已注册工具确认: tool=%s action=%s", tool, action)
 }
 
 // UnregisterToolConfirm 取消某个工具的确认要求（覆盖内置表），例如某个动作后续被判定为可逆。
@@ -397,6 +415,7 @@ func UnregisterToolConfirm(tool string) {
 	// 空字符串 = 显式「不需要确认」（见 ToolConfirmAction 的约定）
 	toolConfirmRegistry[tool] = ""
 	toolCapRegistryMu.Unlock()
+	logx.Debugf("[debugsrv/caps] 已取消工具确认: tool=%s", tool)
 }
 
 // RegistrationErrors 返回注册期收集到的错误（按发生顺序）。
@@ -424,6 +443,9 @@ func ResetRegistrationsForTest() {
 }
 
 func recordRegistrationError(err error) {
+	// 注册发生在 init() 期，日志开关通常还没打开，因此这条 WARN 多数不会输出；
+	// 但它同时被记录进 registrationErrs，由测试 / 诊断接口断言为空。
+	logx.Warnf("[debugsrv/caps] 工具能力注册失败: err=%v", err)
 	registrationErrMu.Lock()
 	registrationErrs = append(registrationErrs, err)
 	registrationErrMu.Unlock()
@@ -506,6 +528,7 @@ func ToolCapabilityNames(tool string) []string {
 // checkToolCaps 在 tools/call 执行前逐个校验能力位，返回第一个拒绝原因。
 func (s *Server) checkToolCaps(tool string, detail string) error {
 	caps, _ := ToolCapabilities(tool)
+	logx.Debugf("[debugsrv/caps] 校验工具能力: tool=%s caps=%v", tool, caps)
 	for _, c := range caps {
 		if err := s.allowCap(c, detail); err != nil {
 			return err

@@ -141,6 +141,18 @@ const (
 // 显式白名单（而不是黑名单）是防目录穿越的第一道闸门，第二道是 filepath.Base 校验。
 var uiSnapshotNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
+// ---- 日志（tag 细分 [debugsrv/ui]）----
+//
+// 本域的日志只记「操作 + 参数摘要 + 结果计数 / 体积 / 路径 / 耗时」：
+// 绝不记录 DOM 文本、store 值正文、截图二进制 —— 需要正文时一律只记 bytes / count。
+
+// uiWatcherFailLog 观察器轮询失败日志的限流器（每 3 秒至多一条），避免前端不可达时刷屏。
+var uiWatcherFailLog = logx.NewSampler(0, 3*time.Second)
+
+// uiRevisionPollLog 观察器 / 前端代次轮询的限流器（每 10 秒至多一条）：
+// ui.revision 由观察器每 1.5s 调一次，属「状态轮询」高频路径，不能每次都记。
+var uiRevisionPollLog = logx.NewSampler(0, 10*time.Second)
+
 // ---- 返回结构 ----
 
 // UIImage 一张要作为 MCP image 内容返回的图片（HTTP 下以 base64 出现在 JSON 里）。
@@ -189,6 +201,10 @@ type uiFrontend interface {
 type handlerFrontend struct{ h Handler }
 
 func (f handlerFrontend) CallUI(ctx context.Context, op string, args map[string]any) (any, error) {
+	if op == OpUIRevision {
+		// 观察器每 1.5s 轮询一次：用采样器限流，避免 debug 级别下刷屏。
+		logx.DebugSampled(uiRevisionPollLog, "[debugsrv/ui] 轮询页面代次: op=%s", op)
+	}
 	var raw json.RawMessage
 	if len(args) > 0 {
 		b, err := json.Marshal(args)
@@ -215,6 +231,7 @@ func (s *Server) uiFrontend() uiFrontend {
 // uiFetch 向前端取一次数据，并统一要求返回对象（前端返回的非对象一律视为协议错误）。
 func uiFetch(ctx context.Context, fe uiFrontend, op string, args map[string]any) (map[string]any, error) {
 	if fe == nil {
+		logx.Warnf("[debugsrv/ui] 前端桥不可用（应用可能仍在启动）: op=%s", op)
 		return nil, errors.New("调试服务未就绪：前端桥不可用（应用可能仍在启动）")
 	}
 	v, err := fe.CallUI(ctx, op, args)
@@ -524,24 +541,33 @@ func (s *Server) uiHandle(ctx context.Context, fe uiFrontend, op string, args ma
 		OpUIClick, OpUIType, OpUIKey, OpUIHover, OpUIScroll:
 		return s.uiWrite(ctx, fe, op, args)
 	}
+	logx.Errorf("[debugsrv/ui] 未知 UI 操作: op=%s", op)
 	return nil, fmt.Errorf("%w: 未知的 UI 操作 %q", ErrBadInput, op)
 }
 
 // uiPassthroughTool 一次性透传（读类）：前端返回对象 → 裁剪 → 体积兜底。
 func uiPassthroughTool(ctx context.Context, fe uiFrontend, op string, args map[string]any, clip func(map[string]any) map[string]any) (*UIResult, error) {
+	start := time.Now()
+	logx.Debugf("[debugsrv/ui] 透传读取开始: op=%s args=%d", op, len(args))
 	m, err := uiFetch(ctx, fe, op, args)
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 透传读取失败: op=%s err=%v", op, err)
 		return nil, err
 	}
 	if clip != nil {
 		m = clip(m)
 	}
-	return uiResult(uiLimitData(m, uiMaxDataBytes, op)), nil
+	res := uiResult(uiLimitData(m, uiMaxDataBytes, op))
+	logx.Infof("[debugsrv/ui] 透传读取完成: op=%s keys=%d elapsed=%s", op, len(res.Data), time.Since(start))
+	return res, nil
 }
 
 func (s *Server) uiLayout(ctx context.Context, fe uiFrontend) (*UIResult, error) {
+	start := time.Now()
+	logx.Debugf("[debugsrv/ui] 布局读取开始")
 	m, err := uiFetch(ctx, fe, OpUILayout, nil)
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 布局读取失败: err=%v", err)
 		return nil, err
 	}
 	entries := uiCapItems(uiMapSlice(m["entries"]), 40)
@@ -556,19 +582,26 @@ func (s *Server) uiLayout(ctx context.Context, fe uiFrontend) (*UIResult, error)
 		"note": "overlaps 只列出「都可见、且 DOM 上互不为祖先」的重叠对（遮挡类 bug 的候选）；" +
 			"expected=true 表示该重叠属预期（命令面板 / 右键菜单 / 快速连接这类浮层本来就会盖住底下的元素）。",
 	}
-	return uiResult(uiLimitData(data, uiMaxDataBytes, OpUILayout)), nil
+	res := uiResult(uiLimitData(data, uiMaxDataBytes, OpUILayout))
+	logx.Infof("[debugsrv/ui] 布局读取完成: entries=%d overlaps=%d elapsed=%s",
+		len(entries), len(overlaps), time.Since(start))
+	return res, nil
 }
 
 func (s *Server) uiQuery(ctx context.Context, fe uiFrontend, args map[string]any) (*UIResult, error) {
+	start := time.Now()
 	selector := uiArgString(args, "selector")
 	if selector == "" {
 		return nil, fmt.Errorf("%w: 缺少 selector（例如 .xterm / aside.nav）", ErrBadInput)
 	}
 	limit := uiClampInt(args["limit"], uiQueryDefLimit, 1, uiQueryMaxLimit)
+	props := uiStringList(args["props"])
+	logx.Debugf("[debugsrv/ui] 元素查询开始: selector=%q limit=%d props=%d", selector, limit, len(props))
 	m, err := uiFetch(ctx, fe, OpUIQuery, map[string]any{
 		"selector": selector, "limit": limit, "props": args["props"],
 	})
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 元素查询失败: selector=%q err=%v", selector, err)
 		return nil, err
 	}
 	all := uiMapSlice(m["matches"])
@@ -586,8 +619,12 @@ func (s *Server) uiQuery(ctx context.Context, fe uiFrontend, args map[string]any
 	if total > len(matches) {
 		data["truncated"] = true
 		data["truncatedNote"] = fmt.Sprintf("共命中 %d 个元素，只返回前 %d 个（用 limit 提高，最多 %d）", total, len(matches), uiQueryMaxLimit)
+		logx.Warnf("[debugsrv/ui] 元素查询结果被截断: selector=%q total=%d returned=%d", selector, total, len(matches))
 	}
-	return uiResult(uiLimitData(data, uiMaxDataBytes, OpUIQuery)), nil
+	res := uiResult(uiLimitData(data, uiMaxDataBytes, OpUIQuery))
+	logx.Infof("[debugsrv/ui] 元素查询完成: selector=%q count=%d total=%d elapsed=%s",
+		selector, len(matches), total, time.Since(start))
+	return res, nil
 }
 
 // uiDefaultStyleProps 默认返回的计算样式（覆盖「遮挡 / 布局 / 视觉」三类排查最常用的属性）。
@@ -600,6 +637,7 @@ var uiDefaultStyleProps = []string{
 }
 
 func (s *Server) uiStyles(ctx context.Context, fe uiFrontend, args map[string]any) (*UIResult, error) {
+	start := time.Now()
 	selector := uiArgString(args, "selector")
 	if selector == "" {
 		return nil, fmt.Errorf("%w: 缺少 selector（例如 .xterm / .topbar）", ErrBadInput)
@@ -609,10 +647,12 @@ func (s *Server) uiStyles(ctx context.Context, fe uiFrontend, args map[string]an
 	if len(props) == 0 {
 		props = uiDefaultStyleProps
 	}
+	logx.Debugf("[debugsrv/ui] 样式读取开始: selector=%q limit=%d props=%d", selector, limit, len(props))
 	m, err := uiFetch(ctx, fe, OpUIStyles, map[string]any{
 		"selector": selector, "limit": limit, "props": props,
 	})
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 样式读取失败: selector=%q err=%v", selector, err)
 		return nil, err
 	}
 	items := uiCapItems(uiMapSlice(m["items"]), limit)
@@ -626,13 +666,19 @@ func (s *Server) uiStyles(ctx context.Context, fe uiFrontend, args map[string]an
 	if note := uiArgString(m, "note"); note != "" {
 		data["note"] = note
 	}
-	return uiResult(uiLimitData(data, uiMaxDataBytes, OpUIStyles)), nil
+	res := uiResult(uiLimitData(data, uiMaxDataBytes, OpUIStyles))
+	logx.Infof("[debugsrv/ui] 样式读取完成: selector=%q count=%d total=%d elapsed=%s",
+		selector, len(items), data["total"], time.Since(start))
+	return res, nil
 }
 
 func (s *Server) uiTokens(ctx context.Context, fe uiFrontend, args map[string]any) (*UIResult, error) {
+	start := time.Now()
 	filter := uiArgString(args, "filter")
+	logx.Debugf("[debugsrv/ui] 令牌读取开始: filter=%q", filter)
 	m, err := uiFetch(ctx, fe, OpUITokens, map[string]any{"filter": filter})
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 令牌读取失败: filter=%q err=%v", filter, err)
 		return nil, err
 	}
 	data := map[string]any{
@@ -650,11 +696,16 @@ func (s *Server) uiTokens(ctx context.Context, fe uiFrontend, args map[string]an
 	if n := int(uiNum(m["count"])); n > uiTokenMaxCount {
 		data["truncated"] = true
 		data["truncatedNote"] = fmt.Sprintf("共 %d 个令牌，只返回前 %d 个（用 filter 过滤）", n, uiTokenMaxCount)
+		logx.Warnf("[debugsrv/ui] 令牌数量超过上限，已截断: filter=%q count=%d max=%d", filter, n, uiTokenMaxCount)
 	}
-	return uiResult(uiLimitData(data, uiMaxDataBytes, OpUITokens)), nil
+	res := uiResult(uiLimitData(data, uiMaxDataBytes, OpUITokens))
+	logx.Infof("[debugsrv/ui] 令牌读取完成: filter=%q count=%v elapsed=%s",
+		filter, data["count"], time.Since(start))
+	return res, nil
 }
 
 func (s *Server) uiHit(ctx context.Context, fe uiFrontend, args map[string]any) (*UIResult, error) {
+	start := time.Now()
 	if _, okX := args["x"]; !okX {
 		return nil, fmt.Errorf("%w: 缺少 x / y（视口 CSS 坐标）", ErrBadInput)
 	}
@@ -662,8 +713,10 @@ func (s *Server) uiHit(ctx context.Context, fe uiFrontend, args map[string]any) 
 		return nil, fmt.Errorf("%w: 缺少 y（视口 CSS 坐标）", ErrBadInput)
 	}
 	x, y := int(uiNum(args["x"])), int(uiNum(args["y"]))
+	logx.Debugf("[debugsrv/ui] 命中测试开始: x=%d y=%d", x, y)
 	m, err := uiFetch(ctx, fe, OpUIHit, map[string]any{"x": x, "y": y})
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 命中测试失败: x=%d y=%d err=%v", x, y, err)
 		return nil, err
 	}
 	chain := uiCapItems(uiMapSlice(m["chain"]), 30)
@@ -673,15 +726,20 @@ func (s *Server) uiHit(ctx context.Context, fe uiFrontend, args map[string]any) 
 		"count": len(chain),
 		"note":  "chain[0] 是真正接收鼠标事件的元素；被遮挡时它会是遮挡者，而不是你期望的那个元素。",
 	}
-	return uiResult(uiLimitData(data, uiMaxDataBytes, OpUIHit)), nil
+	res := uiResult(uiLimitData(data, uiMaxDataBytes, OpUIHit))
+	logx.Infof("[debugsrv/ui] 命中测试完成: x=%d y=%d chain=%d elapsed=%s", x, y, len(chain), time.Since(start))
+	return res, nil
 }
 
 func (s *Server) uiTree(ctx context.Context, fe uiFrontend, args map[string]any) (*UIResult, error) {
+	start := time.Now()
 	depth := uiClampInt(args["depth"], uiTreeDefDepth, 1, uiTreeMaxDepth)
 	limit := uiClampInt(args["limit"], uiTreeDefLimit, 1, uiTreeMaxLimit)
 	filter := uiArgString(args, "filter")
+	logx.Debugf("[debugsrv/ui] 组件树读取开始: depth=%d limit=%d filter=%q", depth, limit, filter)
 	m, err := uiFetch(ctx, fe, OpUITree, map[string]any{"depth": depth, "limit": limit, "filter": filter})
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 组件树读取失败: depth=%d limit=%d err=%v", depth, limit, err)
 		return nil, err
 	}
 	allNodes := uiMapSlice(m["nodes"])
@@ -698,8 +756,12 @@ func (s *Server) uiTree(ctx context.Context, fe uiFrontend, args map[string]any)
 	if uiBool(m, "truncated") || len(allNodes) > len(nodes) {
 		data["truncated"] = true
 		data["truncatedNote"] = fmt.Sprintf("组件树超过 depth=%d / limit=%d 的限制，已截断（提高 depth/limit 可看更多）", depth, limit)
+		logx.Warnf("[debugsrv/ui] 组件树超过上限，已截断: depth=%d limit=%d nodes=%d", depth, limit, len(nodes))
 	}
-	return uiResult(uiLimitData(data, uiMaxDataBytes, OpUITree)), nil
+	res := uiResult(uiLimitData(data, uiMaxDataBytes, OpUITree))
+	logx.Infof("[debugsrv/ui] 组件树读取完成: depth=%d count=%d total=%v elapsed=%s",
+		depth, len(nodes), data["total"], time.Since(start))
+	return res, nil
 }
 
 // uiCapItems 在 Go 侧再兜一层数量上限。
@@ -748,11 +810,14 @@ func uiConsoleFilter(entries []map[string]any, level string, since int64, limit 
 }
 
 func (s *Server) uiConsole(ctx context.Context, fe uiFrontend, args map[string]any) (*UIResult, error) {
+	start := time.Now()
 	limit := uiClampInt(args["limit"], uiConsoleDefLimit, 1, uiConsoleMaxLimit)
 	level := uiArgString(args, "level")
 	since := int64(uiNum(args["since"]))
+	logx.Debugf("[debugsrv/ui] 控制台读取开始: limit=%d level=%q since=%d", limit, level, since)
 	m, err := uiFetch(ctx, fe, OpUIConsole, nil)
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 控制台读取失败: err=%v", err)
 		return nil, err
 	}
 	all := uiMapSlice(m["entries"])
@@ -773,37 +838,54 @@ func (s *Server) uiConsole(ctx context.Context, fe uiFrontend, args map[string]a
 		data["truncated"] = true
 		data["truncatedNote"] = fmt.Sprintf("缓冲共 %d 条，按 limit/level/since 过滤后返回 %d 条", len(all), len(kept))
 	}
-	return uiResult(uiLimitData(data, uiMaxDataBytes, OpUIConsole)), nil
+	res := uiResult(uiLimitData(data, uiMaxDataBytes, OpUIConsole))
+	logx.Infof("[debugsrv/ui] 控制台读取完成: buffered=%d returned=%d level=%q elapsed=%s",
+		len(all), len(kept), level, time.Since(start))
+	return res, nil
 }
 
 func (s *Server) uiStore(ctx context.Context, fe uiFrontend, args map[string]any) (*UIResult, error) {
+	start := time.Now()
 	name := uiArgString(args, "name")
 	path := uiArgString(args, "path")
+	logx.Debugf("[debugsrv/ui] store 读取开始: store=%s path=%q maxBytes=%d", name, path, uiStoreMaxBytes)
 	// Only the UI navigation store is safe to inspect without secret access.
 	// Gate before resolving paths: direct password paths must not bypass this.
 	if name != "" && name != "ui" {
 		if err := s.allowCap(CapSecretsRead, "ui.store: "+name); err != nil {
+			logx.Warnf("[debugsrv/ui] store 读取被权限拒绝: store=%s err=%v", name, err)
 			return nil, err
 		}
 	}
 	m, err := uiFetch(ctx, fe, OpUIStore, map[string]any{"name": name, "path": path, "maxBytes": uiStoreMaxBytes})
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] store 读取失败: store=%s path=%q err=%v", name, path, err)
 		return nil, err
 	}
 	m = uiClipValue(m, 4096, 500, 40, 0).(map[string]any)
 	if note := uiArgString(m, "note"); note != "" {
 		m["note"] = note
 	}
-	return uiResult(uiLimitData(m, uiMaxDataBytes, OpUIStore)), nil
+	res := uiResult(uiLimitData(m, uiMaxDataBytes, OpUIStore))
+	logx.Infof("[debugsrv/ui] store 读取完成: store=%s path=%q keys=%d elapsed=%s",
+		name, path, len(res.Data), time.Since(start))
+	return res, nil
 }
 
 // uiWrite 处理全部写类工具：交给前端执行，然后裁剪结果并统一给出「不落库」的提示。
 func (s *Server) uiWrite(ctx context.Context, fe uiFrontend, op string, args map[string]any) (*UIResult, error) {
+	start := time.Now()
+	if summary := uiWriteArgsSummary(op, args); summary != "" {
+		logx.Debugf("[debugsrv/ui] UI 写操作开始: op=%s %s", op, summary)
+	} else {
+		logx.Debugf("[debugsrv/ui] UI 写操作开始: op=%s", op)
+	}
 	if err := uiValidateWriteArgs(op, args); err != nil {
 		return nil, err
 	}
 	m, err := uiFetch(ctx, fe, op, args)
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] UI 写操作失败: op=%s err=%v", op, err)
 		return nil, err
 	}
 	if op == OpUIStorePatch {
@@ -813,7 +895,48 @@ func (s *Server) uiWrite(ctx context.Context, fe uiFrontend, op string, args map
 		m["note"] = "最小化后截图会失败（captureWindowPNG 会返回中文错误）；做视觉验证前请先 restore。"
 	}
 	m = uiClipValue(m, uiMaxStringRunes*2, 100, 40, 0).(map[string]any)
-	return uiResult(uiLimitData(m, uiMaxDataBytes, op)), nil
+	res := uiResult(uiLimitData(m, uiMaxDataBytes, op))
+	logx.Infof("[debugsrv/ui] UI 写操作完成: op=%s keys=%d elapsed=%s", op, len(res.Data), time.Since(start))
+	return res, nil
+}
+
+// uiWriteArgsSummary 写类工具的参数摘要：只含选择器 / 计数 / 尺寸 / 标志。
+//
+// 刻意不记录任何正文：ui.type 的文本、ui.storePatch 的 patch 值、ui.setToken 的令牌值
+// 都可能含用户名 / 凭据，只记长度与个数。
+func uiWriteArgsSummary(op string, args map[string]any) string {
+	switch op {
+	case OpUINavigate:
+		return fmt.Sprintf("view=%s section=%s", uiArgString(args, "view"), uiArgString(args, "section"))
+	case OpUIWindow:
+		return fmt.Sprintf("width=%v height=%v x=%v y=%v minimize=%v maximize=%v restore=%v",
+			args["width"], args["height"], args["x"], args["y"],
+			appctlBool(args, "minimize"), appctlBool(args, "maximize"), appctlBool(args, "restore"))
+	case OpUIClick:
+		return fmt.Sprintf("selector=%q x=%v y=%v button=%v clickCount=%v",
+			uiArgString(args, "selector"), args["x"], args["y"], args["button"], args["clickCount"])
+	case OpUIType:
+		return fmt.Sprintf("selector=%q textBytes=%d clear=%v submit=%v",
+			uiArgString(args, "selector"), len(uiArgString(args, "text")),
+			appctlBool(args, "clear"), appctlBool(args, "submit"))
+	case OpUIKey:
+		return fmt.Sprintf("key=%q ctrl=%v shift=%v alt=%v meta=%v selector=%q",
+			uiArgString(args, "key"), appctlBool(args, "ctrl"), appctlBool(args, "shift"),
+			appctlBool(args, "alt"), appctlBool(args, "meta"), uiArgString(args, "selector"))
+	case OpUIHover:
+		return fmt.Sprintf("selector=%q x=%v y=%v", uiArgString(args, "selector"), args["x"], args["y"])
+	case OpUIScroll:
+		return fmt.Sprintf("selector=%q dx=%v dy=%v x=%v y=%v",
+			uiArgString(args, "selector"), args["dx"], args["dy"], args["x"], args["y"])
+	case OpUISetToken:
+		return fmt.Sprintf("tokens=%d reset=%d", len(uiMap(args["tokens"])), len(uiStringList(args["reset"])))
+	case OpUIInjectCSS:
+		return fmt.Sprintf("cssBytes=%d id=%q", len(uiArgString(args, "css")), uiArgString(args, "id"))
+	case OpUIStorePatch:
+		return fmt.Sprintf("store=%s keys=%d deep=%v",
+			uiArgString(args, "name"), len(uiMap(args["patch"])), appctlBool(args, "deep"))
+	}
+	return ""
 }
 
 // uiValidateWriteArgs 写类工具的入参前置校验：把「参数写错」在做任何事之前拦下来。
@@ -1270,6 +1393,8 @@ func uiLimitData(m map[string]any, maxBytes int, tool string) map[string]any {
 	if err == nil {
 		size = len(raw)
 	}
+	logx.Warnf("[debugsrv/ui] 结果超过体积上限，已裁剪: tool=%s bytes=%d maxBytes=%d err=%v",
+		tool, size, maxBytes, err)
 	out["truncated"] = true
 	out["tool"] = tool
 	out["truncatedNote"] = fmt.Sprintf("结果超过 %d 字节上限（实际 %d 字节），已丢弃非标量字段、截断超长文本"+
@@ -1277,6 +1402,7 @@ func uiLimitData(m map[string]any, maxBytes int, tool string) map[string]any {
 		maxBytes, size, len(out), uiDroppedNote(dropped))
 	// 最后一道保险：极端情况下（例如大量超长字段名）仍超限时只回一条说明。
 	if b, err := json.Marshal(out); err == nil && len(b) > 2*maxBytes {
+		logx.Warnf("[debugsrv/ui] 结果仍然过大，已全部丢弃: tool=%s bytes=%d maxBytes=%d", tool, len(b), maxBytes)
 		return map[string]any{
 			"truncated":     true,
 			"tool":          tool,
@@ -1347,12 +1473,15 @@ func uiSnapshotDir() string {
 func validateUISnapshotName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
+		logx.Warnf("[debugsrv/ui] 快照名被拒绝: 缺少 name")
 		return "", fmt.Errorf("%w: 缺少快照名 name（只允许字母数字与 . _ -，最长 64）", ErrBadInput)
 	}
 	if !uiSnapshotNameRe.MatchString(name) {
+		logx.Warnf("[debugsrv/ui] 快照名被拒绝: name=%q 不符合字符白名单", name)
 		return "", fmt.Errorf("%w: 快照名 %q 非法：只允许字母数字开头、字母数字与 . _ - 组成、最长 64 个字符（不允许路径分隔符）", ErrBadInput, name)
 	}
 	if filepath.Base(name) != name || strings.ContainsAny(name, `/\:`) {
+		logx.Warnf("[debugsrv/ui] 快照名被拒绝: name=%q 含路径成分（防目录穿越）", name)
 		return "", fmt.Errorf("%w: 快照名 %q 不能包含路径成分（防目录穿越）", ErrBadInput, name)
 	}
 	return name, nil
@@ -1660,7 +1789,10 @@ func uiScaleFromArgs(args map[string]any) float64 {
 
 // uiShot 实现 ui.screenshot / ui.elementShot。
 func (s *Server) uiShot(ctx context.Context, fe uiFrontend, op string, args map[string]any) (*UIResult, error) {
+	start := time.Now()
 	selector := uiArgString(args, "selector")
+	logx.Debugf("[debugsrv/ui] 截图开始: op=%s selector=%q scale=%v clip=%v",
+		op, selector, args["scale"], args["clip"] != nil)
 	if op == OpUIElementShot && selector == "" {
 		return nil, fmt.Errorf("%w: ui.elementShot 必须给 selector（要截图的元素）", ErrBadInput)
 	}
@@ -1668,30 +1800,38 @@ func (s *Server) uiShot(ctx context.Context, fe uiFrontend, op string, args map[
 		"selector": selector, "clip": args["clip"],
 	})
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 截图读取元素几何失败: op=%s selector=%q err=%v", op, selector, err)
 		return nil, err
 	}
 	if selector != "" && !uiBool(geo, "found") {
+		logx.Warnf("[debugsrv/ui] 截图目标未找到: op=%s selector=%q", op, selector)
 		return nil, fmt.Errorf("%w: 未找到选择器 %q（元素不在 DOM 中）", ErrNotFound, selector)
 	}
 	if selector != "" && !uiBool(geo, "visible") {
+		logx.Warnf("[debugsrv/ui] 截图目标不可见: op=%s selector=%q", op, selector)
 		return nil, fmt.Errorf("%w: 元素 %q 不可见（display:none / 尺寸为 0 / 被隐藏），无法截图", ErrBadInput, selector)
 	}
 	rect, source, err := uiShotTarget(geo, args)
 	if err != nil {
+		logx.Warnf("[debugsrv/ui] 截图区域无法确定: op=%s selector=%q err=%v", op, selector, err)
 		return nil, err
 	}
 	rawPNG, err := captureWindowPNG()
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 窗口截图失败: op=%s err=%v", op, err)
 		return nil, fmt.Errorf("窗口截图失败：%w（提示：窗口最小化或被完全遮挡时无法截图，请先 ui.window{restore:true}）", err)
 	}
 	img, err := uiDecodePNG(rawPNG)
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 截图 PNG 解码失败: op=%s bytes=%d err=%v", op, len(rawPNG), err)
 		return nil, err
 	}
 	bounds := img.Bounds()
 	calc := uiComputeScale(bounds.Dx(), bounds.Dy(), geo)
 	crop := calc.imageRect(rect)
 	if crop.Empty() {
+		logx.Warnf("[debugsrv/ui] 截图裁剪区域为空: op=%s rect=%+v image=%dx%d",
+			op, rect, bounds.Dx(), bounds.Dy())
 		return nil, fmt.Errorf("%w: 裁剪区域为空（目标 rect=%+v 超出窗口截图范围 %dx%d）", ErrBadInput, rect, bounds.Dx(), bounds.Dy())
 	}
 	out := uiCropImage(img, crop)
@@ -1701,6 +1841,7 @@ func (s *Server) uiShot(ctx context.Context, fe uiFrontend, op string, args map[
 	}
 	pngBytes, err := uiEncodePNG(out)
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 截图 PNG 编码失败: op=%s err=%v", op, err)
 		return nil, err
 	}
 	data := map[string]any{
@@ -1727,8 +1868,12 @@ func (s *Server) uiShot(ctx context.Context, fe uiFrontend, op string, args map[
 	}
 	if calc.Drift {
 		data["scalingWarning"] = "自动标定比例与 devicePixelRatio 不一致（可能因 DPI 缩放 / 窗口边框），裁剪可能有 1~2px 偏移"
+		logx.Warnf("[debugsrv/ui] 截图坐标换算存在漂移: op=%s autoScale=%.4fx%.4f dpr=%.2f",
+			op, calc.ScaleX, calc.ScaleY, calc.DPR)
 	}
 	res := uiResult(uiLimitData(data, uiMaxDataBytes, op))
+	logx.Infof("[debugsrv/ui] 截图完成: op=%s source=%s image=%dx%d bytes=%d elapsed=%s",
+		op, source, out.Bounds().Dx(), out.Bounds().Dy(), len(pngBytes), time.Since(start))
 	return res.addImage("窗口截图裁剪（"+source+"）", pngBytes), nil
 }
 
@@ -1736,11 +1881,14 @@ func (s *Server) uiShot(ctx context.Context, fe uiFrontend, op string, args map[
 
 // uiSnapshot 记录一次快照：窗口 PNG（可裁剪）+ 指纹 + 元信息，落盘到 ui-snapshots/。
 func (s *Server) uiSnapshot(ctx context.Context, fe uiFrontend, args map[string]any) (*UIResult, error) {
-	name, err := validateUISnapshotName(uiArgString(args, "name"))
+	start := time.Now()
+	rawName := uiArgString(args, "name")
+	selector := uiArgString(args, "selector")
+	logx.Debugf("[debugsrv/ui] 快照开始: name=%q selector=%q clip=%v", rawName, selector, args["clip"] != nil)
+	name, err := validateUISnapshotName(rawName)
 	if err != nil {
 		return nil, err
 	}
-	selector := uiArgString(args, "selector")
 	pngPath, metaPath, err := uiSnapshotPaths(name)
 	if err != nil {
 		return nil, err
@@ -1749,6 +1897,7 @@ func (s *Server) uiSnapshot(ctx context.Context, fe uiFrontend, args map[string]
 	// 指纹（页面内事实）
 	fp, err := uiFetch(ctx, fe, uiOpFingerprint, map[string]any{"selector": selector})
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 快照读取指纹失败: name=%q err=%v", name, err)
 		return nil, err
 	}
 	fingerprint := uiMapSlice(fp["fingerprint"])
@@ -1756,16 +1905,20 @@ func (s *Server) uiSnapshot(ctx context.Context, fe uiFrontend, args map[string]
 	// 几何（窗口外框 / 内容区 / 视口）：换算与裁剪都必须有它，否则会带上标题栏。
 	geo, err := uiFetch(ctx, fe, uiOpGeometry, map[string]any{"selector": selector, "clip": args["clip"]})
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 快照读取几何失败: name=%q err=%v", name, err)
 		return nil, err
 	}
 	if selector != "" && !uiBool(geo, "found") {
+		logx.Warnf("[debugsrv/ui] 快照目标未找到: name=%q selector=%q", name, selector)
 		return nil, fmt.Errorf("%w: 未找到选择器 %q（元素不在 DOM 中）", ErrNotFound, selector)
 	}
 	if selector != "" && !uiBool(geo, "visible") {
+		logx.Warnf("[debugsrv/ui] 快照目标不可见: name=%q selector=%q", name, selector)
 		return nil, fmt.Errorf("%w: 元素 %q 不可见（display:none / 尺寸为 0），无法截图", ErrBadInput, selector)
 	}
 	rect, source, err := uiShotTarget(geo, args)
 	if err != nil {
+		logx.Warnf("[debugsrv/ui] 快照区域无法确定: name=%q err=%v", name, err)
 		return nil, err
 	}
 	clipRect := &rect
@@ -1776,24 +1929,30 @@ func (s *Server) uiSnapshot(ctx context.Context, fe uiFrontend, args map[string]
 
 	rawPNG, err := captureWindowPNG()
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 快照窗口截图失败: name=%q err=%v", name, err)
 		return nil, fmt.Errorf("窗口截图失败：%w（提示：窗口最小化时无法截图，请先 ui.window{restore:true}）", err)
 	}
 	img, err := uiDecodePNG(rawPNG)
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 快照 PNG 解码失败: name=%q bytes=%d err=%v", name, len(rawPNG), err)
 		return nil, err
 	}
 	bounds := img.Bounds()
 	calc := uiComputeScale(bounds.Dx(), bounds.Dy(), geo)
 	crop := calc.imageRect(*clipRect)
 	if crop.Empty() {
+		logx.Warnf("[debugsrv/ui] 快照裁剪区域为空: name=%q rect=%+v image=%dx%d",
+			name, *clipRect, bounds.Dx(), bounds.Dy())
 		return nil, fmt.Errorf("%w: 裁剪区域为空（目标 rect=%+v 超出窗口截图范围 %dx%d）", ErrBadInput, *clipRect, bounds.Dx(), bounds.Dy())
 	}
 	out := uiCropImage(img, crop)
 	pngBytes, err := uiEncodePNG(out)
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 快照 PNG 编码失败: name=%q err=%v", name, err)
 		return nil, err
 	}
 	if err := uiWriteFile(pngPath, pngBytes); err != nil {
+		logx.Errorf("[debugsrv/ui] 快照 PNG 落盘失败: name=%q path=%q err=%v", name, pngPath, err)
 		return nil, err
 	}
 	meta := uiSnapshotMeta{
@@ -1807,10 +1966,15 @@ func (s *Server) uiSnapshot(ctx context.Context, fe uiFrontend, args map[string]
 	}
 	metaBytes, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 快照元信息序列化失败: name=%q err=%v", name, err)
 		return nil, err
 	}
 	if err := uiWriteFile(metaPath, metaBytes); err != nil {
+		logx.Errorf("[debugsrv/ui] 快照元信息落盘失败: name=%q path=%q err=%v", name, metaPath, err)
 		return nil, err
+	}
+	if meta.Truncated {
+		logx.Warnf("[debugsrv/ui] 快照指纹超过上限，已截断: name=%q fingerprint=%d", name, len(fingerprint))
 	}
 	data := map[string]any{
 		"name":                 name,
@@ -1831,7 +1995,10 @@ func (s *Server) uiSnapshot(ctx context.Context, fe uiFrontend, args map[string]
 		"note": "快照已存档：PNG 供人工/像素比对，JSON 里的指纹供 ui.diff 做结构化差异；" +
 			"跨刷新 / HMR 的指纹不可比（ui.diff 会按 revision 提示）。",
 	}
-	return uiResult(uiLimitData(data, uiMaxDataBytes, OpUISnapshot)), nil
+	res := uiResult(uiLimitData(data, uiMaxDataBytes, OpUISnapshot))
+	logx.Infof("[debugsrv/ui] 快照完成: name=%q source=%s fingerprint=%d image=%dx%d bytes=%d dir=%q elapsed=%s",
+		name, source, len(fingerprint), out.Bounds().Dx(), out.Bounds().Dy(), len(pngBytes), uiSnapshotDir(), time.Since(start))
+	return res, nil
 }
 
 // uiDiffRegion 像素差异区域（截图坐标系）。
@@ -1845,32 +2012,40 @@ type uiDiffRegion struct {
 
 // uiDiff 对比两次快照：像素差异 + 指纹差异 + revision 提示，并输出 diff 图。
 func (s *Server) uiDiff(args map[string]any) (*UIResult, error) {
+	start := time.Now()
 	nameA := uiArgString(args, "a")
 	nameB := uiArgString(args, "b")
 	if nameA == "" || nameB == "" {
 		return nil, fmt.Errorf("%w: 需要 a 与 b（两次 ui.snapshot 的名字）", ErrBadInput)
 	}
+	threshold := uiClampInt(args["threshold"], uiDiffDefThresh, 0, 255)
+	logx.Debugf("[debugsrv/ui] 快照对比开始: a=%q b=%q threshold=%d", nameA, nameB, threshold)
 	metaA, err := uiLoadSnapshot(nameA)
 	if err != nil {
+		logx.Warnf("[debugsrv/ui] 快照对比读取元信息失败: a=%q err=%v", nameA, err)
 		return nil, err
 	}
 	metaB, err := uiLoadSnapshot(nameB)
 	if err != nil {
+		logx.Warnf("[debugsrv/ui] 快照对比读取元信息失败: b=%q err=%v", nameB, err)
 		return nil, err
 	}
 	imgA, pathA, err := uiLoadSnapshotPNG(nameA)
 	if err != nil {
+		logx.Warnf("[debugsrv/ui] 快照对比读取 PNG 失败: a=%q err=%v", nameA, err)
 		return nil, err
 	}
 	imgB, pathB, err := uiLoadSnapshotPNG(nameB)
 	if err != nil {
+		logx.Warnf("[debugsrv/ui] 快照对比读取 PNG 失败: b=%q err=%v", nameB, err)
 		return nil, err
 	}
-	threshold := uiClampInt(args["threshold"], uiDiffDefThresh, 0, 255)
 
 	boundsA, boundsB := imgA.Bounds(), imgB.Bounds()
 	common := image.Rect(0, 0, minInt(boundsA.Dx(), boundsB.Dx()), minInt(boundsA.Dy(), boundsB.Dy()))
 	if common.Empty() {
+		logx.Warnf("[debugsrv/ui] 快照对比无公共区域: a=%dx%d b=%dx%d",
+			boundsA.Dx(), boundsA.Dy(), boundsB.Dx(), boundsB.Dy())
 		return nil, fmt.Errorf("%w: 两张快照没有公共区域（%dx%d vs %dx%d），无法做像素差异",
 			ErrBadInput, boundsA.Dx(), boundsA.Dy(), boundsB.Dx(), boundsB.Dy())
 	}
@@ -1894,10 +2069,12 @@ func (s *Server) uiDiff(args map[string]any) (*UIResult, error) {
 	diffImg := uiOverlayChanged(cropA, pd.grid, pd.tilesX, pd.tilesY, uiDiffTile, 110)
 	diffBytes, err := uiEncodePNG(diffImg)
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 快照对比 diff 图编码失败: a=%q b=%q err=%v", nameA, nameB, err)
 		return nil, err
 	}
 	diffPath := filepath.Join(uiSnapshotDir(), fmt.Sprintf("%s--%s.diff.png", nameA, nameB))
 	if err := uiWriteFile(diffPath, diffBytes); err != nil {
+		logx.Errorf("[debugsrv/ui] 快照对比 diff 图落盘失败: path=%q err=%v", diffPath, err)
 		return nil, err
 	}
 
@@ -1927,13 +2104,20 @@ func (s *Server) uiDiff(args map[string]any) (*UIResult, error) {
 	if boundsA.Dx() != boundsB.Dx() || boundsA.Dy() != boundsB.Dy() {
 		data["sizeMismatch"] = fmt.Sprintf("两张快照尺寸不同（A %dx%d，B %dx%d），已按最小公共区域 %dx%d 裁剪后比较",
 			boundsA.Dx(), boundsA.Dy(), boundsB.Dx(), boundsB.Dy(), common.Dx(), common.Dy())
+		logx.Warnf("[debugsrv/ui] 快照尺寸不同，按公共区域比较: a=%dx%d b=%dx%d",
+			boundsA.Dx(), boundsA.Dy(), boundsB.Dx(), boundsB.Dy())
 	}
 	if reloaded {
 		data["reloadWarning"] = fmt.Sprintf("两次快照之间发生过页面重载 / HMR（revision %s → %s）：DOM 与指纹差异可能不可比，"+
 			"像素差异仍可参考（若窗口尺寸未变）。", revisionA, revisionB)
+		logx.Warnf("[debugsrv/ui] 快照跨页面重载，指纹差异不可比: revisionA=%s revisionB=%s", revisionA, revisionB)
 	}
 	data["note"] = "图片是 diff 图：原图（A）上把发生变化的 16×16 块叠了半透明红；regions 是合并相邻变化块后的包围盒（最多 20 个）。"
-	return uiResult(uiLimitData(data, uiMaxDataBytes, OpUIDiff)).addImage("diff（红色=变化区域）", diffBytes), nil
+	res := uiResult(uiLimitData(data, uiMaxDataBytes, OpUIDiff))
+	logx.Infof("[debugsrv/ui] 快照对比完成: a=%q b=%q changedRatio=%.4f changedPixels=%d regions=%d added=%v removed=%v changed=%v elapsed=%s",
+		nameA, nameB, pd.changedRatio, pd.changedPixels, len(regions),
+		fpDiff["addedCount"], fpDiff["removedCount"], fpDiff["changedCount"], time.Since(start))
+	return res.addImage("diff（红色=变化区域）", diffBytes), nil
 }
 
 // uiPixelDiffResult 像素差异结果（网格 + 统计）。
@@ -2252,6 +2436,7 @@ func sortAnyByString(items []any, key string) {
 
 // uiAssert 断言界面状态：Go 侧判定（前端只提供元素事实），这样判定逻辑可单元测试。
 func (s *Server) uiAssert(ctx context.Context, fe uiFrontend, args map[string]any) (*UIResult, error) {
+	start := time.Now()
 	selector := uiArgString(args, "selector")
 	if selector == "" {
 		return nil, fmt.Errorf("%w: 缺少 selector（要断言的元素）", ErrBadInput)
@@ -2261,8 +2446,10 @@ func (s *Server) uiAssert(ctx context.Context, fe uiFrontend, args map[string]an
 		props = append(props, name)
 	}
 	sort.Strings(props)
+	logx.Debugf("[debugsrv/ui] 界面断言开始: selector=%q styleProps=%d", selector, len(props))
 	facts, err := uiFetch(ctx, fe, uiOpElementFacts, map[string]any{"selector": selector, "props": props})
 	if err != nil {
+		logx.Errorf("[debugsrv/ui] 界面断言读取元素事实失败: selector=%q err=%v", selector, err)
 		return nil, err
 	}
 	passed, checks := uiAssertChecks(facts, args)
@@ -2283,7 +2470,10 @@ func (s *Server) uiAssert(ctx context.Context, fe uiFrontend, args map[string]an
 		"visible":     uiBool(facts, "found") && uiBool(facts, "visible"),
 		"text":        uiClipString(uiArgString(facts, "text"), uiMaxStringRunes),
 	}
-	return uiResult(uiLimitData(data, uiMaxDataBytes, OpUIAssert)), nil
+	res := uiResult(uiLimitData(data, uiMaxDataBytes, OpUIAssert))
+	logx.Infof("[debugsrv/ui] 界面断言完成: selector=%q passed=%v checks=%d failed=%d elapsed=%s",
+		selector, passed, len(checks), failed, time.Since(start))
+	return res, nil
 }
 
 // uiAssertChecks 逐条判定断言，返回总体是否通过 + 每条的中文结果（期望 vs 实际）。
@@ -2415,25 +2605,38 @@ func isUIResource(uri string) bool {
 
 // mcpReadUIResource 读取 ui:// 资源（JSON 文本或纯文本）。
 func (s *Server) mcpReadUIResource(ctx context.Context, uri string) (string, error) {
+	start := time.Now()
+	logx.Debugf("[debugsrv/ui] 读取 UI 资源开始: uri=%s", uri)
 	fe := s.uiFrontend()
 	switch uri {
 	case "ui://layout":
 		res, err := s.uiHandle(ctx, fe, OpUILayout, nil)
 		if err != nil {
+			logx.Errorf("[debugsrv/ui] 读取 UI 资源失败: uri=%s err=%v", uri, err)
 			return "", err
 		}
 		b, err := json.MarshalIndent(res.Data, "", "  ")
+		if err != nil {
+			logx.Errorf("[debugsrv/ui] 序列化 UI 资源失败: uri=%s err=%v", uri, err)
+			return "", err
+		}
 		return string(b), err
 	case "ui://view":
 		m, err := uiFetch(ctx, fe, uiOpView, nil)
 		if err != nil {
+			logx.Errorf("[debugsrv/ui] 读取 UI 资源失败: uri=%s err=%v", uri, err)
 			return "", err
 		}
 		b, err := json.MarshalIndent(uiLimitData(m, uiMaxDataBytes, OpUIRevision), "", "  ")
+		if err != nil {
+			logx.Errorf("[debugsrv/ui] 序列化 UI 资源失败: uri=%s err=%v", uri, err)
+			return "", err
+		}
 		return string(b), err
 	case "ui://console":
 		m, err := uiFetch(ctx, fe, OpUIConsole, nil)
 		if err != nil {
+			logx.Errorf("[debugsrv/ui] 读取 UI 资源失败: uri=%s err=%v", uri, err)
 			return "", err
 		}
 		entries := uiMapSlice(m["entries"])
@@ -2446,10 +2649,13 @@ func (s *Server) mcpReadUIResource(ctx context.Context, uri string) (string, err
 			sb.WriteString(fmt.Sprintf("[%s] %s\n", uiArgString(e, "level"), strings.Join(parts, " ")))
 		}
 		if sb.Len() == 0 {
+			logx.Infof("[debugsrv/ui] 读取 UI 资源完成: uri=%s bytes=0（缓冲为空） elapsed=%s", uri, time.Since(start))
 			return "（控制台缓冲为空）", nil
 		}
-		return uiClipString(sb.String(), 20000), nil
+		out := uiClipString(sb.String(), 20000)
+		return out, nil
 	}
+	logx.Errorf("[debugsrv/ui] 读取 UI 资源失败: 未知资源 uri=%s", uri)
 	return "", fmt.Errorf("未知资源: %s", uri)
 }
 
@@ -2513,6 +2719,7 @@ func startUIWatcher(s *Server) *uiStateWatcher {
 	w := &uiStateWatcher{srv: s, fe: s.uiFrontend(), stop: make(chan struct{})}
 	uiWatchers[s] = w
 	uiWatchersMu.Unlock()
+	logx.Infof("[debugsrv/ui] 启动 UI 观察器: interval=%s", uiWatchInterval)
 	go w.run()
 	return w
 }
@@ -2526,6 +2733,7 @@ func (w *uiStateWatcher) close() {
 
 func (w *uiStateWatcher) run() {
 	if w.srv.opts.Hub == nil || w.fe == nil {
+		logx.Warnf("[debugsrv/ui] UI 观察器未启动: 事件流或前端桥不可用")
 		w.close()
 		return
 	}
@@ -2540,7 +2748,9 @@ func (w *uiStateWatcher) run() {
 		res, err := w.fe.CallUI(context.Background(), OpUIRevision, nil)
 		if err != nil {
 			failures++
+			logx.DebugSampled(uiWatcherFailLog, "[debugsrv/ui] UI 观察器轮询失败: failures=%d err=%v", failures, err)
 			if failures >= 5 {
+				logx.Warnf("[debugsrv/ui] UI 观察器连续 5 次轮询失败，停止: lastErr=%v", err)
 				w.close()
 				return
 			}
@@ -2548,12 +2758,14 @@ func (w *uiStateWatcher) run() {
 			failures = 0
 			m := uiMap(res)
 			if m == nil {
+				logx.Warnf("[debugsrv/ui] UI 观察器退出: 前端返回的不是对象")
 				w.close()
 				return
 			}
 			rev := uiFingerprintKey(m["revision"])
 			if _, has := m["revision"]; !has {
 				// 旧前端没实现 ui.revision：静默退出，避免无意义轮询（测试替身也走这条路）。
+				logx.Debugf("[debugsrv/ui] UI 观察器退出: 前端未实现 ui.revision（旧前端或测试替身）")
 				w.close()
 				return
 			}
@@ -2581,10 +2793,12 @@ func (w *uiStateWatcher) run() {
 
 func (w *uiStateWatcher) publish(topic string, payload map[string]any) {
 	if w.srv.opts.Hub == nil {
+		logx.Warnf("[debugsrv/ui] UI 变化无法广播（事件流不可用）: topic=%s", topic)
 		return
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
+		logx.Warnf("[debugsrv/ui] UI 变化广播序列化失败: topic=%s err=%v", topic, err)
 		return
 	}
 	w.srv.opts.Hub.Publish(Event{Topic: topic, Name: "ui:" + strings.TrimPrefix(topic, "ui."), Data: data})
@@ -2633,6 +2847,7 @@ func registerUIRoutes(mux *http.ServeMux, s *Server) {
 	write("POST /v1/ui/hover", OpUIHover, s.uiHTTP(OpUIHover))
 	write("POST /v1/ui/scroll", OpUIScroll, s.uiHTTP(OpUIScroll))
 
+	logx.Infof("[debugsrv/ui] 注册 UI 域路由: tools=%d snapshotDir=%q", len(uiToolNames), uiSnapshotDir())
 	startUIWatcher(s)
 }
 
@@ -2642,17 +2857,20 @@ func (s *Server) uiHTTP(op string) http.HandlerFunc {
 		args := map[string]any{}
 		rawArgs, err := s.buildArgs(r, "")
 		if err != nil {
+			logx.Warnf("[debugsrv/ui] HTTP 入参解析失败: op=%s method=%s err=%v", op, r.Method, err)
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
 		if len(rawArgs) > 0 {
 			if err := json.Unmarshal(rawArgs, &args); err != nil {
+				logx.Warnf("[debugsrv/ui] HTTP 入参不是合法 JSON: op=%s err=%v", op, err)
 				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "入参不是合法 JSON: " + err.Error()})
 				return
 			}
 		}
 		res, err := s.handleUIOp(r.Context(), op, args)
 		if err != nil {
+			// 各 handler 已按边界记过 ERROR/WARN，这里只回响应，避免同一错误记两条。
 			writeJSON(w, statusFor(err), map[string]any{"error": err.Error()})
 			return
 		}

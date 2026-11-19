@@ -5,10 +5,19 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
+
+	"ding-ssh/internal/logx"
 )
 
 var topCPUValue = regexp.MustCompile(`([0-9.]+)\s*(us|sy|ni|id|wa|hi|si|st)\b`)
 var topMemoryValue = regexp.MustCompile(`([0-9.]+)\s+(total|free|used|buff/cache|avail Mem)`)
+
+// top 采集每轮都会解析一次：成功解析用采样器限流，失败降级用更长的采样间隔告警。
+var (
+	topParseLog = logx.NewSampler(0, 10*time.Second)
+	topWarnLog  = logx.NewSampler(0, 60*time.Second)
+)
 
 // parseTop selects the final frame: the first CPU frame may describe time since boot.
 func parseTop(raw string, snap *models.SysInfoSnapshot) {
@@ -95,4 +104,13 @@ func parseTop(raw string, snap *models.SysInfoSnapshot) {
 		snap.Processes = append(snap.Processes, models.TopProcess{PID: pid, User: get("USER"), CPU: cpu, Memory: mem, Resident: get("RES"), State: get("S"), Time: get("TIME+"), Command: strings.Join(f[cmdIndex:], " ")})
 	}
 	snap.TopAvailable = cpuOK && memOK
+	// 只记结构化计数，不记 top 原文（可能含进程命令行）。
+	logx.DebugSampled(topParseLog,
+		"[sshx] top 解析完成: cpuOK=%v memOK=%v cpuUsage=%.1f memUsedMB=%d memTotalMB=%d load=%d processes=%d rawBytes=%d",
+		cpuOK, memOK, snap.CPUUsage, snap.MemUsedMB, snap.MemTotalMB, len(snap.Load), len(snap.Processes), len(raw))
+	if !snap.TopAvailable {
+		logx.WarnSampled(topWarnLog,
+			"[sshx] top 输出不可用，降级为磁盘/网络数据: cpuOK=%v memOK=%v rawBytes=%d",
+			cpuOK, memOK, len(raw))
+	}
 }

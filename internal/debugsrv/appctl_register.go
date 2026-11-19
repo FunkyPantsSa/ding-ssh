@@ -31,6 +31,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"ding-ssh/internal/logx"
 )
 
 func init() {
@@ -145,6 +147,11 @@ func registerAppctlCaps() {
 
 	// ---- 生命周期：lifecycle + 两段式确认 ----
 	registerWrite(OpAppQuit, CapLifecycle, "app.quit")
+
+	// 注册发生在 init() 期（日志默认 info 级、不输出 DEBUG），这条只在排查
+	// 「工具没出现在 tools/list」时才需要打开 debug 级别查看。
+	logx.Debugf("[debugsrv/appctl] 控制面工具注册完成: tools=%d writes=%d",
+		len(appctlToolNames), len(appctlOps))
 }
 
 // registerWrite 登记一个「需要能力位 + 两段式确认」的写工具。

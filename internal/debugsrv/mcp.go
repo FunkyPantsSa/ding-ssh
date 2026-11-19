@@ -25,6 +25,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ding-ssh/internal/logx"
 )
 
 const (
@@ -420,8 +422,39 @@ type mcpSession struct {
 // mcpSessionHeader MCP 会话头（2025-03-26 规范）。
 const mcpSessionHeader = "Mcp-Session-Id"
 
+// maskSessionID 给 MCP 会话 id 打码后写日志：会话 id 等价于推送通道的凭据，
+// 拿到它就能接管事件订阅，因此日志里只保留前 4 位与长度（见 docs/logging.md §6）。
+func maskSessionID(id string) string {
+	if id == "" {
+		return "(无)"
+	}
+	if len(id) <= 4 {
+		return fmt.Sprintf("****(len=%d)", len(id))
+	}
+	return fmt.Sprintf("%s****(len=%d)", id[:4], len(id))
+}
+
+// mcpContentBytes 统计一次工具结果的文本 / 图片内容字节数，用于成功日志（只记大小，不记内容）。
+func mcpContentBytes(content []any) int {
+	total := 0
+	for _, item := range content {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if text, ok := m["text"].(string); ok {
+			total += len(text)
+		}
+		if data, ok := m["data"].(string); ok {
+			total += len(data)
+		}
+	}
+	return total
+}
+
 func (s *Server) mcpNewSession(topics []string) (*mcpSession, error) {
 	if s.opts.Hub == nil {
+		logx.Warnf("[debugsrv/mcp] 无法建立 MCP 会话: reason=事件流未启用")
 		return nil, errors.New("事件流未启用，无法建立 MCP 会话")
 	}
 	id := newSessionID()
@@ -435,7 +468,9 @@ func (s *Server) mcpNewSession(topics []string) (*mcpSession, error) {
 	sess := &mcpSession{id: id, topics: set, createdAt: time.Now(), ch: ch, hubID: hubID}
 	s.mcpMu.Lock()
 	s.mcpSessions[id] = sess
+	total := len(s.mcpSessions)
 	s.mcpMu.Unlock()
+	logx.Infof("[debugsrv/mcp] MCP 会话已建立: session=%s topics=%v sessions=%d", maskSessionID(id), topics, total)
 	return sess, nil
 }
 
@@ -452,10 +487,13 @@ func (s *Server) mcpDropSession(id string) bool {
 	s.mcpMu.Lock()
 	sess := s.mcpSessions[id]
 	delete(s.mcpSessions, id)
+	remaining := len(s.mcpSessions)
 	s.mcpMu.Unlock()
 	if sess == nil {
+		logx.Debugf("[debugsrv/mcp] 结束 MCP 会话失败: session=%s reason=会话不存在", maskSessionID(id))
 		return false
 	}
+	logx.Infof("[debugsrv/mcp] MCP 会话已结束: session=%s sessions=%d", maskSessionID(id), remaining)
 	if s.opts.Hub != nil {
 		s.opts.Hub.Unsubscribe(sess.hubID)
 	}
@@ -483,11 +521,13 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		id := mcpSessionIDFrom(r)
 		if id == "" || !s.mcpDropSession(id) {
+			logx.Warnf("[debugsrv/mcp] 结束会话失败: method=DELETE reason=未知或无会话")
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "未知或无会话"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	default:
+		logx.Warnf("[debugsrv/mcp] 不支持的 HTTP 方法: method=%s path=/mcp", r.Method)
 		w.Header().Set("Allow", "POST, GET, DELETE")
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "仅支持 POST / GET / DELETE"})
 	}
@@ -524,21 +564,26 @@ func mcpCallSummary(body []byte) string {
 
 // mcpPost 处理 JSON-RPC 请求；initialize 成功时建立会话并返回 Mcp-Session-Id。
 func (s *Server) mcpPost(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	body, err := io.ReadAll(io.LimitReader(r.Body, mcpBodyLimit))
 	if err != nil {
+		logx.Errorf("[debugsrv/mcp] 读取 MCP 请求体失败: err=%v", err)
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "读取请求体失败"})
 		return
 	}
 	var req rpcRequest
 	if err := json.Unmarshal(body, &req); err != nil {
+		logx.Warnf("[debugsrv/mcp] JSON-RPC 解析失败: bytes=%d err=%v", len(body), err)
 		writeJSON(w, http.StatusOK, rpcResponse{JSONRPC: "2.0", Error: &rpcErrorBody{Code: -32700, Message: "JSON 解析失败"}})
 		return
 	}
 	// 通知（无 id）：执行副作用后返回 202
 	if len(req.ID) == 0 || string(req.ID) == "null" {
+		logx.Debugf("[debugsrv/mcp] 收到通知（不需要响应）: method=%s bytes=%d", req.Method, len(body))
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
+	logx.Debugf("[debugsrv/mcp] 收到 JSON-RPC 请求: method=%s bytes=%d hasID=true", req.Method, len(body))
 	res := s.mcpDispatch(r.Context(), req)
 	// initialize：建立会话，把会话 id 放进响应头（推送通道需要它）
 	if req.Method == "initialize" && res.Error == nil {
@@ -550,6 +595,7 @@ func (s *Server) mcpPost(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set(mcpSessionHeader, sess.id)
 		}
 	}
+	logx.Debugf("[debugsrv/mcp] 请求处理完成: method=%s elapsed=%s error=%v", req.Method, time.Since(start), res.Error != nil)
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -557,11 +603,13 @@ func (s *Server) mcpPost(w http.ResponseWriter, r *http.Request) {
 func (s *Server) mcpStream(w http.ResponseWriter, r *http.Request) {
 	sess := s.mcpGetSession(mcpSessionIDFrom(r))
 	if sess == nil {
+		logx.Warnf("[debugsrv/mcp] 拒绝建立推送通道: reason=未知或无会话")
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "未知或无会话：请先用 initialize 获取 " + mcpSessionHeader})
 		return
 	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		logx.Errorf("[debugsrv/mcp] 无法建立推送通道: reason=当前环境不支持 SSE")
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "当前环境不支持 SSE"})
 		return
 	}
@@ -573,22 +621,31 @@ func (s *Server) mcpStream(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, ": mcp session "+sess.id+"\n\n")
 	flusher.Flush()
 
+	start := time.Now()
+	events := 0 // 本次连接已推送的通知数，断开时汇总
+	logx.Infof("[debugsrv/mcp] 推送通道已建立: session=%s topics=%d", maskSessionID(sess.id), len(sess.topics))
+
 	ping := time.NewTicker(20 * time.Second)
 	defer ping.Stop()
 	for {
 		select {
 		case ev, open := <-sess.ch:
 			if !open {
+				logx.Infof("[debugsrv/mcp] 推送通道关闭: session=%s events=%d elapsed=%s",
+					maskSessionID(sess.id), events, time.Since(start))
 				return
 			}
 			// ---- UI 观测域：view / 布局变化 → notifications/resources/updated（映射见 ui.go）----
 			if note, isUI := uiResourceUpdatedNotification(ev); isUI {
 				b, err := json.Marshal(note)
 				if err != nil {
+					logx.Debugf("[debugsrv/mcp] UI 资源通知序列化失败，已跳过: topic=%s err=%v", ev.Topic, err)
 					continue
 				}
 				_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", b)
 				flusher.Flush()
+				events++
+				logx.DebugSampled(streamEventLog, "[debugsrv/stream] 推送 MCP 资源通知: topic=%s bytes=%d", ev.Topic, len(b))
 				continue
 			}
 			note := map[string]any{
@@ -609,14 +666,20 @@ func (s *Server) mcpStream(w http.ResponseWriter, r *http.Request) {
 			}
 			b, err := json.Marshal(note)
 			if err != nil {
+				logx.Debugf("[debugsrv/mcp] 通知序列化失败，已跳过: topic=%s err=%v", ev.Topic, err)
 				continue
 			}
 			_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", b)
 			flusher.Flush()
+			events++
+			// 逐事件推送是热路径：采样限流，只记 topic 与字节数，不记事件内容。
+			logx.DebugSampled(streamEventLog, "[debugsrv/stream] 推送 MCP 通知: topic=%s bytes=%d", ev.Topic, len(b))
 		case <-ping.C:
 			_, _ = io.WriteString(w, ": ping\n\n")
 			flusher.Flush()
 		case <-r.Context().Done():
+			logx.Infof("[debugsrv/mcp] 推送通道客户端断开: session=%s events=%d elapsed=%s",
+				maskSessionID(sess.id), events, time.Since(start))
 			return
 		}
 	}
@@ -660,6 +723,7 @@ func (s *Server) mcpDispatch(ctx context.Context, req rpcRequest) rpcResponse {
 		if p.ProtocolVersion == "2024-11-05" || p.ProtocolVersion == "2025-03-26" || p.ProtocolVersion == "2025-06-18" {
 			version = p.ProtocolVersion
 		}
+		logx.Infof("[debugsrv/mcp] 客户端初始化: requested=%q negotiated=%s server=%s", p.ProtocolVersion, version, mcpServerVersion)
 		return ok(map[string]any{
 			"protocolVersion": version,
 			"capabilities": map[string]any{
@@ -702,10 +766,13 @@ func (s *Server) mcpDispatch(ctx context.Context, req rpcRequest) rpcResponse {
 		})
 
 	case "ping":
+		logx.Debugf("[debugsrv/mcp] 收到 ping")
 		return ok(map[string]any{})
 
 	case "tools/list":
-		return ok(map[string]any{"tools": mcpTools(s)})
+		tools := mcpTools(s)
+		logx.Debugf("[debugsrv/mcp] 返回工具清单: count=%d", len(tools))
+		return ok(map[string]any{"tools": tools})
 
 	case "tools/call":
 		var p struct {
@@ -713,7 +780,13 @@ func (s *Server) mcpDispatch(ctx context.Context, req rpcRequest) rpcResponse {
 			Arguments map[string]any `json:"arguments"`
 		}
 		if err := json.Unmarshal(req.Params, &p); err != nil {
+			logx.Warnf("[debugsrv/mcp] tools/call 参数无效: err=%v", err)
 			return fail(-32602, "tools/call 参数无效", err.Error())
+		}
+		// 只记参数键名与 params 字节数，绝不记参数值正文（可能含终端输入 / 凭据）。
+		if logx.DebugEnabled() {
+			logx.Debugf("[debugsrv/mcp] 工具调用: tool=%s argKeys=%v paramsBytes=%d",
+				p.Name, appctlSortedKeys(p.Arguments), len(req.Params))
 		}
 		// 能力位 + 两段式确认 + 审计统一在 mcpCallTool 里处理：
 		// 这样「被拒」也会留下审计记录，且拒绝原因以 isError 的形式回给 AI（而不是 JSON-RPC 错误）。
@@ -726,6 +799,7 @@ func (s *Server) mcpDispatch(ctx context.Context, req rpcRequest) rpcResponse {
 			})
 		}
 		result := map[string]any{"content": content, "isError": false}
+		logx.Debugf("[debugsrv/mcp] 工具返回: tool=%s items=%d bytes=%d", p.Name, len(content), mcpContentBytes(content))
 		// ---- M9：结构化输出（MCP 2025-06-18）----
 		// 只对声明了 outputSchema（+ structured 投影）的工具追加；文本内容照旧保留在 content[0]，
 		// 老客户端忽略 structuredContent 即可，向后兼容。
@@ -763,6 +837,7 @@ func (s *Server) mcpDispatch(ctx context.Context, req rpcRequest) rpcResponse {
 		}
 		// ---- SFTP 与终端自动化域（M8）：sftp://{sessionId}/cwd 与 transfers://current ----
 		list = append(list, sftpResourceEntries(s.terminalIDs(ctx))...)
+		logx.Debugf("[debugsrv/mcp] 返回资源清单: count=%d", len(list))
 		return ok(map[string]any{"resources": list})
 
 	case "resources/read":
@@ -770,19 +845,24 @@ func (s *Server) mcpDispatch(ctx context.Context, req rpcRequest) rpcResponse {
 			URI string `json:"uri"`
 		}
 		if err := json.Unmarshal(req.Params, &p); err != nil {
+			logx.Warnf("[debugsrv/mcp] resources/read 参数无效: err=%v", err)
 			return fail(-32602, "resources/read 参数无效", err.Error())
 		}
 		text, err := s.mcpReadResource(ctx, p.URI)
 		if err != nil {
+			logx.Warnf("[debugsrv/mcp] 读取资源失败: uri=%s err=%v", p.URI, err)
 			return fail(-32602, err.Error(), p.URI)
 		}
+		logx.Debugf("[debugsrv/mcp] 读取资源完成: uri=%s bytes=%d", p.URI, len(text))
 		return ok(map[string]any{"contents": []any{map[string]any{
 			"uri": p.URI, "mimeType": mcpResourceMimeType(p.URI), "text": text,
 		}}})
 
 	case "prompts/list":
+		logx.Debugf("[debugsrv/mcp] 返回提示词清单: count=0")
 		return ok(map[string]any{"prompts": []any{}})
 	}
+	logx.Warnf("[debugsrv/mcp] 不支持的 JSON-RPC 方法: method=%s", req.Method)
 	return fail(-32601, "不支持的方法: "+req.Method, "")
 }
 
@@ -794,9 +874,11 @@ func (s *Server) mcpDispatch(ctx context.Context, req rpcRequest) rpcResponse {
 //
 // 返回的 AuditRecord 供调用方（测试 / 调试）观察，正常流程可以忽略。
 func (s *Server) mcpCallToolAudited(ctx context.Context, name string, args map[string]any) ([]any, AuditRecord, error) {
+	start := time.Now()
 	if _, known := ToolCapabilities(name); !known && !builtinToolsWithoutCaps[name] {
 		// 未知工具名不进入审计的「能力」统计，但仍记录一条（防止 AI 拼错名字后无从排查）。
 		if !isConfirmTool(name) {
+			logx.Warnf("[debugsrv/mcp] 未知工具调用: tool=%s", name)
 			rec := newAuditRecorder(s.opts.Audits, s.opts.Hub, "mcp", name, CapRead, auditSafeArgs(name, args))
 			err := fmt.Errorf("未知工具: %s（可用 tools/list 查看全部工具）", name)
 			return nil, rec.finish(err, false, ""), err
@@ -840,17 +922,24 @@ func (s *Server) mcpCallToolAudited(ctx context.Context, name string, args map[s
 		}
 		token = strings.TrimSpace(token)
 		if token == "" {
+			logx.Warnf("[debugsrv/confirm] 破坏性工具缺少确认 token: tool=%s action=%s", name, action)
 			err := errors.New(confirmRequiredMessage(action))
 			return nil, rec.finish(err, false, ""), err
 		}
 		if s.opts.Confirms != nil {
 			if p, ok := s.opts.Confirms.Peek(token); ok && p.Tool != "" && p.Tool != name {
+				logx.Warnf("[debugsrv/confirm] 确认 token 与工具不匹配: tool=%s tokenTool=%s action=%s", name, p.Tool, action)
 				err := fmt.Errorf("token 绑定工具 %s，不能用于 %s", p.Tool, name)
 				return nil, rec.finish(err, false, ""), err
 			}
 		}
 		// token 必须绑定「除 token 外的参数」，与 prepare 时登记的一致。
+		// 校验失败时只记工具与 action：Take 的错误文案里含规范化参数 JSON，
+		// 其中可能有凭据 / 设置正文，不能整段写进日志。
 		if _, err := s.takeConfirm(token, action, withoutToken(args)); err != nil {
+			// 具体失败原因（无效 / 过期 / 参数不一致）由 ConfirmManager.Take 记 WARN，
+			// 这里只补工具上下文，避免同一次失败留下两条同级日志。
+			logx.Debugf("[debugsrv/confirm] 确认 token 校验失败: tool=%s action=%s", name, action)
 			return nil, rec.finish(err, false, ""), err
 		}
 	}
@@ -859,10 +948,17 @@ func (s *Server) mcpCallToolAudited(ctx context.Context, name string, args map[s
 	//    既有 21 个工具的参数结构不允许改动，因此这里只把 token 剔除后再序列化）
 	content, err := s.mcpCallTool(ctx, name, args)
 	if err != nil {
+		logx.Errorf("[debugsrv/mcp] 工具调用失败: tool=%s elapsed=%s err=%v", name, time.Since(start), err)
 		return nil, rec.finish(err, false, ""), err
 	}
+	logx.Debugf("[debugsrv/mcp] 工具调用成功: tool=%s elapsed=%s items=%d bytes=%d",
+		name, time.Since(start), len(content), mcpContentBytes(content))
 	// 只有成功且确实可撤销的才带撤销提示（失败的操作没有「改动前」可恢复）
 	reversible, hint := auditRevertHint(name, args)
+	if reversible {
+		// 「撤销」入口在前端 AI 记录页：后端只负责把记录标记成可撤销并给出提示。
+		logx.Debugf("[debugsrv/audit] 工具调用可撤销，已附加撤销提示: tool=%s", name)
+	}
 	return content, rec.finish(nil, reversible, hint), nil
 }
 
@@ -1022,10 +1118,12 @@ func (s *Server) mcpCallTool(ctx context.Context, name string, args map[string]a
 	case "set_log_options":
 		return call(OpLogsOptions, raw)
 	case "screenshot":
+		start := time.Now()
 		png, err := captureWindowPNG()
 		if err != nil {
 			return nil, err
 		}
+		logx.Debugf("[debugsrv/mcp] 截图工具完成: bytes=%d elapsed=%s", len(png), time.Since(start))
 		return []any{map[string]any{
 			"type":     "image",
 			"data":     base64.StdEncoding.EncodeToString(png),
@@ -1127,6 +1225,7 @@ func (s *Server) toolsHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, entry)
 	}
+	logx.Debugf("[debugsrv/mcp] 返回工具目录: count=%d structured=%d", len(out), structuredCount)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"count":           len(out),
 		"structuredCount": structuredCount,
@@ -1171,9 +1270,14 @@ func toolCatalogEntry(t mcpTool) map[string]any {
 func (s *Server) permissionsView() map[string]any {
 	snap := s.CapabilitySnapshot()
 	caps := make(map[string]bool, len(snap))
+	enabled := 0
 	for _, n := range sortedCapNames(snap) {
 		caps[n] = snap[Capability(n)]
+		if snap[Capability(n)] {
+			enabled++
+		}
 	}
+	logx.Debugf("[debugsrv/mcp] 返回权限快照: caps=%d enabled=%d", len(caps), enabled)
 	return map[string]any{
 		"caps":              caps,
 		"descriptions":      CapabilityDescriptions(),
@@ -1191,6 +1295,7 @@ func (s *Server) permissionsView() map[string]any {
 // recentCallsView 组装 app.recent_calls 的返回（审计记录）。
 func (s *Server) recentCallsView(args map[string]any) map[string]any {
 	if s.opts.Audits == nil {
+		logx.Warnf("[debugsrv/audit] 读取最近调用失败: reason=审计未启用")
 		return map[string]any{"count": 0, "records": []any{}, "error": "审计未启用"}
 	}
 	limit := 50
@@ -1202,6 +1307,7 @@ func (s *Server) recentCallsView(args map[string]any) map[string]any {
 	capName, _ := args["cap"].(string)
 	source, _ := args["source"].(string)
 	records := s.opts.Audits.Recent(limit, capName, source)
+	logx.Debugf("[debugsrv/audit] 读取最近调用: limit=%d cap=%s source=%s count=%d", limit, capName, source, len(records))
 	return map[string]any{
 		"count":   len(records),
 		"records": records,
@@ -1219,18 +1325,22 @@ func (s *Server) confirmPrepare(args map[string]any) ([]any, error) {
 	action, _ := args["action"].(string)
 	action = strings.TrimSpace(action)
 	if action == "" {
+		logx.Warnf("[debugsrv/confirm] confirm.prepare 缺少 action")
 		return nil, errors.New("缺少 action：请传入要确认的动作名（见 initialize.instructions 的清单）")
 	}
 	if !confirmActionNeedsConfirm(action) {
+		logx.Warnf("[debugsrv/confirm] confirm.prepare 被拒: action=%s reason=该动作不需要确认", action)
 		return nil, fmt.Errorf("%q 不是破坏性操作，不需要两段式确认：读取类与查询类操作可以直接调用对应工具（或 /v1 接口）", action)
 	}
 	if s.opts.Confirms == nil {
+		logx.Warnf("[debugsrv/confirm] confirm.prepare 被拒: action=%s reason=确认管理器未启用", action)
 		return nil, errors.New("确认管理器未启用：请先在应用内开启调试模式")
 	}
 	tool, _ := args["tool"].(string)
 	tool = strings.TrimSpace(tool)
 	if tool != "" {
 		if a, need := ToolConfirmAction(tool); !need || a != action {
+			logx.Warnf("[debugsrv/confirm] confirm.prepare 被拒: tool=%s action=%s reason=工具与动作不匹配", tool, action)
 			return nil, fmt.Errorf("tool %q 与 action %q 不匹配", tool, action)
 		}
 	}
@@ -1259,15 +1369,19 @@ func (s *Server) confirmCommit(ctx context.Context, args map[string]any) ([]any,
 	token, _ := args["token"].(string)
 	token = strings.TrimSpace(token)
 	if token == "" {
+		logx.Warnf("[debugsrv/confirm] confirm.commit 缺少 token")
 		return nil, errors.New("缺少 token：请先调用 confirm.prepare 获取 token")
 	}
 	if s.opts.Confirms == nil {
+		logx.Warnf("[debugsrv/confirm] confirm.commit 被拒: reason=确认管理器未启用")
 		return nil, errors.New("确认管理器未启用：请先在应用内开启调试模式")
 	}
 	pending, ok := s.opts.Confirms.Peek(token)
 	if !ok {
+		logx.Warnf("[debugsrv/confirm] confirm.commit 被拒: reason=token 无效或已过期")
 		return nil, errors.New("token 无效或已过期：请重新调用 confirm.prepare")
 	}
+	logx.Debugf("[debugsrv/confirm] confirm.commit 执行: action=%s tool=%s", pending.Action, pending.Tool)
 	if pending.Tool != "" {
 		callArgs := make(map[string]any, len(pending.Args)+1)
 		for k, v := range pending.Args {
@@ -1281,6 +1395,7 @@ func (s *Server) confirmCommit(ctx context.Context, args map[string]any) ([]any,
 	// Reject before consuming the token; callers can still invoke the exact tool.
 	switch pending.Action {
 	case "servers.create", "servers.update", "sftp.write", "terminal.sudo", "app.reload", "sftp.upload":
+		logx.Warnf("[debugsrv/confirm] confirm.commit 被拒: action=%s reason=该动作需要精确工具", pending.Action)
 		return nil, fmt.Errorf("动作 %s 需要精确工具：请直接调用原工具并携带 token，或重新 prepare 时提供 tool", pending.Action)
 	}
 	if cap, ok := CapabilityOfAction(pending.Action); ok {
@@ -1289,16 +1404,23 @@ func (s *Server) confirmCommit(ctx context.Context, args map[string]any) ([]any,
 		}
 	}
 	if s.opts.Executor == nil {
+		logx.Warnf("[debugsrv/confirm] confirm.commit 被拒: action=%s reason=宿主未实现动作执行器", pending.Action)
 		return nil, errors.New("宿主未实现动作执行器（Executor）：该动作暂时只能通过应用界面执行")
 	}
 	// 先用登记时的参数校验并消费 token，避免「执行成功但 token 没被用掉」导致可重放。
+	// 失败原因可能含规范化参数 JSON（内有凭据），因此只记 action，不记 err 文本。
 	if _, err := s.opts.Confirms.Take(token, pending.Action, pending.Args); err != nil {
+		// 原因由 Take 记 WARN，这里只留 DEBUG 上下文（避免重复）。
+		logx.Debugf("[debugsrv/confirm] confirm.commit 校验失败: action=%s", pending.Action)
 		return nil, err
 	}
+	start := time.Now()
 	result, err := s.opts.Executor.ExecuteAction(ctx, pending.Action, pending.Args)
 	if err != nil {
+		logx.Errorf("[debugsrv/confirm] 已确认动作执行失败: action=%s elapsed=%s err=%v", pending.Action, time.Since(start), err)
 		return nil, fmt.Errorf("动作 %s 执行失败：%w", pending.Action, err)
 	}
+	logx.Infof("[debugsrv/confirm] 已确认动作执行成功: action=%s elapsed=%s", pending.Action, time.Since(start))
 	return text(map[string]any{
 		"ok":      true,
 		"action":  pending.Action,
@@ -1321,6 +1443,7 @@ func mcpResourceMimeType(uri string) string {
 func (s *Server) mcpReadResource(ctx context.Context, uri string) (string, error) {
 	h := s.opts.Handler
 	if h == nil {
+		logx.Warnf("[debugsrv/mcp] 读取资源失败: uri=%s reason=调试服务未就绪", uri)
 		return "", errors.New("调试服务未就绪")
 	}
 	render := func(v any, err error) (string, error) {

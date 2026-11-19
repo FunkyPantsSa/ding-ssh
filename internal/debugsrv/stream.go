@@ -5,6 +5,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ding-ssh/internal/logx"
+)
+
+// 事件总线是终端输出 / 传输进度的热路径（每个分块都可能 Publish 一次），
+// 因此「广播事件」只做采样 DEBUG，「订阅者跟不上导致丢弃」用采样 WARN。
+// SSE 逐事件推送的限流器在 server.go / mcp.go 共用同一个采样器。
+var (
+	publishLog     = logx.NewSampler(256, 2*time.Second)
+	publishDropLog = logx.NewSampler(32, 5*time.Second)
+	streamEventLog = logx.NewSampler(128, 2*time.Second)
 )
 
 // Event 一条推送给订阅者的事件。
@@ -48,11 +59,13 @@ func (h *Hub) Subscribe(topics ...string) (int, <-chan Event) {
 		}
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.seq++
 	id := h.seq
 	ch := make(chan Event, 256)
 	h.subs[id] = &hubSub{topics: set, ch: ch}
+	total := len(h.subs)
+	h.mu.Unlock()
+	logx.Debugf("[debugsrv/stream] 新增订阅: sub=%d topics=%v total=%d", id, topics, total)
 	return id, ch
 }
 
@@ -61,7 +74,9 @@ func (h *Hub) Unsubscribe(id int) {
 	h.mu.Lock()
 	sub := h.subs[id]
 	delete(h.subs, id)
+	remaining := len(h.subs)
 	h.mu.Unlock()
+	logx.Debugf("[debugsrv/stream] 取消订阅: sub=%d exists=%v remaining=%d", id, sub != nil, remaining)
 	if sub != nil {
 		close(sub.ch)
 	}
@@ -73,7 +88,6 @@ func (h *Hub) Publish(ev Event) {
 		ev.TS = time.Now().UnixMilli()
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if ev.Topic == TransferTopic {
 		h.transferRecent = append(h.transferRecent, ev)
 		if len(h.transferRecent) > hubRecentLimit {
@@ -84,6 +98,8 @@ func (h *Hub) Publish(ev Event) {
 	if len(h.recent) > hubRecentLimit {
 		h.recent = h.recent[len(h.recent)-hubRecentLimit:]
 	}
+	subs := len(h.subs)
+	dropped := 0
 	for _, sub := range h.subs {
 		if len(sub.topics) > 0 && !sub.topics[ev.Topic] {
 			continue
@@ -91,7 +107,16 @@ func (h *Hub) Publish(ev Event) {
 		select {
 		case sub.ch <- ev:
 		default: // 订阅者跟不上：丢弃，保证读取协程不被阻塞
+			dropped++
 		}
+	}
+	h.mu.Unlock()
+	// 日志在解锁之后写：日志写入可能阻塞（stderr / 磁盘），不能占着事件总线的锁。
+	logx.DebugSampled(publishLog, "[debugsrv/stream] 广播事件: topic=%s session=%s subs=%d bytes=%d",
+		ev.Topic, ev.SessionID, subs, len(ev.Data))
+	if dropped > 0 {
+		logx.WarnSampled(publishDropLog, "[debugsrv/stream] 订阅队列已满，丢弃事件: topic=%s dropped=%d subs=%d",
+			ev.Topic, dropped, subs)
 	}
 }
 
@@ -107,7 +132,6 @@ func (h *Hub) Recent(limit int, topics ...string) []Event {
 		}
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	source := h.recent
 	if len(filter) == 1 && filter[TransferTopic] {
 		source = h.transferRecent
@@ -124,6 +148,8 @@ func (h *Hub) Recent(limit int, topics ...string) []Event {
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
 		out[i], out[j] = out[j], out[i]
 	}
+	h.mu.Unlock()
+	logx.Debugf("[debugsrv/stream] 读取最近事件: limit=%d topics=%v count=%d", limit, topics, len(out))
 	return out
 }
 
@@ -132,6 +158,7 @@ func (h *Hub) PublishRaw(name string, payload any) {
 	topic, sessionID := SplitEventName(name)
 	raw, err := json.Marshal(payload)
 	if err != nil {
+		logx.Warnf("[debugsrv/stream] 事件序列化失败，已丢弃: name=%s err=%v", name, err)
 		return
 	}
 	h.Publish(Event{Topic: topic, SessionID: sessionID, Name: name, Data: raw})

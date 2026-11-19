@@ -6,6 +6,7 @@ import (
 
 	"ding-ssh/internal/apphost"
 	"ding-ssh/internal/logfilter"
+	"ding-ssh/internal/logx"
 	"ding-ssh/internal/updater"
 
 	"github.com/wailsapp/wails/v2"
@@ -25,11 +26,17 @@ type App struct {
 }
 
 func main() {
+	// 日志开关此时尚未从设置里读出（要等 Startup），因此这里只记 debug：
+	// 用户在设置页打开日志后，本进程后续的启动步骤仍会正常输出，不会丢启动现场。
+	logx.Debugf("[main] 进程启动: goos=%s goarch=%s", goruntime.GOOS, goruntime.GOARCH)
 	if updater.Helper() {
+		logx.Debugf("[main] 以更新器辅助进程模式运行，不启动主窗口")
 		return
 	}
 	// 调试模式配置要在 wails.Run 之前读取：WebView2 的远程调试端口必须在启动时确定。
 	boot := apphost.ReadDebugBoot()
+	logx.Debugf("[main] 调试启动配置: debug=%v port=%d bindLAN=%v cdp=%v allowEval=%v",
+		boot.Enabled, boot.Port, boot.BindLAN, boot.CDPEnabled, boot.AllowEval)
 	app := &App{App: apphost.NewApp(boot)}
 
 	opt := &options.App{
@@ -64,9 +71,15 @@ func main() {
 	}
 	apphost.ApplyDebugBrowserArgs(opt, boot)
 
+	logx.Infof("[main] 启动 Wails 主窗口: title=ding-ssh size=1280x800 min=900x600 frameless=%v",
+		goruntime.GOOS == "windows")
 	err := wails.Run(opt)
+	// wails.Run 返回即主循环结束（正常退出或启动失败），两种都是判断「进程还在不在」的关键节点。
+	logx.Infof("[main] Wails 主循环退出: err=%v", err)
 
 	if err != nil {
+		logx.Errorf("[main] Wails 运行失败: err=%v", err)
+		// 保留 println：日志开关默认关闭时，这是用户在终端唯一能看到的启动失败原因。
 		println("Error:", err.Error())
 	}
 }

@@ -118,7 +118,9 @@ type options struct {
 // 所有日志统一经过它，保证「stdout 只有 JSON-RPC」与「token 打码」两条约定不被破坏。
 type logf2 struct {
 	verbose bool
-	mu      sync.Mutex
+	// quiet 只输出错误日志（与 -quiet 参数一致；警告与普通日志被抑制）。
+	quiet bool
+	mu    sync.Mutex
 }
 
 func (l *logf2) printf(format string, args ...any) {
@@ -129,6 +131,17 @@ func (l *logf2) printf(format string, args ...any) {
 
 // infof 普通日志（始终输出到 stderr）。
 func (l *logf2) infof(format string, args ...any) { l.printf(format, args...) }
+
+// warnf 警告日志（可恢复异常 / 降级；-quiet 时抑制）。
+func (l *logf2) warnf(format string, args ...any) {
+	if l.quiet {
+		return
+	}
+	l.printf("警告："+format, args...)
+}
+
+// errorf 错误日志（操作失败；-quiet 时仍然输出）。
+func (l *logf2) errorf(format string, args ...any) { l.printf("错误："+format, args...) }
 
 // debugf 细节日志（仅 -v 时输出）。
 func (l *logf2) debugf(format string, args ...any) {
@@ -172,16 +185,19 @@ func run() int {
 		return 0
 	}
 	if err != nil {
-		// flag 包已把错误与用法打到 stderr。
+		// flag 包已把错误与用法打到 stderr；这里再补一条带服务名前缀的 ERROR，
+		// 便于在多个 MCP 桥的日志里定位「是哪个子进程参数写错了」。
+		fmt.Fprintf(os.Stderr, "[%s] 错误：参数解析失败（-h 查看用法）：%v\n", serverName, err)
 		return 2
 	}
 
-	log := &logf2{verbose: opts.verbose && !opts.quiet}
+	log := &logf2{verbose: opts.verbose && !opts.quiet, quiet: opts.quiet}
+	log.debugf("启动参数：debug-json=%s verbose=%v quiet=%v once=%v", opts.debugRaw, opts.verbose, opts.quiet, opts.once)
 
 	cfg, err := resolveConfig(opts, os.Getenv, false)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[%s] 错误：%v\n", serverName, err)
-		fmt.Fprintf(os.Stderr, "[%s] 提示：请先在应用内打开「设置 → 调试模式 → 启用」，或显式传入 -url/-token。\n", serverName)
+		log.errorf("解析目标调试服务失败：%v", err)
+		log.infof("提示：请先在应用内打开「设置 → 调试模式 → 启用」，或显式传入 -url/-token。")
 		return 1
 	}
 	log.infof("目标调试服务：%s", cfg.url)
@@ -193,7 +209,7 @@ func run() int {
 	// 启动探测：避免在地址过期 / token 不匹配时进入 stdio 循环，
 	// 让 MCP 客户端只看到「子进程以非 0 退出」这一个明确信号。
 	if err := c.verify(opts.once); err != nil {
-		fmt.Fprintf(os.Stderr, "[%s] 错误：%v\n", serverName, err)
+		log.errorf("启动探测失败：%v", err)
 		return 1
 	}
 	if opts.once {
@@ -214,6 +230,7 @@ func run() int {
 	code := c.serveStdin(os.Stdin)
 	c.shutdown()
 	log.infof("stdin 已关闭，退出（退出码 %d）", code)
+	log.debugf("退出清理完成")
 	return code
 }
 
@@ -460,9 +477,14 @@ func (c *clientMCP) verify(once bool) error {
 			return nil
 		}
 		lastErr = err
-		c.log.debugf("第 %d 次探测失败：%v", i+1, err)
+		if i+1 < attempts {
+			c.log.warnf("探测失败（第 %d/%d 次），稍后重试：%v", i+1, attempts, err)
+		} else {
+			c.log.debugf("第 %d 次探测失败：%v", i+1, err)
+		}
 		// 401 之类的鉴权错误重试没有意义，直接返回。
 		if !isRetryable(err) {
+			c.log.debugf("探测失败不可重试，放弃：%v", err)
 			break
 		}
 	}
@@ -505,6 +527,9 @@ func (c *clientMCP) refreshFromDisk() bool {
 	c.cfgMu.Unlock()
 	if changed {
 		c.log.infof("调试服务信息已更新（来源：%s / %s）：%s", next.urlSource, next.tokSource, next.url)
+		c.log.debugf("新 token：%s", maskToken(next.token))
+	} else {
+		c.log.debugf("重读调试信息：地址与 token 未变化（%s）", next.urlSource)
 	}
 	return changed
 }
@@ -524,10 +549,11 @@ func (c *clientMCP) serveStdin(in io.Reader) int {
 		// 复制一份：Scanner 的缓冲区会被下一次 Scan 复用。
 		body := make([]byte, len(line))
 		copy(body, line)
+		c.log.debugf("收到 stdin 消息：%d 字节", len(body))
 		c.handleLine(body)
 	}
 	if err := sc.Err(); err != nil {
-		c.log.infof("读取 stdin 失败：%v", err)
+		c.log.errorf("读取 stdin 失败，桥接无法继续：%v", err)
 		return 1
 	}
 	return 0
@@ -539,7 +565,7 @@ func (c *clientMCP) handleLine(body []byte) {
 	if err := json.Unmarshal(body, &env); err != nil {
 		// 不是合法 JSON 就必须自己回一个 JSON-RPC 错误，
 		// 否则客户端会一直等这条消息的响应。
-		c.log.infof("stdin 收到非法 JSON，已回错误响应：%v", err)
+		c.log.warnf("stdin 收到非法 JSON，已回错误响应：%v", err)
 		c.writeLine(parseErrorResponse())
 		return
 	}
@@ -552,8 +578,10 @@ func (c *clientMCP) handleLine(body []byte) {
 		cancel()
 		if err != nil {
 			// 通知出错无处回报，只能记日志；顺带试着跟上应用重启后的新端口/token。
-			c.log.infof("转发通知失败（%s）：%v", method, err)
-			c.refreshFromDisk()
+			c.log.warnf("转发通知失败（%s）：%v", method, err)
+			if c.refreshFromDisk() {
+				c.log.debugf("通知失败后已刷新调试信息，下条消息生效")
+			}
 		}
 		return
 	}
@@ -561,7 +589,7 @@ func (c *clientMCP) handleLine(body []byte) {
 	c.log.debugf("转发请求：%s（id=%s）", method, string(env.ID))
 	respBody, err := c.doRequest(body)
 	if err != nil {
-		c.log.infof("请求失败（%s）：%v", method, err)
+		c.log.errorf("转发请求失败（%s）：%v", method, err)
 		// 仅在「请求肯定没被服务端执行」时重读 debug.json 并重试一次：
 		// 应用重启后端口/token 会变，而已配置好的 MCP 客户端不会重启本子进程。
 		// 其它失败（HTTP 5xx、读响应体失败等）不重试，避免工具调用被重复执行。
@@ -572,7 +600,7 @@ func (c *clientMCP) handleLine(body []byte) {
 				return
 			} else {
 				err = retryErr
-				c.log.infof("重试失败（%s）：%v", method, retryErr)
+				c.log.errorf("刷新调试信息后重试仍失败（%s）：%v", method, retryErr)
 			}
 		}
 		c.writeLine(errorResponse(env.ID, err))
@@ -599,9 +627,12 @@ func (c *clientMCP) doRequest(body []byte) ([]byte, error) {
 		req.Header.Set(sessionHeader, id)
 	}
 
+	start := time.Now()
+	c.log.debugf("POST %s/mcp（%d 字节，session=%s）", cfg.url, len(body), maskToken(c.sessionID()))
 	resp, err := c.http.Do(req)
 	if err != nil {
 		// 连不上：请求肯定没被执行，允许上层重试。
+		c.log.debugf("POST 失败（%s）：%v", cfg.url, err)
 		return nil, fmt.Errorf("%w：请求 %s/mcp 失败：%v", errNotForwarded, cfg.url, err)
 	}
 	defer resp.Body.Close()
@@ -618,9 +649,12 @@ func (c *clientMCP) doRequest(body []byte) ([]byte, error) {
 		// 响应头已到达但读体失败：服务端可能已经开始执行，不能重试，避免副作用重复。
 		return nil, fmt.Errorf("读取响应体失败：%w", err)
 	}
+	c.log.debugf("POST 响应：status=%d bytes=%d elapsed=%s", resp.StatusCode, len(data), time.Since(start))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			// 鉴权失败说明调用没被受理，可以放心重试。
+			c.log.warnf("调试服务鉴权失败（HTTP %d）：token 不正确或已过期（当前 token=%s）",
+				resp.StatusCode, maskToken(c.target().token))
 			return nil, fmt.Errorf("%w：鉴权失败（HTTP %d），token 不正确或已过期", errNotForwarded, resp.StatusCode)
 		}
 		return nil, fmt.Errorf("服务端返回 HTTP %d：%s", resp.StatusCode, truncate(strings.TrimSpace(string(data)), 300))
@@ -646,14 +680,18 @@ func (c *clientMCP) post(ctx context.Context, body []byte) error {
 	if id := c.sessionID(); id != "" {
 		req.Header.Set(sessionHeader, id)
 	}
+	c.log.debugf("POST %s/mcp（不等待响应体，%d 字节）", cfg.url, len(body))
 	resp, err := c.http.Do(req)
 	if err != nil {
+		c.log.debugf("POST 失败（%s）：%v", cfg.url, err)
 		return err
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxBodyBytes))
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		c.log.warnf("调试服务鉴权失败（HTTP %d）：token 不正确或已过期（当前 token=%s）",
+			resp.StatusCode, maskToken(c.target().token))
 		return fmt.Errorf("%w：鉴权失败（HTTP %d），token 不正确或已过期", errNotForwarded, resp.StatusCode)
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		// 通知正常返回 202，探测（ping）返回 200，都算成功。
@@ -685,7 +723,12 @@ func (c *clientMCP) streamLoop() {
 			err = errors.New("服务端关闭了推送通道")
 		}
 		delay := sseBackoff[imin(attempt, len(sseBackoff)-1)]
-		c.log.debugf("SSE 断开（%v），%s 后重连", err, delay)
+		// 首次断开值得 WARN（大概率是应用重启 / 会话失效）；之后的持续重试只记 DEBUG。
+		if attempt == 0 {
+			c.log.warnf("MCP 推送通道断开，%s 后自动重连：%v", delay, err)
+		} else {
+			c.log.debugf("SSE 断开（%v），%s 后重连（第 %d 次）", err, delay, attempt+1)
+		}
 		if !sleepCtx(c.streamCtx, delay) {
 			return
 		}
@@ -699,6 +742,7 @@ func (c *clientMCP) streamOnce() error {
 		return errors.New("没有会话 id，暂不订阅推送")
 	}
 	cfg := c.target()
+	c.log.debugf("建立推送通道：GET %s/mcp（session=%s）", cfg.url, maskToken(id))
 	req, err := http.NewRequestWithContext(c.streamCtx, http.MethodGet, cfg.url+"/mcp", nil)
 	if err != nil {
 		return err
@@ -723,11 +767,12 @@ func (c *clientMCP) streamOnce() error {
 			// 会话被服务端丢弃（例如应用重启），或 token 已变化：
 			// 清掉会话 id 并重读调试信息，让客户端重新 initialize，
 			// 而不是无限重连一个死会话。
-			c.log.infof("推送通道返回 %d（会话已失效），等待客户端重新 initialize：%s", resp.StatusCode, truncate(msg, 200))
+			c.log.warnf("推送通道返回 %d（会话已失效），等待客户端重新 initialize：%s", resp.StatusCode, truncate(msg, 200))
 			c.setSessionID("")
 			c.refreshFromDisk()
 			return errors.New("MCP 会话已失效")
 		}
+		c.log.errorf("推送通道返回 HTTP %d：%s", resp.StatusCode, truncate(msg, 200))
 		return fmt.Errorf("推送通道 HTTP %d：%s", resp.StatusCode, truncate(msg, 200))
 	}
 
@@ -754,11 +799,12 @@ func (c *clientMCP) readSSE(r io.Reader) error {
 		// 只把合法 JSON 写进 stdout：stdout 是纯 JSON-RPC 通道，
 		// 任何非 JSON 内容都会让客户端解析失败。
 		if !json.Valid([]byte(payload)) {
-			c.log.infof("推送内容不是合法 JSON，已丢弃：%s", truncate(payload, 200))
+			// 只记大小：推送内容里可能有终端输出等正文，绝不落日志。
+			c.log.warnf("推送内容不是合法 JSON，已丢弃：%d 字节", len(payload))
 			return
 		}
 		c.writeLine([]byte(payload))
-		c.log.debugf("推送已转发：%s", truncate(payload, 200))
+		c.log.debugf("推送已转发：%d 字节", len(payload))
 	}
 
 	for sc.Scan() {
@@ -784,15 +830,15 @@ func (c *clientMCP) writeLine(b []byte) {
 		return
 	}
 	if _, err := c.out.Write(b); err != nil {
-		c.log.infof("写 stdout 失败：%v", err)
+		c.log.errorf("写 stdout 失败，客户端将收不到响应：%v", err)
 		return
 	}
 	if err := c.out.WriteByte('\n'); err != nil {
-		c.log.infof("写 stdout 失败：%v", err)
+		c.log.errorf("写 stdout 换行失败：%v", err)
 		return
 	}
 	if err := c.out.Flush(); err != nil {
-		c.log.infof("冲刷 stdout 失败：%v", err)
+		c.log.errorf("冲刷 stdout 失败：%v", err)
 	}
 }
 
@@ -814,6 +860,7 @@ func (c *clientMCP) setSessionID(id string) {
 // 正常退出与信号处理两条路径都可能触发，因此用 sync.Once 保护。
 func (c *clientMCP) shutdown() {
 	shutdownOnce.Do(func() {
+		c.log.infof("正在关闭 MCP 桥：停止推送通道 / 结束会话")
 		c.streamStop()
 		if resp := c.streamConn.Load(); resp != nil {
 			// 关闭底层响应体，让阻塞中的 SSE 读取立刻返回。
@@ -824,7 +871,10 @@ func (c *clientMCP) shutdown() {
 		} else {
 			c.log.debugf("没有会话 id，跳过 DELETE /mcp")
 		}
-		_ = c.out.Flush()
+		if err := c.out.Flush(); err != nil {
+			c.log.warnf("退出前冲刷 stdout 失败：%v", err)
+		}
+		c.log.debugf("MCP 桥清理完成")
 	})
 }
 
@@ -841,11 +891,15 @@ func (c *clientMCP) deleteSession(id string) {
 	req.Header.Set(sessionHeader, id)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		c.log.debugf("DELETE /mcp 失败（可忽略）：%v", err)
+		c.log.warnf("DELETE /mcp 失败（不影响退出）：%v", err)
 		return
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+	if resp.StatusCode >= 400 {
+		c.log.warnf("结束会话返回 HTTP %d（服务端可能已清理该会话）", resp.StatusCode)
+		return
+	}
 	c.log.debugf("已结束会话（DELETE /mcp → HTTP %d）", resp.StatusCode)
 }
 

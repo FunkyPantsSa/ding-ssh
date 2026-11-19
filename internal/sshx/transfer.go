@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"ding-ssh/internal/logx"
+
 	"golang.org/x/time/rate"
 )
 
@@ -18,6 +20,9 @@ var defaultRateLimit = rate.Limit(0)
 
 // defaultBurst 默认突发大小
 var defaultBurst = 64 * 1024 // 64KB
+
+// transferProgressLog 传输进度采样器：只用于热路径每块/每条进度的 DEBUG 限流。
+var transferProgressLog = logx.NewSampler(0, 2*time.Second)
 
 // TransferLimiter 传输限速器，基于令牌桶实现全局与单任务限速。
 type TransferLimiter struct {
@@ -46,10 +51,12 @@ func (tl *TransferLimiter) SetRateLimit(bytesPerSec int64) {
 	if bytesPerSec <= 0 {
 		tl.global.SetLimit(rate.Inf)
 		tl.enabled = false
+		logx.Infof("[sshx] 传输限速已关闭: bytesPerSec=0")
 	} else {
 		tl.global.SetLimit(rate.Limit(bytesPerSec))
 		tl.global.SetBurst(int(bytesPerSec) / 4) // 突发为 1/4 秒的速率
 		tl.enabled = true
+		logx.Infof("[sshx] 传输限速已设置: bytesPerSec=%d burst=%d", bytesPerSec, int(bytesPerSec)/4)
 	}
 }
 
@@ -98,8 +105,10 @@ func (p *TransferWorkerPool) Limiter() *TransferLimiter {
 // SetConcurrency 设置最大并发数。
 func (p *TransferWorkerPool) SetConcurrency(n int) {
 	if n < 1 {
+		logx.Warnf("[sshx] 传输并发数非法，回落为 1: requested=%d", n)
 		n = 1
 	}
+	logx.Infof("[sshx] 传输并发数已更新: concurrency=%d", n)
 	p.workerCh = make(chan struct{}, n)
 }
 
@@ -146,6 +155,7 @@ func ThrottledCopy(ctx context.Context, dst io.Writer, src io.Reader, pool *Tran
 	limitedSrc := NewRateLimitedReader(ctx, src, pool.Limiter())
 	buf := make([]byte, 64*1024)
 	var total int64
+	start := time.Now()
 
 	for {
 		select {
@@ -164,8 +174,10 @@ func ThrottledCopy(ctx context.Context, dst io.Writer, src io.Reader, pool *Tran
 			if wn != n {
 				return total, io.ErrShortWrite
 			}
+			logx.DebugSampled(transferProgressLog, "[sshx] 限速拷贝进度: bytes=%d", total)
 		}
 		if rerr == io.EOF {
+			logx.Infof("[sshx] 限速拷贝完成: bytes=%d elapsed=%s", total, time.Since(start))
 			return total, nil
 		}
 		if rerr != nil {
@@ -176,11 +188,11 @@ func ThrottledCopy(ctx context.Context, dst io.Writer, src io.Reader, pool *Tran
 
 // ProgressWriter 进度上报写入器，每 100ms 限频上报。
 type ProgressWriter struct {
-	writer     io.Writer
-	total      int64
+	writer      io.Writer
+	total       int64
 	transferred int64
-	onProgress func(transferred int64, total int64)
-	lastReport time.Time
+	onProgress  func(transferred int64, total int64)
+	lastReport  time.Time
 }
 
 // NewProgressWriter 创建进度上报写入器。
@@ -201,6 +213,11 @@ func (pw *ProgressWriter) Write(p []byte) (int, error) {
 		if pw.onProgress != nil && time.Since(pw.lastReport) > 100*time.Millisecond {
 			pw.onProgress(pw.transferred, pw.total)
 			pw.lastReport = time.Now()
+			// 只记累计字节与百分比，不记任何内容。
+			if pw.total > 0 {
+				logx.DebugSampled(transferProgressLog, "[sshx] 写出进度: transferred=%d total=%d pct=%d%%",
+					pw.transferred, pw.total, pw.transferred*100/pw.total)
+			}
 		}
 	}
 	return n, err

@@ -20,7 +20,8 @@ import (
 //
 // 若确实需要 CDP，可对 Wails 打补丁（go.mod replace）后再在此处注入。
 func ApplyDebugBrowserArgs(_ *options.App, boot DebugBoot) {
+	logx.Debugf("[apphost] 应用 WebView2 调试参数: enabled=%v cdpEnabled=%v", boot.Enabled, boot.CDPEnabled)
 	if boot.Enabled && boot.CDPEnabled {
-		logx.Infof("提示：WebView2 远程调试（CDP）在 Wails v2.13 下无法注入，已改用调试 API（/v1/eval）")
+		logx.Warnf("[apphost] WebView2 远程调试（CDP）在 Wails v2.13 下无法注入，已改用调试 API（/v1/eval）")
 	}
 }

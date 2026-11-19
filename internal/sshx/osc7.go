@@ -6,8 +6,19 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"ding-ssh/internal/logx"
+)
+
+// 目录解析在每个终端输出块上都会执行，命中日志必须采样限流：
+// prompt 命中极其频繁（每块输出都可能命中同一提示符），单独一个采样器；
+// OSC 7 / OSC 3008 / cd 回显用一个采样器即可。
+var (
+	promptMatchLog = logx.NewSampler(0, 2*time.Second)
+	oscMatchLog    = logx.NewSampler(0, 2*time.Second)
 )
 
 // ParseDirFromOutput 从终端输出中提取当前工作目录。
@@ -131,6 +142,7 @@ func ParseOSC7(data []byte) (string, bool) {
 	if p == "" {
 		return "", false
 	}
+	logx.DebugSampled(oscMatchLog, "[sshx] 解析到 OSC 7 目录: path=%s matches=%d", p, len(matches))
 	return p, true
 }
 
@@ -148,6 +160,7 @@ func ParseOSC3008(data []byte) (string, bool) {
 	if p == "" {
 		return "", false
 	}
+	logx.DebugSampled(oscMatchLog, "[sshx] 解析到 OSC 3008 目录: path=%s matches=%d", p, len(matches))
 	return p, true
 }
 
@@ -162,6 +175,7 @@ func ParsePrompt(data []byte) (string, bool) {
 		}
 		p := normalizeRemotePath(m[1])
 		if p != "" {
+			logx.DebugSampled(promptMatchLog, "[sshx] 解析到提示符目录: path=%s", p)
 			return p, true
 		}
 	}
@@ -191,6 +205,7 @@ func ParseCdFromOutput(data []byte) (string, bool) {
 	if m := cdPromptPattern.FindAllStringSubmatch(tail, -1); len(m) > 0 {
 		arg := firstArg(m[len(m)-1][1])
 		if arg != "" {
+			logx.DebugSampled(oscMatchLog, "[sshx] 解析到 cd 回显(提示符): target=%s", arg)
 			return arg, true
 		}
 	}

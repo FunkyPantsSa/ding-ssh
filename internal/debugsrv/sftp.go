@@ -47,6 +47,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"ding-ssh/internal/logx"
 )
 
 // ---- op / 工具名（工具名即 op 名，与 ui.go / appctl_register.go 同一约定）----
@@ -162,6 +164,15 @@ const (
 	// terminalBusyMessage 并发调用同一会话时的中文拒绝原因（见 acquireTerminal）。
 	terminalBusyMessage = "已被另一个 terminal.run / terminal.expect 占用"
 )
+
+// ---- 日志（tag 细分 [debugsrv/sftp]）----
+//
+// 只记路径 / 字节数 / 条目数 / 耗时；绝不记文件内容、终端命令正文与终端输出正文
+// （输出用 outputBytes= 表达体积）。
+
+// terminalChunkLog 终端输出「逐块」进度日志的限流器（每 256 块或每 2s 至多一条）。
+// 终端输出是高频路径，禁止每块一条。
+var terminalChunkLog = logx.NewSampler(256, 2*time.Second)
 
 // reTerminalEscape 终端里需要从「可见文本」中剔除的转义序列：
 //
@@ -311,14 +322,17 @@ func (s *Server) sftpAllowlist() []string {
 func (s *Server) sftpRequireWritePath(label, raw string) (string, error) {
 	p, err := NormalizeRemotePath(raw)
 	if err != nil {
+		logx.Warnf("[debugsrv/sftp] 远端写路径被拒绝: label=%s path=%q err=%v", label, raw, err)
 		return "", fmt.Errorf("%s：%w", label, err)
 	}
 	allow := s.sftpAllowlist()
 	if len(allow) == 0 {
+		logx.Warnf("[debugsrv/sftp] 远端写操作被拒绝（白名单为空）: label=%s path=%q", label, p)
 		return "", fmt.Errorf("远端写操作被拒绝（%s=%s）：远端写入白名单为空 —— 白名单留空 = 禁止一切 SFTP 写入 / 删除 / 改名 / 目录同步。"+
 			"请在 设置 → 调试模式 → MCP 能力 →「远端文件写入」的白名单里填写允许的路径前缀（例如 /srv/app），再重试", label, p)
 	}
 	if !SFTPPathAllowed(allow, p) {
+		logx.Warnf("[debugsrv/sftp] 远端路径不在写入白名单内: label=%s path=%q allowlist=%d", label, p, len(allow))
 		return "", fmt.Errorf("远端路径 %q 不在写入白名单内（%s）：白名单按路径段前缀匹配，/srv/app 放行 /srv/app 与 /srv/app/x，"+
 			"但**不放行** /srv/app-evil；当前白名单：%s。请在 设置 → 调试模式 → MCP 能力 中调整白名单",
 			p, label, strings.Join(allow, "、"))
@@ -345,6 +359,7 @@ func (s *Server) preflightToolArgs(name string, args map[string]any) error {
 	if !ok {
 		return nil
 	}
+	logx.Debugf("[debugsrv/sftp] 写操作参数预检开始: tool=%s paths=%d", name, len(keys))
 	for _, k := range keys {
 		v := appctlString(args, k)
 		if v == "" {
@@ -383,6 +398,7 @@ func sftpWriteContent(args map[string]any) ([]byte, error) {
 			return nil, fmt.Errorf("%w: base64 解码失败：%v", ErrBadInput, err)
 		}
 		if len(data) > sftpWriteMaxBytes {
+			logx.Warnf("[debugsrv/sftp] 写入内容超过上限被拒绝: bytes=%d max=%d", len(data), sftpWriteMaxBytes)
 			return nil, fmt.Errorf("写入内容过大：%d 字节超过上限 %d 字节（可分片写入，或用 append=true 追加）", len(data), sftpWriteMaxBytes)
 		}
 		return data, nil
@@ -404,6 +420,7 @@ func sftpWriteContent(args map[string]any) ([]byte, error) {
 		data = decoded
 	}
 	if len(data) > sftpWriteMaxBytes {
+		logx.Warnf("[debugsrv/sftp] 写入内容超过上限被拒绝: bytes=%d max=%d", len(data), sftpWriteMaxBytes)
 		return nil, fmt.Errorf("写入内容过大：%d 字节超过上限 %d 字节（可分片写入，或用 append=true 追加）", len(data), sftpWriteMaxBytes)
 	}
 	return data, nil
@@ -601,6 +618,7 @@ func (s *Server) handleSftpOp(ctx context.Context, name string, args map[string]
 	case OpSftpCancel:
 		out, err = s.sftpCancel(ctx, args)
 	default:
+		logx.Errorf("[debugsrv/sftp] 未知 SFTP 工具: tool=%s", name)
 		return nil, fmt.Errorf("未知工具: %s", name)
 	}
 	if err != nil {
@@ -624,6 +642,7 @@ func (s *Server) handleTerminalAutomationOp(ctx context.Context, name string, ar
 		// sudo 凭证提权（M10）：实现在 sudo.go，与上面两个工具共用同一份会话串行化名额。
 		out, err = s.terminalSudo(ctx, args)
 	default:
+		logx.Errorf("[debugsrv/sftp] 未知终端自动化工具: tool=%s", name)
 		return nil, fmt.Errorf("未知工具: %s", name)
 	}
 	if err != nil {
@@ -636,10 +655,12 @@ func (s *Server) handleTerminalAutomationOp(ctx context.Context, name string, ar
 func sftpMCPText(v any) ([]any, error) {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
+		logx.Errorf("[debugsrv/sftp] 序列化返回结果失败: err=%v", err)
 		return nil, fmt.Errorf("序列化结果失败: %w", err)
 	}
 	text := string(b)
 	if len(text) > sftpMaxTextBytes {
+		logx.Warnf("[debugsrv/sftp] 返回结果超过文本上限，已截断: bytes=%d max=%d", len(text), sftpMaxTextBytes)
 		text = text[:sftpMaxTextBytes] +
 			fmt.Sprintf("\n…（结果超过 %d 字节上限，已截断：请用更小的 maxBytes / limit，或分片读取）", sftpMaxTextBytes)
 	}
@@ -655,6 +676,7 @@ func sftpSessionArg(args map[string]any) (string, error) {
 		sess = appctlString(args, "id")
 	}
 	if sess == "" {
+		logx.Warnf("[debugsrv/sftp] 缺少 sessionId（SSH 会话 id）")
 		return "", fmt.Errorf("%w: 缺少 sessionId（SSH 会话 id，见 list_terminals）", ErrBadInput)
 	}
 	return sess, nil
@@ -667,6 +689,7 @@ func sftpIntArg(args map[string]any, key string, def, min, max int) (int, error)
 		return def, nil
 	}
 	if v < min || v > max {
+		logx.Warnf("[debugsrv/sftp] 数值参数越界被拒绝: key=%s value=%d range=%d-%d", key, v, min, max)
 		return 0, fmt.Errorf("%w: %s 取值 %d 越界（允许范围 %d–%d）", ErrBadInput, key, v, min, max)
 	}
 	return v, nil
@@ -675,8 +698,10 @@ func sftpIntArg(args map[string]any, key string, def, min, max int) (int, error)
 // callSFTPHost 调宿主 op 并把返回值归一成 JSON 形状的 map。
 func (s *Server) callSFTPHost(ctx context.Context, op string, args map[string]any) (map[string]any, error) {
 	if s.opts.Handler == nil {
+		logx.Warnf("[debugsrv/sftp] 调用宿主失败（调试服务未就绪）: op=%s", op)
 		return nil, errors.New("调试服务未就绪")
 	}
+	logx.Debugf("[debugsrv/sftp] 调用宿主 op: op=%s args=%d", op, len(args))
 	raw, err := json.Marshal(args)
 	if err != nil {
 		return nil, fmt.Errorf("序列化 %s 入参失败: %w", op, err)
@@ -736,6 +761,7 @@ func truncateStringBytes(s string, max int) (string, bool) {
 
 // A1 sftp.list
 func (s *Server) sftpList(ctx context.Context, args map[string]any) (any, error) {
+	start := time.Now()
 	sess, err := sftpSessionArg(args)
 	if err != nil {
 		return nil, err
@@ -752,12 +778,14 @@ func (s *Server) sftpList(ctx context.Context, args map[string]any) (any, error)
 	if err != nil {
 		return nil, err
 	}
+	logx.Debugf("[debugsrv/sftp] 列目录开始: session=%s path=%q offset=%d limit=%d", sess, path, offset, pageSize)
 	// Host sorts the full directory before slicing, so pages have stable order.
 	limit := pageSize + 1
 	raw, err := s.callSFTPHost(ctx, OpSftpList, map[string]any{
 		"sessionId": sess, "path": path, "limit": limit, "offset": offset,
 	})
 	if err != nil {
+		logx.Errorf("[debugsrv/sftp] 列目录失败: session=%s path=%q err=%v", sess, path, err)
 		return nil, err
 	}
 	entriesRaw, _ := raw["entries"].([]any)
@@ -793,6 +821,11 @@ func (s *Server) sftpList(ctx context.Context, args map[string]any) (any, error)
 	if resolved == "" {
 		resolved = path
 	}
+	if truncated {
+		logx.Warnf("[debugsrv/sftp] 目录条目超过单页上限，已截断: session=%s path=%q limit=%d", sess, resolved, pageSize)
+	}
+	logx.Infof("[debugsrv/sftp] 列目录完成: session=%s path=%q count=%d offset=%d truncated=%v elapsed=%s",
+		sess, resolved, len(entries), offset, truncated, time.Since(start))
 	return map[string]any{
 		"sessionId":  sess,
 		"path":       resolved,
@@ -807,6 +840,7 @@ func (s *Server) sftpList(ctx context.Context, args map[string]any) (any, error)
 
 // A2 sftp.stat
 func (s *Server) sftpStat(ctx context.Context, args map[string]any) (any, error) {
+	start := time.Now()
 	sess, err := sftpSessionArg(args)
 	if err != nil {
 		return nil, err
@@ -815,8 +849,10 @@ func (s *Server) sftpStat(ctx context.Context, args map[string]any) (any, error)
 	if path == "" {
 		return nil, fmt.Errorf("%w: 缺少 path", ErrBadInput)
 	}
+	logx.Debugf("[debugsrv/sftp] 读取属性开始: session=%s path=%q", sess, path)
 	raw, err := s.callSFTPHost(ctx, OpSftpStat, map[string]any{"sessionId": sess, "path": path})
 	if err != nil {
+		logx.Errorf("[debugsrv/sftp] 读取属性失败: session=%s path=%q err=%v", sess, path, err)
 		return nil, err
 	}
 	out := map[string]any{
@@ -834,12 +870,16 @@ func (s *Server) sftpStat(ctx context.Context, args map[string]any) (any, error)
 	if target := hostStr(raw, "target"); target != "" {
 		out["target"] = target
 		out["targetIsDir"] = hostBool(raw, "targetIsDir")
+		logx.Debugf("[debugsrv/sftp] 符号链接目标: session=%s path=%q target=%q", sess, path, target)
 	}
+	logx.Infof("[debugsrv/sftp] 读取属性完成: session=%s path=%q isDir=%v size=%v elapsed=%s",
+		sess, out["path"], out["isDir"], out["size"], time.Since(start))
 	return out, nil
 }
 
 // A3 sftp.read
 func (s *Server) sftpRead(ctx context.Context, args map[string]any) (any, error) {
+	start := time.Now()
 	sess, err := sftpSessionArg(args)
 	if err != nil {
 		return nil, err
@@ -866,10 +906,13 @@ func (s *Server) sftpRead(ctx context.Context, args map[string]any) (any, error)
 	if offset < 0 || offset > sftpMaxOffset {
 		return nil, fmt.Errorf("%w: offset 取值 %d 越界（允许 0–%d）", ErrBadInput, offset, sftpMaxOffset)
 	}
+	logx.Debugf("[debugsrv/sftp] 读取文件开始: session=%s path=%q offset=%d maxBytes=%d encoding=%s",
+		sess, path, offset, maxBytes, encoding)
 	raw, err := s.callSFTPHost(ctx, OpSftpRead, map[string]any{
 		"sessionId": sess, "path": path, "offset": offset, "maxBytes": maxBytes,
 	})
 	if err != nil {
+		logx.Errorf("[debugsrv/sftp] 读取文件失败: session=%s path=%q err=%v", sess, path, err)
 		return nil, err
 	}
 	if hostBool(raw, "isDir") {
@@ -878,6 +921,7 @@ func (s *Server) sftpRead(ctx context.Context, args map[string]any) (any, error)
 	dataB64 := hostStr(raw, "data")
 	data, decErr := base64.StdEncoding.DecodeString(dataB64)
 	if decErr != nil {
+		logx.Errorf("[debugsrv/sftp] 读取文件结果解码失败: session=%s path=%q err=%v", sess, path, decErr)
 		return nil, fmt.Errorf("读取结果解码失败（宿主返回的 data 不是合法 base64）: %v", decErr)
 	}
 	sum := sha256.Sum256(data)
@@ -900,6 +944,8 @@ func (s *Server) sftpRead(ctx context.Context, args map[string]any) (any, error)
 	} else {
 		out["content"] = string(data)
 	}
+	logx.Infof("[debugsrv/sftp] 读取文件完成: session=%s path=%q bytes=%d offset=%d truncated=%v elapsed=%s",
+		sess, resolved, len(data), offset, out["truncated"], time.Since(start))
 	return out, nil
 }
 
@@ -909,6 +955,7 @@ func (s *Server) sftpRead(ctx context.Context, args map[string]any) (any, error)
 // direction / name / transferred / total / done / error，Hub 又保留最近 300 条，
 // 足够还原「进行中 / 刚结束」的传输列表；M8 只是把它读出来，不再新开一条推送通道。
 func (s *Server) sftpTransfers(args map[string]any) any {
+	start := time.Now()
 	sess := appctlString(args, "sessionId")
 	limit := 50
 	if v, has := appctlInt(args, "limit"); has && v > 0 {
@@ -917,10 +964,12 @@ func (s *Server) sftpTransfers(args map[string]any) any {
 	if limit > 200 {
 		limit = 200
 	}
+	logx.Debugf("[debugsrv/sftp] 读取传输列表开始: session=%s limit=%d", sess, limit)
 	items := s.transferSnapshots(sess)
 	if len(items) > limit {
 		items = items[:limit]
 	}
+	logx.Infof("[debugsrv/sftp] 读取传输列表完成: session=%s count=%d elapsed=%s", sess, len(items), time.Since(start))
 	return map[string]any{
 		"count":     len(items),
 		"transfers": items,
@@ -1036,6 +1085,7 @@ func ParseTransferID(id string) (sessionID, direction, name string, err error) {
 
 // sftpWrite 写入远端文件。
 func (s *Server) sftpWrite(ctx context.Context, args map[string]any) (any, error) {
+	start := time.Now()
 	sess, err := sftpSessionArg(args)
 	if err != nil {
 		return nil, err
@@ -1051,28 +1101,35 @@ func (s *Server) sftpWrite(ctx context.Context, args map[string]any) (any, error
 	if err != nil {
 		return nil, err
 	}
+	appendMode := appctlBool(args, "append")
+	logx.Debugf("[debugsrv/sftp] 写入文件开始: session=%s path=%q bytes=%d append=%v createDirs=%v",
+		sess, path, len(data), appendMode, appctlBool(args, "createDirs"))
 	raw, err := s.callSFTPHost(ctx, OpSftpWrite, map[string]any{
 		"sessionId":  sess,
 		"path":       path,
 		"base64":     base64.StdEncoding.EncodeToString(data),
 		"createDirs": appctlBool(args, "createDirs"),
-		"append":     appctlBool(args, "append"),
+		"append":     appendMode,
 	})
 	if err != nil {
+		logx.Errorf("[debugsrv/sftp] 写入文件失败: session=%s path=%q bytes=%d err=%v", sess, path, len(data), err)
 		return nil, err
 	}
+	logx.Infof("[debugsrv/sftp] 写入文件完成: session=%s path=%q bytes=%d append=%v elapsed=%s",
+		sess, path, len(data), appendMode, time.Since(start))
 	return map[string]any{
 		"ok":        true,
 		"sessionId": sess,
 		"path":      firstNonEmpty(hostStr(raw, "path"), path),
 		"bytes":     len(data),
-		"append":    appctlBool(args, "append"),
+		"append":    appendMode,
 		"note":      "写入成功（远端改动不可撤销，无法通过审计「撤销」回滚）",
 	}, nil
 }
 
 // sftpMkdir 创建远端目录。
 func (s *Server) sftpMkdir(ctx context.Context, args map[string]any) (any, error) {
+	start := time.Now()
 	sess, err := sftpSessionArg(args)
 	if err != nil {
 		return nil, err
@@ -1085,12 +1142,16 @@ func (s *Server) sftpMkdir(ctx context.Context, args map[string]any) (any, error
 		return nil, err
 	}
 	recursive := appctlBool(args, "recursive")
+	logx.Debugf("[debugsrv/sftp] 创建目录开始: session=%s path=%q recursive=%v", sess, path, recursive)
 	raw, err := s.callSFTPHost(ctx, OpSftpMkdir, map[string]any{
 		"sessionId": sess, "path": path, "recursive": recursive,
 	})
 	if err != nil {
+		logx.Errorf("[debugsrv/sftp] 创建目录失败: session=%s path=%q err=%v", sess, path, err)
 		return nil, err
 	}
+	logx.Infof("[debugsrv/sftp] 创建目录完成: session=%s path=%q recursive=%v elapsed=%s",
+		sess, path, recursive, time.Since(start))
 	return map[string]any{
 		"ok":        true,
 		"sessionId": sess,
@@ -1101,6 +1162,7 @@ func (s *Server) sftpMkdir(ctx context.Context, args map[string]any) (any, error
 
 // sftpRename 重命名 / 移动远端路径（from 与 to 都要过白名单）。
 func (s *Server) sftpRename(ctx context.Context, args map[string]any) (any, error) {
+	start := time.Now()
 	sess, err := sftpSessionArg(args)
 	if err != nil {
 		return nil, err
@@ -1117,12 +1179,16 @@ func (s *Server) sftpRename(ctx context.Context, args map[string]any) (any, erro
 		return nil, err
 	}
 	if from == to {
+		logx.Warnf("[debugsrv/sftp] 重命名被拒绝: session=%s from 与 to 相同 path=%q", sess, from)
 		return nil, fmt.Errorf("%w: from 与 to 相同（%s），无需重命名", ErrBadInput, from)
 	}
+	logx.Debugf("[debugsrv/sftp] 重命名开始: session=%s from=%q to=%q", sess, from, to)
 	raw, err := s.callSFTPHost(ctx, OpSftpRename, map[string]any{"sessionId": sess, "from": from, "to": to})
 	if err != nil {
+		logx.Errorf("[debugsrv/sftp] 重命名失败: session=%s from=%q to=%q err=%v", sess, from, to, err)
 		return nil, err
 	}
+	logx.Infof("[debugsrv/sftp] 重命名完成: session=%s from=%q to=%q elapsed=%s", sess, from, to, time.Since(start))
 	return map[string]any{
 		"ok":        true,
 		"sessionId": sess,
@@ -1133,6 +1199,7 @@ func (s *Server) sftpRename(ctx context.Context, args map[string]any) (any, erro
 
 // sftpRemove 删除远端文件或目录。
 func (s *Server) sftpRemove(ctx context.Context, args map[string]any) (any, error) {
+	start := time.Now()
 	sess, err := sftpSessionArg(args)
 	if err != nil {
 		return nil, err
@@ -1145,12 +1212,16 @@ func (s *Server) sftpRemove(ctx context.Context, args map[string]any) (any, erro
 		return nil, err
 	}
 	recursive := appctlBool(args, "recursive")
+	logx.Debugf("[debugsrv/sftp] 删除开始: session=%s path=%q recursive=%v", sess, path, recursive)
 	raw, err := s.callSFTPHost(ctx, OpSftpRemove, map[string]any{
 		"sessionId": sess, "path": path, "recursive": recursive,
 	})
 	if err != nil {
+		logx.Errorf("[debugsrv/sftp] 删除失败: session=%s path=%q recursive=%v err=%v", sess, path, recursive, err)
 		return nil, err
 	}
+	logx.Infof("[debugsrv/sftp] 删除完成: session=%s path=%q recursive=%v elapsed=%s",
+		sess, path, recursive, time.Since(start))
 	return map[string]any{
 		"ok":        true,
 		"sessionId": sess,
@@ -1162,6 +1233,7 @@ func (s *Server) sftpRemove(ctx context.Context, args map[string]any) (any, erro
 
 // sftpSyncCwd 把 SFTP 面板的当前目录切到 remotePath（非破坏性，但同属写类：需要能力位 + 白名单 + 确认）。
 func (s *Server) sftpSyncCwd(ctx context.Context, args map[string]any) (any, error) {
+	start := time.Now()
 	sess, err := sftpSessionArg(args)
 	if err != nil {
 		return nil, err
@@ -1179,10 +1251,13 @@ func (s *Server) sftpSyncCwd(ctx context.Context, args map[string]any) (any, err
 	if err != nil {
 		return nil, err
 	}
+	logx.Debugf("[debugsrv/sftp] 目录同步开始: session=%s path=%q", sess, path)
 	raw, err := s.callSFTPHost(ctx, OpSftpSyncCwd, map[string]any{"sessionId": sess, "remotePath": path})
 	if err != nil {
+		logx.Errorf("[debugsrv/sftp] 目录同步失败: session=%s path=%q err=%v", sess, path, err)
 		return nil, err
 	}
+	logx.Infof("[debugsrv/sftp] 目录同步完成: session=%s path=%q elapsed=%s", sess, path, time.Since(start))
 	return map[string]any{
 		"ok":        true,
 		"sessionId": sess,
@@ -1201,11 +1276,15 @@ func (s *Server) sftpCancel(ctx context.Context, args map[string]any) (any, erro
 	if err != nil {
 		return nil, err
 	}
+	logx.Debugf("[debugsrv/sftp] 取消传输开始: transferId=%q session=%s direction=%s", id, sess, direction)
 	if _, err := s.callSFTPHost(ctx, OpSftpCancel, map[string]any{
 		"sessionId": sess, "direction": direction, "name": name,
 	}); err != nil {
+		logx.Errorf("[debugsrv/sftp] 取消传输失败: transferId=%q session=%s err=%v", id, sess, err)
 		return nil, err
 	}
+	logx.Infof("[debugsrv/sftp] 取消传输完成: transferId=%q session=%s direction=%s name=%q",
+		id, sess, direction, name)
 	return map[string]any{
 		"ok":         true,
 		"transferId": id,
@@ -1291,6 +1370,7 @@ func parseTerminalArgs(args map[string]any, pattern string, needPattern bool) (t
 	out := terminalArgs{}
 	id := appctlString(args, "id")
 	if id == "" {
+		logx.Warnf("[debugsrv/sftp] 终端自动化被拒绝: 缺少 id（终端 id）")
 		return out, fmt.Errorf("%w: 缺少 id（终端 id，见 list_terminals）", ErrBadInput)
 	}
 	out.sessionID = id
@@ -1319,6 +1399,7 @@ func parseTerminalArgs(args map[string]any, pattern string, needPattern bool) (t
 
 // terminalRun 实现 terminal.run。
 func (s *Server) terminalRun(ctx context.Context, args map[string]any) (any, error) {
+	start := time.Now()
 	command := appctlString(args, "command")
 	if command == "" {
 		return nil, fmt.Errorf("%w: 缺少 command", ErrBadInput)
@@ -1338,14 +1419,18 @@ func (s *Server) terminalRun(ctx context.Context, args map[string]any) (any, err
 	if s.opts.Hub == nil {
 		return nil, errors.New("事件流未启用（Hub 为空），无法捕获终端输出")
 	}
+	wrap := appctlBool(args, "wrapExitMarker")
+	logx.Debugf("[debugsrv/sftp] 执行终端命令开始: terminal=%s commandBytes=%d timeoutMs=%d expect=%v wrapExitMarker=%v maxBytes=%d",
+		ta.sessionID, len(command), ta.timeout.Milliseconds(), expect != "", wrap, ta.maxBytes)
 	// wrapExitMarker 的语义是「我要退出码」：未给 expect 时自动等到退出码标记出现，
 	// 而不是靠「输出静默」猜命令是否跑完。
 	// 注意匹配 __DING_EXIT__[0-9]+ 而不是 __DING_EXIT__：后者会先命中**命令行回显**
 	//（回显里是字面量 __DING_EXIT__%s，没有数字）。
-	if wrap := appctlBool(args, "wrapExitMarker"); wrap && ta.pattern == nil {
+	if wrap && ta.pattern == nil {
 		ta.pattern = reExitMarkerCode
 	}
 	if !s.acquireTerminal(ta.sessionID) {
+		logx.Warnf("[debugsrv/sftp] 执行终端命令被拒绝（会话已被占用）: terminal=%s", ta.sessionID)
 		return nil, terminalBusyError(ta.sessionID)
 	}
 	defer s.releaseTerminal(ta.sessionID)
@@ -1354,7 +1439,6 @@ func (s *Server) terminalRun(ctx context.Context, args map[string]any) (any, err
 	hubID, ch := s.opts.Hub.Subscribe(TerminalOutputTopic)
 	defer s.opts.Hub.Unsubscribe(hubID)
 
-	wrap := appctlBool(args, "wrapExitMarker")
 	sent := command
 	if wrap {
 		sent = wrapExitCommand(command)
@@ -1363,6 +1447,7 @@ func (s *Server) terminalRun(ctx context.Context, args map[string]any) (any, err
 		sent += "\r"
 	}
 	if _, err := s.callSFTPHost(ctx, OpTerminalInput, map[string]any{"id": ta.sessionID, "data": sent}); err != nil {
+		logx.Errorf("[debugsrv/sftp] 向终端发送命令失败: terminal=%s err=%v", ta.sessionID, err)
 		return nil, fmt.Errorf("向终端 %s 发送命令失败：%w", ta.sessionID, err)
 	}
 
@@ -1423,6 +1508,8 @@ func (s *Server) terminalRun(ctx context.Context, args map[string]any) (any, err
 	case wait.reason == "timeout":
 		res["hint"] = fmt.Sprintf("expect 在 %dms 内未命中（不是协议错误）：已返回捕获到的输出；命令可能仍在执行 —— "+
 			"可加大 timeoutMs、改成更宽松的正则，或先用 terminal.expect 继续等。", ta.timeout.Milliseconds())
+		logx.Warnf("[debugsrv/sftp] 终端等待超时: terminal=%s timeoutMs=%d outputBytes=%d",
+			ta.sessionID, ta.timeout.Milliseconds(), outputBytes)
 	case wait.reason == "closed":
 		res["hint"] = "事件流已关闭（会话可能已断开），返回的是断开前捕获到的输出。"
 	case wait.reason == "canceled":
@@ -1435,12 +1522,17 @@ func (s *Server) terminalRun(ctx context.Context, args map[string]any) (any, err
 		res["droppedOutput"] = true
 		res["droppedHint"] = fmt.Sprintf("输出量超过单次捕获上限（%d 字节），超出部分的输出已被丢弃；"+
 			"建议改用更精确的命令，或分多次 terminal.expect 读取", terminalRawLimit)
+		logx.Warnf("[debugsrv/sftp] 终端输出超过单次捕获上限，已丢弃后续输出: terminal=%s limitBytes=%d",
+			ta.sessionID, terminalRawLimit)
 	}
+	logx.Infof("[debugsrv/sftp] 执行终端命令完成: terminal=%s matched=%v reason=%s outputBytes=%d truncated=%v elapsed=%s",
+		ta.sessionID, matched, wait.reason, outputBytes, truncated, time.Since(start))
 	return res, nil
 }
 
 // terminalExpect 实现 terminal.expect（不发送任何数据）。
 func (s *Server) terminalExpect(ctx context.Context, args map[string]any) (any, error) {
+	start := time.Now()
 	pattern := appctlString(args, "pattern")
 	ta, err := parseTerminalArgs(args, pattern, true)
 	if err != nil {
@@ -1449,7 +1541,10 @@ func (s *Server) terminalExpect(ctx context.Context, args map[string]any) (any, 
 	if s.opts.Hub == nil {
 		return nil, errors.New("事件流未启用（Hub 为空），无法捕获终端输出")
 	}
+	logx.Debugf("[debugsrv/sftp] 终端等待开始: terminal=%s patternBytes=%d timeoutMs=%d",
+		ta.sessionID, len(pattern), ta.timeout.Milliseconds())
 	if !s.acquireTerminal(ta.sessionID) {
+		logx.Warnf("[debugsrv/sftp] 终端等待被拒绝（会话已被占用）: terminal=%s", ta.sessionID)
 		return nil, terminalBusyError(ta.sessionID)
 	}
 	defer s.releaseTerminal(ta.sessionID)
@@ -1483,7 +1578,11 @@ func (s *Server) terminalExpect(ctx context.Context, args map[string]any) (any, 
 	} else {
 		res["hint"] = fmt.Sprintf("pattern 在 %dms 内未命中（不是协议错误）：已返回本次等待期间捕获的输出。"+
 			"可加大 timeoutMs 或放宽正则后重试。", ta.timeout.Milliseconds())
+		logx.Warnf("[debugsrv/sftp] 终端等待超时（pattern 未命中）: terminal=%s timeoutMs=%d outputBytes=%d",
+			ta.sessionID, ta.timeout.Milliseconds(), outputBytes)
 	}
+	logx.Infof("[debugsrv/sftp] 终端等待完成: terminal=%s matched=%v outputBytes=%d elapsed=%s",
+		ta.sessionID, wait.matched, outputBytes, time.Since(start))
 	return res, nil
 }
 
@@ -1577,6 +1676,9 @@ func (s *Server) waitTerminal(
 				continue
 			}
 			text.push(chunk)
+			// 逐块进度属高频路径：用采样器限流（每 256 块或每 2s 至多一条），只记体积。
+			logx.DebugSampled(terminalChunkLog, "[debugsrv/sftp] 终端输出分块: terminal=%s chunkBytes=%d accumulatedRaw=%d",
+				id, len(chunk), text.rawLen)
 			matched := match()
 			if idleTimer != nil {
 				// 真实输出出现前保持更宽的宽限（命令回显不重置成短窗口）。
@@ -1965,7 +2067,12 @@ func SftpCwdResourceURI(sessionID string) string { return "sftp://" + sessionID 
 func (s *Server) mcpReadSFTPResource(ctx context.Context, uri string) (string, error) {
 	switch {
 	case uri == TransfersResourceURI:
-		return sftpResourceJSON(s.sftpTransfers(map[string]any{"limit": 50}))
+		out, err := sftpResourceJSON(s.sftpTransfers(map[string]any{"limit": 50}))
+		if err != nil {
+			logx.Errorf("[debugsrv/sftp] 读取 SFTP 资源失败: uri=%s err=%v", uri, err)
+			return "", err
+		}
+		return out, nil
 	case strings.HasPrefix(uri, "sftp://"):
 		rest := strings.TrimPrefix(uri, "sftp://")
 		id := strings.TrimSuffix(rest, "/cwd")
@@ -1974,10 +2081,17 @@ func (s *Server) mcpReadSFTPResource(ctx context.Context, uri string) (string, e
 		}
 		summary, err := s.sftpCwdSummary(ctx, id)
 		if err != nil {
+			logx.Errorf("[debugsrv/sftp] 读取 SFTP 资源失败: uri=%s session=%s err=%v", uri, id, err)
 			return "", err
 		}
-		return sftpResourceJSON(summary)
+		out, err := sftpResourceJSON(summary)
+		if err != nil {
+			logx.Errorf("[debugsrv/sftp] 序列化 SFTP 资源失败: uri=%s err=%v", uri, err)
+			return "", err
+		}
+		return out, nil
 	}
+	logx.Errorf("[debugsrv/sftp] 读取 SFTP 资源失败: 未知资源 uri=%s", uri)
 	return "", fmt.Errorf("未知资源: %s", uri)
 }
 
@@ -1998,6 +2112,8 @@ func (s *Server) sftpCwdSummary(ctx context.Context, sessionID string) (map[stri
 	}
 	listed, err := s.sftpList(ctx, map[string]any{"sessionId": sessionID, "path": path})
 	if err != nil {
+		logx.Warnf("[debugsrv/sftp] 读取当前目录摘要失败（会话可能已断开）: session=%s path=%q err=%v",
+			sessionID, path, err)
 		return map[string]any{
 			"sessionId": sessionID, "path": path, "error": err.Error(),
 			"note": "读取目录失败（会话可能已断开，或不是 SSH 会话）",

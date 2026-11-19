@@ -23,6 +23,9 @@ import (
 	"github.com/pkg/sftp"
 )
 
+// 传输进度/分块是高频路径：只允许采样 DEBUG，且只记累计字节与百分比。
+var transferChunkLog = logx.NewSampler(0, 2*time.Second)
+
 // ErrSessionNotFound 会话不存在。
 var ErrSessionNotFound = errors.New(i18n.T("会话不存在"))
 
@@ -48,12 +51,13 @@ type SettingsGetter func() models.Settings
 
 // Manager 会话管理器：维护全部活动的 SSH 会话与隧道。
 type Manager struct {
-	mu       sync.RWMutex
-	sessions map[string]*Session
-	pending  map[string]context.CancelFunc
-	tunnels  map[string]*Tunnel
-	sysinfo  map[string]*SysInfoCollector
-	notify   Notifier
+	mu              sync.RWMutex
+	sessions        map[string]*Session
+	pending         map[string]context.CancelFunc
+	tunnels         map[string]*Tunnel
+	sysinfo         map[string]*SysInfoCollector
+	sysInfoRealtime map[string]bool // 会话级实时刷新覆盖；关闭会话即清除，不写全局设置
+	notify          Notifier
 
 	transfersMu sync.Mutex
 	transfers   map[string][]*activeTransfer // key: sessionID
@@ -65,13 +69,14 @@ type Manager struct {
 // NewManager 创建会话管理器。
 func NewManager(notify Notifier) *Manager {
 	return &Manager{
-		sessions:  make(map[string]*Session),
-		pending:   make(map[string]context.CancelFunc),
-		tunnels:   make(map[string]*Tunnel),
-		sysinfo:   make(map[string]*SysInfoCollector),
-		transfers: make(map[string][]*activeTransfer),
-		notify:    notify,
-		cache:     NewSFTPCacheManager(),
+		sessions:        make(map[string]*Session),
+		pending:         make(map[string]context.CancelFunc),
+		tunnels:         make(map[string]*Tunnel),
+		sysinfo:         make(map[string]*SysInfoCollector),
+		sysInfoRealtime: make(map[string]bool),
+		transfers:       make(map[string][]*activeTransfer),
+		notify:          notify,
+		cache:           NewSFTPCacheManager(),
 	}
 }
 
@@ -90,15 +95,18 @@ func (m *Manager) currentSettings() models.Settings {
 
 // Connect 建立新会话。
 func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows int) error {
-	logx.Debugf("发起 SSH 连接: session=%s server=%s host=%s:%d user=%s",
-		sessionID, node.Name, node.Host, node.Port, node.User)
+	start := time.Now()
+	logx.Debugf("[sshx] 发起 SSH 连接: session=%s server=%s host=%s:%d user=%s auth=%s jumps=%d size=%dx%d",
+		sessionID, node.Name, node.Host, node.Port, node.User, node.AuthType, len(node.JumpServerIDs), cols, rows)
 	m.mu.Lock()
 	if _, ok := m.pending[sessionID]; ok {
 		m.mu.Unlock()
+		logx.Warnf("[sshx] 会话正在连接中，拒绝重复发起: session=%s server=%s", sessionID, node.Name)
 		return fmt.Errorf("%s", i18n.T("会话正在连接"))
 	}
 	if _, ok := m.sessions[sessionID]; ok {
 		m.mu.Unlock()
+		logx.Warnf("[sshx] 会话已存在，拒绝重复发起: session=%s server=%s", sessionID, node.Name)
 		return fmt.Errorf("%s", i18n.T("会话已存在"))
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -126,10 +134,10 @@ func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows i
 		},
 		func(id string, path string) {
 			if !strings.HasPrefix(path, "/") {
-				logx.Debugf("忽略非绝对路径的目录同步: session=%s path=%q", id, path)
+				logx.Debugf("[sshx] 忽略非绝对路径的目录同步: session=%s path=%q", id, path)
 				return
 			}
-			logx.Debugf("推送 sftp:sync-path: session=%s path=%s", id, path)
+			logx.Debugf("[sshx] 推送 sftp:sync-path: session=%s path=%s", id, path)
 			m.notify("sftp:sync-path:"+id, models.DirSyncEvent{
 				SessionID:   id,
 				CurrentPath: path,
@@ -149,19 +157,23 @@ func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows i
 		ctx,
 	)
 	if err != nil {
-		logx.Errorf("SSH 连接失败: session=%s server=%s err=%v", sessionID, node.Name, err)
+		logx.Errorf("[sshx] SSH 连接失败: session=%s server=%s host=%s:%d user=%s elapsed=%s err=%v",
+			sessionID, node.Name, node.Host, node.Port, node.User, time.Since(start), err)
 		return err
 	}
 	m.mu.Lock()
 	if err := ctx.Err(); err != nil {
 		m.mu.Unlock()
+		logx.Debugf("[sshx] 连接建立后已被取消: session=%s elapsed=%s", sessionID, time.Since(start))
 		s.close(models.StatusClosed, i18n.T("连接已取消"))
 		return err
 	}
 	delete(m.pending, sessionID)
 	m.sessions[sessionID] = s
+	sessions := len(m.sessions)
 	m.mu.Unlock()
-	logx.Debugf("SSH 连接成功: session=%s server=%s", sessionID, node.Name)
+	logx.Infof("[sshx] SSH 连接成功: session=%s server=%s host=%s:%d user=%s elapsed=%s activeSessions=%d",
+		sessionID, node.Name, node.Host, node.Port, node.User, time.Since(start), sessions)
 	return nil
 }
 
@@ -173,6 +185,7 @@ func (m *Manager) Write(sessionID string, dataBase64 string) error {
 	}
 	data, err := decodeBase64(dataBase64)
 	if err != nil {
+		logx.Debugf("[sshx] 终端输入解码失败: session=%s length=%d err=%v", sessionID, len(dataBase64), err)
 		return err
 	}
 	return s.Write(data)
@@ -199,10 +212,10 @@ func (m *Manager) Disconnect(sessionID string) error {
 
 	s, err := m.get(sessionID)
 	if err != nil {
-		logx.Errorf("断开会话失败: session=%s err=%v", sessionID, err)
+		logx.Errorf("[sshx] 断开会话失败: session=%s err=%v", sessionID, err)
 		return err
 	}
-	logx.Debugf("用户断开会话: session=%s", sessionID)
+	logx.Infof("[sshx] 用户断开会话: session=%s server=%s", sessionID, s.server.Name)
 	s.close(models.StatusClosed, i18n.T("用户主动断开"))
 	return nil
 }
@@ -213,15 +226,22 @@ func (m *Manager) Reconnect(sessionID string, cols, rows int) error {
 	if err != nil {
 		return err
 	}
-	logx.Debugf("重新连接会话: session=%s", sessionID)
+	logx.Debugf("[sshx] 重新连接会话: session=%s server=%s size=%dx%d", sessionID, s.server.Name, cols, rows)
 	cfg := m.currentSettings()
-	return s.Reconnect(cols, rows, cfg.KeepAliveEnabled)
+	start := time.Now()
+	if err := s.Reconnect(cols, rows, cfg.KeepAliveEnabled); err != nil {
+		logx.Errorf("[sshx] 会话重连失败: session=%s server=%s elapsed=%s err=%v", sessionID, s.server.Name, time.Since(start), err)
+		return err
+	}
+	logx.Infof("[sshx] 会话重连成功: session=%s server=%s elapsed=%s", sessionID, s.server.Name, time.Since(start))
+	return nil
 }
 
 // SetKeepAliveEnabled 动态更新所有会话的心跳开关。
 func (m *Manager) SetKeepAliveEnabled(enabled bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	logx.Infof("[sshx] 心跳检测开关已更新: enabled=%v sessions=%d", enabled, len(m.sessions))
 	for _, s := range m.sessions {
 		s.SetKeepAliveEnabled(enabled)
 	}
@@ -245,9 +265,11 @@ func (m *Manager) SyncSftpToTerminal(sessionID, path string) error {
 		return err
 	}
 	if s.server.JumpServerMode {
+		logx.Warnf("[sshx] JumpServer 模式不支持目录同步到终端: session=%s path=%s", sessionID, path)
 		return fmt.Errorf("JumpServer 模式不支持终端与 SFTP 目录同步")
 	}
 	cmd := "cd " + escapeShellPath(path) + "\n"
+	logx.Infof("[sshx] 目录同步(SFTP→终端): session=%s path=%s", sessionID, path)
 	return s.Write([]byte(cmd))
 }
 
@@ -258,8 +280,10 @@ func (m *Manager) SetSftpPathFromTerminal(sessionID, path string) error {
 		return err
 	}
 	if s.server.JumpServerMode {
+		logx.Debugf("[sshx] JumpServer 模式忽略终端目录同步推送: session=%s path=%s", sessionID, path)
 		return nil
 	}
+	logx.Debugf("[sshx] 终端目录同步已推送: session=%s path=%s", sessionID, path)
 	m.notify("sftp:sync-path:"+sessionID, models.DirSyncEvent{
 		SessionID:   sessionID,
 		CurrentPath: path,
@@ -287,6 +311,7 @@ func (m *Manager) SftpClient(sessionID string) (*sftp.Client, error) {
 	}
 	client, err := s.SftpClient()
 	if err != nil {
+		logx.Warnf("[sshx] 获取会话 SFTP 客户端失败: session=%s err=%v", sessionID, err)
 		return nil, fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
 	return client, nil
@@ -294,17 +319,22 @@ func (m *Manager) SftpClient(sessionID string) (*sftp.Client, error) {
 
 // InvalidateSftpCache 让指定目录的 SWR 缓存失效（M8：AI 写入 / 删除后让面板立刻看到新内容）。
 func (m *Manager) InvalidateSftpCache(path string) {
+	logx.Debugf("[sshx] 手动失效 SFTP 缓存: path=%s", path)
 	m.cache.Invalidate(path)
 }
 
 // SftpList 列出指定会话的远程目录条目。
 func (m *Manager) SftpList(sessionID, path string) ([]models.SFTPEntry, error) {
+	start := time.Now()
+	logx.Debugf("[sshx] 列远程目录: session=%s path=%s", sessionID, path)
 	s, err := m.get(sessionID)
 	if err != nil {
+		logx.Debugf("[sshx] 列出目录失败(会话不存在): session=%s path=%s err=%v", sessionID, path, err)
 		return nil, err
 	}
 	client, err := s.SftpClient()
 	if err != nil {
+		logx.Warnf("[sshx] 列出目录失败(SFTP 不可用): session=%s path=%s err=%v", sessionID, path, err)
 		return nil, fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
 
@@ -346,13 +376,16 @@ func (m *Manager) SftpList(sessionID, path string) ([]models.SFTPEntry, error) {
 	)
 	if result == nil {
 		// 缓存未命中且异步尚未完成，降级为同步读取
+		logx.Debugf("[sshx] 目录缓存未命中，降级为同步读取: session=%s path=%s", sessionID, path)
 		entries, err := readDir(path)
 		if err != nil {
+			logx.Errorf("[sshx] 列出远程目录失败: session=%s path=%s elapsed=%s err=%v", sessionID, path, time.Since(start), err)
 			return nil, err
 		}
 		m.cache.Set(path, entries)
 		result = entries
 	}
+	logx.Debugf("[sshx] 远程目录已列出: session=%s path=%s entries=%d elapsed=%s", sessionID, path, len(result), time.Since(start))
 	return result, nil
 }
 
@@ -366,11 +399,13 @@ func (m *Manager) SftpRename(sessionID, oldPath, newPath string) error {
 	if err != nil {
 		return fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
+	start := time.Now()
 	if err := client.Rename(oldPath, newPath); err != nil {
 		return fmt.Errorf(i18n.T("重命名失败: %w"), err)
 	}
 	m.cache.Invalidate(parentDir(oldPath))
 	m.cache.Invalidate(parentDir(newPath))
+	logx.Infof("[sshx] 远程重命名完成: session=%s old=%s new=%s elapsed=%s", sessionID, oldPath, newPath, time.Since(start))
 	return nil
 }
 
@@ -384,10 +419,12 @@ func (m *Manager) SftpMkdir(sessionID, path string) error {
 	if err != nil {
 		return fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
+	start := time.Now()
 	if err := client.Mkdir(path); err != nil {
 		return fmt.Errorf(i18n.T("创建目录失败: %w"), err)
 	}
 	m.cache.Invalidate(parentDir(path))
+	logx.Infof("[sshx] 远程目录已创建: session=%s path=%s elapsed=%s", sessionID, path, time.Since(start))
 	return nil
 }
 
@@ -401,10 +438,12 @@ func (m *Manager) SftpRemove(sessionID, path string) error {
 	if err != nil {
 		return fmt.Errorf(i18n.T("建立 SFTP 连接失败: %w"), err)
 	}
+	start := time.Now()
 	if err := removeRemote(client, path); err != nil {
 		return fmt.Errorf(i18n.T("删除失败: %w"), err)
 	}
 	m.cache.Invalidate(parentDir(path))
+	logx.Infof("[sshx] 远程路径已删除: session=%s path=%s elapsed=%s", sessionID, path, time.Since(start))
 	return nil
 }
 
@@ -440,6 +479,8 @@ const transferNotifyInterval = 100 * time.Millisecond
 // SftpUpload 上传本地文件到远程路径，过程中通过 sftp:transfer:{sessionID} 上报进度。
 // 传输注册到取消表，用户可通过 SftpCancelTransfer 取消。
 func (m *Manager) SftpUpload(sessionID, localPath, remotePath string) error {
+	start := time.Now()
+	logx.Debugf("[sshx] 开始上传文件: session=%s local=%s remote=%s", sessionID, localPath, remotePath)
 	s, err := m.get(sessionID)
 	if err != nil {
 		return err
@@ -470,18 +511,24 @@ func (m *Manager) SftpUpload(sessionID, localPath, remotePath string) error {
 	err = m.streamTransfer(ctx, sessionID, "upload", name, fi.Size(), src.Read, dst.Write)
 	if err != nil {
 		if errors.Is(err, ErrTransferCancelled) {
+			logx.Warnf("[sshx] 上传已取消: session=%s name=%s elapsed=%s", sessionID, name, time.Since(start))
 			return ErrTransferCancelled // 调用方也必须收到取消结果，避免晚到事件被记作成功
 		}
+		logx.Debugf("[sshx] 上传失败，清理不完整文件: session=%s name=%s remote=%s elapsed=%s err=%v",
+			sessionID, name, remotePath, time.Since(start), err)
 		_ = client.Remove(remotePath) // 清理不完整的上传文件
 		return fmt.Errorf(i18n.T("上传失败: %w"), err)
 	}
 	m.cache.Invalidate(parentDir(remotePath))
+	logx.Infof("[sshx] 上传完成: session=%s name=%s bytes=%d elapsed=%s", sessionID, name, fi.Size(), time.Since(start))
 	return nil
 }
 
 // SftpDownload 下载远程文件到本地路径，过程中通过 sftp:transfer:{sessionID} 上报进度。
 // 传输注册到取消表，用户可通过 SftpCancelTransfer 取消。
 func (m *Manager) SftpDownload(sessionID, remotePath, localPath string) error {
+	start := time.Now()
+	logx.Debugf("[sshx] 开始下载文件: session=%s remote=%s local=%s", sessionID, remotePath, localPath)
 	s, err := m.get(sessionID)
 	if err != nil {
 		return err
@@ -512,13 +559,17 @@ func (m *Manager) SftpDownload(sessionID, remotePath, localPath string) error {
 	err = m.streamTransfer(ctx, sessionID, "download", name, fi.Size(), src.Read, dst.Write)
 	if err != nil {
 		if errors.Is(err, ErrTransferCancelled) {
+			logx.Warnf("[sshx] 下载已取消: session=%s name=%s elapsed=%s", sessionID, name, time.Since(start))
 			_ = os.Remove(localPath)    // 清理不完整的下载文件
 			return ErrTransferCancelled // 调用方也必须收到取消结果
 		}
+		logx.Debugf("[sshx] 下载失败，清理不完整文件: session=%s name=%s local=%s elapsed=%s err=%v",
+			sessionID, name, localPath, time.Since(start), err)
 		_ = os.Remove(localPath) // 清理不完整的下载文件
 		return fmt.Errorf(i18n.T("下载失败: %w"), err)
 	}
 	m.cache.Invalidate(parentDir(remotePath))
+	logx.Infof("[sshx] 下载完成: session=%s name=%s bytes=%d elapsed=%s", sessionID, name, fi.Size(), time.Since(start))
 	return nil
 }
 
@@ -530,6 +581,8 @@ func (m *Manager) SftpDownload(sessionID, remotePath, localPath string) error {
 // 整个文件夹作为**一条**传输记录（name=本地文件夹名）：进度按全部文件的累计字节上报，
 // 取消即取消整个文件夹（与 SftpUpload / SftpDownload 共用取消表与限速器）。
 func (m *Manager) SftpUploadFolder(sessionID, localDir, remoteDir string) error {
+	start := time.Now()
+	logx.Debugf("[sshx] 开始上传文件夹: session=%s local=%s remote=%s", sessionID, localDir, remoteDir)
 	s, err := m.get(sessionID)
 	if err != nil {
 		return err
@@ -612,14 +665,19 @@ func (m *Manager) SftpUploadFolder(sessionID, localDir, remoteDir string) error 
 	uploadErr := m.uploadFolderTree(ctx, client, localDir, root, &transferred)
 	if uploadErr != nil {
 		if errors.Is(uploadErr, ErrTransferCancelled) {
+			logx.Warnf("[sshx] 上传文件夹已取消: session=%s name=%s transferred=%d total=%d elapsed=%s",
+				sessionID, name, transferred.Load(), total, time.Since(start))
 			finish(i18n.T("已取消"))
 			return ErrTransferCancelled // 调用方也必须收到取消结果，避免晚到事件被记作成功
 		}
+		logx.Debugf("[sshx] 上传文件夹失败: session=%s name=%s transferred=%d total=%d elapsed=%s err=%v",
+			sessionID, name, transferred.Load(), total, time.Since(start), uploadErr)
 		finish(uploadErr.Error())
 		return fmt.Errorf(i18n.T("上传文件夹失败: %w"), uploadErr)
 	}
 	finish("")
 	m.cache.Invalidate(parentDir(root))
+	logx.Infof("[sshx] 上传文件夹完成: session=%s name=%s bytes=%d elapsed=%s", sessionID, name, total, time.Since(start))
 	return nil
 }
 
@@ -631,6 +689,8 @@ func (m *Manager) SftpUploadFolder(sessionID, localDir, remoteDir string) error 
 // 整个文件夹作为**一条**传输记录（name=远端文件夹名）：进度按全部文件的累计字节上报，
 // 取消即取消整个文件夹（与 SftpUpload / SftpDownload 共用取消表与限速器）。
 func (m *Manager) SftpDownloadFolder(sessionID, remoteDir, localDir string) error {
+	start := time.Now()
+	logx.Debugf("[sshx] 开始下载文件夹: session=%s remote=%s local=%s", sessionID, remoteDir, localDir)
 	s, err := m.get(sessionID)
 	if err != nil {
 		return err
@@ -714,13 +774,18 @@ func (m *Manager) SftpDownloadFolder(sessionID, remoteDir, localDir string) erro
 	downloadErr := m.downloadFolderTree(ctx, client, remoteDir, localRoot, &transferred)
 	if downloadErr != nil {
 		if errors.Is(downloadErr, ErrTransferCancelled) {
+			logx.Warnf("[sshx] 下载文件夹已取消: session=%s name=%s transferred=%d total=%d elapsed=%s",
+				sessionID, name, transferred.Load(), total, time.Since(start))
 			finish(i18n.T("已取消"))
 			return ErrTransferCancelled // 调用方也必须收到取消结果，避免晚到事件被记作成功
 		}
+		logx.Debugf("[sshx] 下载文件夹失败: session=%s name=%s transferred=%d total=%d elapsed=%s err=%v",
+			sessionID, name, transferred.Load(), total, time.Since(start), downloadErr)
 		finish(downloadErr.Error())
 		return fmt.Errorf(i18n.T("下载文件夹失败: %w"), downloadErr)
 	}
 	finish("")
+	logx.Infof("[sshx] 下载文件夹完成: session=%s name=%s bytes=%d elapsed=%s", sessionID, name, total, time.Since(start))
 	return nil
 }
 
@@ -734,6 +799,9 @@ func remoteDirBytes(client *sftp.Client, root string) (int64, error) {
 		}
 		return nil
 	})
+	if err != nil {
+		return total, err
+	}
 	return total, err
 }
 
@@ -796,6 +864,7 @@ func (m *Manager) downloadFolderTree(ctx context.Context, client *sftp.Client, r
 		if !fi.Mode().IsRegular() {
 			return nil
 		}
+		logx.Debugf("[sshx] 下载文件夹: 下载文件 remote=%s local=%s size=%d", path, localPath, fi.Size())
 		src, err := client.Open(path)
 		if err != nil {
 			return fmt.Errorf(i18n.T("打开远端文件失败: %w"), err)
@@ -869,12 +938,19 @@ func (m *Manager) uploadFolderTree(ctx context.Context, client *sftp.Client, loc
 			if rel == "." {
 				return nil // 远端根目录已由 SftpUploadFolder 创建
 			}
-			return client.MkdirAll(joinRemote(remoteRoot, rel))
+			dir := joinRemote(remoteRoot, rel)
+			logx.Debugf("[sshx] 上传文件夹: 创建远端目录 remote=%s", dir)
+			return client.MkdirAll(dir)
 		}
 		if !d.Type().IsRegular() {
 			return nil
 		}
 		remotePath := joinRemote(remoteRoot, rel)
+		if info, ierr := d.Info(); ierr == nil {
+			logx.Debugf("[sshx] 上传文件夹: 上传文件 local=%s remote=%s size=%d", p, remotePath, info.Size())
+		} else {
+			logx.Debugf("[sshx] 上传文件夹: 上传文件 local=%s remote=%s", p, remotePath)
+		}
 		src, err := os.Open(p)
 		if err != nil {
 			return fmt.Errorf(i18n.T("打开本地文件失败: %w"), err)
@@ -912,6 +988,7 @@ func copyFolderChunk(ctx context.Context, src io.Reader, dst io.Writer, transfer
 	buf := make([]byte, 64*1024)
 	for {
 		if err := ctx.Err(); err != nil {
+			logx.Debugf("[sshx] 文件夹传输已取消: transferred=%d", transferred.Load())
 			return ErrTransferCancelled
 		}
 		n, rerr := src.Read(buf)
@@ -926,6 +1003,8 @@ func copyFolderChunk(ctx context.Context, src io.Reader, dst io.Writer, transfer
 				return werr
 			}
 			transferred.Add(int64(n))
+			// 高频分块路径：只按采样记录累计字节，绝不记录内容。
+			logx.DebugSampled(transferChunkLog, "[sshx] 文件夹传输进度: transferred=%d", transferred.Load())
 		}
 		if rerr == io.EOF {
 			return nil
@@ -1005,8 +1084,11 @@ func (m *Manager) streamTransfer(
 	}
 
 	buf := make([]byte, 64*1024)
+	chunkStart := time.Now()
 	for {
 		if err := ctx.Err(); err != nil {
+			logx.Debugf("[sshx] 流式传输已取消: session=%s direction=%s name=%s transferred=%d total=%d elapsed=%s",
+				sessionID, direction, name, transferred.Load(), total, time.Since(chunkStart))
 			finish(i18n.T("已取消"))
 			return ErrTransferCancelled
 		}
@@ -1021,15 +1103,27 @@ func (m *Manager) streamTransfer(
 				return err
 			}
 			if _, werr := write(buf[:n]); werr != nil {
+				logx.Debugf("[sshx] 流式传输写入失败: session=%s direction=%s name=%s transferred=%d err=%v",
+					sessionID, direction, name, transferred.Load(), werr)
 				finish(werr.Error())
 				return werr
 			}
 			transferred.Add(int64(n))
+			if total > 0 {
+				// 高频分块路径：采样记录百分比，绝不记录内容。
+				logx.DebugSampled(transferChunkLog, "[sshx] 传输进度: session=%s direction=%s name=%s transferred=%d total=%d pct=%d%%",
+					sessionID, direction, name, transferred.Load(), total, transferred.Load()*100/total)
+			} else {
+				logx.DebugSampled(transferChunkLog, "[sshx] 传输进度: session=%s direction=%s name=%s transferred=%d",
+					sessionID, direction, name, transferred.Load())
+			}
 		}
 		if rerr == io.EOF {
 			break
 		}
 		if rerr != nil {
+			logx.Debugf("[sshx] 流式传输读取失败: session=%s direction=%s name=%s transferred=%d elapsed=%s err=%v",
+				sessionID, direction, name, transferred.Load(), time.Since(chunkStart), rerr)
 			finish(rerr.Error())
 			return rerr
 		}
@@ -1043,7 +1137,9 @@ func (m *Manager) registerTransfer(sessionID, direction, name string, cancel con
 	tr := &activeTransfer{id: uuid.NewString(), sessionID: sessionID, direction: direction, name: name, cancel: cancel}
 	m.transfersMu.Lock()
 	m.transfers[sessionID] = append(m.transfers[sessionID], tr)
+	active := len(m.transfers[sessionID])
 	m.transfersMu.Unlock()
+	logx.Debugf("[sshx] 传输已登记: id=%s session=%s direction=%s name=%s active=%d", tr.id, sessionID, direction, name, active)
 	return tr
 }
 
@@ -1084,11 +1180,14 @@ func (m *Manager) SftpCancelTransfer(sessionID, direction, name string) error {
 		}
 	}
 	if len(matches) == 0 {
+		logx.Debugf("[sshx] 取消传输未命中: session=%s direction=%s name=%s", sessionID, direction, name)
 		return fmt.Errorf(i18n.T("没有进行中的传输: direction=%s name=%s"), direction, name)
 	}
 	if len(matches) > 1 {
+		logx.Warnf("[sshx] 取消传输存在同名并发: session=%s direction=%s name=%s matches=%d", sessionID, direction, name, len(matches))
 		return fmt.Errorf("%s", i18n.T("存在同名并发传输，请按任务 ID 精确取消"))
 	}
+	logx.Infof("[sshx] 用户取消传输: session=%s direction=%s name=%s id=%s", sessionID, direction, matches[0].name, matches[0].id)
 	matches[0].cancel()
 	return nil
 }
@@ -1102,6 +1201,7 @@ func (m *Manager) CloseAll() {
 	sessions := make([]*Session, 0, len(m.sessions))
 	tunnels := make([]*Tunnel, 0, len(m.tunnels))
 	collectors := make([]*SysInfoCollector, 0, len(m.sysinfo))
+	pending := len(m.pending)
 	for _, s := range m.sessions {
 		sessions = append(sessions, s)
 	}
@@ -1112,6 +1212,8 @@ func (m *Manager) CloseAll() {
 		collectors = append(collectors, c)
 	}
 	m.mu.RUnlock()
+	logx.Infof("[sshx] 关闭全部会话/隧道/采集器: sessions=%d tunnels=%d collectors=%d pending=%d",
+		len(sessions), len(tunnels), len(collectors), pending)
 	for _, c := range collectors {
 		c.Stop()
 	}
@@ -1134,13 +1236,16 @@ func normalizeTunnelConfig(node models.ServerNode, name, mode string, localPort 
 	switch tm {
 	case TunnelLocal, TunnelRemote, TunnelDynamic, TunnelReverseDynamic:
 	default:
+		logx.Warnf("[sshx] 隧道模式非法: mode=%q", mode)
 		return "", "", "", fmt.Errorf(i18n.T("不支持的隧道模式: %s"), mode)
 	}
 	if tm != TunnelReverseDynamic && (localPort < 1 || localPort > 65535) {
+		logx.Warnf("[sshx] 隧道本地端口非法: mode=%s localPort=%d", tm, localPort)
 		return "", "", "", fmt.Errorf(i18n.T("本地端口无效: %d"), localPort)
 	}
 	if tm != TunnelDynamic {
 		if remotePort < 1 || remotePort > 65535 {
+			logx.Warnf("[sshx] 隧道远程端口非法: mode=%s remotePort=%d", tm, remotePort)
 			return "", "", "", fmt.Errorf(i18n.T("远程端口无效: %d"), remotePort)
 		}
 		if tm == TunnelReverseDynamic || remoteHost == "" {
@@ -1168,6 +1273,7 @@ func tunnelListenHost(mode TunnelMode, hosts []string) (string, error) {
 	}
 	ip, err := netip.ParseAddr(strings.TrimSpace(hosts[0]))
 	if err != nil || ip.IsMulticast() || (ip.Is6() && ip.Unmap().IsUnspecified()) {
+		logx.Warnf("[sshx] 隧道监听地址非法: host=%q mode=%s", hosts[0], mode)
 		return "", fmt.Errorf("%s", i18n.T("请输入本机网卡的 IP 地址，或选择所有 IPv4 网卡"))
 	}
 	return ip.Unmap().String(), nil
@@ -1188,6 +1294,7 @@ func (m *Manager) StartTunnel(node models.ServerNode, name, mode string, localPo
 	t := newTunnel(id, name, tm, node, localPort, remoteHost, remotePort, m.tunnelStatusNotifier())
 	t.listenHost = listenHost
 	if err := t.Start(); err != nil {
+		logx.Debugf("[sshx] 隧道启动失败: id=%s name=%s err=%v", id, name, err)
 		return models.TunnelInfo{}, err
 	}
 	m.mu.Lock()
@@ -1215,6 +1322,8 @@ func (m *Manager) UpdateTunnel(id string, node models.ServerNode, name, mode str
 		return models.TunnelInfo{}, err
 	}
 	wasRunning := old.Status() == TunnelRunning
+	logx.Debugf("[sshx] 更新隧道配置: id=%s wasRunning=%v newMode=%s name=%s local=%d remote=%s:%d",
+		id, wasRunning, tm, name, localPort, remoteHost, remotePort)
 	old.Stop()
 
 	t := newTunnel(id, name, tm, node, localPort, remoteHost, remotePort, m.tunnelStatusNotifier())
@@ -1225,9 +1334,11 @@ func (m *Manager) UpdateTunnel(id string, node models.ServerNode, name, mode str
 	// 启动失败时保留新配置的停止态条目，避免隧道从列表中消失。
 	if wasRunning {
 		if err := t.Start(); err != nil {
+			logx.Debugf("[sshx] 隧道按新配置重启失败: id=%s err=%v", id, err)
 			return t.Info(), err
 		}
 	}
+	logx.Infof("[sshx] 隧道配置已更新: id=%s name=%s mode=%s running=%v", id, name, tm, wasRunning)
 	return t.Info(), nil
 }
 
@@ -1266,6 +1377,7 @@ func (m *Manager) RemoveTunnel(id string) error {
 	delete(m.tunnels, id)
 	m.mu.Unlock()
 	if !ok {
+		logx.Warnf("[sshx] 移除隧道失败(不存在): id=%s", id)
 		return fmt.Errorf(i18n.T("隧道不存在: %s"), id)
 	}
 	t.Stop()
@@ -1309,7 +1421,11 @@ func (m *Manager) remove(sessionID string) {
 	c := m.sysinfo[sessionID]
 	delete(m.sysinfo, sessionID)
 	delete(m.sessions, sessionID)
+	// 会话级实时刷新只在本次终端有效：关闭会话即失效，下次连接回到全局设置。
+	delete(m.sysInfoRealtime, sessionID)
 	m.mu.Unlock()
+	logx.Debugf("[sshx] 会话已从管理器移除: session=%s collectors=%v remainingSessions=%d",
+		sessionID, c != nil, len(m.sessions))
 	if c != nil {
 		c.Stop()
 	}
@@ -1323,6 +1439,7 @@ func (m *Manager) remove(sessionID string) {
 // 登录服务器不会向远端执行任何采集命令（底层直接返回，并顺手停掉可能残留的采集器）。
 func (m *Manager) StartSysInfoCollector(sessionID string) error {
 	if !m.currentSettings().SysInfoCollectEnabled {
+		logx.Infof("[sshx] 系统指标自动采集已关闭，跳过启动: session=%s", sessionID)
 		m.mu.Lock()
 		c, ok := m.sysinfo[sessionID]
 		if ok {
@@ -1341,6 +1458,7 @@ func (m *Manager) StartSysInfoCollector(sessionID string) error {
 	m.mu.Lock()
 	if existing, ok := m.sysinfo[sessionID]; ok {
 		m.mu.Unlock()
+		logx.Debugf("[sshx] 系统指标采集器已存在，复用: session=%s", sessionID)
 		return existing.Start()
 	}
 	c := newSysInfoCollector(sessionID, s.client,
@@ -1355,10 +1473,33 @@ func (m *Manager) StartSysInfoCollector(sessionID string) error {
 			})
 		},
 	)
-	c.realtime = func() bool { return m.currentSettings().SysInfoRealtimeEnabled }
+	c.realtime = func() bool { return m.sysInfoRealtimeFor(sessionID) }
 	m.sysinfo[sessionID] = c
 	m.mu.Unlock()
 	return c.Start()
+}
+
+// SetSysInfoRealtime 设置指定会话的实时刷新状态（仅本次会话有效，不写全局设置）。
+// 终端关闭（会话移除）时自动清除；重连同一个终端仍保留。
+func (m *Manager) SetSysInfoRealtime(sessionID string, enabled bool) {
+	if strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	m.mu.Lock()
+	m.sysInfoRealtime[sessionID] = enabled
+	m.mu.Unlock()
+	logx.Infof("[sshx] 系统指标实时刷新已切换: session=%s enabled=%v", sessionID, enabled)
+}
+
+// sysInfoRealtimeFor 返回会话的有效实时刷新状态：会话级覆盖优先，否则用全局设置。
+func (m *Manager) sysInfoRealtimeFor(sessionID string) bool {
+	m.mu.RLock()
+	override, ok := m.sysInfoRealtime[sessionID]
+	m.mu.RUnlock()
+	if ok {
+		return override
+	}
+	return m.currentSettings().SysInfoRealtimeEnabled
 }
 
 // StopSysInfoCollector 停止系统指标采集。
@@ -1370,8 +1511,10 @@ func (m *Manager) StopSysInfoCollector(sessionID string) error {
 	}
 	m.mu.Unlock()
 	if !ok {
+		logx.Debugf("[sshx] 停止系统指标采集未命中: session=%s", sessionID)
 		return nil
 	}
+	logx.Infof("[sshx] 停止系统指标采集: session=%s", sessionID)
 	c.Stop()
 	return nil
 }
@@ -1382,6 +1525,7 @@ func (m *Manager) SetSysInfoIdle(sessionID string, idle bool) {
 	c := m.sysinfo[sessionID]
 	m.mu.RUnlock()
 	if c != nil {
+		logx.Debugf("[sshx] 切换采集空闲频率: session=%s idle=%v", sessionID, idle)
 		c.SetIdle(idle)
 	}
 }
@@ -1396,6 +1540,7 @@ func (m *Manager) StopAllSysInfoCollectors() {
 		delete(m.sysinfo, id)
 	}
 	m.mu.Unlock()
+	logx.Infof("[sshx] 停止全部系统指标采集: collectors=%d", len(collectors))
 	for _, c := range collectors {
 		c.Stop()
 	}

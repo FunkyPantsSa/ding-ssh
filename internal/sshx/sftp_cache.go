@@ -11,11 +11,14 @@ import (
 	"ding-ssh/internal/models"
 )
 
+// cacheErrLog 缓存后台校验失败采样器：连接异常时每次列目录都会失败，限流避免刷屏。
+var cacheErrLog = logx.NewSampler(0, 30*time.Second)
+
 // DirCacheNode 目录缓存节点，存储单个路径下的文件列表和更新时间。
 type DirCacheNode struct {
-	Path      string          `json:"path"`
+	Path      string             `json:"path"`
 	Entries   []models.SFTPEntry `json:"entries"`
-	UpdatedAt time.Time       `json:"updatedAt"`
+	UpdatedAt time.Time          `json:"updatedAt"`
 }
 
 // entryDiff 计算两个目录列表之间的差异。
@@ -35,6 +38,7 @@ type SFTPCacheManager struct {
 
 // NewSFTPCacheManager 创建 SWR 缓存管理器，默认启用，TTL 30 秒。
 func NewSFTPCacheManager() *SFTPCacheManager {
+	logx.Debugf("[sshx] 初始化 SFTP 目录缓存: ttl=%s enabled=true", 30*time.Second)
 	return &SFTPCacheManager{
 		ttl:     30 * time.Second,
 		enabled: true,
@@ -46,11 +50,14 @@ func (c *SFTPCacheManager) Get(path string) (*DirCacheNode, bool) {
 	if !c.enabled {
 		return nil, false
 	}
-	val, ok := c.tree.Load(normalizePath(path))
+	key := normalizePath(path)
+	val, ok := c.tree.Load(key)
 	if !ok {
+		logx.Debugf("[sshx] SFTP 缓存未命中: path=%s", key)
 		return nil, false
 	}
 	node := val.(*DirCacheNode)
+	logx.Debugf("[sshx] SFTP 缓存命中: path=%s entries=%d age=%s", key, len(node.Entries), time.Since(node.UpdatedAt).Round(time.Millisecond))
 	return node, true
 }
 
@@ -81,23 +88,29 @@ func (c *SFTPCacheManager) Invalidate(path string) {
 	if !c.enabled {
 		return
 	}
-	c.tree.Delete(normalizePath(path))
+	key := normalizePath(path)
+	c.tree.Delete(key)
 }
 
 // Clear 清空全部缓存。
 func (c *SFTPCacheManager) Clear() {
+	count := 0
 	c.tree.Range(func(key, _ interface{}) bool {
 		c.tree.Delete(key)
+		count++
 		return true
 	})
+	logx.Infof("[sshx] SFTP 目录缓存已清空: entries=%d", count)
 }
 
 // Revalidate 后台异步校验缓存：执行 ReadDir 并与缓存比对，返回差异。
 // 如果缓存为空或不存在，直接填充并返回 nil diff。
 func (c *SFTPCacheManager) Revalidate(path string, readDir func(string) ([]models.SFTPEntry, error)) (*entryDiff, error) {
 	path = normalizePath(path)
+	start := time.Now()
 	entries, err := readDir(path)
 	if err != nil {
+		logx.Debugf("[sshx] SFTP 缓存校验读取失败: path=%s elapsed=%s err=%v", path, time.Since(start), err)
 		return nil, err
 	}
 
@@ -115,11 +128,14 @@ func (c *SFTPCacheManager) Revalidate(path string, readDir func(string) ([]model
 	c.Set(path, sorted)
 
 	if !existed {
+		logx.Debugf("[sshx] SFTP 缓存首次填充: path=%s entries=%d elapsed=%s", path, len(sorted), time.Since(start))
 		return nil, nil // 首次缓存，无需 diff
 	}
 
 	oldNode := oldVal.(*DirCacheNode)
 	diff := computeDiff(oldNode.Entries, sorted)
+	logx.Debugf("[sshx] SFTP 缓存校验完成: path=%s entries=%d added=%d removed=%d changed=%d elapsed=%s",
+		path, len(sorted), len(diff.Added), len(diff.Removed), len(diff.Changed), time.Since(start))
 	return &diff, nil
 }
 
@@ -163,6 +179,7 @@ func (c *SFTPCacheManager) Has(path string) bool {
 
 // SetEnabled 启用/禁用缓存。
 func (c *SFTPCacheManager) SetEnabled(enabled bool) {
+	logx.Infof("[sshx] SFTP 目录缓存开关: enabled=%v", enabled)
 	c.enabled = enabled
 	if !enabled {
 		c.Clear()
@@ -202,7 +219,7 @@ func (c *SFTPCacheManager) SWRReadDir(
 		// 缓存未命中，直接读取
 		entries, err := readDir(path)
 		if err != nil {
-			logx.Debugf("SWR 首次读取失败: path=%s err=%v", path, err)
+			logx.Debugf("[sshx] SWR 首次读取失败: path=%s err=%v", path, err)
 			return
 		}
 		c.Set(path, entries)
@@ -221,7 +238,7 @@ func (c *SFTPCacheManager) SWRReadDir(
 		}
 		diff, err := c.Revalidate(path, readDir)
 		if err != nil {
-			logx.Debugf("SWR 后台校验失败: path=%s err=%v", path, err)
+			logx.WarnSampled(cacheErrLog, "[sshx] SWR 后台校验失败，继续使用旧缓存: path=%s err=%v", path, err)
 			return
 		}
 		if diff != nil && (len(diff.Added) > 0 || len(diff.Removed) > 0 || len(diff.Changed) > 0) {

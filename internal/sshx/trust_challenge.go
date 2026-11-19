@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"ding-ssh/internal/logx"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -65,9 +66,12 @@ func hostTrustChallenge(host string, key ssh.PublicKey, sources []string, verifi
 		}
 	}
 	if len(challenges) >= 256 {
+		logx.Warnf("[sshx] 待确认主机过多，拒绝新的确认请求: pending=%d", len(challenges))
 		return fmt.Errorf("%s", i18n.T("待确认主机过多，请稍后重试"))
 	}
 	challenges[view.ID] = pendingHostTrust{view, key, append([]string{}, sources...), string(data), time.Now().Add(5 * time.Minute)}
+	logx.Infof("[sshx] 主机密钥需要用户确认: host=%s keyType=%s fingerprint=%s changed=%v oldFingerprints=%d id=%s",
+		view.Host, view.KeyType, view.Fingerprint, view.Changed, len(view.OldFingerprints), view.ID)
 	payload, _ := json.Marshal(view)
 	return fmt.Errorf(i18n.T("主机身份需要确认 SSH_HOST_TRUST:%s"), base64.RawURLEncoding.EncodeToString(payload))
 }
@@ -81,9 +85,12 @@ func ResolveHostTrust(id string, approve, replace bool) error {
 	delete(challenges, id)
 	challengeMu.Unlock()
 	if !ok || time.Now().After(pending.expires) {
+		logx.Warnf("[sshx] 主机确认已过期或不存在: id=%s", id)
 		return fmt.Errorf("%s", i18n.T("主机确认已过期，请重新连接"))
 	}
 	if !approve {
+		logx.Infof("[sshx] 用户拒绝主机密钥: host=%s fingerprint=%s changed=%v",
+			pending.view.Host, pending.view.Fingerprint, pending.view.Changed)
 		return nil
 	}
 	trustMu.Lock()
@@ -105,6 +112,7 @@ func ResolveHostTrust(id string, approve, replace bool) error {
 	}
 	var mismatch *knownhosts.KeyError
 	if !errors.As(err, &mismatch) {
+		logx.Debugf("[sshx] 主机密钥复审失败: host=%s err=%v", pending.view.Host, err)
 		return err
 	}
 	file := trustPaths(nil)[0]
@@ -113,6 +121,7 @@ func ResolveHostTrust(id string, approve, replace bool) error {
 		return readErr
 	}
 	if string(data) != pending.snapshot {
+		logx.Warnf("[sshx] 主机信任记录已变化，拒绝覆盖: host=%s", pending.view.Host)
 		return fmt.Errorf("%s", i18n.T("信任记录已变化，请重新连接并核对"))
 	}
 	lines := strings.Split(string(data), "\n")
@@ -130,6 +139,7 @@ func ResolveHostTrust(id string, approve, replace bool) error {
 			}
 		}
 		if !pending.view.Changed || !replace || !pending.view.CanReplace {
+			logx.Warnf("[sshx] 未授权覆盖主机密钥: host=%s changed=%v replace=%v", pending.view.Host, pending.view.Changed, replace)
 			return fmt.Errorf("%s", i18n.T("未授权覆盖，或冲突来自只读信任源"))
 		}
 		remove := map[int]bool{}
@@ -156,5 +166,10 @@ func ResolveHostTrust(id string, approve, replace bool) error {
 		text += "\n"
 	}
 	text += knownhosts.Line([]string{pending.view.Host}, pending.key) + "\n"
-	return writeTrustFile(file, []byte(text))
+	if err := writeTrustFile(file, []byte(text)); err != nil {
+		return err
+	}
+	logx.Infof("[sshx] 主机密钥已确认并写入信任库: host=%s fingerprint=%s replaced=%v",
+		pending.view.Host, pending.view.Fingerprint, pending.view.Changed && replace)
+	return nil
 }

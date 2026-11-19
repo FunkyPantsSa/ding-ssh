@@ -1,5 +1,7 @@
 package debugsrv
 
+import "ding-ssh/internal/logx"
+
 // M8（SFTP + 终端自动化）的能力位 / 两段式确认登记。
 //
 // 为什么单独一个文件：地基（caps.go 顶部注释）明确规定「各域不许改内置表 toolCaps，
@@ -29,24 +31,35 @@ func init() {
 // registerSFTPCaps 登记 M8 全部工具的能力位与确认动作（幂等，测试可重复调用）。
 func registerSFTPCaps() {
 	// ---- 读类（永远允许）----
-	for _, name := range []string{
+	readNames := []string{
 		OpSftpList, OpSftpStat, OpSftpRead, OpSftpTransfers, OpTerminalExpect,
-	} {
+	}
+	for _, name := range readNames {
 		RegisterToolCap(name, CapRead)
 	}
 
 	// ---- 远端文件写入：fs.remote.write + 两段式确认 ----
+	writes := 0
 	registerWrite(OpSftpWrite, CapRemoteFSWrite, OpSftpWrite)
+	writes++
 	registerWrite(OpSftpMkdir, CapRemoteFSWrite, OpSftpMkdir)
+	writes++
 	registerWrite(OpSftpRename, CapRemoteFSWrite, OpSftpRename)
+	writes++
 	registerWrite(OpSftpRemove, CapRemoteFSWrite, OpSftpRemove)
+	writes++
 	// 目录同步 = 写类动作（按规格复用 sftp.write 这个 action 名）
 	registerWrite(OpSftpSyncCwd, CapRemoteFSWrite, OpSftpWrite)
+	writes++
 	// 取消传输：会丢弃一个正在进行的传输（远端 / 本地可能留下半截文件），需要确认
 	registerWrite(OpSftpCancel, CapRemoteFSWrite, OpSftpCancel)
+	writes++
 
 	// ---- 终端自动化：写入终端只需 terminal.input，可逆 / 高频 → 不注册确认 ----
 	RegisterToolCap(OpTerminalRun, CapTerminalInput)
+
+	logx.Infof("[debugsrv/sftp] 注册 SFTP 工具能力位: total=%d read=%d write=%d terminalInput=1",
+		len(sftpToolNames), len(readNames), writes)
 }
 
 // sftpWantRegistry 规格表：工具 → 能力位 → 确认 action（空 action = 不需要 token）。

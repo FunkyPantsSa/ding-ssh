@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"ding-ssh/internal/appdir"
+	"ding-ssh/internal/logx"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -39,6 +41,8 @@ func trustPaths(extra []string) []string {
 func VerifyHostKey(host string, remote net.Addr, key ssh.PublicKey, extra []string) error {
 	trustMu.Lock()
 	defer trustMu.Unlock()
+	fingerprint := ssh.FingerprintSHA256(key)
+	logx.Debugf("[sshx] 校验主机密钥: host=%s keyType=%s fingerprint=%s extraSources=%d", host, key.Type(), fingerprint, len(extra))
 	for _, source := range extra {
 		if _, err := os.Stat(expandSSHPath(source)); err != nil {
 			return fmt.Errorf(i18n.T("读取指定信任源失败: %w"), err)
@@ -52,13 +56,19 @@ func VerifyHostKey(host string, remote net.Addr, key ssh.PublicKey, extra []stri
 	if err != nil {
 		return err
 	}
-	return verify(host, remote, key)
+	if err := verify(host, remote, key); err != nil {
+		logx.Warnf("[sshx] 主机密钥未通过校验: host=%s keyType=%s fingerprint=%s err=%v", host, key.Type(), fingerprint, err)
+		return err
+	}
+	logx.Debugf("[sshx] 主机密钥校验通过: host=%s fingerprint=%s", host, fingerprint)
+	return nil
 }
 
 func ListHostTrust() ([]HostTrustRecord, error) {
 	trustMu.Lock()
 	defer trustMu.Unlock()
 	result := []HostTrustRecord{}
+	start := time.Now()
 	for i, file := range trustPaths(nil) {
 		data, err := os.ReadFile(file)
 		if os.IsNotExist(err) {
@@ -67,6 +77,7 @@ func ListHostTrust() ([]HostTrustRecord, error) {
 		if err != nil {
 			return nil, err
 		}
+		before := len(result)
 		scanner := bufio.NewScanner(strings.NewReader(string(data)))
 		line := 0
 		for scanner.Scan() {
@@ -80,6 +91,7 @@ func ListHostTrust() ([]HostTrustRecord, error) {
 				fields = fields[1:]
 			}
 			if len(fields) < 3 {
+				logx.Debugf("[sshx] 无效主机信任记录: path=%q line=%d", file, line)
 				return nil, fmt.Errorf(i18n.T("无效信任记录 %s:%d"), file, line)
 			}
 			key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(strings.Join(fields[1:], " ")))
@@ -91,7 +103,9 @@ func ListHostTrust() ([]HostTrustRecord, error) {
 		if err := scanner.Err(); err != nil {
 			return nil, err
 		}
+		logx.Debugf("[sshx] 主机信任库已读取: path=%q records=%d", file, len(result)-before)
 	}
+	logx.Infof("[sshx] 主机信任记录已加载: records=%d sources=%d elapsed=%s", len(result), len(trustPaths(nil)), time.Since(start))
 	return result, nil
 }
 
@@ -100,8 +114,10 @@ func ListHostTrust() ([]HostTrustRecord, error) {
 func SaveHostTrust(host, authorizedKey string) error {
 	key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(authorizedKey))
 	if err != nil {
+		logx.Debugf("[sshx] 解析待保存主机公钥失败: host=%s err=%v", host, err)
 		return err
 	}
+	fingerprint := ssh.FingerprintSHA256(key)
 	trustMu.Lock()
 	defer trustMu.Unlock()
 	verify, err := loadHostKeyVerifier(trustPaths(nil))
@@ -110,10 +126,12 @@ func SaveHostTrust(host, authorizedKey string) error {
 	}
 	err = verify(host, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 22}, key)
 	if err == nil {
+		logx.Debugf("[sshx] 主机已受信任，无需新增记录: host=%s fingerprint=%s", host, fingerprint)
 		return nil
 	}
 	var unknown *knownhosts.KeyError
 	if !errors.As(err, &unknown) || len(unknown.Want) > 0 {
+		logx.Warnf("[sshx] 拒绝覆盖已有主机密钥: host=%s fingerprint=%s err=%v", host, fingerprint, err)
 		return err
 	}
 	file := trustPaths(nil)[0]
@@ -125,7 +143,12 @@ func SaveHostTrust(host, authorizedKey string) error {
 		data = append(data, '\n')
 	}
 	data = append(data, []byte(knownhosts.Line([]string{host}, key)+"\n")...)
-	return writeTrustFile(file, data)
+	if err := writeTrustFile(file, data); err != nil {
+		logx.Debugf("[sshx] 写入主机信任库失败: host=%s path=%q err=%v", host, file, err)
+		return err
+	}
+	logx.Infof("[sshx] 新增主机信任记录: host=%s keyType=%s fingerprint=%s", host, key.Type(), fingerprint)
+	return nil
 }
 
 func DeleteHostTrust(line int, fingerprint string) error {
@@ -138,6 +161,7 @@ func DeleteHostTrust(line int, fingerprint string) error {
 	}
 	lines := strings.Split(string(data), "\n")
 	if line < 1 || line > len(lines) {
+		logx.Warnf("[sshx] 删除主机信任记录失败（行号越界）: line=%d totalLines=%d", line, len(lines))
 		return fmt.Errorf("%s", i18n.T("记录已变化，请刷新"))
 	}
 	fields := strings.Fields(lines[line-1])
@@ -145,14 +169,20 @@ func DeleteHostTrust(line int, fingerprint string) error {
 		return fmt.Errorf("%s", i18n.T("无效记录"))
 	}
 	if strings.HasPrefix(fields[0], "@") {
+		logx.Warnf("[sshx] 拒绝删除撤销记录: line=%d", line)
 		return fmt.Errorf("%s", i18n.T("撤销记录不能从此界面删除"))
 	}
 	key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(strings.Join(fields[1:], " ")))
 	if err != nil || ssh.FingerprintSHA256(key) != fingerprint {
+		logx.Warnf("[sshx] 删除主机信任记录失败（记录已变化）: line=%d err=%v", line, err)
 		return fmt.Errorf("%s", i18n.T("记录已变化，请刷新"))
 	}
 	lines = append(lines[:line-1], lines[line:]...)
-	return writeTrustFile(file, []byte(strings.Join(lines, "\n")))
+	if err := writeTrustFile(file, []byte(strings.Join(lines, "\n"))); err != nil {
+		return err
+	}
+	logx.Infof("[sshx] 删除主机信任记录: line=%d fingerprint=%s remaining=%d", line, fingerprint, len(lines))
+	return nil
 }
 
 func writeTrustFile(file string, data []byte) error {

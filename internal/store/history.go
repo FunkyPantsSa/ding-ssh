@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"ding-ssh/internal/logx"
 	"ding-ssh/internal/models"
 )
 
@@ -17,6 +18,12 @@ const (
 	historyMaxPerServer = 2000
 	historyMaxCmdLen    = 2000
 )
+
+// 命令历史写入是每条命令都会触发的路径：失败日志用采样限流，避免终端刷屏。
+var historyErrLog = logx.NewSampler(32, 5*time.Second)
+
+// 补全查询是逐键触发的高频路径：入口与结果只采样记录条数/耗时，绝不记录命令内容。
+var historyQueryLog = logx.NewSampler(64, 2*time.Second)
 
 var (
 	ansiCSI    = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
@@ -65,7 +72,9 @@ func NewSQLiteHistoryStore(db *sql.DB) *SQLiteHistoryStore {
 
 // EnsureHistorySchema 确保 command_history 表存在（兼容旧库升级）。
 func EnsureHistorySchema(db *sql.DB) error {
-	_, err := db.Exec(`
+	start := time.Now()
+	logx.Debugf("[store] 初始化命令历史表结构")
+	if _, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS command_history (
 	id          INTEGER PRIMARY KEY AUTOINCREMENT,
 	server_id   TEXT NOT NULL,
@@ -76,35 +85,46 @@ CREATE INDEX IF NOT EXISTS idx_command_history_server
 	ON command_history(server_id, executed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_command_history_cmd
 	ON command_history(server_id, command);
-`)
-	return err
+`); err != nil {
+		logx.Errorf("[store] 初始化命令历史表结构失败: err=%v", err)
+		return err
+	}
+	logx.Infof("[store] 命令历史表结构就绪: elapsed=%s", time.Since(start))
+	return nil
 }
 
 // Add 写入一条命令历史；去重最近相同命令；超限滚动删除。
 func (s *SQLiteHistoryStore) Add(serverID, command string) error {
+	start := time.Now()
 	serverID = strings.TrimSpace(serverID)
 	command = sanitizeHistoryCommand(command)
 	if serverID == "" || command == "" {
+		logx.Debugf("[store] 跳过空命令历史: server=%q", serverID)
 		return nil
 	}
 	// 过滤纯方向键残留（如 [A [B）或过短无意义串
 	if looksLikeKeyNoise(command) {
+		logx.Debugf("[store] 命令历史被过滤: server=%s reason=keyNoise len=%d", serverID, utf8.RuneCountInString(command))
 		return nil
 	}
 	if looksLikeOutputPollution(command) {
+		logx.Debugf("[store] 命令历史被过滤: server=%s reason=outputPollution len=%d", serverID, utf8.RuneCountInString(command))
 		return nil
 	}
 	if utf8.RuneCountInString(command) > historyMaxCmdLen {
 		runes := []rune(command)
 		command = string(runes[:historyMaxCmdLen])
+		logx.Debugf("[store] 命令历史超长截断: server=%s max=%d", serverID, historyMaxCmdLen)
 	}
 	// 启发式：过滤可能含明文密码的命令
 	if looksLikeSecretCommand(command) {
+		logx.Debugf("[store] 命令历史被过滤: server=%s reason=secretPattern", serverID)
 		return nil
 	}
 
 	tx, err := s.db.Begin()
 	if err != nil {
+		logx.ErrorSampled(historyErrLog, "[store] 命令历史开启事务失败: server=%s err=%v", serverID, err)
 		return fmt.Errorf(i18n.T("开启事务失败: %w"), err)
 	}
 	defer tx.Rollback()
@@ -119,17 +139,25 @@ func (s *SQLiteHistoryStore) Add(serverID, command string) error {
 	now := time.Now().UnixMilli()
 	if err == nil && lastCmd == command {
 		if _, err := tx.Exec(`UPDATE command_history SET executed_at = ? WHERE id = ?`, now, lastID); err != nil {
+			logx.ErrorSampled(historyErrLog, "[store] 命令历史去重更新时间失败: server=%s err=%v", serverID, err)
 			return fmt.Errorf(i18n.T("更新命令历史失败: %w"), err)
 		}
-		return tx.Commit()
+		if err := tx.Commit(); err != nil {
+			logx.ErrorSampled(historyErrLog, "[store] 命令历史去重提交失败: server=%s err=%v", serverID, err)
+			return err
+		}
+		logx.Debugf("[store] 命令历史去重命中，已更新时间戳: server=%s id=%d elapsed=%s", serverID, lastID, time.Since(start))
+		return nil
 	}
 	if err != nil && err != sql.ErrNoRows {
+		logx.ErrorSampled(historyErrLog, "[store] 命令历史查询最近命令失败: server=%s err=%v", serverID, err)
 		return fmt.Errorf(i18n.T("查询最近命令失败: %w"), err)
 	}
 
 	if _, err := tx.Exec(`
 		INSERT INTO command_history (server_id, command, executed_at) VALUES (?, ?, ?)`,
 		serverID, command, now); err != nil {
+		logx.ErrorSampled(historyErrLog, "[store] 命令历史写入失败: server=%s len=%d err=%v", serverID, utf8.RuneCountInString(command), err)
 		return fmt.Errorf(i18n.T("写入命令历史失败: %w"), err)
 	}
 
@@ -139,14 +167,21 @@ func (s *SQLiteHistoryStore) Add(serverID, command string) error {
 			SELECT id FROM command_history WHERE server_id = ?
 			ORDER BY executed_at DESC, id DESC LIMIT ?
 		)`, serverID, serverID, historyMaxPerServer); err != nil {
+		logx.ErrorSampled(historyErrLog, "[store] 命令历史滚动清理失败: server=%s err=%v", serverID, err)
 		return fmt.Errorf(i18n.T("滚动清理命令历史失败: %w"), err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		logx.ErrorSampled(historyErrLog, "[store] 命令历史提交失败: server=%s err=%v", serverID, err)
+		return err
+	}
+	logx.Debugf("[store] 命令历史已写入: server=%s len=%d elapsed=%s", serverID, utf8.RuneCountInString(command), time.Since(start))
+	return nil
 }
 
 // Query 按前缀/模糊匹配返回高频命令（按频次降序）。
 func (s *SQLiteHistoryStore) Query(serverID, prefix string, limit int) ([]models.CommandSuggestion, error) {
+	start := time.Now()
 	if limit <= 0 {
 		limit = 8
 	}
@@ -155,6 +190,9 @@ func (s *SQLiteHistoryStore) Query(serverID, prefix string, limit int) ([]models
 	if serverID == "" {
 		return []models.CommandSuggestion{}, nil
 	}
+	// 补全查询逐键触发：只采样记录入口（不记录前缀内容，避免泄露命令文本）。
+	logx.DebugSampled(historyQueryLog, "[store] 查询命令历史: server=%s prefixLen=%d limit=%d",
+		serverID, utf8.RuneCountInString(prefix), limit)
 
 	var rows *sql.Rows
 	var err error
@@ -178,6 +216,7 @@ func (s *SQLiteHistoryStore) Query(serverID, prefix string, limit int) ([]models
 			LIMIT ?`, serverID, like, escapeLike(prefix)+"%", limit)
 	}
 	if err != nil {
+		logx.ErrorSampled(historyErrLog, "[store] 查询命令历史失败: server=%s err=%v", serverID, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -186,12 +225,19 @@ func (s *SQLiteHistoryStore) Query(serverID, prefix string, limit int) ([]models
 	for rows.Next() {
 		var sug models.CommandSuggestion
 		if err := rows.Scan(&sug.Command, &sug.Count); err != nil {
+			logx.ErrorSampled(historyErrLog, "[store] 扫描命令历史结果失败: server=%s err=%v", serverID, err)
 			return nil, err
 		}
 		sug.Source = "history"
 		out = append(out, sug)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		logx.ErrorSampled(historyErrLog, "[store] 遍历命令历史结果失败: server=%s err=%v", serverID, err)
+		return nil, err
+	}
+	logx.DebugSampled(historyQueryLog, "[store] 命令历史查询完成: server=%s count=%d elapsed=%s",
+		serverID, len(out), time.Since(start))
+	return out, nil
 }
 
 func escapeLike(s string) string {
@@ -274,15 +320,21 @@ var _ HistoryStore = NoopHistoryStore{}
 
 // Clear 清理命令历史；serverID 为空时清空全部服务器记录。
 func (s *SQLiteHistoryStore) Clear(serverID string) error {
+	start := time.Now()
 	serverID = strings.TrimSpace(serverID)
+	logx.Debugf("[store] 清理命令历史: server=%q", serverID)
 	var err error
+	var res sql.Result
 	if serverID == "" {
-		_, err = s.db.Exec(`DELETE FROM command_history`)
+		res, err = s.db.Exec(`DELETE FROM command_history`)
 	} else {
-		_, err = s.db.Exec(`DELETE FROM command_history WHERE server_id = ?`, serverID)
+		res, err = s.db.Exec(`DELETE FROM command_history WHERE server_id = ?`, serverID)
 	}
 	if err != nil {
+		logx.Errorf("[store] 清理命令历史失败: server=%q err=%v", serverID, err)
 		return fmt.Errorf(i18n.T("清理命令历史失败: %w"), err)
 	}
+	affected, _ := res.RowsAffected()
+	logx.Infof("[store] 命令历史已清理: server=%q removed=%d elapsed=%s", serverID, affected, time.Since(start))
 	return nil
 }
