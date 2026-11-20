@@ -1399,7 +1399,8 @@ body.col-resizing * { cursor: col-resize !important; }
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  *, *::before, *::after { transform: none !important; scroll-behavior: auto !important; }
+  /* Preserve transforms used for control state and layout (e.g. switch thumbs). */
+  *, *::before, *::after { scroll-behavior: auto !important; }
 }
 
 } /* @layer components */

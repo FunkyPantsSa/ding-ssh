@@ -4,14 +4,16 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +24,7 @@ type Plan struct {
 	Source, Target string
 	PID            int
 	Restart        bool
+	SourceSHA256   string `json:",omitempty"`
 }
 
 func copyFile(src, dst string, mode os.FileMode) error {
@@ -74,13 +77,14 @@ func Target() (string, error) {
 		p = os.Getenv("APPIMAGE")
 		logx.Debugf("[updater] 检测到 AppImage 运行模式，目标改为 APPIMAGE: path=%q", p)
 	}
-	f, e := os.CreateTemp(filepath.Dir(p), ".ding-update-check-")
-	if e != nil {
+	if e = checkWritable(p); e != nil {
+		if runtime.GOOS == "windows" && errors.Is(e, os.ErrPermission) {
+			logx.Infof("[updater] 安装目录需要管理员权限，安装时将请求 UAC 授权: dir=%q", filepath.Dir(p))
+			return p, nil
+		}
 		logx.Warnf("[updater] 安装目录不可写，无法自动更新: dir=%q err=%v", filepath.Dir(p), e)
 		return "", fmt.Errorf("安装目录不可写，请将应用安装到当前用户可写目录后更新: %w", e)
 	}
-	f.Close()
-	os.Remove(f.Name())
 	logx.Debugf("[updater] 更新目标路径已解析: target=%q writable=true", p)
 	return p, nil
 }
@@ -206,15 +210,25 @@ func Launch(source, target string, restart bool) error {
 		logx.Warnf("[updater] 复制安装助手失败: helper=%q err=%v", helper, e)
 		return e
 	}
-	p := Plan{source, target, os.Getpid(), restart}
-	b, _ := json.Marshal(p)
+	p := Plan{Source: source, Target: target, PID: os.Getpid(), Restart: restart}
+	if runtime.GOOS == "windows" {
+		p.SourceSHA256, e = fileSHA256(source)
+		if e != nil {
+			return fmt.Errorf("校验待安装程序失败: %w", e)
+		}
+	}
+	b, e := json.Marshal(p)
+	if e != nil {
+		return e
+	}
 	plan := helper + ".json"
 	if e = os.WriteFile(plan, b, 0600); e != nil {
 		logx.Warnf("[updater] 写入安装计划文件失败: path=%q err=%v", plan, e)
 		return e
 	}
 	logx.Debugf("[updater] 安装计划已写入: path=%q", plan)
-	cmd := exec.Command(helper, "--install-update", plan)
+	planHash := sha256.Sum256(b)
+	cmd := exec.Command(helper, "--install-update", plan, hex.EncodeToString(planHash[:]))
 	if e := cmd.Start(); e != nil {
 		logx.Warnf("[updater] 启动安装助手进程失败: helper=%q err=%v", helper, e)
 		return e
@@ -223,89 +237,45 @@ func Launch(source, target string, restart bool) error {
 	return nil
 }
 func Helper() bool {
-	if len(os.Args) != 3 || os.Args[1] != "--install-update" {
-		return false
-	}
-	logx.Infof("[updater] 安装助手启动: plan=%q", os.Args[2])
-	b, e := os.ReadFile(os.Args[2])
-	if e != nil {
-		logx.Errorf("[updater] 安装助手读取计划文件失败: path=%q err=%v", os.Args[2], e)
+	if handled, err := elevatedHelper(); handled {
+		if err != nil {
+			logx.Errorf("[updater] 管理员安装助手失败: err=%v", err)
+			os.Exit(1)
+		}
 		return true
 	}
-	var p Plan
-	if json.Unmarshal(b, &p) != nil {
-		logx.Errorf("[updater] 安装助手解析计划文件失败: path=%q", os.Args[2])
+	if len(os.Args) < 2 || os.Args[1] != "--install-update" {
+		return false
+	}
+	if len(os.Args) != 4 || len(os.Args[3]) != sha256.Size*2 {
+		logx.Errorf("[updater] 安装助手参数无效")
+		return true
+	}
+	logx.Infof("[updater] 安装助手启动: plan=%q", os.Args[2])
+	p, b, e := readInstallPlan(os.Args[2], os.Args[3])
+	if e != nil {
+		logx.Errorf("[updater] 安装助手读取计划文件失败: path=%q err=%v", os.Args[2], e)
+		reportInstallError(e)
 		return true
 	}
 	logx.Debugf("[updater] 安装计划: source=%q target=%q pid=%d restart=%v", p.Source, p.Target, p.PID, p.Restart)
 	// The helper is started only during normal shutdown; never replace a running application.
-	exited := false
 	waitStart := time.Now()
-	for i := 0; i < 300; i++ {
-		var alive bool
-		if runtime.GOOS == "windows" {
-			b, _ := exec.Command("tasklist", "/FI", "PID eq "+strconv.Itoa(p.PID), "/NH").Output()
-			alive = strings.Contains(string(b), strconv.Itoa(p.PID))
-		} else {
-			alive = exec.Command("kill", "-0", strconv.Itoa(p.PID)).Run() == nil
-		}
-		if !alive {
-			exited = true
-			break
-		}
-		if i > 0 && i%30 == 0 {
-			logx.Debugf("[updater] 安装助手等待主进程退出: pid=%d waited=%s attempt=%d", p.PID, time.Since(waitStart), i)
-		}
-		time.Sleep(time.Second)
-	}
-	if !exited {
-		logx.Errorf("[updater] 安装中止: 等待主进程退出超时 pid=%d waited=%s", p.PID, time.Since(waitStart))
+	if e = waitForParent(p.PID); e != nil {
+		reportInstallError(e)
 		return true
 	}
 	logx.Debugf("[updater] 主进程已退出，开始替换文件: waited=%s", time.Since(waitStart))
-	backup := p.Target + ".update-backup"
-	if _, e = os.Stat(backup); e == nil {
-		logx.Errorf("[updater] 安装中止: 已存在未清理的备份文件 backup=%q", backup)
-		return true
-	}
-	if e = os.Rename(p.Target, backup); e != nil {
-		logx.Errorf("[updater] 安装中止: 备份旧版本失败 target=%q backup=%q err=%v", p.Target, backup, e)
-		return true
-	}
-	logx.Debugf("[updater] 旧版本已备份: backup=%q", backup)
-	if e = os.Rename(p.Source, p.Target); e != nil {
-		// Downloads may reside on another filesystem; copy to the destination before renaming.
-		logx.Debugf("[updater] 跨文件系统移动失败，改为复制后替换: err=%v", e)
-		staged := p.Target + ".update-new"
+	e = completeUpdate(p, func() error {
+		return installWithPermissions(p, os.Args[2], b)
+	}, func() error {
 		if runtime.GOOS == "darwin" {
-			e = exec.Command("/usr/bin/ditto", p.Source, staged).Run()
-		} else {
-			e = copyFile(p.Source, staged, 0755)
+			return exec.Command("open", p.Target).Start()
 		}
-		if e == nil {
-			e = os.Rename(staged, p.Target)
-		}
-	}
+		return exec.Command(p.Target).Start()
+	})
 	if e != nil {
-		logx.Errorf("[updater] 替换新版本失败，回滚旧版本: target=%q err=%v", p.Target, e)
-		os.Rename(backup, p.Target)
-		os.WriteFile(p.Target+".update-error", []byte(e.Error()), 0600)
-		return true
-	}
-	os.RemoveAll(backup)
-	logx.Infof("[updater] 新版本已替换: target=%q restart=%v elapsed=%s", p.Target, p.Restart, time.Since(waitStart))
-	if p.Restart {
-		var restartErr error
-		if runtime.GOOS == "darwin" {
-			restartErr = exec.Command("open", p.Target).Start()
-		} else {
-			restartErr = exec.Command(p.Target).Start()
-		}
-		if restartErr != nil {
-			logx.Warnf("[updater] 重启新版本失败: target=%q err=%v", p.Target, restartErr)
-		} else {
-			logx.Infof("[updater] 已重启新版本: target=%q", p.Target)
-		}
+		reportInstallError(e)
 	}
 	return true
 }

@@ -120,10 +120,15 @@ jobs:
         if: runner.os == 'macOS'
         run: wails build -ldflags "-X ding-ssh/internal/updater.BuildCommit=${{ github.sha }}" -clean -platform ${{ matrix.platform }}
 
+      - name: Windows updater tests
+        if: runner.os == 'Windows'
+        run: go test ./internal/updater
+
       - name: Wails build (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildCommit=${{ github.sha }}" -clean -platform ${{ matrix.platform }} -nsis -webview2 embed
+        # Keep the directory picker; protected install locations use a UAC update worker.
+        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildCommit=${{ github.sha }}" -clean -platform ${{ matrix.platform }} -nsis -installscope machine -webview2 embed
 
       - name: Wails build (Linux)
         if: runner.os == 'Linux'

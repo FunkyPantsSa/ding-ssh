@@ -73,6 +73,8 @@ The application does not provide server-side bastion auditing, fleet configurati
 
 [GitHub Releases](https://github.com/FunkyPantsSa/ding-ssh/releases) provide macOS `.dmg` / `.app.zip`, Windows `setup.exe` / `.zip`, and Linux `.AppImage` / `.deb` / `.tar.gz`, with `SHA256SUMS.txt`. Successful `main` / `dev` CI builds also publish artifacts such as `ding-ssh-dev-windows-amd64-<sha>`. Unsigned macOS packages may require Finder → right-click → Open on first launch.
 
+Windows installers default to `C:\Program Files\FunkyPantsSa\ding-ssh` and let you choose another directory. Windows Installed Apps provides an uninstall entry. In-app updates install directly when the directory is writable; otherwise a separate worker requests administrator permission through UAC to replace the executable. The original unelevated helper restarts the app so it does not inherit administrator privileges. Cancelling UAC keeps the old version. Configuration is stored separately in `%APPDATA%\ding-ssh`. Older builds need one manual installation of a build containing this update worker, or an update performed by running the old app as administrator.
+
 A master-password prompt appears if enabled; otherwise the workspace opens directly. Enable reconnecting previous servers in Settings to restore sessions that were connected when the app closed.
 
 ### Add and connect a server
@@ -174,6 +176,9 @@ wails dev
 
 # Production output in build/bin/
 wails build
+
+# Windows installer: directory picker, with a UAC worker for protected-directory updates
+wails build -platform windows/amd64 -nsis -installscope machine -webview2 embed
 
 # Backend tests
 go test ./internal/...

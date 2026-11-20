@@ -78,6 +78,8 @@
 - CI 产物：`main` / `dev` 每次 push 通过测试后构建三平台，产物名形如 `ding-ssh-dev-windows-amd64-<sha>`。
 - macOS 包未签名：首次打开请在 Finder 里右键 →「打开」。
 
+Windows 安装程序默认安装到 `C:\Program Files\FunkyPantsSa\ding-ssh`，可在目录选择页改到其他位置，并在系统「已安装的应用」中提供卸载入口。应用内更新在目录可写时直接安装，权限不足时单独通过 UAC 请求管理员权限，仅由安装助手替换程序；重启由普通权限助手执行，避免主程序继承管理员权限。取消授权会保留旧版本。配置保存在独立的 `%APPDATA%\ding-ssh` 中。旧版需先手动安装一次包含此更新助手的构建，或以管理员身份运行旧版完成这次更新。
+
 **2. 首次启动**
 
 启用了主密码时会先出现解锁框，未启用则直接进入工作区。想恢复「上次关掉时还开着」的会话，在设置里打开「启动后自动连接上次的服务器」。
@@ -192,6 +194,9 @@ wails dev
 
 # 生产构建（产物在 build/bin/）
 wails build
+
+# Windows 安装包：安装目录可选，受保护目录更新时由助手请求 UAC 授权
+wails build -platform windows/amd64 -nsis -installscope machine -webview2 embed
 
 # 后端测试
 go test ./internal/...
@@ -596,7 +601,7 @@ Windows 自绘标题栏的拖动区与右侧窗口按钮分离；外框不做前
 
 推送 main/dev 后，CI 测试、构建成功会更新对应的 `main-latest` / `dev-latest` 预发布中的 `update.json`，以 commit SHA 识别更新。历史提交的下载包使用独立文件名，避免正在下载时被覆盖。
 
-下载优先使用 `HTTPS_PROXY` / `HTTP_PROXY`（遵循 `NO_PROXY`），其次读取 macOS、Windows 的手动系统代理或 Linux GNOME 手动代理。PAC 自动代理尚不支持；Linux 其他桌面请设置代理环境变量。支持 macOS `.app`、Windows 程序、Linux 普通可执行文件和 AppImage；安装位置必须对当前用户可写，系统级 deb 安装请通过包管理器更新。安装失败尝试恢复旧程序，数据目录保持独立。
+下载优先使用 `HTTPS_PROXY` / `HTTP_PROXY`（遵循 `NO_PROXY`），其次读取 macOS、Windows 的手动系统代理或 Linux GNOME 手动代理。PAC 自动代理尚不支持；Linux 其他桌面请设置代理环境变量。支持 macOS `.app`、Windows 程序、Linux 普通可执行文件和 AppImage；Windows 的受保护安装目录会由独立助手请求 UAC 授权，其余平台要求安装位置对当前用户可写，系统级 deb 安装请通过包管理器更新。安装失败尝试恢复旧程序，数据目录保持独立。
 
 ## 1.2.1 更新
 
