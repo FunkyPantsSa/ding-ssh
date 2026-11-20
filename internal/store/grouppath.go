@@ -85,6 +85,15 @@ func NormalizeLegacyGroupPath(raw string) (string, error) {
 	return strings.Join(segments, "/"), nil
 }
 
+// normalizeStoredGroup uses the canonical path form for future server writes.
+// Unrepairable legacy values remain readable and are preserved on unrelated edits.
+func normalizeStoredGroup(raw string) string {
+	if normalized, err := NormalizeLegacyGroupPath(raw); err == nil {
+		return normalized
+	}
+	return raw
+}
+
 // NormalizeGroupLeaf 校验并规范化「重命名」时输入的最后一段名称。
 // 只允许单段：不得为空、不得包含 '/'、不得是 . 或 ..、不得含控制字符，长度 1-32。
 func NormalizeGroupLeaf(raw string) (string, error) {

@@ -113,6 +113,7 @@ func (s *JSONStore) Save(node models.ServerNode) error {
 	if node.ID == "" {
 		logx.Warnf("[store] 保存服务器(JSON)缺少 ID，按 ID 匹配可能产生重复项: name=%q", node.Name)
 	}
+	node.Group = normalizeStoredGroup(node.Group)
 	nodes, err := s.load()
 	if err != nil {
 		logx.Errorf("[store] 保存服务器(JSON)前读取列表失败: id=%s err=%v", node.ID, err)
@@ -182,6 +183,7 @@ func (s *JSONStore) SaveBatch(incoming []models.ServerNode) error {
 	}
 	replaced := 0
 	for _, node := range incoming {
+		node.Group = normalizeStoredGroup(node.Group)
 		found := false
 		for i := range nodes {
 			if nodes[i].ID == node.ID {

@@ -28,9 +28,7 @@ const (
 
 	// 保留子分组删除：直属服务器移到父级，子孙分组/服务器整体上移一级（ltrim 去掉根组前导 '/'）。
 	sqlMoveDirectServersToParent = `UPDATE servers SET grp = ?2 WHERE grp = ?1`
-	sqlLiftGroupSubtree          = `UPDATE groups SET name = ltrim(?2 || substr(name, length(?1) + 1), '/') WHERE substr(name, 1, length(?1) + 1) = ?1 || '/'`
 	sqlLiftServerSubtree         = `UPDATE servers SET grp = ltrim(?2 || substr(grp, length(?1) + 1), '/') WHERE substr(grp, 1, length(?1) + 1) = ?1 || '/'`
-	sqlDeleteGroupRow            = `DELETE FROM groups WHERE name = ?1`
 )
 
 // SQLiteGroupTreeStore 基于 SQLite 的路径化分组存储（事务实现）。
@@ -238,7 +236,7 @@ func (s *SQLiteGroupTreeStore) Remove(path string, keepChildren bool) error {
 	var groupsAffected, serversAffected int64
 	if keepChildren {
 		parent := GroupParent(canonical)
-		if err := checkLiftConflict(tx, canonical, parent); err != nil {
+		if err := checkLiftConflict(tx, canonical); err != nil {
 			logx.Warnf("[store] 删除分组被拒（子分组上移冲突）: path=%q parent=%q err=%v", canonical, parent, err)
 			return err
 		}
@@ -250,14 +248,25 @@ func (s *SQLiteGroupTreeStore) Remove(path string, keepChildren bool) error {
 		}
 		n, _ := res.RowsAffected()
 		serversAffected += n
-		// 2) 子孙分组整体上移一级。
-		res, err = tx.Exec(sqlLiftGroupSubtree, canonical, parent)
+		// 先移除整棵子树的旧路径，再写新路径。上移的子组可能复用旧路径，
+		// 例如 Team/Team/Team -> Team/Team；直接 UPDATE 会触发即时唯一约束。
+		oldPaths, err := queryGroupStrings(tx, sqlDeleteGroupSubtree+` RETURNING name`, canonical)
 		if err != nil {
-			logx.Errorf("[store] 删除分组失败（上移子分组）: path=%q err=%v", canonical, err)
+			logx.Errorf("[store] 删除分组失败（移除旧分组路径）: path=%q err=%v", canonical, err)
 			return fmt.Errorf(i18n.T("删除分组失败: %w"), err)
 		}
-		n, _ = res.RowsAffected()
-		groupsAffected += n
+		// A promoted direct child can take the deleted group's own path (e.g.
+		// Team/Team -> Team), so remove the parent's row before inserting children.
+		for _, oldPath := range oldPaths {
+			if relative, ok := strings.CutPrefix(oldPath, canonical+"/"); ok {
+				target := JoinGroupPath(parent, relative)
+				if _, err := tx.Exec(`INSERT INTO groups (name) VALUES (?)`, target); err != nil {
+					logx.Errorf("[store] 删除分组失败（写入上移后的路径）: path=%q target=%q err=%v", canonical, target, err)
+					return fmt.Errorf(i18n.T("删除分组失败: %w"), err)
+				}
+			}
+		}
+		groupsAffected = int64(len(oldPaths))
 		// 3) 子孙分组下的服务器路径同步上移一级。
 		res, err = tx.Exec(sqlLiftServerSubtree, canonical, parent)
 		if err != nil {
@@ -266,14 +275,6 @@ func (s *SQLiteGroupTreeStore) Remove(path string, keepChildren bool) error {
 		}
 		n, _ = res.RowsAffected()
 		serversAffected += n
-		// 4) 删除该分组自身。
-		res, err = tx.Exec(sqlDeleteGroupRow, canonical)
-		if err != nil {
-			logx.Errorf("[store] 删除分组失败（删除分组行）: path=%q err=%v", canonical, err)
-			return fmt.Errorf(i18n.T("删除分组失败: %w"), err)
-		}
-		n, _ = res.RowsAffected()
-		groupsAffected += n
 	} else {
 		// 1) 子树内服务器分组置空。
 		res, err := tx.Exec(sqlClearServerSubtree, canonical)
@@ -303,7 +304,7 @@ func (s *SQLiteGroupTreeStore) Remove(path string, keepChildren bool) error {
 
 // checkLiftConflict 预检查「保留子分组删除」上移后是否与已有分组重名。
 // 已有分组 = groups 表路径 ∪ servers.grp 去重；子树内（即将上移的）路径不参与比较。
-func checkLiftConflict(tx *sql.Tx, path, parent string) error {
+func checkLiftConflict(tx *sql.Tx, path string) error {
 	groupNames, err := queryGroupStrings(tx, `SELECT name FROM groups`)
 	if err != nil {
 		return fmt.Errorf(i18n.T("删除分组失败: %w"), err)
@@ -324,12 +325,19 @@ func CheckGroupLiftConflict(groupPaths, serverGroups []string, path string) erro
 	}
 	parent := GroupParent(path)
 	existing := map[string]struct{}{}
+	movedChildren := map[string]struct{}{}
 	collect := func(raw string) {
 		name, err := NormalizeLegacyGroupPath(raw)
 		if err != nil {
 			name = strings.TrimSpace(raw)
 		}
-		if name == "" || name == path || IsGroupDescendant(name, path) {
+		if name == "" || name == path {
+			return
+		}
+		if relative, ok := strings.CutPrefix(name, path+"/"); ok {
+			// 即使没有对应行，服务器使用的深层路径也定义了一个直属子组。
+			child, _, _ := strings.Cut(relative, "/")
+			movedChildren[child] = struct{}{}
 			return
 		}
 		existing[name] = struct{}{}
@@ -340,18 +348,10 @@ func CheckGroupLiftConflict(groupPaths, serverGroups []string, path string) erro
 	for _, name := range serverGroups {
 		collect(name)
 	}
-	for _, raw := range groupPaths {
-		name, err := NormalizeLegacyGroupPath(raw)
-		if err != nil {
-			name = strings.TrimSpace(raw)
-		}
-		if !IsGroupDescendant(name, path) {
-			continue
-		}
-		relative := strings.TrimPrefix(name, path+"/")
-		target := JoinGroupPath(parent, relative)
+	for child := range movedChildren {
+		target := JoinGroupPath(parent, child)
 		if groupPathCollision(existing, target) {
-			logx.Warnf("[store] 分组上移目标已存在: path=%q child=%q target=%q", path, name, target)
+			logx.Warnf("[store] 分组上移目标已存在: path=%q child=%q target=%q", path, child, target)
 			return errors.New(i18n.T("目标层级已存在同名分组，请先重命名"))
 		}
 	}
@@ -384,8 +384,8 @@ func groupSubtreeExists(tx *sql.Tx, query, path string) (bool, error) {
 	return true, nil
 }
 
-func queryGroupStrings(tx *sql.Tx, query string) ([]string, error) {
-	rows, err := tx.Query(query)
+func queryGroupStrings(tx *sql.Tx, query string, args ...any) ([]string, error) {
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

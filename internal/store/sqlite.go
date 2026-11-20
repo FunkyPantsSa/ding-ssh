@@ -241,6 +241,7 @@ func (s *SQLiteStore) SaveBatch(nodes []models.ServerNode) error {
 func (s *SQLiteStore) saveWith(executor interface {
 	Exec(string, ...any) (sql.Result, error)
 }, node models.ServerNode) error {
+	node.Group = normalizeStoredGroup(node.Group)
 	options, err := json.Marshal(node.SSHOptions)
 	if err != nil {
 		logx.Warnf("[store] 序列化服务器 SSH 配置失败: id=%s err=%v", node.ID, err)

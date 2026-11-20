@@ -324,6 +324,58 @@ func TestSQLiteGroupTreeStoreRemoveKeepChildrenConflict(t *testing.T) {
 	assertServerGroups(t, testServerGroups(t, db), map[string]string{"s1": ""})
 }
 
+func TestSQLiteGroupTreeStoreRemoveKeepChildrenDetectsImplicitGroups(t *testing.T) {
+	tree, db := newGroupTreeTestStore(t)
+	if err := tree.Add("Parent"); err != nil {
+		t.Fatal(err)
+	}
+	saveTestServer(t, db, "inside", "Parent/Child/TeamOne")
+	saveTestServer(t, db, "outside", "Child/TeamTwo")
+	beforeGroups := testGroupRows(t, db)
+	beforeServers := testServerGroups(t, db)
+
+	if err := tree.Remove("Parent", true); err == nil {
+		t.Fatal("server-only implicit child groups must participate in lift collision checks")
+	}
+	assertGroups(t, testGroupRows(t, db), beforeGroups)
+	assertServerGroups(t, testServerGroups(t, db), beforeServers)
+}
+
+func TestSQLiteGroupTreeStoreRemoveKeepChildrenCanReuseDeletedParentPath(t *testing.T) {
+	tree, db := newGroupTreeTestStore(t)
+	if err := tree.Add("Team/Team"); err != nil {
+		t.Fatal(err)
+	}
+	saveTestServer(t, db, "direct", "Team")
+	saveTestServer(t, db, "nested", "Team/Team/child")
+
+	if err := tree.Remove("Team", true); err != nil {
+		t.Fatalf("same-name child should be promoted into the deleted parent path: %v", err)
+	}
+	assertGroups(t, testGroupRows(t, db), []string{"Team"})
+	assertServerGroups(t, testServerGroups(t, db), map[string]string{
+		"direct": "",
+		"nested": "Team/child",
+	})
+}
+
+func TestSQLiteStoreCanonicalizesServerGroupBeforeRename(t *testing.T) {
+	tree, db := newGroupTreeTestStore(t)
+	if err := tree.Add("Café"); err != nil {
+		t.Fatal(err)
+	}
+	saveTestServer(t, db, "server", "Cafe\u0301")
+	if got := testServerGroups(t, db)["server"]; got != "Café" {
+		t.Fatalf("stored server group = %q, want NFC canonical form", got)
+	}
+	if err := tree.Rename("Café", "Projects"); err != nil {
+		t.Fatal(err)
+	}
+	if got := testServerGroups(t, db)["server"]; got != "Projects" {
+		t.Fatalf("renamed server group = %q, want Projects", got)
+	}
+}
+
 func TestNormalizeLegacyGroupPaths(t *testing.T) {
 	db, err := OpenSQLite(filepath.Join(t.TempDir(), "legacy.db"))
 	if err != nil {

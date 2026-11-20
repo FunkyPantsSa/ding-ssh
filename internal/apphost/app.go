@@ -327,6 +327,9 @@ func (a *App) SaveServer(node models.ServerNode) (models.ServerNode, error) {
 	if node.Port == 0 {
 		node.Port = 22
 	}
+	if normalized, err := store.NormalizeLegacyGroupPath(node.Group); err == nil {
+		node.Group = normalized
+	}
 	logx.Debugf("[apphost] 保存服务器: id=%s name=%s host=%s port=%d user=%s auth=%s jumps=%d",
 		node.ID, node.Name, node.Host, node.Port, node.User, node.AuthType, len(node.JumpServerIDs))
 	if _, err := a.resolveSSHNode(node); err != nil {

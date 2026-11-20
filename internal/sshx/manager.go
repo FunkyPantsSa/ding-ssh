@@ -109,6 +109,9 @@ func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows i
 		logx.Warnf("[sshx] 会话已存在，拒绝重复发起: session=%s server=%s", sessionID, node.Name)
 		return fmt.Errorf("%s", i18n.T("会话已存在"))
 	}
+	// A disconnected session ID may be reused for another server; don't expose
+	// listings retained from the previous connection under that same ID.
+	m.invalidateSessionSftpCache(sessionID)
 	ctx, cancel := context.WithCancel(context.Background())
 	m.pending[sessionID] = cancel
 	m.mu.Unlock()
@@ -323,6 +326,12 @@ func (m *Manager) InvalidateSftpCache(path string) {
 	m.cache.Invalidate(path)
 }
 
+func (m *Manager) invalidateSessionSftpCache(sessionID string) {
+	if m.cache != nil {
+		m.cache.InvalidateSession(sessionID)
+	}
+}
+
 // SftpList 列出指定会话的远程目录条目。
 func (m *Manager) SftpList(sessionID, path string) ([]models.SFTPEntry, error) {
 	start := time.Now()
@@ -362,7 +371,7 @@ func (m *Manager) SftpList(sessionID, path string) ([]models.SFTPEntry, error) {
 
 	// SWR 模式：优先缓存，后台异步校验
 	var result []models.SFTPEntry
-	m.cache.SWRReadDir(context.Background(), path, readDir,
+	m.cache.SWRReadDirForSession(sessionID, context.Background(), path, readDir,
 		func(entries []models.SFTPEntry) {
 			result = entries
 		},
@@ -382,7 +391,7 @@ func (m *Manager) SftpList(sessionID, path string) ([]models.SFTPEntry, error) {
 			logx.Errorf("[sshx] 列出远程目录失败: session=%s path=%s elapsed=%s err=%v", sessionID, path, time.Since(start), err)
 			return nil, err
 		}
-		m.cache.Set(path, entries)
+		m.cache.SetForSession(sessionID, path, entries)
 		result = entries
 	}
 	logx.Debugf("[sshx] 远程目录已列出: session=%s path=%s entries=%d elapsed=%s", sessionID, path, len(result), time.Since(start))
@@ -403,8 +412,8 @@ func (m *Manager) SftpRename(sessionID, oldPath, newPath string) error {
 	if err := client.Rename(oldPath, newPath); err != nil {
 		return fmt.Errorf(i18n.T("重命名失败: %w"), err)
 	}
-	m.cache.Invalidate(parentDir(oldPath))
-	m.cache.Invalidate(parentDir(newPath))
+	m.cache.InvalidateForSession(sessionID, parentDir(oldPath))
+	m.cache.InvalidateForSession(sessionID, parentDir(newPath))
 	logx.Infof("[sshx] 远程重命名完成: session=%s old=%s new=%s elapsed=%s", sessionID, oldPath, newPath, time.Since(start))
 	return nil
 }
@@ -423,7 +432,7 @@ func (m *Manager) SftpMkdir(sessionID, path string) error {
 	if err := client.Mkdir(path); err != nil {
 		return fmt.Errorf(i18n.T("创建目录失败: %w"), err)
 	}
-	m.cache.Invalidate(parentDir(path))
+	m.cache.InvalidateForSession(sessionID, parentDir(path))
 	logx.Infof("[sshx] 远程目录已创建: session=%s path=%s elapsed=%s", sessionID, path, time.Since(start))
 	return nil
 }
@@ -442,14 +451,14 @@ func (m *Manager) SftpRemove(sessionID, path string) error {
 	if err := removeRemote(client, path); err != nil {
 		return fmt.Errorf(i18n.T("删除失败: %w"), err)
 	}
-	m.cache.Invalidate(parentDir(path))
+	m.cache.InvalidateForSession(sessionID, parentDir(path))
 	logx.Infof("[sshx] 远程路径已删除: session=%s path=%s elapsed=%s", sessionID, path, time.Since(start))
 	return nil
 }
 
 // removeRemote 递归删除远程路径：目录先删子项再删自身。
 func removeRemote(client *sftp.Client, path string) error {
-	fi, err := client.Stat(path)
+	fi, err := client.Lstat(path)
 	if err != nil {
 		return err
 	}
@@ -498,7 +507,7 @@ func (m *Manager) SftpUpload(sessionID, localPath, remotePath string) error {
 	if err != nil {
 		return fmt.Errorf(i18n.T("读取本地文件信息失败: %w"), err)
 	}
-	dst, err := client.Create(remotePath)
+	tempPath, dst, err := openRemoteTempFile(client, remotePath)
 	if err != nil {
 		return fmt.Errorf(i18n.T("创建远程文件失败: %w"), err)
 	}
@@ -510,16 +519,25 @@ func (m *Manager) SftpUpload(sessionID, localPath, remotePath string) error {
 	ctx = context.WithValue(ctx, transferContextKey{}, tr.id)
 	err = m.streamTransfer(ctx, sessionID, "upload", name, fi.Size(), src.Read, dst.Write)
 	if err != nil {
+		_ = dst.Close()
+		_ = client.Remove(tempPath)
 		if errors.Is(err, ErrTransferCancelled) {
 			logx.Warnf("[sshx] 上传已取消: session=%s name=%s elapsed=%s", sessionID, name, time.Since(start))
 			return ErrTransferCancelled // 调用方也必须收到取消结果，避免晚到事件被记作成功
 		}
 		logx.Debugf("[sshx] 上传失败，清理不完整文件: session=%s name=%s remote=%s elapsed=%s err=%v",
 			sessionID, name, remotePath, time.Since(start), err)
-		_ = client.Remove(remotePath) // 清理不完整的上传文件
 		return fmt.Errorf(i18n.T("上传失败: %w"), err)
 	}
-	m.cache.Invalidate(parentDir(remotePath))
+	if err := dst.Close(); err != nil {
+		_ = client.Remove(tempPath)
+		return fmt.Errorf(i18n.T("上传失败: %w"), err)
+	}
+	if err := replaceRemoteFile(client, tempPath, remotePath); err != nil {
+		_ = client.Remove(tempPath)
+		return fmt.Errorf(i18n.T("上传失败: %w"), err)
+	}
+	m.cache.InvalidateForSession(sessionID, parentDir(remotePath))
 	logx.Infof("[sshx] 上传完成: session=%s name=%s bytes=%d elapsed=%s", sessionID, name, fi.Size(), time.Since(start))
 	return nil
 }
@@ -546,7 +564,7 @@ func (m *Manager) SftpDownload(sessionID, remotePath, localPath string) error {
 	if err != nil {
 		return fmt.Errorf(i18n.T("读取远程文件信息失败: %w"), err)
 	}
-	dst, err := os.Create(localPath)
+	tempPath, dst, err := openLocalTempFile(localPath)
 	if err != nil {
 		return fmt.Errorf(i18n.T("创建本地文件失败: %w"), err)
 	}
@@ -558,17 +576,24 @@ func (m *Manager) SftpDownload(sessionID, remotePath, localPath string) error {
 	ctx = context.WithValue(ctx, transferContextKey{}, tr.id)
 	err = m.streamTransfer(ctx, sessionID, "download", name, fi.Size(), src.Read, dst.Write)
 	if err != nil {
+		_ = dst.Close()
+		_ = os.Remove(tempPath)
 		if errors.Is(err, ErrTransferCancelled) {
 			logx.Warnf("[sshx] 下载已取消: session=%s name=%s elapsed=%s", sessionID, name, time.Since(start))
-			_ = os.Remove(localPath)    // 清理不完整的下载文件
 			return ErrTransferCancelled // 调用方也必须收到取消结果
 		}
 		logx.Debugf("[sshx] 下载失败，清理不完整文件: session=%s name=%s local=%s elapsed=%s err=%v",
 			sessionID, name, localPath, time.Since(start), err)
-		_ = os.Remove(localPath) // 清理不完整的下载文件
 		return fmt.Errorf(i18n.T("下载失败: %w"), err)
 	}
-	m.cache.Invalidate(parentDir(remotePath))
+	if err := dst.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf(i18n.T("下载失败: %w"), err)
+	}
+	if err := replaceLocalFile(tempPath, localPath); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf(i18n.T("下载失败: %w"), err)
+	}
 	logx.Infof("[sshx] 下载完成: session=%s name=%s bytes=%d elapsed=%s", sessionID, name, fi.Size(), time.Since(start))
 	return nil
 }
@@ -676,7 +701,7 @@ func (m *Manager) SftpUploadFolder(sessionID, localDir, remoteDir string) error 
 		return fmt.Errorf(i18n.T("上传文件夹失败: %w"), uploadErr)
 	}
 	finish("")
-	m.cache.Invalidate(parentDir(root))
+	m.cache.InvalidateForSession(sessionID, parentDir(root))
 	logx.Infof("[sshx] 上传文件夹完成: session=%s name=%s bytes=%d elapsed=%s", sessionID, name, total, time.Since(start))
 	return nil
 }
@@ -869,7 +894,7 @@ func (m *Manager) downloadFolderTree(ctx context.Context, client *sftp.Client, r
 		if err != nil {
 			return fmt.Errorf(i18n.T("打开远端文件失败: %w"), err)
 		}
-		dst, err := os.Create(localPath)
+		tempPath, dst, err := openLocalTempFile(localPath)
 		if err != nil {
 			src.Close()
 			return fmt.Errorf(i18n.T("创建本地文件失败: %w"), err)
@@ -878,19 +903,23 @@ func (m *Manager) downloadFolderTree(ctx context.Context, client *sftp.Client, r
 		closeSrcErr := src.Close()
 		closeDstErr := dst.Close()
 		if copyErr != nil {
-			_ = os.Remove(localPath) // 清理不完整的下载文件
+			_ = os.Remove(tempPath)
 			if errors.Is(copyErr, ErrTransferCancelled) {
 				return ErrTransferCancelled
 			}
 			return copyErr
 		}
 		if closeSrcErr != nil {
-			_ = os.Remove(localPath)
+			_ = os.Remove(tempPath)
 			return fmt.Errorf(i18n.T("关闭远端文件失败: %w"), closeSrcErr)
 		}
 		if closeDstErr != nil {
-			_ = os.Remove(localPath)
+			_ = os.Remove(tempPath)
 			return fmt.Errorf(i18n.T("关闭本地文件失败: %w"), closeDstErr)
+		}
+		if err := replaceLocalFile(tempPath, localPath); err != nil {
+			_ = os.Remove(tempPath)
+			return fmt.Errorf(i18n.T("发布本地文件失败: %w"), err)
 		}
 		return nil
 	})
@@ -951,11 +980,14 @@ func (m *Manager) uploadFolderTree(ctx context.Context, client *sftp.Client, loc
 		} else {
 			logx.Debugf("[sshx] 上传文件夹: 上传文件 local=%s remote=%s", p, remotePath)
 		}
+		if err := ctx.Err(); err != nil {
+			return ErrTransferCancelled
+		}
 		src, err := os.Open(p)
 		if err != nil {
 			return fmt.Errorf(i18n.T("打开本地文件失败: %w"), err)
 		}
-		dst, err := client.Create(remotePath)
+		tempPath, dst, err := openRemoteTempFile(client, remotePath)
 		if err != nil {
 			src.Close()
 			return fmt.Errorf(i18n.T("创建远程文件失败: %w"), err)
@@ -964,19 +996,23 @@ func (m *Manager) uploadFolderTree(ctx context.Context, client *sftp.Client, loc
 		closeSrcErr := src.Close()
 		closeDstErr := dst.Close()
 		if copyErr != nil {
-			_ = client.Remove(remotePath) // 清理不完整的上传文件
+			_ = client.Remove(tempPath)
 			if errors.Is(copyErr, ErrTransferCancelled) {
 				return ErrTransferCancelled
 			}
 			return copyErr
 		}
 		if closeSrcErr != nil {
-			_ = client.Remove(remotePath)
+			_ = client.Remove(tempPath)
 			return fmt.Errorf(i18n.T("关闭本地文件失败: %w"), closeSrcErr)
 		}
 		if closeDstErr != nil {
-			_ = client.Remove(remotePath)
+			_ = client.Remove(tempPath)
 			return fmt.Errorf(i18n.T("关闭远程文件失败: %w"), closeDstErr)
+		}
+		if err := replaceRemoteFile(client, tempPath, remotePath); err != nil {
+			_ = client.Remove(tempPath)
+			return fmt.Errorf(i18n.T("发布远程文件失败: %w"), err)
 		}
 		return nil
 	})
@@ -1424,6 +1460,7 @@ func (m *Manager) remove(sessionID string) {
 	// 会话级实时刷新只在本次终端有效：关闭会话即失效，下次连接回到全局设置。
 	delete(m.sysInfoRealtime, sessionID)
 	m.mu.Unlock()
+	m.invalidateSessionSftpCache(sessionID)
 	logx.Debugf("[sshx] 会话已从管理器移除: session=%s collectors=%v remainingSessions=%d",
 		sessionID, c != nil, len(m.sessions))
 	if c != nil {
