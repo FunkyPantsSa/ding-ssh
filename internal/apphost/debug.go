@@ -2431,7 +2431,8 @@ func (c *debugController) handleAppctlOp(ctx context.Context, op string, args ma
 			}
 			err = c.app.RenameGroup(ctlArgStr(args, "oldName"), ctlArgStr(args, "newName"))
 		case debugsrv.OpGroupsDelete:
-			err = c.app.RemoveGroup(ctlArgStr(args, "name"))
+			// 控制面保持旧语义：默认递归删除（与前端确认框默认项一致）。
+			err = c.app.RemoveGroup(ctlArgStr(args, "name"), false)
 		}
 		if err != nil {
 			return nil, err

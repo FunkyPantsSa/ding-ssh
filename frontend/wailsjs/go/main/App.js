@@ -198,8 +198,8 @@ export function Reconnect(arg1, arg2, arg3) {
   return window['go']['main']['App']['Reconnect'](arg1, arg2, arg3);
 }
 
-export function RemoveGroup(arg1) {
-  return window['go']['main']['App']['RemoveGroup'](arg1);
+export function RemoveGroup(arg1, arg2) {
+  return window['go']['main']['App']['RemoveGroup'](arg1, arg2);
 }
 
 export function RemoveTunnel(arg1) {

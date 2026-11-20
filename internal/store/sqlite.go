@@ -806,8 +806,8 @@ func (s *SQLiteCredentialStore) Delete(id string) error {
 	return nil
 }
 
-// SQLiteGroupStore 基于 SQLite 的空分组存储。
-// 分组实际归属由服务器节点的 Group 字段决定，这里仅保存「手动创建但暂无服务器的分组」。
+// SQLiteGroupStore 旧版扁平分组存储，仅保留给 MigrateLegacyJSON 迁移使用。
+// 新代码请使用路径化的 SQLiteGroupTreeStore（见 grouptree.go），它会在事务内级联服务器分组。
 type SQLiteGroupStore struct {
 	db *sql.DB
 }
@@ -1017,5 +1017,4 @@ var (
 	_ Store           = (*SQLiteStore)(nil)
 	_ SettingsStore   = (*SQLiteSettingsStore)(nil)
 	_ CredentialStore = (*SQLiteCredentialStore)(nil)
-	_ GroupStore      = (*SQLiteGroupStore)(nil)
 )

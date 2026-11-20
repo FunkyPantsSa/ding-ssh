@@ -141,6 +141,10 @@ func (a *App) Startup(ctx context.Context) {
 	if err := store.MigrateLegacyJSON(db); err != nil {
 		logx.Errorf("[apphost] 迁移旧版 JSON 数据到 SQLite 失败: err=%v", err)
 	}
+	// 旧数据里含空段/首尾分隔符的分组路径做一次幂等规范化（正常数据零改动）。
+	if err := store.NormalizeLegacyGroupPaths(db); err != nil {
+		logx.Errorf("[apphost] 规范化旧分组路径失败（继续启动）: err=%v", err)
+	}
 	sqlStore := store.NewSQLiteStore(db)
 	sqlCreds := store.NewSQLiteCredentialStore(db)
 	if a.vault != nil && a.vault.Status().Unlocked {
@@ -160,7 +164,7 @@ func (a *App) Startup(ctx context.Context) {
 	a.store = sqlStore
 	a.settings = store.NewSQLiteSettingsStore(db)
 	a.credentials = sqlCreds
-	a.groups = store.NewSQLiteGroupStore(db)
+	a.groups = store.NewSQLiteGroupTreeStore(db)
 	if err := store.EnsureHistorySchema(db); err != nil {
 		logx.Errorf("[apphost] 初始化命令历史表失败: err=%v", err)
 		a.history = store.NoopHistoryStore{}
@@ -922,24 +926,95 @@ func (a *App) ListTunnels() []models.TunnelInfo {
 	return tunnels
 }
 
-// ---- 分组管理 ----
+// ---- 分组管理（路径即身份：'/' 分隔层级，空串=未分组）----
 
-// GetGroups 返回全部分组：手动创建的分组与服务器节点使用的分组取并集。
-func (a *App) GetGroups() []string {
-	set := map[string]struct{}{}
-	if stored, err := a.groups.List(); err != nil {
-		logx.Errorf("[apphost] 读取分组失败: err=%v", err)
-	} else {
-		for _, g := range stored {
-			set[g] = struct{}{}
+// canonicalServerGroup 规范化服务器节点上的分组路径；空或非法路径返回 false。
+func canonicalServerGroup(raw string) (string, bool) {
+	path, err := store.NormalizeLegacyGroupPath(raw)
+	if err != nil {
+		logx.Warnf("[apphost] 服务器分组路径非法，已忽略: raw=%q err=%v", raw, err)
+		return "", false
+	}
+	if path == "" {
+		return "", false
+	}
+	return path, true
+}
+
+// groupStoreCascadesServers 判断分组存储是否会在写操作内自行级联服务器分组（SQLite 事务实现）。
+func groupStoreCascadesServers(groups store.GroupStore) bool {
+	cascade, ok := groups.(store.GroupServerCascadeStore)
+	return ok && cascade.CascadesServers()
+}
+
+// groupPathInList 判断路径集合中是否存在 path 本身或它的子孙。
+func groupPathInList(paths []string, path string) bool {
+	for _, raw := range paths {
+		name, err := store.NormalizeLegacyGroupPath(raw)
+		if err != nil {
+			name = strings.TrimSpace(raw)
+		}
+		if name == path || store.IsGroupDescendant(name, path) {
+			return true
 		}
 	}
-	if nodes, err := a.store.List(); err != nil {
-		logx.Errorf("[apphost] 读取服务器列表失败: err=%v", err)
-	} else {
-		for _, n := range nodes {
-			if g := strings.TrimSpace(n.Group); g != "" {
-				set[g] = struct{}{}
+	return false
+}
+
+// serverGroupPaths 返回服务器节点使用的规范化分组路径（去重）。
+func serverGroupPaths(nodes []models.ServerNode) []string {
+	out := make([]string, 0, len(nodes))
+	seen := make(map[string]struct{}, len(nodes))
+	for _, n := range nodes {
+		path, ok := canonicalServerGroup(n.Group)
+		if !ok {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	return out
+}
+
+// GetGroups 返回全部分组路径：手动创建的空分组、服务器使用的分组，以及它们的隐式祖先。
+func (a *App) GetGroups() []string {
+	set := map[string]struct{}{}
+	addPath := func(raw string) {
+		if strings.TrimSpace(raw) == "" {
+			return
+		}
+		path, err := store.NormalizeLegacyGroupPath(raw)
+		if err != nil {
+			// 无法规范化的旧数据按扁平路径原样展示，避免分组凭空消失。
+			logx.Warnf("[apphost] 分组路径非法，按原样展示: raw=%q err=%v", raw, err)
+			path = strings.TrimSpace(raw)
+			if path == "" {
+				return
+			}
+		}
+		for _, ancestor := range store.GroupAncestors(path) {
+			set[ancestor] = struct{}{}
+		}
+		set[path] = struct{}{}
+	}
+	if a.groups != nil {
+		if stored, err := a.groups.List(); err != nil {
+			logx.Errorf("[apphost] 读取分组失败: err=%v", err)
+		} else {
+			for _, g := range stored {
+				addPath(g)
+			}
+		}
+	}
+	if a.store != nil {
+		if nodes, err := a.store.List(); err != nil {
+			logx.Errorf("[apphost] 读取服务器列表失败: err=%v", err)
+		} else {
+			for _, n := range nodes {
+				addPath(n.Group)
 			}
 		}
 	}
@@ -952,88 +1027,206 @@ func (a *App) GetGroups() []string {
 	return groups
 }
 
-// AddGroup 手动新增分组。
-func (a *App) AddGroup(name string) error {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		logx.Warnf("[apphost] 新增分组被拒（名称为空）")
-		return errors.New(i18n.T("分组名称不能为空"))
+// AddGroup 新增分组路径及其所有祖先；已存在时幂等。
+func (a *App) AddGroup(path string) error {
+	start := time.Now()
+	normalized, err := store.NormalizeGroupPath(path)
+	if err != nil {
+		logx.Warnf("[apphost] 新增分组被拒（路径非法）: path=%q err=%v", path, err)
+		return err
 	}
-	if err := a.groups.Add(name); err != nil {
-		logx.Errorf("[apphost] 新增分组失败: name=%q err=%v", name, err)
-		return fmt.Errorf(i18n.T("新增分组失败: %w"), err)
+	if err := a.groups.Add(normalized); err != nil {
+		logx.Errorf("[apphost] 新增分组失败: path=%q err=%v", normalized, err)
+		return err
 	}
-	logx.Infof("[apphost] 新增分组完成: name=%q", name)
+	logx.Infof("[apphost] 新增分组完成: path=%q ancestors=%d elapsed=%s",
+		normalized, len(store.GroupAncestors(normalized)), time.Since(start))
 	return nil
 }
 
-// RenameGroup 重命名分组，并同步更新该分组下的服务器节点。
-func (a *App) RenameGroup(oldName, newName string) error {
-	oldName = strings.TrimSpace(oldName)
-	newName = strings.TrimSpace(newName)
-	if newName == "" {
-		logx.Warnf("[apphost] 重命名分组被拒（新名称为空）: oldName=%q", oldName)
-		return errors.New(i18n.T("分组名称不能为空"))
+// RenameGroup 只修改分组路径的最后一段，并级联更新子分组与服务器分组。
+// newLeaf 是新的叶子名称，不能包含 '/'。
+func (a *App) RenameGroup(path, newLeaf string) error {
+	start := time.Now()
+	oldPath, targetPath, err := store.ResolveGroupRename(path, newLeaf)
+	if err != nil {
+		logx.Warnf("[apphost] 重命名分组被拒（参数非法）: path=%q newLeaf=%q err=%v", path, newLeaf, err)
+		return err
 	}
-	if oldName == newName {
-		logx.Debugf("[apphost] 重命名分组跳过（名称未变）: name=%q", oldName)
+	if oldPath == targetPath {
+		logx.Debugf("[apphost] 重命名分组跳过（路径未变）: path=%q", oldPath)
 		return nil
 	}
-	logx.Debugf("[apphost] 重命名分组: oldName=%q newName=%q", oldName, newName)
-	if err := a.groups.Rename(oldName, newName); err != nil {
-		logx.Errorf("[apphost] 重命名分组失败: oldName=%q newName=%q err=%v", oldName, newName, err)
-		return fmt.Errorf(i18n.T("重命名分组失败: %w"), err)
-	}
-	nodes, err := a.store.List()
-	if err != nil {
-		logx.Errorf("[apphost] 重命名分组失败（读取服务器列表）: oldName=%q err=%v", oldName, err)
-		return fmt.Errorf(i18n.T("读取服务器列表失败: %w"), err)
-	}
-	moved := 0
-	for _, n := range nodes {
-		if n.Group == oldName {
-			n.Group = newName
-			if err := a.store.Save(n); err != nil {
-				logx.Errorf("[apphost] 更新分组下的服务器失败: id=%s err=%v", n.ID, err)
-			} else {
-				moved++
-			}
+	logx.Debugf("[apphost] 重命名分组: old=%q new=%q", oldPath, targetPath)
+	cascade := groupStoreCascadesServers(a.groups)
+	// SQLite 事务实现会在存储层级联服务器；JSON 兜底需要在 app 层补更新（非事务）。
+	var nodes []models.ServerNode
+	if !cascade {
+		stored, lerr := a.groups.List()
+		if lerr != nil {
+			logx.Errorf("[apphost] 重命名分组失败（读取分组列表）: old=%q err=%v", oldPath, lerr)
+			return fmt.Errorf(i18n.T("读取分组失败: %w"), lerr)
+		}
+		nodes, err = a.store.List()
+		if err != nil {
+			logx.Errorf("[apphost] 重命名分组失败（读取服务器列表）: old=%q err=%v", oldPath, err)
+			return fmt.Errorf(i18n.T("读取服务器列表失败: %w"), err)
+		}
+		if groupPathInList(stored, targetPath) || groupPathInList(serverGroupPaths(nodes), targetPath) {
+			logx.Warnf("[apphost] 重命名分组被拒（目标已存在）: old=%q new=%q", oldPath, targetPath)
+			return errors.New(i18n.T("目标分组已存在"))
+		}
+		if !groupPathInList(stored, oldPath) && !groupPathInList(serverGroupPaths(nodes), oldPath) {
+			logx.Warnf("[apphost] 重命名分组被拒（分组不存在）: old=%q", oldPath)
+			return errors.New(i18n.T("分组不存在"))
 		}
 	}
-	logx.Infof("[apphost] 重命名分组完成: oldName=%q newName=%q servers=%d", oldName, newName, moved)
+	if err := a.groups.Rename(oldPath, store.GroupBase(targetPath)); err != nil {
+		logx.Warnf("[apphost] 重命名分组失败: old=%q new=%q err=%v", oldPath, targetPath, err)
+		return err
+	}
+	if cascade {
+		logx.Infof("[apphost] 重命名分组完成(事务): old=%q new=%q elapsed=%s", oldPath, targetPath, time.Since(start))
+		return nil
+	}
+	moved, err := a.syncServersAfterGroupRename(nodes, oldPath, targetPath)
+	if err != nil {
+		return err
+	}
+	logx.Infof("[apphost] 重命名分组完成(JSON 兜底、非事务): old=%q new=%q servers=%d elapsed=%s",
+		oldPath, targetPath, moved, time.Since(start))
 	return nil
 }
 
-// RemoveGroup 删除分组，该分组下的服务器变为未分组。
-func (a *App) RemoveGroup(name string) error {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		logx.Warnf("[apphost] 删除分组被拒（名称为空）")
-		return errors.New(i18n.T("分组名称不能为空"))
-	}
-	logx.Debugf("[apphost] 删除分组: name=%q", name)
-	if err := a.groups.Remove(name); err != nil {
-		logx.Errorf("[apphost] 删除分组失败: name=%q err=%v", name, err)
-		return fmt.Errorf(i18n.T("删除分组失败: %w"), err)
-	}
-	nodes, err := a.store.List()
-	if err != nil {
-		logx.Errorf("[apphost] 删除分组失败（读取服务器列表）: name=%q err=%v", name, err)
-		return fmt.Errorf(i18n.T("读取服务器列表失败: %w"), err)
-	}
-	cleared := 0
+// syncServersAfterGroupRename 把服务器分组路径的前缀从 oldPath 换成 targetPath。
+// JSON 兜底没有跨文件事务：中途失败会回滚已保存的服务器分组并返回错误。
+func (a *App) syncServersAfterGroupRename(nodes []models.ServerNode, oldPath, targetPath string) (int, error) {
+	saved := make([]models.ServerNode, 0, len(nodes))
+	moved := 0
 	for _, n := range nodes {
-		if n.Group == name {
-			n.Group = ""
-			if err := a.store.Save(n); err != nil {
-				logx.Errorf("[apphost] 清除分组下的服务器失败: id=%s err=%v", n.ID, err)
-			} else {
-				cleared++
+		group, ok := canonicalServerGroup(n.Group)
+		if !ok {
+			continue
+		}
+		var newGroup string
+		switch {
+		case group == oldPath:
+			newGroup = targetPath
+		case store.IsGroupDescendant(group, oldPath):
+			newGroup = targetPath + group[len(oldPath):]
+		default:
+			continue
+		}
+		updated := n
+		updated.Group = newGroup
+		if err := a.store.Save(updated); err != nil {
+			logx.Errorf("[apphost] 重命名分组失败（更新服务器分组）: id=%s err=%v", n.ID, err)
+			a.rollbackServerGroups(saved)
+			return moved, fmt.Errorf(i18n.T("同步服务器分组失败: %w"), err)
+		}
+		saved = append(saved, n)
+		moved++
+	}
+	return moved, nil
+}
+
+// rollbackServerGroups 尽力回滚已保存的服务器分组（JSON 兜底的非事务补偿）。
+func (a *App) rollbackServerGroups(nodes []models.ServerNode) {
+	if len(nodes) == 0 {
+		return
+	}
+	for _, n := range nodes {
+		if err := a.store.Save(n); err != nil {
+			logx.Errorf("[apphost] 回滚服务器分组失败: id=%s err=%v", n.ID, err)
+		}
+	}
+	logx.Warnf("[apphost] 已回滚服务器分组: count=%d", len(nodes))
+}
+
+// RemoveGroup 删除分组。
+//   - keepChildren=false：递归删除该组与全部子孙分组，子树内服务器变为未分组；
+//   - keepChildren=true：删除该组，直属服务器移到父级（根组置空），子孙分组整体上移一级；
+//     上移后与已有分组冲突时拒绝。
+func (a *App) RemoveGroup(path string, keepChildren bool) error {
+	start := time.Now()
+	canonical, err := store.CanonicalGroupPath(path)
+	if err != nil {
+		logx.Warnf("[apphost] 删除分组被拒（路径非法）: path=%q err=%v", path, err)
+		return err
+	}
+	logx.Debugf("[apphost] 删除分组: path=%q keepChildren=%v", canonical, keepChildren)
+	cascade := groupStoreCascadesServers(a.groups)
+	var nodes []models.ServerNode
+	if !cascade {
+		nodes, err = a.store.List()
+		if err != nil {
+			logx.Errorf("[apphost] 删除分组失败（读取服务器列表）: path=%q err=%v", canonical, err)
+			return fmt.Errorf(i18n.T("读取服务器列表失败: %w"), err)
+		}
+		if keepChildren {
+			stored, lerr := a.groups.List()
+			if lerr != nil {
+				logx.Errorf("[apphost] 删除分组失败（读取分组列表）: path=%q err=%v", canonical, lerr)
+				return fmt.Errorf(i18n.T("读取分组失败: %w"), lerr)
+			}
+			if cerr := store.CheckGroupLiftConflict(stored, serverGroupPaths(nodes), canonical); cerr != nil {
+				logx.Warnf("[apphost] 删除分组被拒（子分组上移冲突）: path=%q err=%v", canonical, cerr)
+				return cerr
 			}
 		}
 	}
-	logx.Infof("[apphost] 删除分组完成: name=%q servers=%d", name, cleared)
+	if err := a.groups.Remove(canonical, keepChildren); err != nil {
+		logx.Warnf("[apphost] 删除分组失败: path=%q err=%v", canonical, err)
+		return err
+	}
+	if cascade {
+		logx.Infof("[apphost] 删除分组完成(事务): path=%q keepChildren=%v elapsed=%s", canonical, keepChildren, time.Since(start))
+		return nil
+	}
+	moved, cleared, err := a.syncServersAfterGroupRemove(nodes, canonical, keepChildren)
+	if err != nil {
+		return err
+	}
+	logx.Infof("[apphost] 删除分组完成(JSON 兜底、非事务): path=%q keepChildren=%v moved=%d cleared=%d elapsed=%s",
+		canonical, keepChildren, moved, cleared, time.Since(start))
 	return nil
+}
+
+// syncServersAfterGroupRemove 在 JSON 兜底下同步服务器分组；返回移动到父级的数量与置空的数量。
+func (a *App) syncServersAfterGroupRemove(nodes []models.ServerNode, path string, keepChildren bool) (moved, cleared int, err error) {
+	parent := store.GroupParent(path)
+	for _, n := range nodes {
+		group, ok := canonicalServerGroup(n.Group)
+		if !ok {
+			continue
+		}
+		direct := group == path
+		if !direct && !store.IsGroupDescendant(group, path) {
+			continue
+		}
+		var newGroup string
+		if keepChildren {
+			if direct {
+				newGroup = parent
+			} else {
+				newGroup = store.JoinGroupPath(parent, strings.TrimPrefix(group, path+"/"))
+			}
+		} else {
+			newGroup = ""
+		}
+		updated := n
+		updated.Group = newGroup
+		if err := a.store.Save(updated); err != nil {
+			logx.Errorf("[apphost] 删除分组失败（更新服务器分组）: id=%s err=%v", n.ID, err)
+			return moved, cleared, fmt.Errorf(i18n.T("同步服务器分组失败: %w"), err)
+		}
+		if newGroup == "" {
+			cleared++
+		} else {
+			moved++
+		}
+	}
+	return moved, cleared, nil
 }
 
 // ---- SSH 会话管理 ----

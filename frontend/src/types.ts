@@ -13,7 +13,7 @@ export interface ServerNode {
 
   id: string
   name: string
-  group: string // 分组名，空为未分组
+  group: string // 分组完整路径（如 生产环境/华东），空为未分组
   host: string
   port: number
   user: string
@@ -25,6 +25,11 @@ export interface ServerNode {
   blurAmount: number
   envVars: Record<string, string>
 }
+
+export type GroupSelection =
+  | {kind: 'all'}
+  | {kind: 'ungrouped'}
+  | {kind: 'group'; path: string}
 
 export interface ConnectResult {
   sessionId: string

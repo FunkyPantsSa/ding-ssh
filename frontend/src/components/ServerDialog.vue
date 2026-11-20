@@ -10,6 +10,8 @@ import Icon from './Icon.vue'
 import {sshService} from '../services/ssh'
 import {useCredentialsStore} from '../stores/credentials'
 import {useServersStore} from '../stores/servers'
+import {useGroupsStore} from '../stores/groups'
+import {normalizeGroupPath, validateGroupNameInput} from '../utils/groupTree'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import type {Credential, ServerNode} from '../types'
@@ -24,6 +26,7 @@ const props = defineProps<{editing: ServerNode | null; defaultGroup?: string}>()
 const show = defineModel<boolean>({required: true})
 
 const servers = useServersStore()
+const groupStore = useGroupsStore()
 const credentials = useCredentialsStore()
 const sessions = useSessionsStore()
 const ui = useUIStore()
@@ -42,13 +45,21 @@ const selectedCred = ref('')
 /** 当前选中的凭证 id：用于「私钥内容不展示、保存时按 id 取回」的间接引用。 */
 const credentialsUsed = ref('')
 
-const groups = computed(() => {
-  const set = new Set(servers.servers.map((s) => s.group.trim()).filter(Boolean))
-  // 左栏选中的分组可能还没有任何服务器（手动建的空分组），也要出现在可选项里。
-  // 'all' 是「全部服务器」的哨兵值，不是真实分组，不能出现在下拉选项里。
-  const current = (props.defaultGroup ?? '').trim()
+const groupOptions = computed(() => {
+  const set = new Set<string>()
+  for (const group of groupStore.list) {
+    const path = normalizeGroupPath(group)
+    if (path) set.add(path)
+  }
+  for (const server of servers.servers) {
+    const path = normalizeGroupPath(server.group)
+    if (path) set.add(path)
+  }
+  // 左栏选中的分组可能还没有任何服务器（手动建的空分组/隐式父级），也要出现在可选项里。
+  // 'all' 是旧版「全部服务器」的哨兵值，不是真实分组，不能出现在下拉选项里。
+  const current = normalizeGroupPath(props.defaultGroup ?? '')
   if (current && current !== 'all') set.add(current)
-  return [...set].sort((a, b) => a.localeCompare(b))
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', {numeric: true}))
 })
 
 /** select = 从已有分组选择；create = 手动输入新建分组名 */
@@ -90,7 +101,7 @@ function syncGroupFromForm(group: string) {
     newGroupName.value = ''
     return
   }
-  if (groups.value.includes(g)) {
+  if (groupOptions.value.includes(g)) {
     groupMode.value = 'select'
     selectedGroup.value = g
     newGroupName.value = ''
@@ -212,6 +223,15 @@ function buildPayload(requireName: boolean): ServerNode | null {
   if (!form.user.trim()) {
     errorMsg.value = t("请填写用户名")
     return null
+  }
+  const groupPath = normalizeGroupPath(form.group)
+  if (groupPath) {
+    const groupError = validateGroupNameInput(groupPath, groupMode.value === 'create' ? 6 : 8)
+    if (groupError) {
+      errorMsg.value = groupError
+      return null
+    }
+    form.group = groupPath
   }
   const node: ServerNode = {...form}
   if (form.authType === 'password' && !form.password) {
@@ -416,7 +436,7 @@ onMounted(() => {
           v-model="selectedGroup"
           class="mt-1"
           :aria-label="$t('服务器分组')"
-          :options="[{value: '', label: t('未分组')}, ...groups.map(g => ({value: g, label: g}))]"
+          :options="[{value: '', label: t('未分组')}, ...groupOptions.map(g => ({value: g, label: g}))]"
         />
         <Input
           v-else

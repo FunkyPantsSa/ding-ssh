@@ -8,7 +8,7 @@ import Icon from '../Icon.vue'
 import {getDisplayRect} from '../../utils/dom'
 import type {ServerNode} from '../../types'
 type Badge = {dot: string; text: string; textClass: string; tip?: string} | null
-defineProps<{node: ServerNode; status: string; active: boolean; dragging: boolean; badge: Badge; copied: boolean}>()
+defineProps<{node: ServerNode; status: string; active: boolean; dragging: boolean; badge: Badge; copied: boolean; groupLabel?: string}>()
 const emit = defineEmits<{connect: []; copy: []; test: []; edit: []; remove: []; menu: [event: MouseEvent]; dragstart: [event: DragEvent]; dragend: []}>()
 
 /** 键盘打开右键菜单（Shift+F10 / ContextMenu），坐标取整行的中心。 */
@@ -51,7 +51,13 @@ function onMainKeydown(event: KeyboardEvent) {
         <span class="server-host font-mono">{{ node.user }}@{{ node.host }}:{{ node.port }}</span>
       </span>
     </button>
-    <ServerConfigSummary :node="node" :status="status" />
+    <div class="server-row-meta">
+      <span v-if="groupLabel" class="row-group-tag" :title="groupLabel">
+        <Icon name="folder" :size="11" />
+        <span class="row-group-label">{{ groupLabel }}</span>
+      </span>
+      <ServerConfigSummary :node="node" :status="status" />
+    </div>
     <div class="server-row-operations">
     <button
       v-if="badge"
@@ -81,6 +87,39 @@ function onMainKeydown(event: KeyboardEvent) {
   container-type: inline-size;
   display: grid;
   grid-template-columns: minmax(180px, .85fr) minmax(0, 1.4fr) max-content;
+}
+.server-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.row-group-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 190px;
+  height: 20px;
+  padding: 0 6px;
+  flex: none;
+  border-radius: var(--radius-small);
+  background: var(--accent-weak-bg);
+  color: var(--accent-bg);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.row-group-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@container server-list (max-width: 760px) {
+  .row-group-tag { max-width: 120px; }
+}
+@container server-list (max-width: 600px) {
+  .row-group-tag { display: none; }
 }
 .server-row-operations {
   display: flex;

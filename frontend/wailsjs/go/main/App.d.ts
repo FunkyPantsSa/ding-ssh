@@ -105,7 +105,7 @@ export function ReadLogTail(arg1:number):Promise<Record<string, any>>;
 
 export function Reconnect(arg1:string,arg2:number,arg3:number):Promise<models.ConnectResult>;
 
-export function RemoveGroup(arg1:string):Promise<void>;
+export function RemoveGroup(arg1:string,arg2:boolean):Promise<void>;
 
 export function RemoveTunnel(arg1:string):Promise<void>;
 
