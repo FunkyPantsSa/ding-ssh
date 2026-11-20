@@ -845,7 +845,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
       sshService.disconnect(result.sessionId).catch(() => {})
       return false
     }
-    sessions.bindSession(props.tab.clientId, result.sessionId)
+    sessions.bindSession(props.tab.clientId, result.sessionId, result.server)
     sessions.setStatus(props.tab.clientId, 'connected')
     if (!isLocal) recordRecentServer({id: props.tab.node.id, name: props.tab.serverName, host: props.tab.host, connectedAt: Date.now()})
     if (!isLocal) {

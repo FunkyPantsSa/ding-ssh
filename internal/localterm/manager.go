@@ -62,6 +62,15 @@ func (m *Manager) Has(sessionID string) bool {
 	return ok
 }
 
+// SessionName reports the shell actually started for this session.
+func (m *Manager) SessionName(sessionID string) string {
+	s, err := m.get(sessionID)
+	if err != nil {
+		return ShellTitle("")
+	}
+	return ShellTitle(s.label)
+}
+
 // Connect 启动本机终端会话。shellPref 为空时使用设置中的默认值。
 func (m *Manager) Connect(sessionID string, shellPref string, cols, rows int) error {
 	start := time.Now()

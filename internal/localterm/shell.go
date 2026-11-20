@@ -18,6 +18,14 @@ type ShellOption struct {
 	Label string `json:"label"`
 }
 
+// ShellTitle uses the resolved shell name, falling back when it is unavailable.
+func ShellTitle(label string) string {
+	if label = strings.TrimSpace(label); label != "" {
+		return label
+	}
+	return i18n.T("本地终端")
+}
+
 // OptionsForPlatform 返回当前平台可选的 Shell 列表。
 func OptionsForPlatform() []ShellOption {
 	switch runtime.GOOS {

@@ -167,8 +167,8 @@ function connect(server: (typeof servers.servers)[number]) {
 </template>
 
 <style scoped>
-.workspace-home{position:relative;flex:1;min-width:0;min-height:0;overflow:auto;container-type:size;color:var(--foreground)}
-.home-content{box-sizing:border-box;width:min(1080px,calc(100% - 40px));margin:0 auto;padding:24px 0 18px}
+.workspace-home{display:flex;flex-direction:column;position:relative;flex:1;min-width:0;min-height:0;overflow:auto;container-type:size;color:var(--foreground)}
+.home-content{box-sizing:border-box;flex:0 0 auto;width:min(1080px,calc(100% - 40px));margin:auto;padding:32px 0}
 .home-hero{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}
 .home-eyebrow,.home-kicker{display:flex;align-items:center;gap:7px;color:var(--muted-foreground);font:500 10px/1.3 var(--font-mono);letter-spacing:.1em}
 .home-live-dot{width:6px;height:6px;border-radius:50%;background:var(--success)}

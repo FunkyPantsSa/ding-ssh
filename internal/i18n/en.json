@@ -136,6 +136,7 @@
   "目标层级已存在同名分组，请先重命名": "A group with the same name already exists at the target level; rename it first",
   "同步服务器分组失败: %w": "Failed to sync server groups: %w",
   "规范化旧分组路径失败: %w": "Failed to normalize legacy group paths: %w",
+  "本地终端": "Local terminal",
   "本地终端未初始化": "Local terminal not initialized",
   "路径为空，无法打开所在文件夹": "Cannot show folder: path is empty",
   "打开本地文件夹失败: %w": "Failed to open local folder: %w",

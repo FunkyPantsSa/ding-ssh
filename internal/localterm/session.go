@@ -231,7 +231,7 @@ func (s *Session) Info() models.SessionInfo {
 	logx.Debugf("[localterm] 读取本地终端会话摘要: session=%s shell=%s", s.ID, s.label)
 	return models.SessionInfo{
 		SessionID:  s.ID,
-		ServerName: i18n.T("本机 · ") + s.label,
+		ServerName: ShellTitle(s.label),
 		Host:       "localhost",
 		User:       s.label,
 		Status:     models.StatusConnected,

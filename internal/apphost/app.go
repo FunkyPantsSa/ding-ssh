@@ -1276,15 +1276,9 @@ func (a *App) ConnectLocal(sessionID string, cols, rows int) (models.ConnectResu
 		logx.Errorf("[apphost] 打开本机终端失败: session=%s err=%v", sessionID, err)
 		return models.ConnectResult{}, err
 	}
-	shellPref := ""
-	if a.settings != nil {
-		if s, err := a.settings.Get(); err == nil {
-			shellPref = s.LocalShell
-		}
-	}
-	_, _, label, _ := localterm.Resolve(shellPref)
+	label := a.local.SessionName(sessionID)
 	logx.Infof("[apphost] 本机终端已打开: session=%s shell=%s elapsed=%s", sessionID, label, time.Since(start))
-	return models.ConnectResult{SessionID: sessionID, Server: i18n.T("本机 · ") + label}, nil
+	return models.ConnectResult{SessionID: sessionID, Server: label}, nil
 }
 
 // GetRuntimeStatus 返回用于排查应用无响应的后端快照。

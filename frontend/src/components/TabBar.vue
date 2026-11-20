@@ -187,7 +187,7 @@ function duplicateTab(clientId: string) {
     closeTabMenu()
     return
   }
-  if (tab.kind === 'local') sessions.openLocalTab(tab.serverName)
+  if (tab.kind === 'local') sessions.openLocalTab()
   else sessions.openTab(tab.node)
   closeTabMenu()
 }
