@@ -57,6 +57,13 @@ afterEach(() => {
 })
 
 describe('server dialog', () => {
+  it('keeps sudo autofill opt-in per server and restores the saved setting', async () => {
+    await mountDialog()
+    expect(document.querySelector('[aria-label="sudo 自动填写密码"]')?.getAttribute('aria-checked')).toBe('false')
+    document.body.innerHTML = ''
+    await mountDialog({...node, sudoAutoFill: true})
+    expect(document.querySelector('[aria-label="sudo 自动填写密码"]')?.getAttribute('aria-checked')).toBe('true')
+  })
   it('never offers the "all" sentinel as a group option', async () => {
     await mountDialog(null, 'all')
 

@@ -80,9 +80,12 @@ func ParseDingpack(passphrase string, blob []byte) (*DingpackPayload, error) {
 		logx.Errorf("[store] 配置包内容解析失败（文件损坏）: payloadBytes=%d err=%v", len(raw), err)
 		return nil, fmt.Errorf(i18n.T("配置包损坏: %w"), err)
 	}
-	if payload.Magic != dingpackMagic {
+	if payload.Magic != dingpackMagic || payload.Version != 1 {
 		logx.Warnf("[store] 配置包格式不匹配: magic=%q", payload.Magic)
 		return nil, fmt.Errorf("%s", i18n.T("不是有效的 .dingpack 文件"))
+	}
+	if len(payload.Servers) > 500 {
+		return nil, fmt.Errorf("%s", i18n.T("服务器数量超过上限 500"))
 	}
 	logx.Infof("[store] 配置包解析完成: version=%d servers=%d credentials=%d groups=%d payloadBytes=%d elapsed=%s",
 		payload.Version, len(payload.Servers), len(payload.Credentials), len(payload.Groups), len(raw), time.Since(start))

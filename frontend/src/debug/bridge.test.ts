@@ -12,6 +12,7 @@ vi.mock('../../wailsjs/go/main/App', async importOriginal => ({
   ...await importOriginal<typeof import('../../wailsjs/go/main/App')>(), DebugReply: bridge.reply,
 }))
 import {installDebugBridge} from './bridge'
+import {registerDebugTerminal, unregisterDebugTerminal, type DebugTerminalEntry} from './registry'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -23,6 +24,18 @@ async function call(op: string, args: Record<string, unknown>) {
   return JSON.parse(bridge.reply.mock.calls.at(-1)![1])
 }
 describe('workspace MCP bridge', () => {
+  it('distinguishes Unicode text from raw base64 input', async () => {
+    const write = vi.fn()
+    const entry = {clientId: 'audit-input', write} as unknown as DebugTerminalEntry
+    registerDebugTerminal(entry)
+    try {
+      expect((await call('terminal.input', {id: entry.clientId, data: 'é中文'})).ok).toBe(true)
+      expect(write).toHaveBeenLastCalledWith('é中文', false)
+      expect((await call('terminal.input', {id: entry.clientId, base64: btoa('\xff\x00')})).ok).toBe(true)
+      expect(write).toHaveBeenLastCalledWith('\xff\x00', true)
+      expect((await call('terminal.input', {id: entry.clientId, base64: 'invalid%'})).ok).toBe(false)
+    } finally { unregisterDebugTerminal(entry.clientId, entry) }
+  })
   it('activates only existing tabs', async () => {
     const sessions = useSessionsStore()
     const a = sessions.openLocalTab(), b = sessions.openLocalTab()

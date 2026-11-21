@@ -49,52 +49,89 @@ func (tl *TransferLimiter) SetRateLimit(bytesPerSec int64) {
 	defer tl.mu.Unlock()
 	tl.bytesSec = bytesPerSec
 	if bytesPerSec <= 0 {
-		tl.global.SetLimit(rate.Inf)
+		tl.global = rate.NewLimiter(rate.Inf, defaultBurst)
 		tl.enabled = false
 		logx.Infof("[sshx] 传输限速已关闭: bytesPerSec=0")
 	} else {
-		tl.global.SetLimit(rate.Limit(bytesPerSec))
-		tl.global.SetBurst(int(bytesPerSec) / 4) // 突发为 1/4 秒的速率
+		burst := int(max(1, min(int64(defaultBurst), bytesPerSec/4)))
+		// Keep each snapshot stable while a transfer is waiting. Reconfiguration
+		// must not shrink its burst between choosing a chunk and WaitN.
+		tl.global = rate.NewLimiter(rate.Limit(bytesPerSec), burst)
 		tl.enabled = true
-		logx.Infof("[sshx] 传输限速已设置: bytesPerSec=%d burst=%d", bytesPerSec, int(bytesPerSec)/4)
+		logx.Infof("[sshx] 传输限速已设置: bytesPerSec=%d burst=%d", bytesPerSec, burst)
 	}
 }
 
 // Wait 等待限速器允许通过 N 字节，阻塞直到令牌可用。
 func (tl *TransferLimiter) Wait(ctx context.Context, n int) error {
-	if !tl.enabled {
+	tl.mu.RLock()
+	enabled, limiter := tl.enabled, tl.global
+	tl.mu.RUnlock()
+	if !enabled {
+		// The caller may already have read a final partial chunk when the
+		// context was cancelled. Preserve those bytes; its loop handles cancel.
 		return nil
 	}
-	return tl.global.WaitN(ctx, n)
+	for n > 0 {
+		chunk := min(n, limiter.Burst())
+		if err := limiter.WaitN(ctx, chunk); err != nil {
+			return err
+		}
+		n -= chunk
+	}
+	return nil
 }
 
 // TransferWorkerPool 传输 Worker 池，控制并发传输数。
 type TransferWorkerPool struct {
-	limiter  *TransferLimiter
-	workerCh chan struct{} // 控制并发数的信号量
+	limiter *TransferLimiter
+	mu      sync.Mutex
+	active  int
+	limit   int
+	changed chan struct{}
 }
 
 // NewTransferWorkerPool 创建传输 Worker 池。
 func NewTransferWorkerPool() *TransferWorkerPool {
 	return &TransferWorkerPool{
-		limiter:  NewTransferLimiter(),
-		workerCh: make(chan struct{}, defaultMaxConcurrent),
+		limiter: NewTransferLimiter(),
+		limit:   defaultMaxConcurrent,
+		changed: make(chan struct{}),
 	}
 }
 
 // Acquire 获取一个 Worker 槽位，阻塞直到有空闲。
 func (p *TransferWorkerPool) Acquire(ctx context.Context) error {
-	select {
-	case p.workerCh <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	for {
+		p.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			p.mu.Unlock()
+			return err
+		}
+		if p.active < p.limit {
+			p.active++
+			p.mu.Unlock()
+			return nil
+		}
+		changed := p.changed
+		p.mu.Unlock()
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }
 
 // Release 释放一个 Worker 槽位。
 func (p *TransferWorkerPool) Release() {
-	<-p.workerCh
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.active > 0 {
+		p.active--
+		close(p.changed)
+		p.changed = make(chan struct{})
+	}
 }
 
 // Limiter 返回限速器。
@@ -109,7 +146,11 @@ func (p *TransferWorkerPool) SetConcurrency(n int) {
 		n = 1
 	}
 	logx.Infof("[sshx] 传输并发数已更新: concurrency=%d", n)
-	p.workerCh = make(chan struct{}, n)
+	p.mu.Lock()
+	p.limit = n
+	close(p.changed)
+	p.changed = make(chan struct{})
+	p.mu.Unlock()
 }
 
 // RateLimitedReader 带限速的读取器，在每次读取后等待限速器。

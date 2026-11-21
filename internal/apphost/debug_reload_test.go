@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"ding-ssh/internal/appdir"
 	"ding-ssh/internal/debugsrv"
 	"ding-ssh/internal/models"
 	"ding-ssh/internal/sshx"
@@ -32,6 +33,7 @@ import (
 // 「就地生效」与「重启服务」两种行为。
 func newReloadTestApp(t *testing.T) *App {
 	t.Helper()
+	t.Setenv(appdir.EnvDevConfigDir, t.TempDir())
 	js, err := store.NewJSONSettingsStore(filepath.Join(t.TempDir(), "settings.json"))
 	if err != nil {
 		t.Fatalf("创建设置存储失败: %v", err)

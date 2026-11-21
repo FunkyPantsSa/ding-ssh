@@ -1,6 +1,7 @@
 // 与 Go 端 models 包对应的类型定义。
 
 export interface ServerNode {
+  sudoAutoFill?: boolean
   jumpServerMode?: boolean
   identityFiles?: string[]
   identityAgent?: string
@@ -64,6 +65,17 @@ export interface StatusEvent {
   sessionId: string
   status: SessionStatus
   message?: string
+}
+
+export interface SudoPromptEvent {
+  sequence: number
+  requestId: string
+  state: 'prompt' | 'input' | 'close'
+  user: string
+  hasSavedPassword: boolean
+  retry: boolean
+  sensitive: boolean
+  expiresAt: number
 }
 
 // 前端会话标签（连接建立前尚无后端 sessionId）。

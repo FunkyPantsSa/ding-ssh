@@ -249,6 +249,7 @@ export namespace models {
 	    }
 	}
 	export class ServerNode {
+	    sudoAutoFill?: boolean;
 	    jumpServerMode?: boolean;
 	    identityFiles?: string[];
 	    identityAgent?: string;
@@ -278,6 +279,7 @@ export namespace models {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sudoAutoFill = source["sudoAutoFill"];
 	        this.jumpServerMode = source["jumpServerMode"];
 	        this.identityFiles = source["identityFiles"];
 	        this.identityAgent = source["identityAgent"];

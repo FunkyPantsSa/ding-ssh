@@ -13,6 +13,8 @@ export function AddGroup(arg1:string):Promise<void>;
 
 export function BeforeClose(arg1:context.Context):Promise<boolean>;
 
+export function CancelSudoPrompt(arg1:string,arg2:string):Promise<void>;
+
 export function ChangeMasterPassword(arg1:string,arg2:string):Promise<void>;
 
 export function CheckUpdate(arg1:string):Promise<apphost.UpdateInfo>;
@@ -191,6 +193,8 @@ export function StopSysInfoCollector(arg1:string):Promise<void>;
 
 export function StopTunnel(arg1:string):Promise<void>;
 
+export function SubmitSudoPassword(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
+
 export function SyncSftpToTerminal(arg1:string,arg2:string):Promise<void>;
 
 export function TestServer(arg1:models.ServerNode):Promise<models.ServerTestResult>;
@@ -210,5 +214,7 @@ export function UpdateTunnel(arg1:string,arg2:models.ServerNode,arg3:string,arg4
 export function UpdateTunnelWithListenHost(arg1:string,arg2:models.ServerNode,arg3:string,arg4:string,arg5:number,arg6:string,arg7:number,arg8:string,arg9:Record<string, string>):Promise<models.TunnelInfo>;
 
 export function Write(arg1:string,arg2:string):Promise<void>;
+
+export function WriteInteractive(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function WriteLocalFileBase64(arg1:string,arg2:string):Promise<void>;

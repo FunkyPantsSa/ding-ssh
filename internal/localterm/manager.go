@@ -26,10 +26,11 @@ type ShellPrefGetter func() string
 
 // Manager 管理本机终端会话。
 type Manager struct {
-	mu       sync.RWMutex
-	sessions map[string]*Session
-	notify   Notifier
-	getShell ShellPrefGetter
+	lifecycle sync.Mutex // Serialize same-ID replacements and shutdown.
+	mu        sync.RWMutex
+	sessions  map[string]*Session
+	notify    Notifier
+	getShell  ShellPrefGetter
 }
 
 // NewManager 创建本地终端管理器。
@@ -73,6 +74,8 @@ func (m *Manager) SessionName(sessionID string) string {
 
 // Connect 启动本机终端会话。shellPref 为空时使用设置中的默认值。
 func (m *Manager) Connect(sessionID string, shellPref string, cols, rows int) error {
+	m.lifecycle.Lock()
+	defer m.lifecycle.Unlock()
 	start := time.Now()
 	if sessionID == "" {
 		logx.Warnf("[localterm] 连接本地终端被拒绝: sessionID 为空")
@@ -94,7 +97,9 @@ func (m *Manager) Connect(sessionID string, shellPref string, cols, rows int) er
 	}
 	m.mu.Unlock()
 
-	s, err := newSession(
+	var s *Session
+	var err error
+	s, err = newSession(
 		sessionID,
 		shellPref,
 		cols,
@@ -113,7 +118,7 @@ func (m *Manager) Connect(sessionID string, shellPref string, cols, rows int) er
 			})
 		},
 		func(id string) {
-			m.remove(id)
+			m.remove(id, s)
 		},
 	)
 	if err != nil {
@@ -136,6 +141,7 @@ func (m *Manager) Connect(sessionID string, shellPref string, cols, rows int) er
 		Status:    models.StatusConnected,
 		Message:   "",
 	})
+	s.start()
 	logx.Infof("[localterm] 本地终端连接成功: session=%s shell=%s size=%dx%d sessions=%d elapsed=%s",
 		sessionID, shellPref, cols, rows, count, time.Since(start))
 	return nil
@@ -194,6 +200,8 @@ func (m *Manager) Disconnect(sessionID string) error {
 
 // CloseAll 关闭全部本机终端。
 func (m *Manager) CloseAll() {
+	m.lifecycle.Lock()
+	defer m.lifecycle.Unlock()
 	m.mu.Lock()
 	list := make([]*Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
@@ -218,9 +226,11 @@ func (m *Manager) get(sessionID string) (*Session, error) {
 	return s, nil
 }
 
-func (m *Manager) remove(id string) {
+func (m *Manager) remove(id string, expected *Session) {
 	m.mu.Lock()
-	delete(m.sessions, id)
+	if m.sessions[id] == expected {
+		delete(m.sessions, id)
+	}
 	count := len(m.sessions)
 	m.mu.Unlock()
 	logx.Debugf("[localterm] 本地终端已从管理器移除: session=%s remaining=%d", id, count)

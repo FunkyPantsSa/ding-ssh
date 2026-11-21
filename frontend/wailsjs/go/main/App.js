@@ -14,6 +14,10 @@ export function BeforeClose(arg1) {
   return window['go']['main']['App']['BeforeClose'](arg1);
 }
 
+export function CancelSudoPrompt(arg1, arg2) {
+  return window['go']['main']['App']['CancelSudoPrompt'](arg1, arg2);
+}
+
 export function ChangeMasterPassword(arg1, arg2) {
   return window['go']['main']['App']['ChangeMasterPassword'](arg1, arg2);
 }
@@ -370,6 +374,10 @@ export function StopTunnel(arg1) {
   return window['go']['main']['App']['StopTunnel'](arg1);
 }
 
+export function SubmitSudoPassword(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SubmitSudoPassword'](arg1, arg2, arg3, arg4);
+}
+
 export function SyncSftpToTerminal(arg1, arg2) {
   return window['go']['main']['App']['SyncSftpToTerminal'](arg1, arg2);
 }
@@ -408,6 +416,10 @@ export function UpdateTunnelWithListenHost(arg1, arg2, arg3, arg4, arg5, arg6, a
 
 export function Write(arg1, arg2) {
   return window['go']['main']['App']['Write'](arg1, arg2);
+}
+
+export function WriteInteractive(arg1, arg2, arg3) {
+  return window['go']['main']['App']['WriteInteractive'](arg1, arg2, arg3);
 }
 
 export function WriteLocalFileBase64(arg1, arg2) {

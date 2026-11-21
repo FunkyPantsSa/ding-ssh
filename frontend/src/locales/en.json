@@ -1455,5 +1455,21 @@
   "分组名称不能以 / 开头或结尾": "Group names cannot start or end with /",
   "分组路径不能包含空层级": "Group paths cannot contain empty levels",
   "{0} 台 · {1} 个子分组": "{0} servers · {1} subgroups",
-  "其中 {0} 台服务器将变为未分组。": "{0} servers in this group will become ungrouped."
+  "其中 {0} 台服务器将变为未分组。": "{0} servers in this group will become ungrouped.",
+  "sudo 自动填写密码": "Autofill sudo password",
+  "检测到 sudo -i / sudo -s 的密码提示时，在终端光标处弹框并自动提交一次登录密码。保存后重新连接生效。": "Show a popup at the terminal cursor and submit the login password once when sudo -i / sudo -s asks for it. Reconnect after saving to apply.",
+  "sudo 身份验证": "sudo authentication",
+  "将使用保存的登录密码，1 秒后自动提交": "Using the saved login password. Submitting in 1 second.",
+  "密码未通过验证，请重新输入": "Password was not accepted. Enter it again.",
+  "sudo 密码": "sudo password",
+  "输入密码，仅用于本次验证": "Enter a password for this request only",
+  "手动输入": "Enter manually",
+  "立即提交": "Submit now",
+  "提交": "Submit",
+  "sudo 密码提示已失效，请在终端重新操作": "The sudo password prompt expired. Try again in the terminal.",
+  "请输入有效密码，密码不能包含终端控制字符": "Enter a valid password without terminal control characters.",
+  "sudo 密码提交失败，请检查会话连接": "Could not submit the sudo password. Check the session connection.",
+  "无法读取保存的登录密码，请手动输入": "Could not read the saved login password. Enter it manually.",
+  "服务器配置已变化，请重新连接后再使用 sudo 自动填写": "Server settings changed. Reconnect before using sudo autofill.",
+  "没有可用的登录密码，请手动输入 sudo 密码": "No login password is available. Enter the sudo password manually."
 }

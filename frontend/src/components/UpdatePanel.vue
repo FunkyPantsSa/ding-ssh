@@ -8,7 +8,7 @@ onMounted(async () => { const cleanup = await startUpdateChecks(); if (disposed)
 onBeforeUnmount(() => { disposed = true; off?.() })
 </script>
 <template>
-  <div v-if="updateVisible" class="fixed bottom-5 left-5 z-[100] w-96 max-w-[calc(100vw-2.5rem)] rounded-xl border border-slate-600 bg-slate-900 p-5 text-slate-200 shadow-xl" role="dialog" aria-label="应用更新">
+  <div v-if="updateVisible" class="fixed bottom-5 right-5 z-[100] w-96 max-w-[calc(100vw-2.5rem)] rounded-xl border border-slate-600 bg-slate-900 p-5 text-slate-200 shadow-xl" role="dialog" aria-label="应用更新">
     <div class="flex items-center justify-between"><strong>发现新版本</strong><button aria-label="关闭更新提示" @click="dismissUpdate">×</button></div>
     <p v-if="updateInfo" class="mt-3 text-xs break-all">{{ updateInfo.manifest.channel }} · {{ updateInfo.manifest.commit.slice(0, 12) }} · {{ new Date(updateInfo.manifest.builtAt).toLocaleString() }}</p>
     <p class="mt-3 text-sm" aria-live="polite">{{ updateMessage }} {{ updateBusy ? updateProgress : '' }}</p>

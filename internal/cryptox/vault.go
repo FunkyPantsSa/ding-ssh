@@ -40,11 +40,12 @@ type Status struct {
 
 // Vault 管理主密钥生命周期与字段加解密。
 type Vault struct {
-	mu     sync.RWMutex
-	key    []byte
-	meta   Meta
-	dir    string
-	locked bool // true 表示需要主密码解锁
+	mu       sync.RWMutex
+	key      []byte
+	meta     Meta
+	dir      string
+	locked   bool // true 表示需要主密码解锁
+	isolated bool // Captured at open; isolated instances never access the real keychain.
 }
 
 // OpenVault 加载安全元数据并尝试自动解锁（Keyring 模式）。
@@ -58,7 +59,7 @@ func OpenVault(configDir string) (*Vault, error) {
 		logx.Errorf("[cryptox] 创建保险库目录失败: dir=%q err=%v", configDir, err)
 		return nil, err
 	}
-	v := &Vault{dir: configDir}
+	v := &Vault{dir: configDir, isolated: appdir.IsDevOverride()}
 	if err := v.loadMeta(); err != nil {
 		logx.Errorf("[cryptox] 读取保险库元数据失败: dir=%q err=%v", configDir, err)
 		return nil, err
@@ -71,7 +72,7 @@ func OpenVault(configDir string) (*Vault, error) {
 	// 默认模式：从 Keyring 取主密钥，失败则生成并写入。
 	var key []byte
 	var err error
-	if appdir.IsDevOverride() {
+	if v.isolated {
 		// Isolated test instances must not read or create the user's real
 		// keychain entry; keep their generated key inside the override dir.
 		logx.Debugf("[cryptox] 检测到开发配置目录覆盖，主密钥改用本地文件: dir=%q", configDir)
@@ -100,7 +101,7 @@ func (v *Vault) unlockMode() string {
 	if v.meta.MasterPasswordEnabled {
 		return "master-password"
 	}
-	if appdir.IsDevOverride() {
+	if v.isolated {
 		return "file-key(dev)"
 	}
 	return "keyring-or-file"
@@ -128,6 +129,12 @@ func (v *Vault) loadMeta() error {
 	if err := json.Unmarshal(data, &v.meta); err != nil {
 		logx.Warnf("[cryptox] 解析保险库元数据失败: path=%q bytes=%d err=%v", v.metaPath(), len(data), err)
 		return err
+	}
+	if v.meta.MasterPasswordEnabled {
+		salt, err := base64.StdEncoding.DecodeString(v.meta.SaltB64)
+		if err != nil || len(salt) != saltLen || !IsEncrypted(v.meta.VerifierB64) {
+			return errors.New(i18n.T("安全元数据损坏"))
+		}
 	}
 	logx.Debugf("[cryptox] 保险库元数据已读取: masterPassword=%v needsMigration=%v migratedAt=%d",
 		v.meta.MasterPasswordEnabled, v.meta.MigratedAt == 0, v.meta.MigratedAt)
@@ -189,7 +196,12 @@ func (v *Vault) loadOrCreateFileKey() ([]byte, error) {
 			logx.Debugf("[cryptox] 已从本地文件读取主密钥: path=%q", path)
 			return key, nil
 		}
-		logx.Warnf("[cryptox] 本地主密钥文件损坏，将重新生成: path=%q bytes=%d err=%v", path, len(data), derr)
+		// Never replace an existing key with a random one: doing so makes all
+		// previously encrypted fields permanently unreadable.
+		return nil, errors.New(i18n.T("安全元数据损坏"))
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
 	key, err := NewMasterKey()
 	if err != nil {
@@ -209,7 +221,9 @@ func (v *Vault) Status() Status {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	keyringOK := true
-	if _, err := keyring.Get(keyringService, keyringUser); err != nil && !v.meta.MasterPasswordEnabled {
+	if v.isolated {
+		keyringOK = false
+	} else if _, err := keyring.Get(keyringService, keyringUser); err != nil && !v.meta.MasterPasswordEnabled {
 		// 探测：写入测试可能过重，仅标记可用性近似值
 		keyringOK = errors.Is(err, keyring.ErrNotFound) || v.key != nil
 	}
@@ -239,7 +253,7 @@ func (v *Vault) Unlock(password string) error {
 		return ErrBadPassword
 	}
 	salt, err := base64.StdEncoding.DecodeString(v.meta.SaltB64)
-	if err != nil || len(salt) == 0 {
+	if err != nil || len(salt) != saltLen || !IsEncrypted(v.meta.VerifierB64) {
 		logx.Errorf("[cryptox] 解锁保险库失败: 安全元数据中的盐损坏 err=%v saltLen=%d", err, len(salt))
 		return errors.New(i18n.T("安全元数据损坏"))
 	}
@@ -261,6 +275,34 @@ func (v *Vault) Unlock(password string) error {
 // 调用方需在之后用 ReencryptAll 把存量字段迁到新密钥。
 // 返回旧密钥（可能为空）与新密钥，供迁移使用。
 func (v *Vault) EnableMasterPassword(password string) (oldKey, newKey []byte, err error) {
+	return v.EnableMasterPasswordWithMigration(password, nil)
+}
+
+// KeyMigration must leave stored fields unchanged when it returns an error.
+type KeyMigration func(oldKey, newKey []byte) error
+
+// commitKeyChange runs with v.mu held. Failed field migration restores the
+// previous on-disk metadata before releasing readers; the active key is only
+// published after both metadata and the migration have succeeded.
+func (v *Vault) commitKeyChange(next Meta, oldKey, newKey []byte, migrate KeyMigration) error {
+	previous := v.meta
+	v.meta = next
+	if err := v.saveMeta(); err != nil {
+		v.meta = previous
+		return err
+	}
+	if migrate != nil {
+		if err := migrate(oldKey, newKey); err != nil {
+			v.meta = previous
+			return errors.Join(err, v.saveMeta())
+		}
+	}
+	v.key = newKey
+	v.locked = false
+	return nil
+}
+
+func (v *Vault) EnableMasterPasswordWithMigration(password string, migrate KeyMigration) (oldKey, newKey []byte, err error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	logx.Infof("[cryptox] 开始启用主密码模式")
@@ -288,19 +330,19 @@ func (v *Vault) EnableMasterPassword(password string) (oldKey, newKey []byte, er
 		logx.Errorf("[cryptox] 启用主密码生成校验器失败: err=%v", err)
 		return nil, nil, err
 	}
-	v.meta.MasterPasswordEnabled = true
-	v.meta.SaltB64 = base64.StdEncoding.EncodeToString(salt)
-	v.meta.VerifierB64 = verifier
-	if err := v.saveMeta(); err != nil {
+	next := v.meta
+	next.MasterPasswordEnabled = true
+	next.SaltB64 = base64.StdEncoding.EncodeToString(salt)
+	next.VerifierB64 = verifier
+	if err := v.commitKeyChange(next, oldKey, newKey, migrate); err != nil {
 		logx.Errorf("[cryptox] 启用主密码保存元数据失败: err=%v", err)
 		return nil, nil, err
 	}
-	v.key = newKey
 	// 清除 Keyring / 文件密钥，避免旁路。
-	if err := keyring.Delete(keyringService, keyringUser); err != nil {
-		logx.Debugf("[cryptox] 清理 Keyring 主密钥未成功（可能本就不存在）: err=%v", err)
-	} else {
-		logx.Debugf("[cryptox] 已清理 Keyring 主密钥")
+	if !v.isolated {
+		if err := keyring.Delete(keyringService, keyringUser); err != nil {
+			logx.Debugf("[cryptox] 清理 Keyring 主密钥未成功（可能本就不存在）: err=%v", err)
+		}
 	}
 	if err := os.Remove(v.fileKeyPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
 		logx.Debugf("[cryptox] 清理本地主密钥文件未成功: path=%q err=%v", v.fileKeyPath(), err)
@@ -311,6 +353,10 @@ func (v *Vault) EnableMasterPassword(password string) (oldKey, newKey []byte, er
 
 // DisableMasterPassword 关闭主密码，改回 Keyring/文件密钥。
 func (v *Vault) DisableMasterPassword(password string) (oldKey, newKey []byte, err error) {
+	return v.DisableMasterPasswordWithMigration(password, nil)
+}
+
+func (v *Vault) DisableMasterPasswordWithMigration(password string, migrate KeyMigration) (oldKey, newKey []byte, err error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	logx.Infof("[cryptox] 开始关闭主密码模式")
@@ -319,7 +365,7 @@ func (v *Vault) DisableMasterPassword(password string) (oldKey, newKey []byte, e
 		return nil, nil, errors.New(i18n.T("主密码未启用"))
 	}
 	salt, err := base64.StdEncoding.DecodeString(v.meta.SaltB64)
-	if err != nil {
+	if err != nil || len(salt) != saltLen || !IsEncrypted(v.meta.VerifierB64) {
 		logx.Errorf("[cryptox] 关闭主密码失败: 安全元数据中的盐损坏 err=%v", err)
 		return nil, nil, errors.New(i18n.T("安全元数据损坏"))
 	}
@@ -340,28 +386,37 @@ func (v *Vault) DisableMasterPassword(password string) (oldKey, newKey []byte, e
 		logx.Errorf("[cryptox] 关闭主密码生成新主密钥失败: err=%v", err)
 		return nil, nil, err
 	}
-	if err := keyring.Set(keyringService, keyringUser, base64.StdEncoding.EncodeToString(newKey)); err != nil {
-		logx.Warnf("[cryptox] 关闭主密码写入 Keyring 失败，回退本地密钥文件: err=%v", err)
+	var keyErr error
+	if !v.isolated {
+		keyErr = keyring.Set(keyringService, keyringUser, base64.StdEncoding.EncodeToString(newKey))
+	}
+	if v.isolated || keyErr != nil {
+		if keyErr != nil {
+			logx.Warnf("[cryptox] 关闭主密码写入 Keyring 失败，回退本地密钥文件: err=%v", keyErr)
+		}
 		if err2 := os.WriteFile(v.fileKeyPath(), []byte(base64.StdEncoding.EncodeToString(newKey)), 0o600); err2 != nil {
-			logx.Errorf("[cryptox] 关闭主密码保存主密钥失败: keyringErr=%v fileErr=%v", err, err2)
-			return nil, nil, fmt.Errorf(i18n.T("保存主密钥失败: %v / %v"), err, err2)
+			logx.Errorf("[cryptox] 关闭主密码保存主密钥失败: keyringErr=%v fileErr=%v", keyErr, err2)
+			return nil, nil, fmt.Errorf(i18n.T("保存主密钥失败: %v / %v"), keyErr, err2)
 		}
 	}
-	v.meta.MasterPasswordEnabled = false
-	v.meta.SaltB64 = ""
-	v.meta.VerifierB64 = ""
-	if err := v.saveMeta(); err != nil {
+	next := v.meta
+	next.MasterPasswordEnabled = false
+	next.SaltB64 = ""
+	next.VerifierB64 = ""
+	if err := v.commitKeyChange(next, oldKey, newKey, migrate); err != nil {
 		logx.Errorf("[cryptox] 关闭主密码保存元数据失败: err=%v", err)
 		return nil, nil, err
 	}
-	v.key = newKey
-	v.locked = false
 	logx.Infof("[cryptox] 主密码模式已关闭，改回 Keyring/文件密钥")
 	return oldKey, newKey, nil
 }
 
 // ChangeMasterPassword 更换主密码。
 func (v *Vault) ChangeMasterPassword(oldPass, newPass string) (oldKey, newKey []byte, err error) {
+	return v.ChangeMasterPasswordWithMigration(oldPass, newPass, nil)
+}
+
+func (v *Vault) ChangeMasterPasswordWithMigration(oldPass, newPass string, migrate KeyMigration) (oldKey, newKey []byte, err error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	logx.Infof("[cryptox] 开始更换主密码")
@@ -374,7 +429,7 @@ func (v *Vault) ChangeMasterPassword(oldPass, newPass string) (oldKey, newKey []
 		return nil, nil, errors.New(i18n.T("新主密码不能为空"))
 	}
 	salt, err := base64.StdEncoding.DecodeString(v.meta.SaltB64)
-	if err != nil {
+	if err != nil || len(salt) != saltLen || !IsEncrypted(v.meta.VerifierB64) {
 		logx.Errorf("[cryptox] 更换主密码失败: 安全元数据中的盐损坏 err=%v", err)
 		return nil, nil, errors.New(i18n.T("安全元数据损坏"))
 	}
@@ -397,14 +452,13 @@ func (v *Vault) ChangeMasterPassword(oldPass, newPass string) (oldKey, newKey []
 		logx.Errorf("[cryptox] 更换主密码生成校验器失败: err=%v", err)
 		return nil, nil, err
 	}
-	v.meta.SaltB64 = base64.StdEncoding.EncodeToString(newSalt)
-	v.meta.VerifierB64 = verifier
-	if err := v.saveMeta(); err != nil {
+	next := v.meta
+	next.SaltB64 = base64.StdEncoding.EncodeToString(newSalt)
+	next.VerifierB64 = verifier
+	if err := v.commitKeyChange(next, oldKey, newKey, migrate); err != nil {
 		logx.Errorf("[cryptox] 更换主密码保存元数据失败: err=%v", err)
 		return nil, nil, err
 	}
-	v.key = newKey
-	v.locked = false
 	logx.Infof("[cryptox] 主密码已更换: 存量字段需调用方重加密")
 	return oldKey, newKey, nil
 }

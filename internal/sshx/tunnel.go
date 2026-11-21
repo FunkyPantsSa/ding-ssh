@@ -362,9 +362,10 @@ func socks5Handshake(conn net.Conn) (string, error) {
 	if _, err := io.ReadFull(conn, buf[:4]); err != nil {
 		return "", err
 	}
-	if buf[0] != 0x05 || buf[1] != 0x01 {
+	if buf[0] != 0x05 || buf[2] != 0 {
 		return "", fmt.Errorf("%s", i18n.T("仅支持 CONNECT"))
 	}
+	command := buf[1]
 	var host string
 	switch buf[3] {
 	case 0x01: // IPv4
@@ -387,11 +388,18 @@ func socks5Handshake(conn net.Conn) (string, error) {
 		}
 		host = net.IP(buf[:16]).String()
 	default:
+		_, _ = conn.Write([]byte{5, 8, 0, 1, 0, 0, 0, 0, 0, 0})
 		return "", fmt.Errorf("%s", i18n.T("不支持的地址类型"))
 	}
 	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
 		return "", err
 	}
 	port := binary.BigEndian.Uint16(buf[:2])
+	if command != 1 {
+		// Read the complete request before replying so closing the socket does
+		// not discard the error reply due to unread TCP data.
+		_, _ = conn.Write([]byte{5, 7, 0, 1, 0, 0, 0, 0, 0, 0})
+		return "", fmt.Errorf("%s", i18n.T("仅支持 CONNECT"))
+	}
 	return net.JoinHostPort(host, strconv.Itoa(int(port))), nil
 }

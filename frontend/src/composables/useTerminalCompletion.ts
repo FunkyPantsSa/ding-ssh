@@ -157,6 +157,7 @@ export function useTerminalCompletion(opts: TerminalCompletionOptions) {
   }
 
   function trackLineInput(data: string) {
+    let executedCommand: string | undefined
     for (const ch of data) {
       // 过滤 CSI / OSC / 短 ESC 序列（↑↓ 等方向键）
       if (escState === 'none' && ch === '\x1b') {
@@ -208,6 +209,7 @@ export function useTerminalCompletion(opts: TerminalCompletionOptions) {
         }
         const term = opts.term()
         const cmd = term ? sanitizeHistoryCommand(resolveExecutedCommand(term, lineBuf)) : ''
+        executedCommand = cmd
         if (cmd) historyService.add(opts.tab.node.id, cmd)
         // 回显行（prompt + 命令）不着色：`cat error.log` 这类命令本身含关键字，整行红会误导
         if (cmd) opts.colorize.noteCommand(cmd)
@@ -239,6 +241,7 @@ export function useTerminalCompletion(opts: TerminalCompletionOptions) {
       }
       if (ch >= ' ') lineBuf += ch
     }
+    return executedCommand
   }
 
   function acceptSuggestion(idx = selectedIdx.value) {

@@ -40,6 +40,9 @@ import {
   StartTunnelWithListenHost,
   ListLocalIPv4,
   Write,
+  WriteInteractive,
+  SubmitSudoPassword,
+  CancelSudoPrompt,
   ConnectLocal,
   GetPlatform,
   GetLocalShellOptions,
@@ -54,6 +57,7 @@ import type {
   SFTPEntry,
   SFTPTransferEvent,
   StatusEvent,
+  SudoPromptEvent,
   TunnelInfo,
   TunnelStatusEvent,
 } from '../types'
@@ -128,6 +132,12 @@ export const sshService = {
   disconnect: (sessionId: string): Promise<void> => Disconnect(sessionId),
   write: (sessionId: string, dataBase64: string): Promise<void> =>
     Write(sessionId, dataBase64),
+  writeInteractive: (sessionId: string, dataBase64: string, command = ''): Promise<void> =>
+    WriteInteractive(sessionId, dataBase64, command),
+  submitSudoPassword: (sessionId: string, requestId: string, password: string, useSaved: boolean): Promise<void> =>
+    SubmitSudoPassword(sessionId, requestId, password, useSaved),
+  cancelSudoPrompt: (sessionId: string, requestId: string): Promise<void> =>
+    CancelSudoPrompt(sessionId, requestId),
   resize: (sessionId: string, cols: number, rows: number): Promise<void> =>
     Resize(sessionId, cols, rows),
   // Phase 2: SFTP→Shell 目录同步
@@ -153,6 +163,12 @@ export function onSessionOutput(sessionId: string, handler: (data: string) => vo
 export function onSessionStatus(sessionId: string, handler: (evt: StatusEvent) => void): () => void {
   const event = `ssh:status:${sessionId}`
   EventsOn(event, (payload: StatusEvent) => handler(payload))
+  return () => EventsOff(event)
+}
+
+export function onSudoPrompt(sessionId: string, handler: (evt: SudoPromptEvent) => void): () => void {
+  const event = `ssh:sudo:${sessionId}`
+  EventsOn(event, (payload: SudoPromptEvent) => handler(payload))
   return () => EventsOff(event)
 }
 

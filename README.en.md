@@ -85,6 +85,8 @@ Open a server to start a session. Inspect the connection progress if DNS, handsh
 
 ### Files and tunnels
 
+For `sudo -i` / `sudo -s` password autofill, enable **Autofill sudo password** when editing the server, save and reconnect. A popup appears beside the terminal cursor when a standard English or Chinese password prompt is detected. It submits the saved login password once after one second; submit immediately, enter another password or press Esc to cancel autofill. Retries require manual input, and private-key passphrases are never reused as login passwords. Recognized nested SSH, `su`, tmux / screen / container commands and multiline pastes suspend autofill until reconnecting. This feature is independent of the debugging API's `terminal.sudo` and does not enable any MCP capabilities.
+
 Choose SFTP in the right panel. Directories synchronize with the terminal; drop files into the panel to upload. Create local, remote, dynamic SOCKS5 or reverse SOCKS5 forwarding on the Tunnels page.
 
 | Mode | Proxy configuration | Network exit |

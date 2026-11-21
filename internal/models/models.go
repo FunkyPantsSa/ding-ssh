@@ -5,6 +5,7 @@ import "strings"
 
 // ServerNode 服务器节点定义（与设计文档第 4 节保持一致）。
 type SSHOptions struct {
+	SudoAutoFill      bool     `json:"sudoAutoFill,omitempty"`
 	JumpServerMode    bool     `json:"jumpServerMode,omitempty"`
 	IdentityFiles     []string `json:"identityFiles,omitempty"`
 	IdentityAgent     string   `json:"identityAgent,omitempty"`
@@ -14,6 +15,18 @@ type SSHOptions struct {
 	KnownHostsSources []string `json:"knownHostsSources,omitempty"`
 	ImportAlias       string   `json:"importAlias,omitempty"`
 	ImportSource      string   `json:"importSource,omitempty"`
+}
+
+// SudoPromptEvent contains prompt metadata only; passwords never cross this event.
+type SudoPromptEvent struct {
+	Sequence         uint64 `json:"sequence"`
+	RequestID        string `json:"requestId"`
+	State            string `json:"state"` // prompt | input | close
+	User             string `json:"user"`
+	HasSavedPassword bool   `json:"hasSavedPassword"`
+	Retry            bool   `json:"retry"`
+	Sensitive        bool   `json:"sensitive"`
+	ExpiresAt        int64  `json:"expiresAt"`
 }
 
 type ServerNode struct {

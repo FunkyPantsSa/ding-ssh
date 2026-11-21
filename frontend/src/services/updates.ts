@@ -2,8 +2,15 @@ import {ref} from 'vue'
 import {GetUpdateChannel, CheckUpdate, DownloadUpdate, InstallUpdateNow} from '../../wailsjs/go/main/App'
 import {EventsOn} from '../../wailsjs/runtime/runtime'
 
-export const updateChannel = ref(localStorage.getItem('update-channel') === 'dev' ? 'dev' : 'main')
-export const checkUpdatesOnStartup = ref(localStorage.getItem('update-auto') !== 'false')
+function readPreference(key: string): string | null {
+  try { return localStorage.getItem(key) } catch { return null }
+}
+function savePreference(key: string, value: string) {
+  try { localStorage.setItem(key, value) } catch { /* Keep this session usable if storage is blocked or full. */ }
+}
+
+export const updateChannel = ref(readPreference('update-channel') === 'dev' ? 'dev' : 'main')
+export const checkUpdatesOnStartup = ref(readPreference('update-auto') !== 'false')
 export const updateInfo = ref<Awaited<ReturnType<typeof CheckUpdate>>>()
 export const updateBusy = ref(false)
 export const updateReady = ref(false)
@@ -15,14 +22,14 @@ let dismissedCommit = ''
 export function setUpdateChannel(channel: string) {
   if (updateBusy.value || updateReady.value) return
   updateChannel.value = channel
-  localStorage.setItem('update-channel', channel)
+  savePreference('update-channel', channel)
   updateInfo.value = undefined
   updateMessage.value = ''
   updateVisible.value = false
 }
 export function setStartupCheck(enabled: boolean) {
   checkUpdatesOnStartup.value = enabled
-  localStorage.setItem('update-auto', String(enabled))
+  savePreference('update-auto', String(enabled))
 }
 export function dismissUpdate() {
   dismissedCommit = updateInfo.value?.manifest.commit ?? ''
@@ -63,7 +70,7 @@ export async function installUpdateNow() {
   try { await InstallUpdateNow() } catch (e) { updateMessage.value = String(e) }
 }
 export async function startUpdateChecks() {
-  if (!localStorage.getItem('update-channel')) {
+  if (!readPreference('update-channel')) {
     try { updateChannel.value = await GetUpdateChannel() } catch { /* preview */ }
   }
   const off = EventsOn('update:progress', (p: {received: number; total: number}) => {

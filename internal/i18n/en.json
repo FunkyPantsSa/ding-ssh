@@ -431,5 +431,11 @@
   "确认关闭": "Confirm close",
   "关闭标签页将终止其中的会话，是否继续？": "Closing these tabs will end their sessions. Continue?",
   "关闭应用将断开所有会话，是否继续？": "Quitting will disconnect all sessions. Continue?",
-  "关闭 %d 个标签页将终止其中的会话，是否继续？": "Closing %d tabs will end their sessions. Continue?"
+  "关闭 %d 个标签页将终止其中的会话，是否继续？": "Closing %d tabs will end their sessions. Continue?",
+  "sudo 密码提示已失效，请在终端重新操作": "The sudo password prompt expired. Try again in the terminal.",
+  "请输入有效密码，密码不能包含终端控制字符": "Enter a valid password without terminal control characters.",
+  "sudo 密码提交失败，请检查会话连接": "Could not submit the sudo password. Check the session connection.",
+  "无法读取保存的登录密码，请手动输入": "Could not read the saved login password. Enter it manually.",
+  "服务器配置已变化，请重新连接后再使用 sudo 自动填写": "Server settings changed. Reconnect before using sudo autofill.",
+  "没有可用的登录密码，请手动输入 sudo 密码": "No login password is available. Enter the sudo password manually."
 }

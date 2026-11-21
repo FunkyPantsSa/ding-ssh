@@ -95,6 +95,9 @@ type Session struct {
 	home      string // 远程 home，用于把提示符里的 ~ 展开成绝对路径
 
 	keepAliveEnabled bool // 是否发送心跳包（由应用设置控制）
+	sudo             sudoAssistantState
+	sudoSequence     uint64
+	onSudoPrompt     func(models.SudoPromptEvent)
 }
 
 type sessionSFTP struct {
@@ -260,6 +263,7 @@ func (s *Session) pump(r io.Reader) {
 			logx.DebugSampled(termOutputLog, "[sshx] 终端输出分块: session=%s bytes=%d total=%d", s.ID, n, total)
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
+			s.observeSudoOutput(chunk)
 			if s.onOutput != nil {
 				s.onOutput(s.ID, chunk)
 			}
@@ -550,21 +554,9 @@ func (s *Session) reportDir(dir, src string) {
 
 // Write 向前端写入终端输入。
 func (s *Session) Write(data []byte) error {
-	s.mu.Lock()
-	stdin, closed := s.stdin, s.closed || s.closing
-	s.mu.Unlock()
-	if closed {
-		logx.Debugf("[sshx] 会话已关闭，拒绝写入: session=%s bytes=%d", s.ID, len(data))
-		return fmt.Errorf("%s", i18n.T("会话已关闭"))
-	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 	// 高频输入路径：只按采样记录长度，绝不记录输入内容。
 	logx.DebugSampled(termInputLog, "[sshx] 终端输入: session=%s bytes=%d", s.ID, len(data))
-	_, err := stdin.Write(data)
-	if err != nil {
-	}
-	return err
+	return s.writeTerminal(data, "", false)
 }
 
 // Resize 调整终端窗口尺寸。
@@ -1025,6 +1017,7 @@ func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 			s.ID, s.closed, s.closing, s.reconnecting)
 		return fmt.Errorf("%s", i18n.T("会话仍在连接中，无需重连"))
 	}
+	s.sudo = sudoAssistantState{}
 	reconnectStart := time.Now()
 	logx.Debugf("[sshx] 开始重连会话: session=%s server=%s host=%s:%d", s.ID, s.server.Name, s.server.Host, s.server.Port)
 	server := s.server

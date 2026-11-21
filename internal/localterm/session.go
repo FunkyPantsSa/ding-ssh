@@ -101,13 +101,17 @@ func newSession(
 	}
 	logx.Debugf("[localterm] 本地终端已启动: session=%s shell=%s path=%q", id, label, path)
 
+	return s, nil
+}
+
+// start runs only after the manager has registered the session and emitted
+// connected. A short-lived shell must not close before it is registered.
+func (s *Session) start() {
 	go s.pump()
 	go func() {
-		_ = cmd.Wait()
+		_ = s.cmd.Wait()
 		s.close(models.StatusClosed, "")
 	}()
-
-	return s, nil
 }
 
 func augmentEnv(base []string) []string {

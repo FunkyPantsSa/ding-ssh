@@ -221,7 +221,7 @@ async function handle(req: DebugRequest): Promise<unknown> {
       const b64 = str(args.base64)
       const data = b64 ? atob(b64) : str(args.data)
       if (!data) throw new Error('缺少 data / base64')
-      e.write(data)
+      e.write(data, !!b64)
       return {ok: true, bytes: data.length}
     }
 

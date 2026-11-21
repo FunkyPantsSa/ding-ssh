@@ -260,9 +260,6 @@ func (c *debugController) info() map[string]any {
 	c.mu.Unlock()
 
 	host := "127.0.0.1"
-	if c.boot.BindLAN {
-		host = "0.0.0.0"
-	}
 	url := ""
 	if port > 0 {
 		url = fmt.Sprintf("http://%s:%d", host, port)
@@ -522,7 +519,7 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 			return nil, fmt.Errorf("%w: 缺少 id", debugsrv.ErrBadInput)
 		}
 		logx.Infof("[apphost] 调试 op 断开会话: session=%s", in.ID)
-		if err := c.app.manager.Disconnect(in.ID); err != nil {
+		if err := c.app.Disconnect(in.ID); err != nil {
 			logx.Errorf("[apphost] 调试 op 断开会话失败: session=%s err=%v", in.ID, err)
 			return nil, err
 		}

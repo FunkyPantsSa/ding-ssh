@@ -1602,16 +1602,10 @@ func (a *App) EnableMasterPassword(password string) error {
 		return err
 	}
 	logx.Debugf("[apphost] 开启主密码: 开始重加密敏感字段")
-	oldKey, newKey, err := a.vault.EnableMasterPassword(password)
+	_, _, err := a.vault.EnableMasterPasswordWithMigration(password, a.migrateVaultKey)
 	if err != nil {
 		logx.Errorf("[apphost] 开启主密码失败: err=%v", err)
 		return err
-	}
-	if a.db != nil {
-		if err := store.ReencryptAllSecrets(a.db, oldKey, newKey); err != nil {
-			logx.Errorf("[apphost] 开启主密码失败（重加密敏感字段）: err=%v", err)
-			return fmt.Errorf(i18n.T("重加密敏感字段失败: %w"), err)
-		}
 	}
 	a.attachCipher()
 	logx.Infof("[apphost] 主密码已开启")
@@ -1625,16 +1619,10 @@ func (a *App) DisableMasterPassword(password string) error {
 		return errors.New(i18n.T("保险库未初始化"))
 	}
 	logx.Debugf("[apphost] 关闭主密码: 开始重加密敏感字段")
-	oldKey, newKey, err := a.vault.DisableMasterPassword(password)
+	_, _, err := a.vault.DisableMasterPasswordWithMigration(password, a.migrateVaultKey)
 	if err != nil {
 		logx.Warnf("[apphost] 关闭主密码失败（校验当前密码未通过）: err=%v", err)
 		return err
-	}
-	if a.db != nil {
-		if err := store.ReencryptAllSecrets(a.db, oldKey, newKey); err != nil {
-			logx.Errorf("[apphost] 关闭主密码失败（重加密敏感字段）: err=%v", err)
-			return fmt.Errorf(i18n.T("重加密敏感字段失败: %w"), err)
-		}
 	}
 	a.attachCipher()
 	logx.Infof("[apphost] 主密码已关闭")
@@ -1648,19 +1636,23 @@ func (a *App) ChangeMasterPassword(oldPassword, newPassword string) error {
 		return errors.New(i18n.T("保险库未初始化"))
 	}
 	logx.Debugf("[apphost] 更换主密码: 开始重加密敏感字段")
-	oldKey, newKey, err := a.vault.ChangeMasterPassword(oldPassword, newPassword)
+	_, _, err := a.vault.ChangeMasterPasswordWithMigration(oldPassword, newPassword, a.migrateVaultKey)
 	if err != nil {
 		logx.Warnf("[apphost] 更换主密码失败（校验旧密码未通过）: err=%v", err)
 		return err
 	}
-	if a.db != nil {
-		if err := store.ReencryptAllSecrets(a.db, oldKey, newKey); err != nil {
-			logx.Errorf("[apphost] 更换主密码失败（重加密敏感字段）: err=%v", err)
-			return fmt.Errorf(i18n.T("重加密敏感字段失败: %w"), err)
-		}
-	}
 	a.attachCipher()
 	logx.Infof("[apphost] 主密码已更换")
+	return nil
+}
+
+func (a *App) migrateVaultKey(oldKey, newKey []byte) error {
+	if a.db == nil {
+		return nil
+	}
+	if err := store.ReencryptAllSecrets(a.db, oldKey, newKey); err != nil {
+		return fmt.Errorf(i18n.T("重加密敏感字段失败: %w"), err)
+	}
 	return nil
 }
 

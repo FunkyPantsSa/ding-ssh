@@ -172,7 +172,19 @@ func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows i
 		return err
 	}
 	delete(m.pending, sessionID)
+	s.mu.Lock()
+	if s.closed || s.closing {
+		s.mu.Unlock()
+		m.mu.Unlock()
+		return fmt.Errorf("%s", i18n.T("会话已关闭"))
+	}
+	s.onSudoPrompt = func(event models.SudoPromptEvent) {
+		if m.notify != nil {
+			m.notify("ssh:sudo:"+sessionID, event)
+		}
+	}
 	m.sessions[sessionID] = s
+	s.mu.Unlock()
 	sessions := len(m.sessions)
 	m.mu.Unlock()
 	logx.Infof("[sshx] SSH 连接成功: session=%s server=%s host=%s:%d user=%s elapsed=%s activeSessions=%d",
@@ -1035,10 +1047,14 @@ func copyFolderChunk(ctx context.Context, src io.Reader, dst io.Writer, transfer
 				}
 				return err
 			}
-			if _, werr := dst.Write(buf[:n]); werr != nil {
+			written, werr := dst.Write(buf[:n])
+			transferred.Add(int64(written))
+			if werr != nil {
 				return werr
 			}
-			transferred.Add(int64(n))
+			if written != n {
+				return io.ErrShortWrite
+			}
 			// 高频分块路径：只按采样记录累计字节，绝不记录内容。
 			logx.DebugSampled(transferChunkLog, "[sshx] 文件夹传输进度: transferred=%d", transferred.Load())
 		}
@@ -1138,13 +1154,17 @@ func (m *Manager) streamTransfer(
 				finish(err.Error())
 				return err
 			}
-			if _, werr := write(buf[:n]); werr != nil {
+			written, werr := write(buf[:n])
+			transferred.Add(int64(written))
+			if werr == nil && written != n {
+				werr = io.ErrShortWrite
+			}
+			if werr != nil {
 				logx.Debugf("[sshx] 流式传输写入失败: session=%s direction=%s name=%s transferred=%d err=%v",
 					sessionID, direction, name, transferred.Load(), werr)
 				finish(werr.Error())
 				return werr
 			}
-			transferred.Add(int64(n))
 			if total > 0 {
 				// 高频分块路径：采样记录百分比，绝不记录内容。
 				logx.DebugSampled(transferChunkLog, "[sshx] 传输进度: session=%s direction=%s name=%s transferred=%d total=%d pct=%d%%",
@@ -1459,10 +1479,11 @@ func (m *Manager) remove(sessionID string) {
 	delete(m.sessions, sessionID)
 	// 会话级实时刷新只在本次终端有效：关闭会话即失效，下次连接回到全局设置。
 	delete(m.sysInfoRealtime, sessionID)
+	remaining := len(m.sessions)
 	m.mu.Unlock()
 	m.invalidateSessionSftpCache(sessionID)
 	logx.Debugf("[sshx] 会话已从管理器移除: session=%s collectors=%v remainingSessions=%d",
-		sessionID, c != nil, len(m.sessions))
+		sessionID, c != nil, remaining)
 	if c != nil {
 		c.Stop()
 	}

@@ -146,7 +146,12 @@ func ReencryptAllSecrets(db *sql.DB, oldKey, newKey []byte) error {
 	}
 	start := time.Now()
 	logx.Infof("[store] 开始重加密全部敏感字段")
-	rows, err := db.Query(`SELECT id, password, key_content FROM servers`)
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT id, password, key_content FROM servers`)
 	if err != nil {
 		logx.Errorf("[store] 重加密查询服务器失败: err=%v", err)
 		return err
@@ -165,6 +170,9 @@ func ReencryptAllSecrets(db *sql.DB, oldKey, newKey []byte) error {
 		servers = append(servers, r)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	logx.Debugf("[store] 重加密待处理服务器: count=%d", len(servers))
 	for _, r := range servers {
 		pw, err := cryptox.Reencrypt(oldKey, newKey, r.password)
@@ -177,14 +185,14 @@ func ReencryptAllSecrets(db *sql.DB, oldKey, newKey []byte) error {
 			logx.Errorf("[store] 重加密服务器私钥失败: id=%s err=%v", r.id, err)
 			return err
 		}
-		if _, err := db.Exec(`UPDATE servers SET password = ?, key_content = ? WHERE id = ?`, pw, kc, r.id); err != nil {
+		if _, err := tx.Exec(`UPDATE servers SET password = ?, key_content = ? WHERE id = ?`, pw, kc, r.id); err != nil {
 			logx.Errorf("[store] 重加密写回服务器敏感字段失败: id=%s err=%v", r.id, err)
 			return err
 		}
 		logx.Debugf("[store] 重加密服务器完成: id=%s", r.id)
 	}
 
-	crows, err := db.Query(`SELECT id, password, key_content FROM credentials`)
+	crows, err := tx.Query(`SELECT id, password, key_content FROM credentials`)
 	if err != nil {
 		logx.Errorf("[store] 重加密查询凭证失败: err=%v", err)
 		return err
@@ -200,6 +208,9 @@ func ReencryptAllSecrets(db *sql.DB, oldKey, newKey []byte) error {
 		creds = append(creds, r)
 	}
 	crows.Close()
+	if err := crows.Err(); err != nil {
+		return err
+	}
 	logx.Debugf("[store] 重加密待处理凭证: count=%d", len(creds))
 	for _, r := range creds {
 		pw, err := cryptox.Reencrypt(oldKey, newKey, r.password)
@@ -212,11 +223,14 @@ func ReencryptAllSecrets(db *sql.DB, oldKey, newKey []byte) error {
 			logx.Errorf("[store] 重加密凭证私钥失败: id=%s err=%v", r.id, err)
 			return err
 		}
-		if _, err := db.Exec(`UPDATE credentials SET password = ?, key_content = ? WHERE id = ?`, pw, kc, r.id); err != nil {
+		if _, err := tx.Exec(`UPDATE credentials SET password = ?, key_content = ? WHERE id = ?`, pw, kc, r.id); err != nil {
 			logx.Errorf("[store] 重加密写回凭证敏感字段失败: id=%s err=%v", r.id, err)
 			return err
 		}
 		logx.Debugf("[store] 重加密凭证完成: id=%s", r.id)
+	}
+	if err := tx.Commit(); err != nil {
+		return err
 	}
 	logx.Infof("[store] 重加密全部敏感字段完成: servers=%d credentials=%d elapsed=%s",
 		len(servers), len(creds), time.Since(start))

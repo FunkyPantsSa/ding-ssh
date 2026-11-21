@@ -16,7 +16,7 @@ import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import type {Credential, ServerNode} from '../types'
 import SearchSelect from './ui/select/SearchSelect.vue'
-import {Button, Dialog, Field, Input, Textarea} from './ui'
+import {Button, Dialog, Field, Input, Switch, Textarea} from './ui'
 
 /**
  * editing：编辑对象（null = 新建）。
@@ -159,6 +159,7 @@ watch(
       port: editing?.port ?? 22,
       user: editing?.user ?? 'root',
       authType: editing?.authType ?? 'password',
+      sudoAutoFill: editing?.sudoAutoFill ?? false,
       identityFiles: [...(editing?.identityFiles ?? [])],
       identityAgent: editing?.identityAgent ?? '',
       identitiesOnly: editing?.identitiesOnly ?? false,
@@ -589,6 +590,14 @@ onMounted(() => {
         <Field :label="$t('私钥口令（可选）')" html-for="server-key-passphrase">
           <Input id="server-key-passphrase" v-model="form.password" type="password" :placeholder="$t('加密私钥的 passphrase')" autocomplete="current-password" />
         </Field>
+      </div>
+
+      <div class="flex items-start justify-between gap-4 rounded-md border border-[var(--border)] p-3">
+        <div class="space-y-1">
+          <label for="server-sudo-autofill" class="field-label">{{ t('sudo 自动填写密码') }}</label>
+          <p class="text-[12px] text-mist">{{ t('检测到 sudo -i / sudo -s 的密码提示时，在终端光标处弹框并自动提交一次登录密码。保存后重新连接生效。') }}</p>
+        </div>
+        <Switch id="server-sudo-autofill" v-model="form.sudoAutoFill" :label="t('sudo 自动填写密码')" :disabled="form.jumpServerMode" />
       </div>
 
       <p v-if="errorMsg" class="text-xs text-rose-400 break-all" role="alert">{{ errorMsg }}</p>
