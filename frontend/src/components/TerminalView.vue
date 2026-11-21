@@ -54,7 +54,8 @@ import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
 import {useUIStore} from '../stores/ui'
 import {useTerminalCompletion} from '../composables/useTerminalCompletion'
-import {loadTerminalFonts} from '../theme/terminal-fonts'
+import {fontPair, loadTerminalFonts} from '../theme/terminal-fonts'
+import {remoteFontStatus} from '../theme/remote-fonts'
 import {systemTone} from '../composables/useSystemTone'
 import {ClipboardGetText} from '../../wailsjs/runtime/runtime'
 import {LogClient, SetLogTrace} from '../../wailsjs/go/main/App'
@@ -305,10 +306,7 @@ function applyFontSettings() {
   term.options.fontFamily = monoFontStack(settings.fonts.terminalFont)
   term.options.fontSize = effectiveFontSize()
   fit()
-  void Promise.all([
-    loadTerminalFonts(settings.fonts.terminalFont, effectiveFontSize(), terminalFontWeight()),
-    document.fonts.load(`${effectiveFontSize()}px "Noto Sans SC"`, "终端中文"),
-  ]).then(() => {
+  void loadTerminalFonts(settings.fonts.terminalFont, effectiveFontSize(), terminalFontWeight()).finally(() => {
     if (!term) return
     term.clearTextureAtlas()
     fit()
@@ -1213,6 +1211,17 @@ watch(
     applyFontSettings()
   },
   {deep: true},
+)
+
+// A retry in Settings can finish without changing the saved font preference.
+// Rebuild existing terminals when that selection becomes available.
+watch(
+  () => fontPair(settings.fonts.terminalFont).flatMap(family =>
+    [400, 500, 700].map(weight => remoteFontStatus[`${family}:${weight}`] === 'ready'),
+  ),
+  (ready, previous) => {
+    if (ready.some((value, index) => value && !previous[index])) applyFontSettings()
+  },
 )
 
 watch(

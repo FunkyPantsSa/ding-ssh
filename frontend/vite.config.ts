@@ -3,6 +3,7 @@ import {fileURLToPath, URL} from 'node:url'
 import {defineConfig} from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
+import {bundledFonts} from './build/bundled-fonts'
 
 /** 读取 git 信息（tag / 提交号）；非 git 环境或命令失败时返回空串。 */
 function gitOutput(args: string[]): string {
@@ -20,7 +21,7 @@ const buildTime = new Date().toISOString()
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [vue(), tailwindcss()],
+  plugins: [bundledFonts(), vue(), tailwindcss()],
   resolve: {alias: {'@': fileURLToPath(new URL('./src', import.meta.url))}},
   define: {
     __APP_VERSION__: JSON.stringify(version),
@@ -31,6 +32,8 @@ export default defineConfig({
     include: ['zmodem.js'],
   },
   build: {
+    // Keep all shipped font bytes visible to the font budget, including tiny shards.
+    assetsInlineLimit: filePath => /\.(?:woff2?|ttf|otf)$/i.test(filePath) ? false : undefined,
     commonjsOptions: {
       include: [/zmodem\.js/, /node_modules/],
     },

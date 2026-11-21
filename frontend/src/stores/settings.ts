@@ -2,6 +2,7 @@ import {defineStore} from 'pinia'
 import {DEFAULT_COMPLETION_NAV_HOTKEY} from '../completion/hotkey'
 import {settingsService} from '../services/settings'
 import {paletteToTheme, defaultPreset} from '../theme/presets'
+import {DEFAULT_TERMINAL_FONT} from '../theme/font-catalog'
 import {migrateUiSettings, normalizeAppearance, UI_SCHEMA, UI2_MIGRATION_BACKUP_KEY, THEME_V4_MIGRATION_BACKUP_KEY} from '../theme/migrate'
 import type {DebugSettings, Fonts, LogLevel, NavSectionOrder, RightClickAction, TabBarPlacement, TerminalColorMode, Theme, UIAppearance} from '../types'
 
@@ -33,7 +34,7 @@ export function defaultAppearance(): UIAppearance {
 export function defaultFonts(): Fonts {
   return {
     uiFont: 'Geist Sans',
-    terminalFont: 'JetBrains Mono + Sarasa Mono SC',
+    terminalFont: DEFAULT_TERMINAL_FONT,
     terminalFontSize: 13,
   }
 }

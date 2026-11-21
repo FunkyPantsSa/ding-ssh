@@ -1472,5 +1472,12 @@
   "sudo 密码提交失败，请检查会话连接": "Could not submit the sudo password. Check the session connection.",
   "无法读取保存的登录密码，请手动输入": "Could not read the saved login password. Enter it manually.",
   "服务器配置已变化，请重新连接后再使用 sudo 自动填写": "Server settings changed. Reconnect before using sudo autofill.",
-  "没有可用的登录密码，请手动输入 sudo 密码": "No login password is available. Enter the sudo password manually."
+  "没有可用的登录密码，请手动输入 sudo 密码": "No login password is available. Enter the sudo password manually.",
+  "内置中英文字体，离线可用": "Bundled English and Chinese fonts, available offline",
+  "（内置）": " (bundled)",
+  "（按需下载）": " (download on demand)",
+  "当前字体可离线使用，无需下载。": "These fonts are available offline. No download is required.",
+  "字体下载失败，暂用内置字体；可点击重试。": "Font download failed. Using bundled fonts for now; click to retry.",
+  "字体已就绪；下次优先使用本地缓存。": "Fonts are ready. The local cache will be used first next time.",
+  "重试下载": "Retry download"
 }

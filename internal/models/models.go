@@ -504,7 +504,7 @@ func DefaultAppearance() UIAppearance {
 func DefaultFonts() Fonts {
 	return Fonts{
 		UiFont:           "Geist Sans",
-		TerminalFont:     "JetBrains Mono + Sarasa Mono SC",
+		TerminalFont:     "Geist Mono + Noto Sans SC",
 		TerminalFontSize: 13,
 	}
 }

@@ -552,7 +552,7 @@ git push origin v1.0.0
 1. **token 分层**：`theme/tokens.css` → `semantic.css` → `components.css`，主题引擎只写语义值；动态配色架构、迁移与验收矩阵见 [`docs/theme-system.md`](docs/theme-system.md)。
 2. **无障碍基线**：命令面板具备 dialog/listbox 语义、循环键盘导航、焦点保护与输入法保护。
 3. **自动化契约**：关键区域使用 `data-ui`，动态项使用业务 id，`ui.layout` 只依赖稳定语义选择器。
-4. **资源治理**：字体支持可配置字体及对应许可；`scripts/verify-ui2.sh` 检查 CSS、JS、字体和 dist 预算。
+4. **资源治理**：仅内置一套离线字体：界面 Geist Sans、终端 Geist Mono + Noto Sans SC，统一使用 WOFF2；JetBrains Mono、Fira Code、Maple 和 Sarasa 在选择后下载并缓存，失败可重试并回退到内置字体，已有字体偏好保留。`scripts/verify-ui2.sh` 限制内置字体总量 3 MiB、字体文件/声明各 128 个（含中文分片）、dist 总量 7 MiB，并独立检查 CSS、JS 预算。字体原始许可随应用提供。
 
 ## 十四、更多文档与许可
 
@@ -569,7 +569,7 @@ git push origin v1.0.0
 - 修复横向表单按钮受挤压后中文竖排的问题，窄窗口下输入框合理收缩、工具栏与操作行可分行。
 - 新增 SSH 主机信任校验、最多五级跳板机、SSH Config 快照导入与本机 Agent 认证，详见下节。
 
-验证：前端类型检查、构建与 40 个测试通过；Go 内部测试、关键模块竞态检查、静态检查及 macOS 打包通过；Windows/Linux SSH 包交叉编译通过。完整桌面跨平台及真实远端联测尚未执行。当前完整 UI2 校验仍存在字体资源预算超限，不能视为全项通过。
+1.1.1 历史验证：前端类型检查、构建与 40 个测试通过；Go 内部测试、关键模块竞态检查、静态检查及 macOS 打包通过；Windows/Linux SSH 包交叉编译通过。完整桌面跨平台及真实远端联测尚未执行。当时完整 UI2 校验存在字体资源预算超限；现行离线字体方案与预算见上方“资源治理”。
 
 ### SSH 主机信任、跳板机与 OpenSSH 导入
 
