@@ -12,6 +12,7 @@ import (
 
 // MigratePlaintextSecrets 将 servers/credentials 中的明文 password/key_content 加密落库。
 func MigratePlaintextSecrets(db *sql.DB, cipher cryptox.FieldCipher) (int, error) {
+	defer cryptox.BeginFieldOperation(cipher)()
 	if db == nil || cipher == nil {
 		logx.Debugf("[store] 跳过明文敏感字段迁移: db=%v cipher=%v", db != nil, cipher != nil)
 		return 0, nil

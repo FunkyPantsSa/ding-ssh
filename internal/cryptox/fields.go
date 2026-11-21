@@ -13,6 +13,21 @@ type FieldCipher interface {
 	DecryptField(value string) (string, error)
 }
 
+// BeginFieldOperation holds one key generation until the caller has finished
+// all fields and its SQL read/write. Per-field locks alone cannot prevent a
+// rotation between encryption and persistence, or between two scanned fields.
+func BeginFieldOperation(cipher FieldCipher) func() {
+	if locker, ok := cipher.(interface{ BeginFieldOperation() func() }); ok {
+		return locker.BeginFieldOperation()
+	}
+	return func() {}
+}
+
+func (v *Vault) BeginFieldOperation() func() {
+	v.operations.RLock()
+	return v.operations.RUnlock
+}
+
 // Reencrypt 用新密钥重加密字段（旧密文用 oldKey 解，新密文用 newKey 封）。
 func Reencrypt(oldKey, newKey []byte, value string) (string, error) {
 	if value == "" {

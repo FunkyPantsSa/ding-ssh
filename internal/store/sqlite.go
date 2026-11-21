@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"ding-ssh/internal/appdir"
@@ -129,8 +130,9 @@ func OpenSQLite(path string) (*sql.DB, error) {
 
 // SQLiteStore 基于 SQLite 的服务器节点存储。
 type SQLiteStore struct {
-	db     *sql.DB
-	cipher cryptox.FieldCipher
+	cipherMu sync.RWMutex
+	db       *sql.DB
+	cipher   cryptox.FieldCipher
 }
 
 // NewSQLiteStore 基于已打开的数据库创建服务器存储。
@@ -141,6 +143,8 @@ func NewSQLiteStore(db *sql.DB) *SQLiteStore {
 
 // SetCipher 注入敏感字段加解密器（Phase 4A）。
 func (s *SQLiteStore) SetCipher(c cryptox.FieldCipher) {
+	s.cipherMu.Lock()
+	defer s.cipherMu.Unlock()
 	s.cipher = c
 	logx.Debugf("[store] 服务器存储已注入字段加解密器: enabled=%v", c != nil)
 }
@@ -172,6 +176,9 @@ func scanServer(row interface{ Scan(...any) error }) (models.ServerNode, error) 
 
 // List 返回全部服务器节点。
 func (s *SQLiteStore) List() ([]models.ServerNode, error) {
+	s.cipherMu.RLock()
+	defer s.cipherMu.RUnlock()
+	defer cryptox.BeginFieldOperation(s.cipher)()
 	start := time.Now()
 	logx.Debugf("[store] 读取服务器列表(SQLite): cipher=%v", s.cipher != nil)
 	rows, err := s.db.Query(`
@@ -206,6 +213,9 @@ func (s *SQLiteStore) List() ([]models.ServerNode, error) {
 
 // Save 新增或更新服务器节点（按 ID 匹配）。
 func (s *SQLiteStore) Save(node models.ServerNode) error {
+	s.cipherMu.RLock()
+	defer s.cipherMu.RUnlock()
+	defer cryptox.BeginFieldOperation(s.cipher)()
 	start := time.Now()
 	logx.Debugf("[store] 保存服务器(SQLite): id=%s name=%q host=%s:%d user=%s auth=%s",
 		node.ID, node.Name, node.Host, node.Port, node.User, node.AuthType)
@@ -217,6 +227,9 @@ func (s *SQLiteStore) Save(node models.ServerNode) error {
 	return nil
 }
 func (s *SQLiteStore) SaveBatch(nodes []models.ServerNode) error {
+	s.cipherMu.RLock()
+	defer s.cipherMu.RUnlock()
+	defer cryptox.BeginFieldOperation(s.cipher)()
 	start := time.Now()
 	logx.Debugf("[store] 批量保存服务器(SQLite): count=%d", len(nodes))
 	tx, err := s.db.Begin()
@@ -702,8 +715,9 @@ func boolStr(v bool) string {
 
 // SQLiteCredentialStore 基于 SQLite 的凭证存储。
 type SQLiteCredentialStore struct {
-	db     *sql.DB
-	cipher cryptox.FieldCipher
+	cipherMu sync.RWMutex
+	db       *sql.DB
+	cipher   cryptox.FieldCipher
 }
 
 // NewSQLiteCredentialStore 基于已打开的数据库创建凭证存储。
@@ -714,12 +728,17 @@ func NewSQLiteCredentialStore(db *sql.DB) *SQLiteCredentialStore {
 
 // SetCipher 注入敏感字段加解密器。
 func (s *SQLiteCredentialStore) SetCipher(c cryptox.FieldCipher) {
+	s.cipherMu.Lock()
+	defer s.cipherMu.Unlock()
 	s.cipher = c
 	logx.Debugf("[store] 凭证存储已注入字段加解密器: enabled=%v", c != nil)
 }
 
 // List 返回全部凭证。
 func (s *SQLiteCredentialStore) List() ([]models.Credential, error) {
+	s.cipherMu.RLock()
+	defer s.cipherMu.RUnlock()
+	defer cryptox.BeginFieldOperation(s.cipher)()
 	start := time.Now()
 	logx.Debugf("[store] 读取凭证列表(SQLite): cipher=%v", s.cipher != nil)
 	rows, err := s.db.Query(`SELECT id, name, user, password, auth_type, key_path, key_content FROM credentials ORDER BY name`)
@@ -759,6 +778,9 @@ func (s *SQLiteCredentialStore) List() ([]models.Credential, error) {
 
 // Save 新增或更新凭证（按 ID 匹配）。
 func (s *SQLiteCredentialStore) Save(c models.Credential) error {
+	s.cipherMu.RLock()
+	defer s.cipherMu.RUnlock()
+	defer cryptox.BeginFieldOperation(s.cipher)()
 	start := time.Now()
 	logx.Debugf("[store] 保存凭证(SQLite): id=%s name=%q user=%s auth=%s", c.ID, c.Name, c.User, c.AuthType)
 	if c.AuthType == "" {

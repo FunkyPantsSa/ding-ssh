@@ -43,6 +43,7 @@ type App struct {
 	groups      store.GroupStore
 	history     store.HistoryStore
 	vault       *cryptox.Vault
+	vaultErr    error // Initialization failure must never enable plaintext fallback.
 
 	unlockMu          sync.Mutex
 	unlockFails       int
@@ -121,6 +122,7 @@ func (a *App) Startup(ctx context.Context) {
 
 	// 安全保险库（主密钥 / 主密码）
 	vault, err := cryptox.OpenVault(a.dataDir)
+	a.vaultErr = err
 	if err != nil {
 		logx.Errorf("[apphost] 初始化安全保险库失败: err=%v", err)
 	} else {
@@ -214,6 +216,9 @@ func (a *App) attachCipher() {
 }
 
 func (a *App) ensureUnlocked() error {
+	if a.vaultErr != nil {
+		return fmt.Errorf("%s: %w", i18n.T("保险库未初始化"), a.vaultErr)
+	}
 	if a.vault == nil {
 		return nil
 	}
@@ -376,6 +381,9 @@ func (a *App) SelectImageFile() (string, error) {
 
 // DeleteServer 删除服务器节点。
 func (a *App) DeleteServer(id string) error {
+	if err := a.ensureUnlocked(); err != nil {
+		return err
+	}
 	nodes, err := a.store.List()
 	if err != nil {
 		logx.Errorf("[apphost] 删除服务器失败（读取现有服务器）: id=%s err=%v", id, err)
@@ -632,6 +640,9 @@ func (a *App) SaveCredential(c models.Credential) (models.Credential, error) {
 
 // DeleteCredential 删除常用凭证。
 func (a *App) DeleteCredential(id string) error {
+	if err := a.ensureUnlocked(); err != nil {
+		return err
+	}
 	logx.Debugf("[apphost] 删除凭证: id=%s", id)
 	if err := a.credentials.Delete(id); err != nil {
 		logx.Errorf("[apphost] 删除凭证失败: id=%s err=%v", id, err)
@@ -1530,6 +1541,9 @@ func (a *App) WriteLocalFileBase64(path, dataBase64 string) error {
 
 // GetSecurityStatus 返回加密保险库状态。
 func (a *App) GetSecurityStatus() models.SecurityStatus {
+	if a.vaultErr != nil {
+		return models.SecurityStatus{NeedsUnlock: true, InitializationError: i18n.T("保险库未初始化")}
+	}
 	if a.vault == nil {
 		logx.Debugf("[apphost] 读取安全状态: vault=unavailable")
 		return models.SecurityStatus{Unlocked: true, KeyringAvailable: false}

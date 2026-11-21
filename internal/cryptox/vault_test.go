@@ -223,6 +223,9 @@ func TestVaultFailedMetadataSavePreservesState(t *testing.T) {
 	v := auditVault(t)
 	oldKey, _ := v.Key()
 	oldMeta := v.meta
+	if err := os.Remove(v.metaPath()); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Mkdir(v.metaPath(), 0o700); err != nil {
 		t.Fatal(err)
 	}

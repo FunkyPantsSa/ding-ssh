@@ -211,6 +211,7 @@ function normalizeTransferEvent(payload: unknown): SFTPTransferEvent | null {
   const name = String(obj.name ?? obj.Name ?? '')
   if ((direction !== 'upload' && direction !== 'download') || !name) return null
   return {
+    transferId: typeof (obj.transferId ?? obj.TransferID) === 'string' ? String(obj.transferId ?? obj.TransferID) : undefined,
     sessionId: String(obj.sessionId ?? obj.SessionID ?? ''),
     direction,
     name,

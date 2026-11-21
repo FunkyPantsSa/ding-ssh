@@ -6,7 +6,7 @@ import {t} from '../i18n'
 import {Button, Field, Input} from '@/components/ui'
 import appLogo from '@/assets/images/ding-logo.png'
 
-defineProps<{unlocking: boolean; error: string}>()
+defineProps<{unlocking: boolean; error: string; initializationError?: string}>()
 const password = defineModel<string>({required: true})
 const emit = defineEmits<{submit: []}>()
 </script>
@@ -25,7 +25,7 @@ const emit = defineEmits<{submit: []}>()
           </div>
         </div>
         <h1 class="text-[30px] font-semibold tracking-[-0.03em] leading-[1.15] text-[var(--foreground)]">{{ $t('解锁工作台') }}</h1>
-        <p class="text-[13px] leading-relaxed text-mist max-w-[380px]">{{ $t('主密码已启用。输入后解密服务器节点、凭证与隧道配置，进入本机会话。') }}</p>
+        <p class="text-[13px] leading-relaxed text-mist max-w-[380px]">{{ initializationError ? $t('请检查本地安全配置后重启应用') : $t('主密码已启用。输入后解密服务器节点、凭证与隧道配置，进入本机会话。') }}</p>
         <div class="panel p-4 flex flex-col gap-3 max-w-[400px]">
           <div class="flex items-baseline justify-between gap-4">
             <span class="text-[10.5px] uppercase tracking-[0.1em] text-mist">{{ $t('加密算法') }}</span>
@@ -42,7 +42,12 @@ const emit = defineEmits<{submit: []}>()
         </div>
       </section>
 
-      <form class="panel p-6 flex flex-col gap-4" @submit.prevent="emit('submit')">
+      <section v-if="initializationError" class="panel p-6 flex flex-col gap-4" role="alert">
+        <h2 class="text-[17px] font-semibold">{{ $t('保险库未初始化') }}</h2>
+        <p class="text-[12px] text-danger">{{ initializationError }}</p>
+        <p class="text-[12px] text-mist">{{ $t('请检查本地安全配置后重启应用') }}</p>
+      </section>
+      <form v-else class="panel p-6 flex flex-col gap-4" @submit.prevent="emit('submit')">
         <div class="md:hidden flex items-center gap-3">
           <div class="brand-mark">
             <img :src="appLogo" alt="" class="brand-logo" />

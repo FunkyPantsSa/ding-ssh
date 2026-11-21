@@ -426,6 +426,7 @@ export interface SysInfoSnapshot {
 
 // 安全状态。
 export interface SecurityStatus {
+  initializationError?: string
   unlocked: boolean
   masterPasswordEnabled: boolean
   keyringAvailable: boolean

@@ -688,10 +688,11 @@ type NetIface struct {
 
 // SecurityStatus 敏感字段加密 / 主密码状态。
 type SecurityStatus struct {
-	Unlocked              bool `json:"unlocked"`
-	MasterPasswordEnabled bool `json:"masterPasswordEnabled"`
-	KeyringAvailable      bool `json:"keyringAvailable"`
-	NeedsUnlock           bool `json:"needsUnlock"`
+	InitializationError   string `json:"initializationError,omitempty"`
+	Unlocked              bool   `json:"unlocked"`
+	MasterPasswordEnabled bool   `json:"masterPasswordEnabled"`
+	KeyringAvailable      bool   `json:"keyringAvailable"`
+	NeedsUnlock           bool   `json:"needsUnlock"`
 }
 
 // ImportConfigResult 配置导入结果。

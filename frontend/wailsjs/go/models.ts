@@ -231,6 +231,7 @@ export namespace models {
 	    }
 	}
 	export class SecurityStatus {
+	    initializationError?: string;
 	    unlocked: boolean;
 	    masterPasswordEnabled: boolean;
 	    keyringAvailable: boolean;
@@ -242,6 +243,7 @@ export namespace models {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.initializationError = source["initializationError"];
 	        this.unlocked = source["unlocked"];
 	        this.masterPasswordEnabled = source["masterPasswordEnabled"];
 	        this.keyringAvailable = source["keyringAvailable"];

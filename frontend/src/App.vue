@@ -22,7 +22,7 @@ import WidthResizer from './components/WidthResizer.vue'
 import {layoutPanes} from './panes/layout'
 import type {PaneDirection, SplitDirection} from './types'
 import QuickConnectPanel from './components/QuickConnectPanel.vue'
-import {securityService} from './services/security'
+import {getStartupSecurityStatus, securityService} from './services/security'
 import {getElementRect} from './utils/dom'
 import {buildCommands} from './commands'
 import type {AppCommand} from './commands'
@@ -94,6 +94,7 @@ watch(navCollapsed, (v) => {
 const {onSchemeChange} = useTheme(settings)
 
 const needsUnlock = ref(false)
+const initializationError = ref('')
 const unlockPassword = ref('')
 const unlockError = ref('')
 const unlocking = ref(false)
@@ -390,12 +391,9 @@ function markRestorePromptSettled() {
 }
 
 onMounted(async () => {
-  try {
-    const st = await securityService.getStatus()
-    needsUnlock.value = st.needsUnlock
-  } catch {
-    needsUnlock.value = false
-  }
+  const st = await getStartupSecurityStatus()
+  initializationError.value = st.initializationError ?? ''
+  needsUnlock.value = !st.unlocked || st.needsUnlock || !!initializationError.value
   if (!needsUnlock.value) {
     await settings.load()
     await servers.load()
@@ -405,6 +403,7 @@ onMounted(async () => {
 })
 
 async function doUnlock() {
+  if (initializationError.value) return
   unlockError.value = ''
   unlocking.value = true
   try {
@@ -433,7 +432,7 @@ onBeforeUnmount(() => {
       <div v-if="isWindows" class="window-controls"><button :aria-label="$t('最小化')" @dblclick.stop @click="WindowMinimise">−</button><button :aria-label="$t('最大化或还原')" @dblclick.stop @click="WindowToggleMaximise">□</button><button :aria-label="$t('关闭窗口')" @dblclick.stop @click="Quit">×</button></div>
     </div>
     <!-- 解锁页 -->
-    <AppUnlock v-if="needsUnlock" v-model="unlockPassword" :unlocking="unlocking" :error="unlockError" @submit="doUnlock" />
+    <AppUnlock v-if="needsUnlock" v-model="unlockPassword" :unlocking="unlocking" :error="unlockError" :initialization-error="initializationError" @submit="doUnlock" />
 
     <!-- 主壳 -->
     <AppLayout

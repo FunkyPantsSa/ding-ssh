@@ -748,10 +748,22 @@ func (m *Manager) SftpDownloadFolder(sessionID, remoteDir, localDir string) erro
 	if name == "" || name == "." || name == "/" {
 		return fmt.Errorf(i18n.T("不支持下载根目录: %s"), remoteDir)
 	}
-	localRoot := filepath.Join(localDir, name)
-	if err := os.MkdirAll(localRoot, 0o755); err != nil {
+	if err := os.MkdirAll(localDir, 0o755); err != nil {
 		return fmt.Errorf(i18n.T("创建本地目录失败: %w"), err)
 	}
+	selected, err := os.OpenRoot(localDir)
+	if err != nil {
+		return err
+	}
+	defer selected.Close()
+	if err := selected.MkdirAll(name, 0o755); err != nil {
+		return fmt.Errorf(i18n.T("创建本地目录失败: %w"), err)
+	}
+	localRoot, err := selected.OpenRoot(name)
+	if err != nil {
+		return err
+	}
+	defer localRoot.Close()
 	// 第一遍统计总字节数，让进度条一开始就有确定的总数。
 	total, err := remoteDirBytes(client, remoteDir)
 	if err != nil {
@@ -808,7 +820,7 @@ func (m *Manager) SftpDownloadFolder(sessionID, remoteDir, localDir string) erro
 		})
 	}
 
-	downloadErr := m.downloadFolderTree(ctx, client, remoteDir, localRoot, &transferred)
+	downloadErr := m.downloadFolderTreeWithin(ctx, client, remoteDir, localRoot, &transferred)
 	if downloadErr != nil {
 		if errors.Is(downloadErr, ErrTransferCancelled) {
 			logx.Warnf("[sshx] 下载文件夹已取消: session=%s name=%s transferred=%d total=%d elapsed=%s",
@@ -883,6 +895,19 @@ func walkRemote(client *sftp.Client, root string, fn func(path string, fi os.Fil
 //
 // 符号链接等非常规条目一律跳过（与上传对称，避免链接循环）。
 func (m *Manager) downloadFolderTree(ctx context.Context, client *sftp.Client, remoteRoot, localRoot string, transferred *atomic.Int64) error {
+	if ctx.Err() != nil {
+		return ErrTransferCancelled
+	}
+	root, err := os.OpenRoot(localRoot)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return m.downloadFolderTreeWithin(ctx, client, remoteRoot, root, transferred)
+}
+
+func (m *Manager) downloadFolderTreeWithin(ctx context.Context, client *sftp.Client, remoteRoot string, localRoot *os.Root, transferred *atomic.Int64) error {
+	files := rootedLocalFiles(localRoot)
 	return walkRemote(client, remoteRoot, func(path string, fi os.FileInfo) error {
 		if err := ctx.Err(); err != nil {
 			return ErrTransferCancelled
@@ -891,12 +916,15 @@ func (m *Manager) downloadFolderTree(ctx context.Context, client *sftp.Client, r
 		if err != nil {
 			return err
 		}
-		localPath := filepath.Join(localRoot, rel)
+		if !filepath.IsLocal(rel) {
+			return fmt.Errorf("remote entry escapes download directory: %q", path)
+		}
+		localPath := rel
 		if fi.IsDir() {
 			if rel == "." {
 				return nil // 本地根目录已由 SftpDownloadFolder 创建
 			}
-			return os.MkdirAll(localPath, 0o755)
+			return localRoot.MkdirAll(localPath, 0o755)
 		}
 		if !fi.Mode().IsRegular() {
 			return nil
@@ -906,7 +934,7 @@ func (m *Manager) downloadFolderTree(ctx context.Context, client *sftp.Client, r
 		if err != nil {
 			return fmt.Errorf(i18n.T("打开远端文件失败: %w"), err)
 		}
-		tempPath, dst, err := openLocalTempFile(localPath)
+		tempPath, dst, err := files.openTemp(localPath)
 		if err != nil {
 			src.Close()
 			return fmt.Errorf(i18n.T("创建本地文件失败: %w"), err)
@@ -915,22 +943,22 @@ func (m *Manager) downloadFolderTree(ctx context.Context, client *sftp.Client, r
 		closeSrcErr := src.Close()
 		closeDstErr := dst.Close()
 		if copyErr != nil {
-			_ = os.Remove(tempPath)
+			_ = localRoot.Remove(tempPath)
 			if errors.Is(copyErr, ErrTransferCancelled) {
 				return ErrTransferCancelled
 			}
 			return copyErr
 		}
 		if closeSrcErr != nil {
-			_ = os.Remove(tempPath)
+			_ = localRoot.Remove(tempPath)
 			return fmt.Errorf(i18n.T("关闭远端文件失败: %w"), closeSrcErr)
 		}
 		if closeDstErr != nil {
-			_ = os.Remove(tempPath)
+			_ = localRoot.Remove(tempPath)
 			return fmt.Errorf(i18n.T("关闭本地文件失败: %w"), closeDstErr)
 		}
-		if err := replaceLocalFile(tempPath, localPath); err != nil {
-			_ = os.Remove(tempPath)
+		if err := files.replace(tempPath, localPath); err != nil {
+			_ = localRoot.Remove(tempPath)
 			return fmt.Errorf(i18n.T("发布本地文件失败: %w"), err)
 		}
 		return nil
