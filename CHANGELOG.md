@@ -15,6 +15,26 @@
 
 ---
 
+## [未发布] 2026-11-22 · MCP 控制面：独立审批、客户端授权、任务执行与文件闭环
+
+- 现象：控制面只有一个共享 Bearer token 和一组能力位，`confirm.prepare` 由同一调用方立即拿到可执行 token，无法证明用户批准；终端自动化缺少稳定的独立执行与任务生命周期；文件接口没有条件写入、补丁预览与分片上传下载；权限分类把终端读取、文件读取、连接、界面观测混在一起；工具目录与 README 的工具数量、能力说明长期滞后。
+- 原因：早期实现以「单机可信脚本」为前提，能力位粒度粗、审批入口在被自动化的 WebView 内，且工具主要围绕交互式 PTY 构建，没有为非 PTY 任务、客户端隔离和文件可靠性设计独立的策略执行层。
+- 修法：
+  - **权限与身份**：拆出 19 个能力位（`read`、`terminal.read`、`fs.remote.read`、`ui.inspect`、`session.connect/disconnect`、`credentials.use`、`terminal.input`、`exec.local`、`ui.write`、`automation.trusted`、`config.write`、`secrets.read/write`、`fs.remote.write`、`transfer.cancel`、`sudo.credential`、`lifecycle`、`eval`），新增能力默认关闭；设置页提供观察 / 运维 / 完全信任开发预设，扩权需系统原生批准。
+  - **独立审批**：`confirm.prepare` 同步弹出独立于 WebView 的原生窗口，批准后返回 `operationId`、脱敏摘要和一次性执行凭据；支持批准一次或十分钟内相同调用方、动作、工具 + 完整参数；凭据绑定客户端、工具、动作与参数，120 秒过期，`confirm.status` 可查状态但不回传 token。MCP 不能通过能力、设置或 store patch 扩权。
+  - **客户端授权**：新增每客户端独立 `dsc_` token，限定服务器、会话、读写路径、能力与到期时间（最多 24 小时、最多 32 个、重启失效、可撤销）；受限客户端禁止明文凭据、本机执行、任意 JS 与完全信任界面自动化。
+  - **独立执行**：`exec.start` 使用非 PTY SSH exec，支持 `raw` / `posix`、`cwd/env`、超时、有界输出与幂等键；`jobs.get/wait/output/cancel/list` 提供游标分页与未知结果语义；应用重启后未完成任务标为 `unknown` 且不自动重放。`exec.plan/batch` 支持 1–8 目标冻结计划与 1–4 并发。
+  - **文件闭环**：新增 `sftp.download`、`sftp.upload`、`sftp.patch.preview`、`sftp.patch`；覆盖写使用同目录临时文件与原子替换，支持 `expectedHash`（含 `missing`）与 `append`；宿主校验 canonical 路径、拒绝写入最终符号链接，白名单为空时禁止一切写入。
+  - **运维观测**：新增 `hosts.metrics`、`processes.list`、`tunnels.health`、`services.status/logs`、经批准的 `services.restart`、`sessions.connect/disconnect/reconnect/wait`、`hostTrust.challenges`、`servers.search`。
+  - **协议与资源**：协商 `2024-11-05` / `2025-03-26` / `2025-06-18`，严格校验 JSON-RPC、Content-Type 与参数 schema；新增资源模板与订阅、工具注解、结构化输出；每 MCP 会话只允许一个活动 SSE，最多 128 个会话、30 分钟空闲回收；事件带 `seq` / `after` / `gap`；stdio 代理支持 32 路并发与取消，只重试确定未送达的请求。
+  - **安全与数据**：HTTP 只接受 header token，执行确认只接受 `X-Ding-Confirm-Token`；Host / Origin 校验、并发与请求体上限；持久审计只写固定元数据；诊断包默认只含安全投影；UI 组件树、DOM 文本和控制台只返回安全元信息；UI 快照 64 组 / 64 MiB / 24 小时清理。
+  - **文档**：工具目录当前 124 个工具；新增《MCP 任务与文件接口》《MCP 改造实施与验证记录》《MCP 能力设计评审与演进方案》，并重写中英文 README，移除失效的设计文档链接。
+- 兼容：原有 MCP / HTTP 工具名称与文本结果格式保留（兼容别名继续可用），新增 `structuredContent` 只在 2025-06-18 协商下返回；旧调试配置保留已明确保存的能力，不自动开启新增能力；旧 `/tmp` sudo 临时文件清理路径仍被识别。
+- 边界：普通 SFTP 无法消除远端检查 / 写入竞态，追加写非原子，ACL / xattr 不保证；任意 shell 可绕过文件白名单；取消 SSH channel 不保证远端进程树终止；应用重启不保证任务继续；像素截图仅 Windows；远程接入无 TLS / OAuth，仍应通过 SSH 转发。
+- 验证：`go test ./...`、`go test -race ./internal/... ./cmd/ding-ssh-mcp`、`go vet ./...` 通过；前端 69 个测试文件、333 项测试与 `npm run build` 通过；macOS `wails build` 与 Windows/Linux amd64 后端交叉编译通过；官方 TypeScript MCP SDK 1.32.2 经 HTTP / stdio 完成初始化、完整目录与健康调用；隔离实例安全联调 12 项通过。完整记录见 `docs/MCP改造实施与验证记录.md` 与 `docs/validation/mcp-2026-11-22.json`；原生审批实机点击与跨平台像素截图未验证。
+
+---
+
 ## [未发布] 2026-11-20 · 服务器分组支持文件夹式嵌套
 
 - 现象：分组只能平铺，服务器多了只能靠 `生产-华东` 这类命名前缀人工分类；父级重命名/删除要在服务器列表里逐台改，缺少层级视图。
