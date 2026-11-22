@@ -196,6 +196,8 @@ curl --proxy socks5h://127.0.0.1:1080 https://example.com
 ```bash
 # 安装 Wails CLI
 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+# Linux（GTK3 / WebKitGTK 4.1）
+GOFLAGS=-tags=gtk3 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 
 # 开发模式：前端热更新 + Go 实时编译
 npm --prefix frontend ci

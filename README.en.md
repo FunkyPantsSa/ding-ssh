@@ -196,6 +196,8 @@ Paste and copy are intercepted by the terminal in the capture phase to bypass We
 ```bash
 # Install the Wails CLI
 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+# Linux (GTK3 / WebKitGTK 4.1)
+GOFLAGS=-tags=gtk3 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 
 # Development: frontend hot reload plus Go rebuild
 npm --prefix frontend ci

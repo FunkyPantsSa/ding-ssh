@@ -104,6 +104,9 @@ jobs:
 
       - name: Install Wails CLI
         shell: bash
+        # The Linux CLI also links against WebKitGTK at build time.
+        env:
+          GOFLAGS: ${{ runner.os == 'Linux' && '-tags=gtk3' || '' }}
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_CLI_VERSION}
 
       - name: Stamp product version
