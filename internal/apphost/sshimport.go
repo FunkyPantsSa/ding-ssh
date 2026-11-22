@@ -3,6 +3,7 @@ package apphost
 import (
 	"ding-ssh/internal/i18n"
 	"fmt"
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"os"
 	"path/filepath"
 	"time"
@@ -12,7 +13,6 @@ import (
 	"ding-ssh/internal/sshconfig"
 	"ding-ssh/internal/sshx"
 	"github.com/google/uuid"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 func (a *App) PreviewSSHConfig(path string) ([]sshconfig.Preview, error) {
@@ -45,7 +45,7 @@ func (a *App) PreviewSSHConfig(path string) ([]sshconfig.Preview, error) {
 }
 func (a *App) SelectSSHConfig() (string, error) {
 	logx.Debugf("[apphost] 打开 SSH 配置文件选择对话框")
-	path, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{Title: i18n.T("选择 OpenSSH Config")})
+	path, err := a.openFile(application.OpenFileDialogOptions{Title: i18n.T("选择 OpenSSH Config")})
 	if err != nil {
 		logx.Warnf("[apphost] 打开 SSH 配置文件选择对话框失败: err=%v", err)
 		return "", err

@@ -11,7 +11,7 @@ import {Button, Select} from '../ui'
 import {frontendRuntimeStatus} from '../../utils/runtime-status'
 import {sshService} from '../../services/ssh'
 import {APP_COMMIT, APP_VERSION, buildDateLabel, buildTimeLabel, detectPlatform, platformLabel} from '../../version'
-import {GetRuntimeStatus} from '../../../wailsjs/go/main/App'
+import {GetRuntimeStatus} from '../../../bindings/ding-ssh/internal/apphost/app'
 
 import {updateChannel, checkUpdatesOnStartup, updateBusy, updateReady, updateMessage, setUpdateChannel, setStartupCheck, checkUpdates} from '../../services/updates'
 
@@ -25,7 +25,7 @@ const platform = ref('')
 const copied = ref(false)
 let copiedTimer: number | undefined
 
-const status = ref<Record<string, number>>()
+const status = ref<Partial<Record<string, number>>>()
 const frontend = ref<ReturnType<typeof frontendRuntimeStatus>>()
 const cpuPercent = ref<number>()
 let cpuSample: {cpuMs: number; timeMs: number} | undefined

@@ -1,5 +1,5 @@
 // 命令历史 Wails 绑定封装。
-import {AddCommandHistory, ClearCommandHistory, QueryCommandHistory} from '../../wailsjs/go/main/App'
+import {AddCommandHistory, ClearCommandHistory, QueryCommandHistory} from '../../bindings/ding-ssh/internal/apphost/app'
 import type {CommandSuggestion} from '../types'
 
 export const historyService = {

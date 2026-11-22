@@ -17,7 +17,7 @@ func TestVaultInitializationFailureBlocksSecretWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := NewApp(DebugBoot{})
-	app.Startup(context.Background())
+	app.startup(context.Background())
 	t.Cleanup(func() {
 		if app.db != nil {
 			_ = app.db.Close()

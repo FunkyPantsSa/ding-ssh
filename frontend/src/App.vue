@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import {ResolveAppClose} from '../bindings/ding-ssh/internal/apphost/app'
 import UpdatePanel from './components/UpdatePanel.vue'
 import {errorText} from './i18n'
 
@@ -7,7 +8,7 @@ import {t as $t} from './i18n'
 import {t} from './i18n'
 
 import {confirmAppClose} from './services/closeConfirmation'
-import {EventsOn, WindowToggleMaximise, WindowMinimise, Quit} from '../wailsjs/runtime/runtime'
+import {EventsOn, WindowToggleMaximise, WindowMinimise, WindowClose} from './services/desktop'
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './components/Icon.vue'
 import {useWorkspaceLayout} from './composables/useWorkspaceLayout'
@@ -54,7 +55,7 @@ let disposeCloseRequest: (() => void) | undefined
 onMounted(() => {
   disposeCloseRequest = EventsOn('app:confirm-close', async () => {
     const confirmed = await confirmAppClose()
-    await (window as any).go.main.App.ResolveAppClose(confirmed)
+    await ResolveAppClose(confirmed)
   })
 })
 onBeforeUnmount(() => disposeCloseRequest?.())
@@ -429,7 +430,7 @@ onBeforeUnmount(() => {
   <UpdatePanel />
   <div class="app-shell" :class="{'smooth-animations': settings.smoothAnimations, 'platform-macos': isMacOS, 'platform-windows': isWindows}" :style="{zoom: (settings.uiScale || 100) / 100}" data-ui="app" :data-view="ui.view">
     <div v-if="isMacOS || isWindows" class="window-drag-region" @dblclick="WindowToggleMaximise">
-      <div v-if="isWindows" class="window-controls"><button :aria-label="$t('最小化')" @dblclick.stop @click="WindowMinimise">−</button><button :aria-label="$t('最大化或还原')" @dblclick.stop @click="WindowToggleMaximise">□</button><button :aria-label="$t('关闭窗口')" @dblclick.stop @click="Quit">×</button></div>
+      <div v-if="isWindows" class="window-controls"><button :aria-label="$t('最小化')" @dblclick.stop @click="WindowMinimise">−</button><button :aria-label="$t('最大化或还原')" @dblclick.stop @click="WindowToggleMaximise">□</button><button :aria-label="$t('关闭窗口')" @dblclick.stop @click="WindowClose">×</button></div>
     </div>
     <!-- 解锁页 -->
     <AppUnlock v-if="needsUnlock" v-model="unlockPassword" :unlocking="unlocking" :error="unlockError" :initialization-error="initializationError" @submit="doUnlock" />

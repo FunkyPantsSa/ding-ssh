@@ -5,7 +5,6 @@ import (
 	"ding-ssh/internal/logx"
 	"ding-ssh/internal/updater"
 	"fmt"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -79,7 +78,7 @@ func (a *App) DownloadUpdate(restart bool) error {
 		if time.Since(last) > 250*time.Millisecond {
 			last = time.Now()
 			logx.DebugSampled(updateProgressLog, "[apphost] 更新下载进度: received=%d total=%d", n, total)
-			wailsruntime.EventsEmit(a.ctx, "update:progress", map[string]int64{"received": n, "total": total})
+			a.emit("update:progress", map[string]int64{"received": n, "total": total})
 		}
 	})
 	if e != nil {
@@ -120,7 +119,7 @@ func (a *App) InstallUpdateNow() error {
 		return fmt.Errorf("更新尚未下载完成")
 	}
 	logx.Infof("[apphost] 立即安装更新并退出: source=%q", source)
-	wailsruntime.Quit(a.ctx)
+	a.requestQuit()
 	return nil
 }
 func (a *App) installPendingUpdate() {

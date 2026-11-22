@@ -18,6 +18,7 @@ import {t} from '../i18n'
 import {nextTick} from 'vue'
 import {getActivePinia} from 'pinia'
 import {
+  isDesktop,
   WindowGetPosition,
   WindowGetSize,
   WindowIsMaximised,
@@ -29,7 +30,7 @@ import {
   WindowSetSize,
   WindowUnmaximise,
   WindowUnminimise,
-} from '../../wailsjs/runtime/runtime'
+} from '../services/desktop'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
 import {useUIStore} from '../stores/ui'
@@ -1130,26 +1131,25 @@ async function navigateOp(args: Args): Promise<unknown> {
 }
 
 async function windowOp(args: Args): Promise<unknown> {
-  const rt = (window as unknown as {runtime?: Record<string, unknown>}).runtime
-  if (!rt) throw new Error('Wails runtime 不可用（window.runtime 缺失）：无法调整窗口')
+  if (!isDesktop()) throw new Error('Wails 桌面运行时不可用')
   const wantRestore = bool(args.restore)
   const wantMax = bool(args.maximize)
   const wantMin = bool(args.minimize)
   const hasSize = args.width !== undefined || args.height !== undefined
   const hasPos = args.x !== undefined || args.y !== undefined
   if (wantRestore) {
-    WindowUnmaximise()
-    WindowUnminimise()
+    await WindowUnmaximise()
+    await WindowUnminimise()
   }
   if (hasSize) {
     const cur = await WindowGetSize().catch(() => null)
     const w = args.width !== undefined ? Math.max(320, Math.round(num(args.width))) : (cur?.w ?? 1280)
     const h = args.height !== undefined ? Math.max(240, Math.round(num(args.height))) : (cur?.h ?? 800)
-    WindowSetSize(w, h)
+    await WindowSetSize(w, h)
   }
-  if (hasPos) WindowSetPosition(Math.round(num(args.x)), Math.round(num(args.y)))
-  if (wantMax) WindowMaximise()
-  if (wantMin) WindowMinimise()
+  if (hasPos) await WindowSetPosition(Math.round(num(args.x)), Math.round(num(args.y)))
+  if (wantMax) await WindowMaximise()
+  if (wantMin) await WindowMinimise()
   await sleep(150)
   await nextFrame()
   const [size, pos, maximised, minimised] = await Promise.all([
@@ -1170,15 +1170,10 @@ async function windowOp(args: Args): Promise<unknown> {
 }
 
 function reloadOp(): unknown {
-  const rt = (window as unknown as {runtime?: {WindowReload?: () => void}}).runtime
-  if (!rt || typeof rt.WindowReload !== 'function') throw new Error('Wails runtime 不可用（window.runtime.WindowReload 缺失）：无法重载页面')
+  if (!isDesktop()) throw new Error('Wails 桌面运行时不可用')
   // 先回包再重载：留一点时间让 DebugReply 走出去（回包丢失也属正常，AI 不应重试）。
   setTimeout(() => {
-    try {
-      WindowReload()
-    } catch {
-      /* 重载失败时页面仍在，AI 会从后续 ui.revision 看出未变化 */
-    }
+    void WindowReload().catch(() => {})
   }, 400)
   return {
     scheduled: true,

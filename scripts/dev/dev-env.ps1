@@ -2,7 +2,7 @@
 #
 # Usage (dot-source so PATH changes apply to the CURRENT session):
 #     . .\scripts\dev\dev-env.ps1
-#     wails dev
+#     wails3 dev
 #
 # Why this exists:
 #   * Go is installed globally (C:\Program Files\Go) and Node globally
@@ -36,7 +36,7 @@ foreach ($candidate in @(
     if (Add-PathEntry $candidate) { break }
 }
 
-# 1b) Go bin: where "go install" puts wails.exe.
+# 1b) Go bin: where "go install" puts wails3.exe.
 if (Get-Command go -ErrorAction SilentlyContinue) {
     Add-PathEntry (Join-Path (go env GOPATH) 'bin') | Out-Null
 } else {
@@ -65,12 +65,12 @@ if (Get-Command go -ErrorAction SilentlyContinue) {
 }
 
 Write-Host '--- ding-ssh dev environment ---' -ForegroundColor Cyan
-foreach ($tool in 'go', 'node', 'npm', 'wails') {
+foreach ($tool in 'go', 'node', 'npm', 'wails3') {
     $cmd = Get-Command $tool -ErrorAction SilentlyContinue
     if ($cmd) {
         $version = switch ($tool) {
             'go'    { (& go version) -replace 'go version ', '' }
-            'wails' { (& wails version) 2>&1 | Select-Object -First 1 }
+            'wails3' { (& wails3 version) 2>&1 | Select-Object -First 1 }
             default { (& $tool --version) 2>&1 | Select-Object -First 1 }
         }
         Write-Host ("  {0,-6} {1}" -f $tool, $version) -ForegroundColor Green
@@ -78,4 +78,4 @@ foreach ($tool in 'go', 'node', 'npm', 'wails') {
         Write-Host ("  {0,-6} NOT FOUND" -f $tool) -ForegroundColor Yellow
     }
 }
-Write-Host 'Commands: wails dev | wails build | go test ./internal/...' -ForegroundColor Cyan
+Write-Host 'Commands: wails3 dev | wails3 build | go test ./internal/...' -ForegroundColor Cyan

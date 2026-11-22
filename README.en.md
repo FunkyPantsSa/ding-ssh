@@ -13,7 +13,7 @@ ding-ssh is a local-first desktop SSH workspace. The terminal is the center: SFT
 | Item | Details |
 | --- | --- |
 | Platforms | Windows x64 · macOS (Apple Silicon / Intel builds) · Linux x64 |
-| Stack | Go 1.25 + Wails v2.13 · Vue 3.5 + Pinia 4 + Tailwind v4 + Vite 7 + xterm.js 6 |
+| Stack | Go 1.26 + Wails v3.1 · Vue 3.5 + Pinia 4 + Tailwind v4 + Vite 7 + xterm.js 6 |
 | Storage | Local SQLite (WAL) + system keychain; no account, cloud sync or telemetry |
 | Control plane | Off by default, loopback only; the current `dev` branch exposes **124 MCP tools** (always check `tools/list` / `GET /v1/tools`) |
 | Branches | `dev` for active development, `main` for integration; released version 1.2.1, unreleased changes in [CHANGELOG](CHANGELOG.md) |
@@ -77,7 +77,7 @@ The application is **not** a bastion host with server-side auditing, a fleet con
 
 - GitHub Releases publish macOS `.dmg` / `.app.zip`, Windows `setup.exe` / `.zip`, and Linux `.AppImage` / `.deb` / `.tar.gz`, with `SHA256SUMS.txt`.
 - CI builds `main` / `dev` on every successful push and uploads artifacts such as `ding-ssh-dev-windows-amd64-<sha>`. Branch builds also refresh `update.json` in the `main-latest` / `dev-latest` prereleases.
-- macOS packages are unsigned and not notarized: on first launch, right-click in Finder and choose **Open**.
+- macOS packages are ad-hoc signed and not notarized: on first launch, right-click in Finder and choose **Open**.
 
 The Windows installer defaults to `C:\Program Files\FunkyPantsSa\ding-ssh`, lets you choose another directory, and registers an uninstall entry in Windows **Installed apps**. In-app updates install directly when the directory is writable; otherwise a separate helper requests administrator permission through UAC to replace the executable, and an unelevated helper restarts the app so it does not inherit administrator rights. Cancelling UAC keeps the old version. Configuration stays in `%APPDATA%\ding-ssh`. Older builds need one manual installation of a build that contains this update helper, or an update performed by running the old app as administrator.
 
@@ -184,28 +184,30 @@ Paste and copy are intercepted by the terminal in the capture phase to bypass We
 
 | Requirement | Version / notes |
 | --- | --- |
-| Go | 1.25+ (`go.mod` declares `go 1.25.0`) |
+| Go | 1.26.10+ (toolchain selected in `go.mod`) |
 | Node.js | 22.12+ (`.nvmrc` pins 22.23.4; minimum for Vite 7 / Vitest 5) |
-| Wails CLI | `v2.13.0` |
-| Linux | `libgtk-3-dev`, `libwebkit2gtk-4.1-dev` (build with `-tags webkit2_41`) |
+| Wails CLI | `v3.1.0` |
+| Linux | `libgtk-3-dev`, `libwebkit2gtk-4.1-dev` (build with `-tags gtk3`) |
+| macOS | macOS 12+ and Xcode Command Line Tools for builds |
 | Windows | WebView2 runtime; NSIS for the installer |
 
 **Commands**
 
 ```bash
 # Install the Wails CLI
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 
 # Development: frontend hot reload plus Go rebuild
-wails dev
+npm --prefix frontend ci
+wails3 dev
 
 # Production build (output in build/bin/)
-wails build
+wails3 build
 
 # Windows installer: install directory selectable, UAC helper for protected folders
-wails build -platform windows/amd64 -nsis -installscope machine -webview2 embed
+wails3 task package GOOS=windows ARCH=amd64
 
-# Backend tests (CI runs ./internal/...)
+# Backend tests (add -tags gtk3 on Linux)
 go test ./internal/...
 
 # Frontend tests, type check and build
@@ -220,7 +222,7 @@ Running real PTY tests locally (for example `internal/localterm`) requires permi
 On Windows, two helpers work around a terminal whose PATH predates the Go/Node installation:
 
 - `scripts/dev/dev-env.ps1` adds Go (`C:\Program Files\Go\bin`, `%LOCALAPPDATA%\Programs\Go\bin`, the project's `.tools\go\bin`), `GOPATH\bin` and Node (`C:\Program Files\nodejs`, `%APPDATA%\npm`) to the current session, optionally configures `GOPROXY` / `GOSUMDB` mirrors, returns to the repository root and prints versions. Dot-source it: `. .\scripts\dev\dev-env.ps1`.
-- `scripts/dev/dev.cmd` wraps the script with `-ExecutionPolicy Bypass`. Without arguments it opens an activated project terminal; with arguments it runs one command: `.\scripts\dev\dev.cmd wails dev`, `.\scripts\dev\dev.cmd go test ./internal/...`.
+- `scripts/dev/dev.cmd` wraps the script with `-ExecutionPolicy Bypass`. Without arguments it opens an activated project terminal; with arguments it runs one command: `.\scripts\dev\dev.cmd wails3 dev`, `.\scripts\dev\dev.cmd go test ./internal/...`.
 
 **Packaging scripts** (called by the Release workflow)
 
@@ -229,7 +231,7 @@ On Windows, two helpers work around a terminal whose PATH predates the Go/Node i
 | `package-macos.sh` | `ding-ssh-<ver>-macos-<arch>.dmg` / `.app.zip` (`arm64` for Apple Silicon, `amd64` for Intel) |
 | `package-windows.ps1` | `ding-ssh-<ver>-windows-amd64.zip` / `-setup.exe` |
 | `package-linux.sh` | `.tar.gz` / `.deb` (nfpm, depends on gtk3 + webkit2gtk-4.1) / `.AppImage` |
-| `set-version.py` | Writes the version into `wails.json` `info.productVersion` |
+| `set-version.py` | Stamps macOS and Windows native package metadata |
 | `update-manifest.py` | Generates `update.json` for branch update channels |
 | `debug.ps1` | Debug control-plane helper (reads port and token from `debug.json`) |
 
@@ -248,7 +250,6 @@ On Windows, two helpers work around a terminal whose PATH predates the Go/Node i
 │   ├── cryptox/            AES-256-GCM field encryption, Argon2id master password, keychain
 │   ├── debugsrv/           Control-plane core: HTTP/MCP/SSE, capabilities, client policy, confirmation, jobs, SFTP/UI
 │   ├── logx/               Log rotation, redaction, tail reads
-│   ├── logfilter/          Filters Wails runtime log noise
 │   ├── i18n/               Chinese and English messages
 │   ├── sshconfig/          OpenSSH Config parsing and import
 │   ├── autostart/          Per-platform start at login
@@ -261,7 +262,7 @@ On Windows, two helpers work around a terminal whose PATH predates the Go/Node i
 │   ├── components/         Domain components plus `ui/` primitives
 │   ├── composables/        Theme, shortcuts, toasts, settings and terminal completion
 │   ├── stores/             Pinia: servers, sessions, settings, ui, credentials, groups, transfers
-│   ├── services/           Thin wrappers over wailsjs bindings and events
+│   ├── services/           Thin wrappers over Wails v3 bindings and events
 │   ├── completion/         Trie + FZF scoring + shortcut parsing
 │   ├── theme/              Tokens, semantic colors, engine, presets, fonts, materials
 │   ├── panes/layout.ts     Split layout calculations
@@ -550,22 +551,21 @@ See [`docs/logging.md`](docs/logging.md) for level semantics, format, redaction 
 
 **WebGL and UI scaling (fixed).** Scaling uses `.app-shell { zoom }`, while `@xterm/addon-webgl` sizes the canvas from a zoom-inclusive `devicePixelContentBoxSize`, so the bitmap and render grid disagreed (top lines invisible, buffer already at the top). The fix is in `frontend/src/utils/xterm-webgl-zoom.ts`: when zoom ≠ 1 it ignores the zoom-inclusive size and, after `fit()` or a scale change, verifies that the bitmap matches the grid and reruns `handleResize()` to restore viewport, uniforms and vertices. WebGL is now used at every supported scale; if the private-API patch cannot apply and the scale is not 100%, the renderer falls back to Canvas. Check the `[webgl] enabled …` log line when debugging.
 
-**`wails dev` `runtime:ready` noise.** Opening the dev URL in a browser prints two `Unknown message from front end: runtime:ready` lines. This is a Wails v2.13.0 framework issue; it does not affect functionality, does not occur in production or in the desktop window, and `internal/logfilter` filters exactly those two lines.
 
 **Other**
 
-- **CDP is unavailable**: WebView2 remote debugging cannot be injected under Wails v2.13, so page-level capability is provided by `/v1/eval` and screenshots use native window capture (affected by occlusion, Windows only).
+- **CDP is unavailable**: The app provides page debugging through `/v1/eval` and uses native window capture for Windows screenshots.
 - **`/v1/terminals/{id}/resize` changes only the emulator size**, not the remote PTY; it exists to reproduce layout and rendering issues.
 - **Event channels can drop events**: `/v1/stream`, `GET /mcp` (SSE) and terminal automation share one Hub; a slow subscriber loses events (the Hub neither queues nor blocks publishers). Events carry `seq` and `gap`; after a gap, re-read state. `terminal.run` / `terminal.expect` can also miss output; use `read_terminal` for a complete buffer.
 - **`ui.reload` remounts the entire frontend**: terminals reconnect, DOM state and snapshot fingerprints are invalidated (`ui.revision` increments), and in-flight `ui.*` sessions must re-locate elements. Take `ui.snapshot` first if the state matters.
-- **`ui.*` requires a built frontend**: outside `wails dev`, run `npm run build` (or `wails build`) first, otherwise the page has no debug bridge and `ui.*` returns a Chinese "unknown operation" error (the backend still works).
+- **`ui.*` requires a built frontend**: outside `wails3 dev`, run `npm run build` (or `wails3 build`) first, otherwise the page has no debug bridge and `ui.*` returns a Chinese "unknown operation" error (the backend still works).
 - **`wrapExitMarker` / `terminal.run` exit codes are POSIX semantics**: Windows local terminals (cmd / PowerShell) cannot provide an exit code; use `read_terminal` or check `%ERRORLEVEL%` / `$LASTEXITCODE` yourself.
 - **`confirm.prepare` waits synchronously**: there is no asynchronous approval inbox, and `confirm.status` only reports the execution credential state, not business success. Time-limited approval is bound to exact arguments; there is no wildcard command approval.
 - **Remote execution and cancellation are bounded**: closing an SSH channel does not prove that the entire remote process tree stopped; without exit confirmation the result is `unknown`. App restarts do not keep jobs running and never replay commands. Each SSH transport allows at most 8 not-yet-finished independent channel operations; an unresponsive remote holds a slot until the operation ends or the connection closes.
 - **File writes are not a filesystem sandbox**: ordinary SFTP cannot eliminate races caused by other remote processes; appends are non-atomic and ACLs / xattrs are not guaranteed. Arbitrary shell execution can bypass the SFTP allowlist; strong isolation requires a restricted remote account, chroot or a controlled proxy.
 - **Fully trusted capabilities are not sandboxes**: `terminal.input`, `exec.local`, `ui.write` + `automation.trusted`, and `eval` can all produce persistent or external side effects. The Operate preset allows arbitrary remote commands. Use these only for trusted local automation.
 - **Remote access remains local-first**: there is no TLS or OAuth, and `bindLan` only expands plaintext HTTP exposure. Use SSH port forwarding for remote access.
-- **macOS packages are unsigned and not notarized**; right-click and choose **Open** on first launch.
+- **macOS packages are ad-hoc signed and not notarized**; right-click and choose **Open** on first launch.
 - **LAN binding expands exposure**: with `bindLan` the endpoint is reachable from the same network (the token still applies). Turn it off when unused.
 
 ## 12. CI and releases

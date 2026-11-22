@@ -1,6 +1,6 @@
 // 封装分组管理的 Wails 绑定。
 // 分组使用完整路径（例如 生产环境/华东）作为标识。
-import {AddGroup, GetGroups, RemoveGroup, RenameGroup} from '../../wailsjs/go/main/App'
+import {AddGroup, GetGroups, RemoveGroup, RenameGroup} from '../../bindings/ding-ssh/internal/apphost/app'
 
 export const groupService = {
   list: (): Promise<string[]> => GetGroups(),

@@ -11,7 +11,7 @@ import DebugClientsSection from './DebugClientsSection.vue'
 import {copyText} from '../../utils/clipboard'
 import {useToast} from '../../composables/useToast'
 import {Button, Input, Textarea} from '../ui'
-import {ApplyDebugPreset, DebugInfo, GetCapabilities, SetCapability} from '../../../wailsjs/go/main/App'
+import {ApplyDebugPreset, DebugInfo, GetCapabilities, SetCapability} from '../../../bindings/ding-ssh/internal/apphost/app'
 import {useSettingsStore} from '../../stores/settings'
 import type {CapabilitiesView, DebugSettings} from '../../types'
 

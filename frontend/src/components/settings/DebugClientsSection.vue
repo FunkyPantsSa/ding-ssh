@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {onMounted, ref} from 'vue'
-import {CreateDebugClient, ListDebugClients, RevokeDebugClient} from '../../../wailsjs/go/main/App'
+import {CreateDebugClient, ListDebugClients, RevokeDebugClient} from '../../../bindings/ding-ssh/internal/apphost/app'
 import {Button, Input, Textarea} from '../ui'
 import {copyText} from '../../utils/clipboard'
 import {errorText, t} from '../../i18n'

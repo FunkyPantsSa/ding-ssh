@@ -17,7 +17,7 @@ vi.mock('../services/ssh', () => ({
     removeTunnel: vi.fn(),
   },
 }))
-vi.mock('../../wailsjs/runtime/runtime', () => ({
+vi.mock('../services/desktop', () => ({
   ClipboardSetText: vi.fn(),
   EventsOn: vi.fn(() => () => {}),
   EventsOff: vi.fn(),

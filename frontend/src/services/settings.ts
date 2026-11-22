@@ -1,6 +1,6 @@
 // 封装设置相关的 Wails 绑定。
-import {GetSettings, SaveSettings} from '../../wailsjs/go/main/App'
-import {models} from '../../wailsjs/go/models'
+import {GetSettings, SaveSettings} from '../../bindings/ding-ssh/internal/apphost/app'
+import {Settings as SettingsModel} from '../../bindings/ding-ssh/internal/models/models'
 import type {Settings} from '../types'
 
 export const settingsService = {
@@ -8,5 +8,5 @@ export const settingsService = {
   getSettings: (): Promise<Settings> => GetSettings() as Promise<Settings>,
   // 生成的 models.Settings 含嵌套对象转换逻辑，用 createFrom 构造后再提交
   saveSettings: (settings: Settings): Promise<void> =>
-    SaveSettings(models.Settings.createFrom(settings)),
+    SaveSettings(SettingsModel.createFrom(settings)),
 }

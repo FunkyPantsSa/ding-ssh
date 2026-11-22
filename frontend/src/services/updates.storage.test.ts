@@ -1,7 +1,7 @@
 import {afterEach, expect, it, vi} from 'vitest'
 
-vi.mock('../../wailsjs/go/main/App', () => ({GetUpdateChannel: vi.fn(async () => 'dev'), CheckUpdate: vi.fn(), DownloadUpdate: vi.fn(), InstallUpdateNow: vi.fn()}))
-vi.mock('../../wailsjs/runtime/runtime', () => ({EventsOn: vi.fn(() => () => {})}))
+vi.mock('../../bindings/ding-ssh/internal/apphost/app', () => ({GetUpdateChannel: vi.fn(async () => 'dev'), CheckUpdate: vi.fn(), DownloadUpdate: vi.fn(), InstallUpdateNow: vi.fn()}))
+vi.mock('./desktop', () => ({EventsOn: vi.fn(() => () => {})}))
 
 afterEach(() => { vi.restoreAllMocks(); vi.resetModules() })
 

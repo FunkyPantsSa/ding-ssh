@@ -17,7 +17,6 @@ import (
 	"ding-ssh/internal/debugsrv"
 	"ding-ssh/internal/models"
 	"ding-ssh/internal/store"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 func TestDebugSettingsChangesNeedNativeApprovalForExpansion(t *testing.T) {
@@ -67,7 +66,7 @@ func TestDebugCapabilityBindingCannotExpandWithoutNativeApproval(t *testing.T) {
 	if err != nil || settings.Debug.CapLocalExec {
 		t.Fatalf("denied change was persisted: %v", err)
 	}
-	a.debugDialog = func(wailsruntime.MessageDialogOptions) (string, error) { return "批准", nil }
+	a.debugDialog = func(approvalDialogOptions) (string, error) { return "批准", nil }
 	if err := a.SetCapability(string(debugsrv.CapTerminalInput), true); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +88,7 @@ func TestDebugNativeApprovalDenialCancellationAndErrors(t *testing.T) {
 		{"deny", "拒绝", nil}, {"cancel", "", nil}, {"native error", "批准", errors.New("dialog failed")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			a := &App{debugDialog: func(opts wailsruntime.MessageDialogOptions) (string, error) {
+			a := &App{debugDialog: func(opts approvalDialogOptions) (string, error) {
 				if opts.DefaultButton != "拒绝" || opts.CancelButton != "拒绝" {
 					t.Fatal("approval default is permissive")
 				}
@@ -102,14 +101,14 @@ func TestDebugNativeApprovalDenialCancellationAndErrors(t *testing.T) {
 		})
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	a := &App{debugDialog: func(wailsruntime.MessageDialogOptions) (string, error) { cancel(); return "允许一次", nil }}
+	a := &App{debugDialog: func(approvalDialogOptions) (string, error) { cancel(); return "允许一次", nil }}
 	if d, err := (&debugController{app: a}).approveDebugOperation(ctx, debugsrv.ApprovalRequest{}); d.Approved || err == nil {
 		t.Fatal("cancelled native approval succeeded")
 	}
 	if _, err := (&debugController{app: &App{}}).approveDebugOperation(context.Background(), debugsrv.ApprovalRequest{}); err == nil {
 		t.Fatal("missing native channel approved operation")
 	}
-	a = &App{debugDialog: func(wailsruntime.MessageDialogOptions) (string, error) {
+	a = &App{debugDialog: func(approvalDialogOptions) (string, error) {
 		t.Fatal("oversized approval reached native dialog")
 		return "允许一次", nil
 	}}
@@ -144,7 +143,7 @@ func TestDebugPresetsHaveExplicitTrustBoundaries(t *testing.T) {
 	if !reflect.DeepEqual(after.Debug, d) {
 		t.Fatal("unapproved preset changed settings")
 	}
-	a.debugDialog = func(opts wailsruntime.MessageDialogOptions) (string, error) {
+	a.debugDialog = func(opts approvalDialogOptions) (string, error) {
 		if !strings.Contains(opts.Message, "trustedAutomation") {
 			t.Fatal("approval omitted trust change")
 		}
@@ -193,7 +192,7 @@ func TestDebugCredentialUseWriteAndExportAreIndependent(t *testing.T) {
 
 func TestDebugSettingsHostRejectsJSONCaseAliases(t *testing.T) {
 	a := newReloadTestApp(t)
-	a.debugDialog = func(wailsruntime.MessageDialogOptions) (string, error) {
+	a.debugDialog = func(approvalDialogOptions) (string, error) {
 		t.Fatal("MCP settings patch reached native permissions dialog")
 		return "批准", nil
 	}

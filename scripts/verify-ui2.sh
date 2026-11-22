@@ -14,7 +14,11 @@ echo "== frontend unit and UI contract tests =="
 (cd "$repo_root/frontend" && npm test)
 
 echo "== go tests =="
-(cd "$repo_root" && go test ./...)
+if [[ "$(uname -s)" == Linux ]]; then
+  (cd "$repo_root" && go test -tags gtk3 ./...)
+else
+  (cd "$repo_root" && go test ./...)
+fi
 
 echo "== UI 2.0 baseline budgets =="
 

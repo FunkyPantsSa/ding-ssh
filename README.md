@@ -13,7 +13,7 @@ ding-ssh 是一个本地优先的桌面 SSH 工作台：终端是中心，SFTP�
 | | |
 | --- | --- |
 | 运行平台 | Windows x64 · macOS（Apple Silicon / Intel 独立包）· Linux x64 |
-| 技术栈 | Go 1.25 + Wails v2.13 · Vue 3.5 + Pinia 4 + Tailwind v4 + Vite 7 + xterm.js 6 |
+| 技术栈 | Go 1.26 + Wails v3.1 · Vue 3.5 + Pinia 4 + Tailwind v4 + Vite 7 + xterm.js 6 |
 | 数据落地 | 本机 SQLite（WAL）+ 系统钥匙串；无账号、无云同步、无遥测 |
 | 控制面 | 默认关闭，仅本机监听；当前 `dev` 提供 **124 个 MCP 工具**（以 `tools/list` / `GET /v1/tools` 为准） |
 | 分支与版本 | `dev` 持续开发，`main` 为合并线；已发布 1.2.1，未发布改动见 [`CHANGELOG.md`](CHANGELOG.md) |
@@ -77,7 +77,7 @@ ding-ssh 是一个本地优先的桌面 SSH 工作台：终端是中心，SFTP�
 
 - GitHub Release：打 `v*` 标签后自动产出 macOS `.dmg` / `.app.zip`、Windows `setup.exe` / `.zip`、Linux `.AppImage` / `.deb` / `.tar.gz`，附 `SHA256SUMS.txt`。
 - CI 产物：`main` / `dev` 每次 push 通过测试后构建三平台，产物名形如 `ding-ssh-dev-windows-amd64-<sha>`；分支构建同时更新 `main-latest` / `dev-latest` 预发布中的 `update.json`。
-- macOS 包未签名 / 未公证：首次打开请在 Finder 里右键 →「打开」。
+- macOS 包使用临时签名，未公证：首次打开请在 Finder 里右键 →「打开」。
 
 Windows 安装程序默认安装到 `C:\Program Files\FunkyPantsSa\ding-ssh`，可在目录选择页改到其他位置，并在系统「已安装的应用」中提供卸载入口。应用内更新在目录可写时直接安装，权限不足时单独通过 UAC 请求管理员权限，仅由安装助手替换程序；重启由普通权限助手执行，避免主程序继承管理员权限。取消授权会保留旧版本。配置保存在独立的 `%APPDATA%\ding-ssh` 中。旧版需先手动安装一次包含此更新助手的构建，或以管理员身份运行旧版完成这次更新。
 
@@ -184,28 +184,30 @@ curl --proxy socks5h://127.0.0.1:1080 https://example.com
 
 | 需要 | 版本 / 说明 |
 | --- | --- |
-| Go | 1.25+（`go.mod` 声明 `go 1.25.0`） |
+| Go | 1.26.10+（工具链由 `go.mod` 指定） |
 | Node.js | 22.12+（仓库 `.nvmrc` 固定 22.23.4；Vite 7 / Vitest 5 的最低要求） |
-| Wails CLI | `v2.13.0` |
-| Linux 额外 | `libgtk-3-dev`、`libwebkit2gtk-4.1-dev`（构建加 `-tags webkit2_41`） |
+| Wails CLI | `v3.1.0` |
+| Linux 额外 | `libgtk-3-dev`、`libwebkit2gtk-4.1-dev`（构建加 `-tags gtk3`） |
+| macOS | macOS 12+，构建需要 Xcode Command Line Tools |
 | Windows 额外 | WebView2 运行时；打包安装器需 NSIS |
 
 **常用命令**
 
 ```bash
 # 安装 Wails CLI
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 
 # 开发模式：前端热更新 + Go 实时编译
-wails dev
+npm --prefix frontend ci
+wails3 dev
 
 # 生产构建（产物在 build/bin/）
-wails build
+wails3 build
 
 # Windows 安装包：安装目录可选，受保护目录更新时由助手请求 UAC 授权
-wails build -platform windows/amd64 -nsis -installscope machine -webview2 embed
+wails3 task package GOOS=windows ARCH=amd64
 
-# 后端测试（CI 运行 ./internal/...）
+# 后端测试（Linux 加上 -tags gtk3）
 go test ./internal/...
 
 # 前端测试、类型检查与构建
@@ -220,7 +222,7 @@ bash scripts/verify-ui2.sh
 Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前就已打开的终端 PATH 未更新」：
 
 - `scripts/dev/dev-env.ps1`：把 Go（`C:\Program Files\Go\bin`、`%LOCALAPPDATA%\Programs\Go\bin`、项目内 `.tools\go\bin`）、`GOPATH\bin`、Node（`C:\Program Files\nodejs`、`%APPDATA%\npm`）补进当前会话 PATH，必要时设置 `GOPROXY` / `GOSUMDB` 镜像，切回项目根目录并打印版本。需 dot-source：`. .\scripts\dev\dev-env.ps1`。
-- `scripts/dev/dev.cmd`：本机策略禁止直接跑 `.ps1`，因此用 `-ExecutionPolicy Bypass` 包一层。不带参数打开已激活环境的项目终端，带参数执行单条命令：`.\scripts\dev\dev.cmd wails dev`、`.\scripts\dev\dev.cmd go test ./internal/...`。
+- `scripts/dev/dev.cmd`：本机策略禁止直接跑 `.ps1`，因此用 `-ExecutionPolicy Bypass` 包一层。不带参数打开已激活环境的项目终端，带参数执行单条命令：`.\scripts\dev\dev.cmd wails3 dev`、`.\scripts\dev\dev.cmd go test ./internal/...`。
 
 **发布用打包脚本**（`scripts/`，由 Release 工作流调用）
 
@@ -229,7 +231,7 @@ Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前
 | `package-macos.sh` | `ding-ssh-<ver>-macos-<arch>.dmg` / `.app.zip`（`arm64` 为 M 系列，`amd64` 为 Intel） |
 | `package-windows.ps1` | `ding-ssh-<ver>-windows-amd64.zip` / `-setup.exe` |
 | `package-linux.sh` | `.tar.gz` / `.deb`（nfpm，声明 gtk3 + webkit2gtk-4.1 依赖）/ `.AppImage` |
-| `set-version.py` | 把版本号写进 `wails.json` 的 `info.productVersion` |
+| `set-version.py` | 写入 macOS 与 Windows 原生产物的版本元数据 |
 | `update-manifest.py` | 生成分支更新通道的 `update.json` |
 | `debug.ps1` | 调试控制面辅助脚本（端口与 token 自动读 `debug.json`） |
 
@@ -248,7 +250,6 @@ Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前
 │   ├── cryptox/            AES-256-GCM 字段加密 + Argon2id 主密码 + 系统钥匙串
 │   ├── debugsrv/           控制面内核：HTTP/MCP/SSE、能力位、客户端策略、确认、任务、SFTP/UI
 │   ├── logx/               日志落盘、轮转、脱敏、尾部读取
-│   ├── logfilter/          过滤 Wails 运行时的日志噪音
 │   ├── i18n/               中英文案与语言切换
 │   ├── sshconfig/          OpenSSH Config 解析与导入
 │   ├── autostart/          各平台开机自启
@@ -261,7 +262,7 @@ Windows 上仓库提供两个辅助入口，只为解决「装完 Go/Node 之前
 │   ├── components/         领域组件 + `ui/` 基础组件
 │   ├── composables/        主题 / 快捷键 / Toast / 设置 / 终端补全逻辑
 │   ├── stores/             Pinia：servers / sessions / settings / ui / credentials / groups / transfers
-│   ├── services/           对 wailsjs 绑定与事件的薄封装
+│   ├── services/           对 Wails v3 绑定与事件的薄封装
 │   ├── completion/         Trie + FZF 打分 + 热键解析
 │   ├── theme/              token、语义色、主题引擎、预设、字体、材质
 │   ├── panes/layout.ts     分屏布局计算
@@ -550,22 +551,21 @@ go build -o ding-ssh-mcp ./cmd/ding-ssh-mcp
 
 **WebGL 与界面缩放（已修复）**：缩放通过 `.app-shell { zoom }` 实现，而 `@xterm/addon-webgl` 用含 CSS zoom 的 `devicePixelContentBoxSize` 给 canvas 定尺寸，导致位图与渲染网格不一致（顶部几行看不到、缓冲区已在顶部无法上滚）。修法见 `frontend/src/utils/xterm-webgl-zoom.ts`：zoom ≠ 1 时丢弃观察器上报的含 zoom 尺寸，并在 `fit()` / 缩放切换后自检「位图 == 网格」，不一致就重跑 `handleResize()` 补齐 viewport / uniform / 顶点。现在任意缩放档位都启用 WebGL；补丁打不上且缩放 ≠ 100% 时回退 Canvas。排查看 `[webgl] enabled …` 日志行。
 
-**`wails dev` 的 `runtime:ready` 噪音**：用浏览器打开 dev 地址时，后端会打印两条 `Unknown message from front end: runtime:ready`。这是 Wails v2.13.0 的框架问题，不影响功能，生产构建与桌面窗口不会出现；本项目用 `internal/logfilter` 精确过滤这两条。
 
 **其他**
 
-- **CDP 不可用**：WebView2 远程调试端口在 Wails v2.13 下无法从应用侧注入，页面级能力由 `/v1/eval` 承担，截图走原生窗口捕获（受窗口遮挡影响，且仅 Windows）。
+- **CDP 不可用**：当前版本通过 `/v1/eval` 提供页面调试，Windows 屏幕截图使用原生窗口捕获。
 - **`/v1/terminals/{id}/resize` 只改模拟器尺寸**，不改远端 PTY，仅用于复现布局 / 渲染问题。
 - **事件通道满会丢事件**：`/v1/stream`、`GET /mcp`（SSE）与终端自动化共用同一个 Hub 通道，订阅者消费不及时时该订阅者丢事件（Hub 不排队、不阻塞发布方）。事件带 `seq` 与 `gap`，发生缺口应重新读取状态；`terminal.run` / `terminal.expect` 还可能漏掉部分输出，需要完整历史时用 `read_terminal` 读缓冲。
 - **`ui.reload` 会重挂整个前端**：终端重连、DOM 状态与快照指纹全部失效（`ui.revision` 自增），进行中的 `ui.*` 会话需重新定位元素；要保留现场先 `ui.snapshot`。
-- **`ui.*` 依赖已构建的前端**：非 `wails dev` 场景需先 `npm run build`（或 `wails build`），否则页面里没有调试桥，`ui.*` 会返回「未知操作」这类中文错误（后端仍正常，只是页面内能力不可用）。
+- **`ui.*` 依赖已构建的前端**：非 `wails3 dev` 场景需先 `npm run build`（或 `wails3 build`），否则页面里没有调试桥，`ui.*` 会返回「未知操作」这类中文错误（后端仍正常，只是页面内能力不可用）。
 - **`wrapExitMarker` / `terminal.run` 的退出码是 POSIX 语义**：Windows 本地终端（cmd / PowerShell）拿不到退出码，请改用 `read_terminal` 或自行 `echo %ERRORLEVEL%` / `$LASTEXITCODE`。
 - **`confirm.prepare` 是同步等待**：当前没有异步审批收件箱，`confirm.status` 只查询批准后的执行凭据状态，不表示业务操作已成功；限时批准精确到完整参数，不提供通配命令授权。
 - **远端执行与取消有边界**：关闭 SSH channel 不保证远端整个进程树已终止，没有退出确认就返回 `unknown`；应用重启不保证任务继续运行，也不会自动重放命令。每个 SSH transport 最多 8 个未实际结束的独立通道操作，远端不响应时会占用槽位直到操作结束或连接关闭。
 - **文件写入不是文件系统沙箱**：普通 SFTP 无法彻底消除远端其他进程造成的检查/写入竞态；追加写非原子，ACL / xattr 不保证保留。任意 shell 执行也能绕过 SFTP 白名单；强隔离依赖远端账号、chroot 或受控代理。
 - **完全信任能力不是沙箱**：`terminal.input`、`exec.local`、`ui.write` + `automation.trusted`、`eval` 都能产生持久化或外部副作用；运维预设允许远端任意命令。只应给本机可信自动化使用。
 - **远程接入仍是本机方案**：当前没有 TLS / OAuth，`bindLan` 只扩大明文 HTTP 的暴露面；远程使用请通过 SSH 端口转发。
-- **macOS 包未签名 / 未公证**，首次打开需右键「打开」。
+- **macOS 包使用临时签名，未公证**，首次打开需右键「打开」。
 - **局域网监听会扩大暴露面**：`bindLan` 打开后同网段都可达（token 仍有效），不用时请关掉。
 
 ## 十二、CI 与发布

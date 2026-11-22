@@ -1,5 +1,5 @@
 import {t} from '../i18n'
-import {LogClient} from '../../wailsjs/go/main/App'
+import {LogClient} from '../../bindings/ding-ssh/internal/apphost/app'
 import {listDebugTerminals} from '../debug/registry'
 
 let lastDelayMs = 0

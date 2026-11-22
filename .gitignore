@@ -20,3 +20,7 @@ frontend/dist
 findings.md
 progress.md
 task_plan.md
+
+# Wails v3 generated native build inputs
+/ding_windows_*.syso
+/build/windows/installer/tmp/

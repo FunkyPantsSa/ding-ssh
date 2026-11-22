@@ -4,8 +4,8 @@ import {
   SetSysInfoRealtime,
   StartSysInfoCollector,
   StopSysInfoCollector,
-} from '../../wailsjs/go/main/App'
-import {EventsOn} from '../../wailsjs/runtime/runtime'
+} from '../../bindings/ding-ssh/internal/apphost/app'
+import {EventsOn} from './desktop'
 import type {SysInfoSnapshot} from '../types'
 
 export const sysInfoService = {

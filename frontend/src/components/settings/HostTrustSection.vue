@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {GetHostTrust, DeleteHostTrust} from '../../../bindings/ding-ssh/internal/apphost/app'
 import {errorText} from '../../i18n'
 
 import {t as $t} from '../../i18n'
@@ -19,13 +20,12 @@ const pages = computed(() => Math.max(1, Math.ceil(filtered.value.length / 10)))
 const visible = computed(() => filtered.value.slice((page.value - 1) * 10, page.value * 10))
 watch(keyword, () => page.value = 1)
 watch(pages, value => page.value = Math.min(page.value, value))
-const api = () => (window as any).go.main.App
 async function refresh() {
-  try { records.value = await api().GetHostTrust(); error.value = '' }
+  try { records.value = await GetHostTrust(); error.value = '' }
   catch (e) { error.value = errorText(e) }
 }
 async function remove(record: TrustRecord) {
-  try { await api().DeleteHostTrust(record.line, record.fingerprint); await refresh() }
+  try { await DeleteHostTrust(record.line, record.fingerprint); await refresh() }
   catch (e) { error.value = errorText(e) }
 }
 function copy(value: string) { ClipboardSetText(value).catch(e => error.value = errorText(e)) }

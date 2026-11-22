@@ -22,7 +22,7 @@ vi.mock('../../services/groups', () => ({
 vi.mock('../../services/credentials', () => ({
   credentialService: {list: vi.fn(), save: vi.fn(), remove: vi.fn()},
 }))
-vi.mock('../../../wailsjs/runtime/runtime', () => ({
+vi.mock('../../services/desktop', () => ({
   ClipboardSetText: vi.fn(),
   ClipboardGetText: vi.fn(),
   EventsOn: vi.fn(() => () => {}),

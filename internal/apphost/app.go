@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"os"
 	"reflect"
 	"runtime"
@@ -15,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ding-ssh/internal/appdir"
@@ -27,13 +29,16 @@ import (
 	"ding-ssh/internal/store"
 
 	"github.com/google/uuid"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App 是 Wails 绑定到前端的应用对象。
 type App struct {
-	debugDialog func(wailsruntime.MessageDialogOptions) (string, error)
-	updates     updateState
+	desktop      *application.App
+	window       *application.WebviewWindow
+	closePending atomic.Bool
+	quitting     atomic.Bool
+	debugDialog  func(approvalDialogOptions) (string, error)
+	updates      updateState
 
 	ctx         context.Context
 	manager     *sshx.Manager
@@ -56,7 +61,7 @@ type App struct {
 	traceMu   sync.RWMutex
 	traceTabs map[string]bool
 
-	debugBoot DebugBoot        // 启动期确定的调试模式配置（CDP 端口需在 wails.Run 前决定）
+	debugBoot DebugBoot        // 启动期确定的调试模式配置（CDP 端口需在 app.Run 前决定）
 	debug     *debugController // 调试模式运行时（未开启时为 nil）
 
 	// 审计 / 两段式确认（见 internal/debugsrv）：由 App 持有而不是 debugController，
@@ -93,7 +98,7 @@ func NewApp(boot DebugBoot) *App {
 }
 
 // startup 在应用启动时初始化依赖。
-func (a *App) Startup(ctx context.Context) {
+func (a *App) startup(ctx context.Context) {
 	start := time.Now()
 	a.ctx = ctx
 	a.startedAt = time.Now().UnixMilli()
@@ -107,7 +112,7 @@ func (a *App) Startup(ctx context.Context) {
 	notify := func(eventName string, payload interface{}) {
 		// 事件推送是高频路径：只采样记录事件名，不记录 payload 内容。
 		logx.DebugSampled(eventPushLog, "[apphost] 推送事件: event=%s", eventName)
-		wailsruntime.EventsEmit(a.ctx, eventName, payload)
+		a.emit(eventName, payload)
 		// 调试模式：同一份事件同时投递给 SSE 订阅者（GET /v1/stream）
 		if a.debug != nil && a.debug.hub != nil {
 			a.debug.hub.PublishRaw(eventName, payload)
@@ -281,7 +286,7 @@ func (a *App) initJSONStores() {
 }
 
 // shutdown 在应用退出时清理资源。
-func (a *App) Shutdown(ctx context.Context) {
+func (a *App) shutdown() {
 	start := time.Now()
 	logx.Infof("[apphost] 应用开始退出: uptimeSec=%d", (time.Now().UnixMilli()-a.startedAt)/1000)
 	// 完成日志最后执行（LIFO：先跑 installPendingUpdate，再记退出完成）。
@@ -356,7 +361,7 @@ func (a *App) SaveServer(node models.ServerNode) (models.ServerNode, error) {
 // SelectKeyFile 弹出系统文件选择框，返回私钥文件路径。
 func (a *App) SelectKeyFile() (string, error) {
 	logx.Debugf("[apphost] 打开 SSH 私钥文件选择对话框")
-	file, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+	file, err := a.openFile(application.OpenFileDialogOptions{
 		Title: i18n.T("选择 SSH 私钥文件"),
 	})
 	if err != nil {
@@ -370,9 +375,9 @@ func (a *App) SelectKeyFile() (string, error) {
 // SelectImageFile 弹出系统文件选择框，返回背景图片路径。
 func (a *App) SelectImageFile() (string, error) {
 	logx.Debugf("[apphost] 打开背景图片选择对话框")
-	file, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+	file, err := a.openFile(application.OpenFileDialogOptions{
 		Title:   i18n.T("选择背景图片"),
-		Filters: []wailsruntime.FileFilter{{DisplayName: i18n.T("图片文件"), Pattern: "*.png;*.jpg;*.jpeg;*.gif;*.webp"}},
+		Filters: []application.FileFilter{{DisplayName: i18n.T("图片文件"), Pattern: "*.png;*.jpg;*.jpeg;*.gif;*.webp"}},
 	})
 	if err != nil {
 		logx.Warnf("[apphost] 打开背景图片选择对话框失败: err=%v", err)
@@ -682,7 +687,7 @@ func (a *App) SftpList(sessionID, path string) ([]models.SFTPEntry, error) {
 // SelectLocalFile 选择本地文件（用于 SFTP 上传）。
 func (a *App) SelectLocalFile() (string, error) {
 	logx.Debugf("[apphost] 打开上传文件选择对话框")
-	file, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+	file, err := a.openFile(application.OpenFileDialogOptions{
 		Title: i18n.T("选择要上传的文件"),
 	})
 	if err != nil {
@@ -696,7 +701,7 @@ func (a *App) SelectLocalFile() (string, error) {
 // SelectLocalFiles 弹出系统文件选择框（支持多选），返回所选文件路径列表（用于 SFTP 批量上传）。
 func (a *App) SelectLocalFiles() ([]string, error) {
 	logx.Debugf("[apphost] 打开批量上传文件选择对话框")
-	files, err := wailsruntime.OpenMultipleFilesDialog(a.ctx, wailsruntime.OpenDialogOptions{
+	files, err := a.openFiles(application.OpenFileDialogOptions{
 		Title: i18n.T("选择要上传的文件（可多选）"),
 	})
 	if err != nil {
@@ -710,7 +715,7 @@ func (a *App) SelectLocalFiles() ([]string, error) {
 // SelectLocalFolder 弹出系统文件夹选择框，返回所选文件夹路径（用于 SFTP 上传文件夹）。
 func (a *App) SelectLocalFolder() (string, error) {
 	logx.Debugf("[apphost] 打开上传文件夹选择对话框")
-	dir, err := wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{
+	dir, err := a.openDirectory(application.OpenFileDialogOptions{
 		Title: i18n.T("选择要上传的文件夹"),
 	})
 	if err != nil {
@@ -724,7 +729,7 @@ func (a *App) SelectLocalFolder() (string, error) {
 // SelectSaveFolder 弹出系统文件夹选择框，返回所选保存位置（用于 SFTP 下载文件夹）。
 func (a *App) SelectSaveFolder() (string, error) {
 	logx.Debugf("[apphost] 打开下载保存文件夹选择对话框")
-	dir, err := wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{
+	dir, err := a.openDirectory(application.OpenFileDialogOptions{
 		Title: i18n.T("选择保存到本地文件夹"),
 	})
 	if err != nil {
@@ -749,9 +754,9 @@ func (a *App) LocalPathIsDir(path string) (bool, error) {
 // SelectSavePath 选择本地保存路径（用于 SFTP 下载）。
 func (a *App) SelectSavePath(defaultName string) (string, error) {
 	logx.Debugf("[apphost] 打开本地保存路径对话框: defaultName=%q", defaultName)
-	path, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
-		Title:           i18n.T("保存到本地"),
-		DefaultFilename: defaultName,
+	path, err := a.saveFile(application.SaveFileDialogOptions{
+		Title:    i18n.T("保存到本地"),
+		Filename: defaultName,
 	})
 	if err != nil {
 		logx.Warnf("[apphost] 打开本地保存路径对话框失败: err=%v", err)
@@ -1730,10 +1735,10 @@ func (a *App) ExportConfig(passphrase string) (string, error) {
 		logx.Warnf("[apphost] 导出配置包被拒（保险库未解锁）: err=%v", err)
 		return "", err
 	}
-	path, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
-		Title:           i18n.T("导出配置包"),
-		DefaultFilename: "ding-ssh.dingpack",
-		Filters:         []wailsruntime.FileFilter{{DisplayName: "dingpack", Pattern: "*.dingpack"}},
+	path, err := a.saveFile(application.SaveFileDialogOptions{
+		Title:    i18n.T("导出配置包"),
+		Filename: "ding-ssh.dingpack",
+		Filters:  []application.FileFilter{{DisplayName: "dingpack", Pattern: "*.dingpack"}},
 	})
 	if err != nil || path == "" {
 		if err != nil {
@@ -1777,9 +1782,9 @@ func (a *App) ImportConfig(passphrase string, overwrite bool) (models.ImportConf
 		logx.Warnf("[apphost] 导入配置包被拒（保险库未解锁）: err=%v", err)
 		return empty, err
 	}
-	path, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+	path, err := a.openFile(application.OpenFileDialogOptions{
 		Title:   i18n.T("导入配置包"),
-		Filters: []wailsruntime.FileFilter{{DisplayName: "dingpack", Pattern: "*.dingpack"}},
+		Filters: []application.FileFilter{{DisplayName: "dingpack", Pattern: "*.dingpack"}},
 	})
 	if err != nil || path == "" {
 		if err != nil {

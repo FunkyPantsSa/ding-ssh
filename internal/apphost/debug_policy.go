@@ -13,7 +13,6 @@ import (
 	"ding-ssh/internal/debugsrv"
 	"ding-ssh/internal/logx"
 	"ding-ssh/internal/models"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 var nativeApprovalMu sync.Mutex
@@ -33,7 +32,7 @@ func (c *debugController) approveDebugOperation(ctx context.Context, req debugsr
 	if len(message) > 12000 {
 		return debugsrv.ApprovalDecision{}, errors.New("操作摘要过长，请缩小变更范围")
 	}
-	choice, err := c.app.showDebugDialog(wailsruntime.MessageDialogOptions{Type: wailsruntime.QuestionDialog, Title: "MCP 操作授权", Message: message, Buttons: []string{"拒绝", "允许一次", "同一操作允许 10 分钟"}, DefaultButton: "拒绝", CancelButton: "拒绝"})
+	choice, err := c.app.showDebugDialog(approvalDialogOptions{Title: "MCP 操作授权", Message: message, Buttons: []string{"拒绝", "允许一次", "同一操作允许 10 分钟"}, DefaultButton: "拒绝", CancelButton: "拒绝"})
 	if err != nil {
 		return debugsrv.ApprovalDecision{}, err
 	}
@@ -63,7 +62,7 @@ func (a *App) CreateDebugClient(policyJSON string) (map[string]any, error) {
 	}
 	data, _ := json.MarshalIndent(p, "", "  ")
 	nativeApprovalMu.Lock()
-	choice, err := a.showDebugDialog(wailsruntime.MessageDialogOptions{Type: wailsruntime.QuestionDialog, Title: "创建 MCP 客户端授权", Message: "请核对客户端、目标范围、权限和到期时间：\n" + string(data), Buttons: []string{"拒绝", "创建授权"}, DefaultButton: "拒绝", CancelButton: "拒绝"})
+	choice, err := a.showDebugDialog(approvalDialogOptions{Title: "创建 MCP 客户端授权", Message: "请核对客户端、目标范围、权限和到期时间：\n" + string(data), Buttons: []string{"拒绝", "创建授权"}, DefaultButton: "拒绝", CancelButton: "拒绝"})
 	nativeApprovalMu.Unlock()
 	if err != nil {
 		return nil, err
@@ -191,7 +190,7 @@ func (a *App) approveDebugSettingsChange(before, after models.DebugSettings) err
 	}
 	nativeApprovalMu.Lock()
 	defer nativeApprovalMu.Unlock()
-	choice, err := a.showDebugDialog(wailsruntime.MessageDialogOptions{Type: wailsruntime.QuestionDialog, Title: "更改 MCP 授权", Message: "本次修改涉及调试权限、访问范围或监听端口。是否批准？\n\n" + string(y), Buttons: []string{"拒绝", "批准"}, DefaultButton: "拒绝", CancelButton: "拒绝"})
+	choice, err := a.showDebugDialog(approvalDialogOptions{Title: "更改 MCP 授权", Message: "本次修改涉及调试权限、访问范围或监听端口。是否批准？\n\n" + string(y), Buttons: []string{"拒绝", "批准"}, DefaultButton: "拒绝", CancelButton: "拒绝"})
 	if err != nil {
 		return err
 	}
@@ -201,14 +200,11 @@ func (a *App) approveDebugSettingsChange(before, after models.DebugSettings) err
 	return nil
 }
 
-func (a *App) showDebugDialog(opts wailsruntime.MessageDialogOptions) (string, error) {
+func (a *App) showDebugDialog(opts approvalDialogOptions) (string, error) {
 	if a.debugDialog != nil {
 		return a.debugDialog(opts)
 	}
-	if a.ctx == nil {
-		return "", errors.New("可信用户审批不可用")
-	}
-	return wailsruntime.MessageDialog(a.ctx, opts)
+	return a.promptApproval(opts)
 }
 
 func (a *App) ApplyDebugPreset(mode string) error {

@@ -1,38 +1,7 @@
 Unicode true
 
-####
-## Please note: Template replacements don't work in this file. They are provided with default defines like
-## mentioned underneath.
-## If the keyword is not defined, "wails_tools.nsh" will populate them with the values from ProjectInfo.
-## If they are defined here, "wails_tools.nsh" will not touch them. This allows to use this project.nsi manually
-## from outside of Wails for debugging and development of the installer.
-##
-## For development first make a wails nsis build to populate the "wails_tools.nsh":
-## > wails build --target windows/amd64 --nsis
-## Then you can call makensis on this file with specifying the path to your binary:
-## For a AMD64 only installer:
-## > makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\app.exe
-## For a ARM64 only installer:
-## > makensis -DARG_WAILS_ARM64_BINARY=..\..\bin\app.exe
-## For a installer with both architectures:
-## > makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\app-amd64.exe -DARG_WAILS_ARM64_BINARY=..\..\bin\app-arm64.exe
-####
-## The following information is taken from the ProjectInfo file, but they can be overwritten here.
-####
-## !define INFO_PROJECTNAME    "MyProject" # Default "{{.Name}}"
-## !define INFO_COMPANYNAME    "MyCompany" # Default "{{.Info.CompanyName}}"
-## !define INFO_PRODUCTNAME    "MyProduct" # Default "{{.Info.ProductName}}"
-## !define INFO_PRODUCTVERSION "1.0.0"     # Default "{{.Info.ProductVersion}}"
-## !define INFO_COPYRIGHT      "Copyright" # Default "{{.Info.Copyright}}"
-###
-## !define PRODUCT_EXECUTABLE  "Application.exe"      # Default "${INFO_PROJECTNAME}.exe"
-## !define UNINST_KEY_NAME     "UninstKeyInRegistry"  # Default "${INFO_COMPANYNAME}${INFO_PRODUCTNAME}"
-####
-## !define REQUEST_EXECUTION_LEVEL "admin"            # Default "admin"  see also https://nsis.sourceforge.io/Docs/Chapter4.html
-####
-## Include the wails tools
-####
-!include "wails_tools.nsh"
+# Build the machine-wide installer with wails3 task installer:windows.
+!include "installer.nsh"
 
 # The version information for this two must consist of 4 parts
 VIProductVersion "${INFO_PRODUCTVERSION}.0"

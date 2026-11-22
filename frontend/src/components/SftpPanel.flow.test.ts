@@ -3,6 +3,7 @@ import {createPinia, setActivePinia} from 'pinia'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import SftpPanel from './SftpPanel.vue'
 import {useSettingsStore} from '../stores/settings'
+import {EventsOn} from '../services/desktop'
 import {useTransfersStore} from '../stores/transfers'
 import type {ServerNode, SessionTab} from '../types'
 
@@ -14,12 +15,12 @@ vi.mock('../services/ssh', () => ({
     sftpCancelTransfer: vi.fn().mockResolvedValue(undefined),
     selectLocalFiles: vi.fn(),
     sftpUpload: vi.fn(),
+    localPathIsDir: vi.fn(),
     syncSftpToTerminal: vi.fn(),
   },
 }))
-vi.mock('../../wailsjs/runtime/runtime', () => ({
-  OnFileDrop: vi.fn(),
-  OnFileDropOff: vi.fn(),
+vi.mock('../services/desktop', () => ({
+  EventsOn: vi.fn(() => () => {}),
   ClipboardSetText: vi.fn(),
 }))
 
@@ -184,4 +185,29 @@ it('separates directory navigation from actions and shows the complete path on h
   expect(actions.findAll('button')).toHaveLength(2)
   expect(actions.find('[data-testid="sftp-breadcrumbs"]').exists()).toBe(false)
   wrapper.unmount()
+})
+
+it('uploads a native file drop only in its target SFTP pane', async () => {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  vi.mocked(sshService.localPathIsDir).mockResolvedValue(false)
+  vi.mocked(sshService.sftpUpload).mockReset().mockResolvedValue(undefined)
+  const first = mount(SftpPanel, {
+    props: {tab: {...tab, sftpPath: '/home'}}, global: {plugins: [pinia]},
+  })
+  const second = mount(SftpPanel, {
+    props: {tab: {...tab, clientId: 'tab-2', sessionId: 'sess-2', sftpPath: '/other'}},
+    global: {plugins: [pinia]},
+  })
+  await flushPromises()
+
+  const target = second.get('[data-file-drop-target]').attributes('id')
+  for (const [event, receive] of vi.mocked(EventsOn).mock.calls) {
+    if (event === 'sftp:files-dropped') receive({target, paths: ['/test/upload.txt']})
+  }
+  await flushPromises()
+
+  expect(sshService.sftpUpload).toHaveBeenCalledExactlyOnceWith('sess-2', '/test/upload.txt', '/other/upload.txt')
+  first.unmount()
+  second.unmount()
 })

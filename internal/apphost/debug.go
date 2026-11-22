@@ -33,11 +33,10 @@ import (
 	"ding-ssh/internal/store"
 
 	"github.com/pkg/sftp"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // DebugBoot 启动期就需要的调试模式信息。
-// WebView2 的远程调试端口必须在 wails.Run 之前确定，因此这部分设置会在启动前先读一次。
+// WebView2 的远程调试端口必须在 app.Run 之前确定，因此这部分设置会在启动前先读一次。
 type DebugBoot struct {
 	Policy       models.DebugSettings
 	Enabled      bool
@@ -65,7 +64,7 @@ func DebugInfoPath() string {
 	return filepath.Join(appdir.ConfigDir(), "debug.json")
 }
 
-// ReadDebugBoot 在 wails.Run 之前读一次设置（此时 Startup 尚未初始化存储层）。
+// ReadDebugBoot 在 app.Run 之前读一次设置（此时 Startup 尚未初始化存储层）。
 func ReadDebugBoot() DebugBoot {
 	d := models.DefaultDebugSettings()
 	source := "default"
@@ -728,7 +727,7 @@ func (a *App) startDebug() {
 		a.debugBoot.Port, a.debugBoot.BindLAN, a.debugBoot.AllowEval, a.debugBoot.AllowSecrets)
 	bridge := debugsrv.NewBridge(func(event string, payload any) {
 		if a.ctx != nil {
-			wailsruntime.EventsEmit(a.ctx, event, payload)
+			a.emit(event, payload)
 		}
 	})
 	c := &debugController{
@@ -852,7 +851,7 @@ func (a *App) DebugInfo() map[string]any {
 			"cdpEnabled": a.debugBoot.CDPEnabled,
 			"cdpPort":    a.debugBoot.CDPPort,
 			"infoFile":   DebugInfoPath(),
-			"hint":       "Debug mode is not running. Enable it in Settings; it takes effect immediately (the WebView2 CDP port is not available under Wails v2.13 - use /v1/eval and /v1/screenshot instead).",
+			"hint":       "Debug mode is not running. Enable it in Settings; it takes effect immediately (use /v1/eval and /v1/screenshot for desktop diagnostics).",
 		}
 	}
 	return a.debug.info()
@@ -2845,7 +2844,7 @@ func (c *debugController) handleAppctlOp(ctx context.Context, op string, args ma
 		go func() {
 			time.Sleep(300 * time.Millisecond)
 			if c.app.ctx != nil {
-				wailsruntime.Quit(c.app.ctx)
+				c.app.requestQuit()
 			}
 		}()
 		return map[string]any{"ok": true, "quitting": true}, nil

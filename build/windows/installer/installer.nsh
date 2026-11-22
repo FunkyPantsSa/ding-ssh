@@ -1,23 +1,23 @@
-# DO NOT EDIT - Generated automatically by `wails build`
+# Installer helpers for ding-ssh.
 
 !include "x64.nsh"
 !include "WinVer.nsh"
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "{{.Name}}"
+    !define INFO_PROJECTNAME "ding-ssh"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "{{.Info.CompanyName}}"
+    !define INFO_COMPANYNAME "FunkyPantsSa"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "{{.Info.ProductName}}"
+    !define INFO_PRODUCTNAME "ding-ssh"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "{{.Info.ProductVersion}}"
+    !define INFO_PRODUCTVERSION "1.2.1"
 !endif
 !ifndef INFO_COPYRIGHT
-    !define INFO_COPYRIGHT "{{.Info.Copyright}}"
+    !define INFO_COPYRIGHT "Copyright © 2026 FunkyPantsSa"
 !endif
 !ifndef PRODUCT_EXECUTABLE
     !define PRODUCT_EXECUTABLE "${INFO_PROJECTNAME}.exe"
@@ -239,7 +239,7 @@ RequestExecutionLevel "${REQUEST_EXECUTION_LEVEL}"
 !macro wails.associateFiles
     ; Create file associations
     {{range .Info.FileAssociations}}
-      !insertmacro APP_ASSOCIATE "{{.Ext}}" "{{.Name}}" "{{.Description}}" "$INSTDIR\{{.IconName}}.ico" "Open with ${INFO_PRODUCTNAME}" "$INSTDIR\${PRODUCT_EXECUTABLE} $\"%1$\""
+      !insertmacro APP_ASSOCIATE "{{.Ext}}" "ding-ssh" "{{.Description}}" "$INSTDIR\{{.IconName}}.ico" "Open with ${INFO_PRODUCTNAME}" "$INSTDIR\${PRODUCT_EXECUTABLE} $\"%1$\""
 
       File "..\{{.IconName}}.ico"
     {{end}}
@@ -248,7 +248,7 @@ RequestExecutionLevel "${REQUEST_EXECUTION_LEVEL}"
 !macro wails.unassociateFiles
     ; Delete app associations
     {{range .Info.FileAssociations}}
-      !insertmacro APP_UNASSOCIATE "{{.Ext}}" "{{.Name}}"
+      !insertmacro APP_UNASSOCIATE "{{.Ext}}" "ding-ssh"
 
       Delete "$INSTDIR\{{.IconName}}.ico"
     {{end}}

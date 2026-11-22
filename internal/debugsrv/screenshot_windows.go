@@ -14,7 +14,7 @@ import (
 	"ding-ssh/internal/logx"
 )
 
-// 通过 GDI 抓取应用窗口（标题固定为 ding-ssh）的位图：CDP 在 Wails v2.13 下不可用，
+// 通过 GDI 抓取应用窗口（标题固定为 ding-ssh）的位图：当前版本未开启 CDP，
 // 截图能力改由此提供，用于 AI 目视校验界面（例如"横幅顶部是否完整"）。
 var (
 	user32                     = syscall.NewLazyDLL("user32.dll")

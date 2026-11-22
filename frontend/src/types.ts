@@ -24,7 +24,7 @@ export interface ServerNode {
   keyContent?: string // 直接粘贴的私钥内容，优先于 keyPath
   bgImage: string
   blurAmount: number
-  envVars: Record<string, string>
+  envVars: Partial<Record<string, string>>
 }
 
 export type GroupSelection =
@@ -220,7 +220,7 @@ export interface DebugSettings {
   bindLan: boolean // false: 仅 127.0.0.1；true: 0.0.0.0
   allowEval: boolean // 允许在页面执行 JS（危险）
   allowSecrets: boolean // 允许读取敏感数据
-  cdpEnabled: boolean // 同时开启 WebView2 CDP（Wails v2.13 下暂不可用，预留）
+  cdpEnabled: boolean // WebView2 CDP 配置预留
   // ---- 能力位（权限内核，对应 Go 端 internal/debugsrv 的 Capability）----
   capTerminalInput: boolean // terminal.input：向终端写入（默认关）
   capUiWrite: boolean // ui.write：改 CSS / 令牌 / store / 合成事件（默认关）

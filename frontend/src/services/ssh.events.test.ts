@@ -1,8 +1,8 @@
 import {beforeEach, expect, it, vi} from 'vitest'
-import {EventsOn} from '../../wailsjs/runtime/runtime'
+import {EventsOn} from './desktop'
 import {onSftpTransfer} from './ssh'
 
-vi.mock('../../wailsjs/runtime/runtime', () => ({EventsOn: vi.fn(), EventsOff: vi.fn()}))
+vi.mock('./desktop', () => ({EventsOn: vi.fn(() => () => {})}))
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -20,6 +20,6 @@ it('retains compatibility with legacy transfer events without an ID', () => {
   const receive = vi.fn()
   onSftpTransfer('session', receive)
   const emit = vi.mocked(EventsOn).mock.calls[0]![1]
-  emit('session', 'download', 'old.txt', 2, 4, false)
+  emit(['session', 'download', 'old.txt', 2, 4, false])
   expect(receive).toHaveBeenCalledWith(expect.objectContaining({name: 'old.txt', transferred: 2}))
 })

@@ -5,6 +5,12 @@ import {requestPassphrase} from './passphrase'
 
 // 封装 Wails 自动生成的绑定与事件，统一供各组件使用。
 import {
+  ConnectAuthenticated,
+  TestServerLoginAuthenticated,
+  SyncSftpToTerminal,
+  RevealLocalPath,
+  Reconnect,
+  ResolveHostTrust,
   Connect,
   DeleteServer,
   Disconnect,
@@ -46,8 +52,8 @@ import {
   ConnectLocal,
   GetPlatform,
   GetLocalShellOptions,
-} from '../../wailsjs/go/main/App'
-import {EventsOn, EventsOff} from '../../wailsjs/runtime/runtime'
+} from '../../bindings/ding-ssh/internal/apphost/app'
+import {EventsOn} from './desktop'
 import type {
   ConnectResult,
   LocalShellOption,
@@ -67,7 +73,7 @@ export const sshService = {
   saveServer: (node: ServerNode): Promise<ServerNode> => SaveServer(node),
   deleteServer: (id: string): Promise<void> => DeleteServer(id),
   testServer: (node: ServerNode): Promise<ServerTestResult> => TestServer(node),
-  testServerLogin: (node: ServerNode): Promise<ServerTestResult> => withAuthentication(phrases => withHostTrustResult(() => (window as any).go.main.App.TestServerLoginAuthenticated(node, phrases))),
+  testServerLogin: (node: ServerNode): Promise<ServerTestResult> => withAuthentication(phrases => withHostTrustResult(() => TestServerLoginAuthenticated(node, phrases))),
   testServers: (nodes: ServerNode[]): Promise<ServerTestResult[]> => TestServers(nodes),
   selectKeyFile: (): Promise<string> => SelectKeyFile(),
   selectImageFile: (): Promise<string> => SelectImageFile(),
@@ -124,7 +130,7 @@ export const sshService = {
   removeTunnel: (id: string): Promise<void> => RemoveTunnel(id),
   listTunnels: (): Promise<TunnelInfo[]> => ListTunnels(),
   connect: (sessionID: string, node: ServerNode, cols: number, rows: number, interactive = true): Promise<ConnectResult> =>
-    interactive ? withAuthentication(phrases => withHostTrust(() => (window as any).go.main.App.ConnectAuthenticated(sessionID, node, cols, rows, phrases))) : Connect(sessionID,node,cols,rows),
+    interactive ? withAuthentication(phrases => withHostTrust(() => ConnectAuthenticated(sessionID, node, cols, rows, phrases))) : Connect(sessionID,node,cols,rows),
   connectLocal: (sessionID: string, cols: number, rows: number): Promise<ConnectResult> =>
     ConnectLocal(sessionID, cols, rows),
   getPlatform: (): Promise<string> => GetPlatform(),
@@ -142,55 +148,42 @@ export const sshService = {
     Resize(sessionId, cols, rows),
   // Phase 2: SFTP→Shell 目录同步
   syncSftpToTerminal: (sessionId: string, path: string): Promise<void> =>
-    (window as any)?.go?.main?.App?.SyncSftpToTerminal(sessionId, path),
+    SyncSftpToTerminal(sessionId, path),
   // 在系统文件管理器中打开本地文件 / 目录（SFTP 下载完成后「打开所在文件夹」）。
-  // 走 window 上的绑定，避免 wails 绑定尚未重新生成时报错。
-  revealLocalPath: (path: string): Promise<void> => {
-    const fn = (window as any)?.go?.main?.App?.RevealLocalPath
-    if (typeof fn !== 'function') {
-      return Promise.reject(new Error(t("当前版本不支持打开本地文件夹，请重新构建应用")))
-    }
-    return fn(path)
-  },
+  revealLocalPath: (path: string): Promise<void> => RevealLocalPath(path),
 }
 
 export function onSessionOutput(sessionId: string, handler: (data: string) => void): () => void {
   const event = `ssh:output:${sessionId}`
-  EventsOn(event, (payload: {data: string}) => handler(payload.data))
-  return () => EventsOff(event)
+  return EventsOn(event, (payload: {data: string}) => handler(payload.data))
 }
 
 export function onSessionStatus(sessionId: string, handler: (evt: StatusEvent) => void): () => void {
   const event = `ssh:status:${sessionId}`
-  EventsOn(event, (payload: StatusEvent) => handler(payload))
-  return () => EventsOff(event)
+  return EventsOn(event, (payload: StatusEvent) => handler(payload))
 }
 
 export function onSudoPrompt(sessionId: string, handler: (evt: SudoPromptEvent) => void): () => void {
   const event = `ssh:sudo:${sessionId}`
-  EventsOn(event, (payload: SudoPromptEvent) => handler(payload))
-  return () => EventsOff(event)
+  return EventsOn(event, (payload: SudoPromptEvent) => handler(payload))
 }
 
 export function onSessionProgress(sessionId: string, handler: (evt: ProgressEvent) => void): () => void {
   const event = `ssh:progress:${sessionId}`
-  EventsOn(event, (payload: ProgressEvent) => handler(payload))
-  return () => EventsOff(event)
+  return EventsOn(event, (payload: ProgressEvent) => handler(payload))
 }
 
 export function onTunnelStatus(handler: (evt: TunnelStatusEvent) => void): () => void {
   const event = 'tunnel:status'
-  EventsOn(event, (payload: TunnelStatusEvent) => handler(payload))
-  return () => EventsOff(event)
+  return EventsOn(event, (payload: TunnelStatusEvent) => handler(payload))
 }
 
 export function onSftpTransfer(sessionId: string, handler: (evt: SFTPTransferEvent) => void): () => void {
   const event = `sftp:transfer:${sessionId}`
-  EventsOn(event, (...args: unknown[]) => {
-    const evt = normalizeTransferEvent(args.length === 1 ? args[0] : args)
+  return EventsOn(event, (payload: unknown) => {
+    const evt = normalizeTransferEvent(payload)
     if (evt) handler(evt)
   })
-  return () => EventsOff(event)
 }
 
 function normalizeTransferEvent(payload: unknown): SFTPTransferEvent | null {
@@ -246,19 +239,17 @@ export function base64ToBytes(b64: string): Uint8Array {
 
 // 重新连接已断开的 SSH 会话
 export function reconnect(sessionId: string, cols: number, rows: number): Promise<ConnectResult> {
-  // 使用 window['go']['main']['App']['Reconnect'] 直接调用，避免 Wails 绑定未生成时出错
-  return (window as any)?.go?.main?.App?.Reconnect(sessionId, cols, rows)
+  return Reconnect(sessionId, cols, rows)
 }
 
 // 目录同步事件（Shell -> SFTP）
 export function onSftpSyncPath(sessionId: string, handler: (path: string) => void): () => void {
   const event = `sftp:sync-path:${sessionId}`
-  EventsOn(event, (...args: unknown[]) => {
-    const p = extractSyncPath(args.length === 1 ? args[0] : args)
-    console.info(t("[sftp-sync] 收到事件"), event, args, '→', p)
+  return EventsOn(event, (payload: unknown) => {
+    const p = extractSyncPath(payload)
+    console.info(t("[sftp-sync] 收到事件"), event, payload, '→', p)
     handler(p)
   })
-  return () => EventsOff(event)
 }
 
 function extractSyncPath(payload: unknown): string {
@@ -296,8 +287,7 @@ function extractSyncPath(payload: unknown): string {
 // 目录缓存更新事件（SWR 增量推送）
 export function onSftpDirUpdated(sessionId: string, handler: (evt: { path: string; entries: SFTPEntry[] }) => void): () => void {
   const event = `sftp:dir-updated:${sessionId}`
-  EventsOn(event, (payload: { path: string; entries: SFTPEntry[] }) => handler(payload))
-  return () => EventsOff(event)
+  return EventsOn(event, (payload: { path: string; entries: SFTPEntry[] }) => handler(payload))
 }
 
 // Only explicit UI actions call this wrapper; reconnect and backend API calls
@@ -309,7 +299,7 @@ async function approveUnknownHost(error: unknown): Promise<boolean> {
   const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0))
   const challenge = JSON.parse(new TextDecoder().decode(bytes))
   const approved = await requestHostTrust(challenge)
-  await (window as any).go.main.App.ResolveHostTrust(challenge.id, approved, approved && challenge.changed)
+  await ResolveHostTrust(challenge.id, approved, approved && challenge.changed)
   return approved
 }
 async function withHostTrust<T>(action: () => Promise<T>): Promise<T> {

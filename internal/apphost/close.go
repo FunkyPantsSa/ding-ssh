@@ -1,21 +1,10 @@
 package apphost
 
-import (
-	"context"
-	"sync/atomic"
+import "ding-ssh/internal/logx"
 
-	"ding-ssh/internal/logx"
-
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
-)
-
-var appClosePending atomic.Bool
-var appCloseApproved atomic.Bool
-
-// BeforeClose cancels native close requests until the themed frontend dialog resolves.
-func (a *App) BeforeClose(ctx context.Context) bool {
-	if appCloseApproved.CompareAndSwap(true, false) {
-		logx.Infof("[apphost] 关闭窗口已确认，放行退出")
+// needsCloseConfirmation cancels native close requests until the frontend resolves them.
+func (a *App) needsCloseConfirmation() bool {
+	if a.quitting.Load() {
 		return false
 	}
 	if a.settings == nil {
@@ -31,9 +20,9 @@ func (a *App) BeforeClose(ctx context.Context) bool {
 		logx.Debugf("[apphost] 关闭请求（未开启关闭确认），直接放行")
 		return false
 	}
-	if appClosePending.CompareAndSwap(false, true) {
+	if a.closePending.CompareAndSwap(false, true) {
 		logx.Infof("[apphost] 关闭请求已拦截，等待前端确认")
-		wailsruntime.EventsEmit(ctx, "app:confirm-close")
+		a.emit("app:confirm-close")
 		return true
 	}
 	logx.Debugf("[apphost] 关闭请求重复到达，确认对话框已在等待")
@@ -42,14 +31,13 @@ func (a *App) BeforeClose(ctx context.Context) bool {
 
 // ResolveAppClose grants one native close only after an explicit UI confirmation.
 func (a *App) ResolveAppClose(confirmed bool) {
-	if !appClosePending.CompareAndSwap(true, false) {
+	if !a.closePending.CompareAndSwap(true, false) {
 		logx.Debugf("[apphost] 关闭确认回包没有对应的待确认请求: confirmed=%v", confirmed)
 		return
 	}
 	if confirmed {
-		appCloseApproved.Store(true)
 		logx.Infof("[apphost] 用户确认关闭应用")
-		wailsruntime.Quit(a.ctx)
+		a.quit()
 		return
 	}
 	logx.Infof("[apphost] 用户取消关闭应用")

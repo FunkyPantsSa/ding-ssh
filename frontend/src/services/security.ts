@@ -6,7 +6,7 @@ import {
   GetSecurityStatus,
   ImportConfig,
   UnlockWithMasterPassword,
-} from '../../wailsjs/go/main/App'
+} from '../../bindings/ding-ssh/internal/apphost/app'
 import type {ImportConfigResult, SecurityStatus} from '../types'
 import {errorText, t} from '../i18n'
 

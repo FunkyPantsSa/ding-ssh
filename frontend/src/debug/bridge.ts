@@ -8,8 +8,8 @@ import {errorText} from '../i18n'
 // 会话管理与对外协议，前端桥负责「页面内视角」的能力（读状态 / 输入 / 滚动 / eval）。
 import {nextTick} from 'vue'
 import type {SplitDirection} from '../types'
-import {EventsOn} from '../../wailsjs/runtime/runtime'
-import {DebugReply} from '../../wailsjs/go/main/App'
+import {EventsOn} from '../services/desktop'
+import {DebugReply, GetServers} from '../../bindings/ding-ssh/internal/apphost/app'
 import {buildCommands, runCommand} from '../commands'
 import {useSessionsStore} from '../stores/sessions'
 import {useServersStore} from '../stores/servers'
@@ -262,8 +262,7 @@ async function handle(req: DebugRequest): Promise<unknown> {
       let node = args.node as {id?: string; name?: string} | undefined
       const serverId = str(args.serverId)
       if (!node && serverId) {
-        const api = (window as unknown as {go?: {main?: {App?: {GetServers?: () => Promise<{id?: string}[]>}}}}).go?.main?.App
-        const list = (await api?.GetServers?.()) ?? []
+        const list = (await GetServers()) ?? []
         node = list.find((s) => s.id === serverId)
         if (!node) throw new Error(`未找到服务器: ${serverId}`)
       }

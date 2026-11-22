@@ -7,7 +7,7 @@ import {onMounted, ref} from 'vue'
 import Icon from '../Icon.vue'
 import SearchSelect from '../ui/select/SearchSelect.vue'
 import {Button, Select} from '../ui'
-import {GetCapabilities} from '../../../wailsjs/go/main/App'
+import {GetCapabilities} from '../../../bindings/ding-ssh/internal/apphost/app'
 import {useSettingsAudit} from '../../composables/useSettingsAudit'
 import type {AuditRecordView, CapabilitiesView} from '../../types'
 

@@ -1,35 +1,10 @@
-# Build Directory
+# Desktop build
 
-The build directory is used to house all the build files and assets for your application. 
+The root Taskfile drives Wails v3.1.0 and writes native artifacts to `build/bin`.
 
-The structure is:
-
-* bin - Output directory
-* darwin - macOS specific files
-* windows - Windows specific files
-
-## Mac
-
-The `darwin` directory holds files specific to Mac builds.
-These may be customised and used as part of the build. To return these files to the default state, simply delete them
-and
-build with `wails build`.
-
-The directory contains the following files:
-
-- `Info.plist` - the main plist file used for Mac builds. It is used when building using `wails build`.
-- `Info.dev.plist` - same as the main plist file but used when building using `wails dev`.
-
-## Windows
-
-The `windows` directory contains the manifest and rc files used when building with `wails build`.
-These may be customised for your application. To return these files to the default state, simply delete them and
-build with `wails build`.
-
-- `icon.ico` - The icon used for the application. This is used when building using `wails build`. If you wish to
-  use a different icon, simply replace this file with your own. If it is missing, a new `icon.ico` file
-  will be created using the `appicon.png` file in the build directory.
-- `installer/*` - The files used to create the Windows installer. These are used when building using `wails build`.
-- `info.json` - Application details used for Windows builds. The data here will be used by the Windows installer,
-  as well as the application itself (right click the exe -> properties -> details)
-- `wails.exe.manifest` - The main application manifest file.
+- Run `wails3 build` for the current platform. Use `wails3 task build GOOS=darwin ARCH=amd64` on macOS to build for Intel.
+- Run `npm --prefix frontend ci` once before `wails3 dev`. The dev watcher uses `build/config.yml`, with Vite on loopback port 9245.
+- On Windows, run `wails3 task package GOOS=windows ARCH=amd64` with NSIS installed. The installer embeds the WebView2 bootstrapper and downloads the runtime when needed.
+- Linux builds set `gtk3` to retain the GTK3 / WebKitGTK 4.1 runtime contract for existing installations and the branch updater.
+- The macOS bundle keeps `com.funkypantssa.ding-ssh` and targets macOS 12. `build/darwin/Info.plist` and `build/windows/info.json` carry native version metadata. CI stamps these with `scripts/set-version.py`.
+- The packaging scripts under `scripts` consume the native artifacts to produce the existing DMG, ZIP, NSIS, DEB, tarball and AppImage distributions. Branch builds also use `scripts/update-manifest.py` to hash the updater assets.

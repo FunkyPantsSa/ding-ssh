@@ -1,7 +1,7 @@
 import {beforeEach, expect, it, vi} from 'vitest'
-vi.mock('../../wailsjs/go/main/App', () => ({GetUpdateChannel: vi.fn(), CheckUpdate: vi.fn(), DownloadUpdate: vi.fn(), InstallUpdateNow: vi.fn()}))
-vi.mock('../../wailsjs/runtime/runtime', () => ({EventsOn: vi.fn(() => () => {})}))
-import {CheckUpdate} from '../../wailsjs/go/main/App'
+vi.mock('../../bindings/ding-ssh/internal/apphost/app', () => ({GetUpdateChannel: vi.fn(), CheckUpdate: vi.fn(), DownloadUpdate: vi.fn(), InstallUpdateNow: vi.fn()}))
+vi.mock('./desktop', () => ({EventsOn: vi.fn(() => () => {})}))
+import {CheckUpdate} from '../../bindings/ding-ssh/internal/apphost/app'
 import {checkUpdates, checkUpdatesOnStartup, updateInfo, updateBusy, updateReady, updateVisible, dismissUpdate, setUpdateChannel, updateChannel} from './updates'
 beforeEach(() => {vi.clearAllMocks(); updateBusy.value=false; updateReady.value=false; updateInfo.value=undefined; updateVisible.value=false})
 it('enables startup checks by default', () => {expect(checkUpdatesOnStartup.value).toBe(true)})

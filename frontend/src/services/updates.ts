@@ -1,6 +1,6 @@
 import {ref} from 'vue'
-import {GetUpdateChannel, CheckUpdate, DownloadUpdate, InstallUpdateNow} from '../../wailsjs/go/main/App'
-import {EventsOn} from '../../wailsjs/runtime/runtime'
+import {GetUpdateChannel, CheckUpdate, DownloadUpdate, InstallUpdateNow} from '../../bindings/ding-ssh/internal/apphost/app'
+import {EventsOn} from './desktop'
 
 function readPreference(key: string): string | null {
   try { return localStorage.getItem(key) } catch { return null }

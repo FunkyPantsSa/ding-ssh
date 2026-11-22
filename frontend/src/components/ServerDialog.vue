@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import {GetAgentIdentities} from '../../bindings/ding-ssh/internal/apphost/app'
 import {errorText} from '../i18n'
 
 import {t as $t} from '../i18n'
@@ -37,7 +38,7 @@ const testMsg = ref('')
 const testOk = ref(false)
 const agentIdentities = ref<Array<{keyType: string; fingerprint: string}>>([])
 async function inspectAgent() {
- try { agentIdentities.value = await (window as any).go.main.App.GetAgentIdentities({...form}); errorMsg.value = '' }
+ try { agentIdentities.value = await GetAgentIdentities({...form}); errorMsg.value = '' }
  catch (e) { errorMsg.value = errorText(e) }
 }
 const keySource = ref<'file' | 'content'>('file')

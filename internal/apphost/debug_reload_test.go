@@ -24,7 +24,6 @@ import (
 	"ding-ssh/internal/models"
 	"ding-ssh/internal/sshx"
 	"ding-ssh/internal/store"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // newReloadTestApp 组装一个可用于 reloadDebug 测试的最小 App：
@@ -52,7 +51,7 @@ func newReloadTestApp(t *testing.T) *App {
 	}
 
 	a := NewApp(DebugBoot{Enabled: true, Port: 0, Token: "test-token-m9", CapTerminalInput: true})
-	a.debugDialog = func(wailsruntime.MessageDialogOptions) (string, error) { return "批准", nil }
+	a.debugDialog = func(approvalDialogOptions) (string, error) { return "批准", nil }
 	a.settings = js
 	// SaveSettings 会调用 manager.SetKeepAliveEnabled，不能是 nil。
 	a.manager = sshx.NewManager(func(string, any) {})
