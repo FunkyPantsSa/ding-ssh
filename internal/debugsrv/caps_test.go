@@ -131,6 +131,7 @@ func newTestServer(t *testing.T, gate Gate, exec Executor) *testServer {
 		Hub:      NewHub(),
 		Gate:     gate,
 		Audits:   ts.audit,
+		Approver: approveTestOperation,
 		Confirms: NewConfirmManager(DefaultConfirmTTL),
 		Executor: exec,
 	})
@@ -448,6 +449,8 @@ func TestUnknownTool(t *testing.T) {
 // 钉住地基阶段那批工具的名字与所需能力：后续各域不得改动它们的语义（这里是规格表，不是总数）。
 func TestLegacyToolCapabilityTable(t *testing.T) {
 	want := map[string]Capability{
+		"list_terminals":  CapTerminalRead,
+		"read_terminal":   CapTerminalRead,
 		"send_input":      CapTerminalInput,
 		"update_settings": CapConfigWrite,
 		"set_log_options": CapConfigWrite,
@@ -469,8 +472,8 @@ func TestLegacyToolCapabilityTable(t *testing.T) {
 			t.Fatalf("工具 %s 的能力位 = %v，期望包含 %s", tool, caps, capName)
 		}
 	}
-	// 读类工具的登记值必须是 nil（而不是空切片），保证「读类不受限」语义清晰
-	for _, tool := range []string{"app_state", "list_terminals", "read_terminal", "app.permissions"} {
+	// Only baseline metadata is unconditional; terminal contents require a grant.
+	for _, tool := range []string{"app_state", "app.permissions"} {
 		if caps, ok := toolCaps[tool]; !ok || caps != nil {
 			t.Fatalf("读类工具 %s 的能力位应为 nil，实际 %v", tool, caps)
 		}
@@ -555,4 +558,9 @@ func TestDestructiveToolsStillRequireToken(t *testing.T) {
 			t.Fatalf("破坏性工具 %s 缺 token 时应拒绝并提示 prepare：isError=%v text=%s", tc.tool, isErr, text)
 		}
 	}
+}
+
+// Tests explicitly simulate a decision from the independent user approval channel.
+func approveTestOperation(context.Context, ApprovalRequest) (ApprovalDecision, error) {
+	return ApprovalDecision{Approved: true}, nil
 }

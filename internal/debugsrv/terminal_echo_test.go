@@ -94,7 +94,7 @@ func TestTerminalRunExitMarkerIgnoresEcho(t *testing.T) {
 	env.h.onInput = func(id, sent string) {
 		// 回显包裹后的命令（含字面量 __DING_EXIT__%s），随后才是真实退出码标记
 		publishOutput(env.hub, id, sent+"\r\n")
-		publishOutput(env.hub, id, "hello\r\n__DING_EXIT__7\r\n$ ")
+		publishOutput(env.hub, id, "hello\r\n"+testSentExitPrefix(sent)+"7\r\n$ ")
 	}
 	out := env.callJSON(t, OpTerminalRun, map[string]any{
 		"id": "tab-1", "command": "false", "wrapExitMarker": true, "timeoutMs": 3000,

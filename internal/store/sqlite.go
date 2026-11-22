@@ -389,7 +389,7 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		// 保持原有行为：新数据库默认语义着色；已有库缺键同样回落 auto。
 		TerminalColorMode: models.ColorModeAuto,
 		LogLevel:          models.NormalizeLogLevel(""), // 日志级别默认 info
-		// 调试模式默认值：能力位里只有「终端输入」默认开启（读类永远允许）
+		// 调试模式默认值：新增读取和全部执行能力默认关闭
 		Debug: models.DefaultDebugSettings(),
 	}
 	if v, ok := values["logEnabled"]; ok {
@@ -545,9 +545,9 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 			logx.Warnf("[store] 设置项解析失败，调试模式回落默认: key=debug err=%v", err)
 		}
 		// 能力位：升级前的库里没有这些字段，反序列化得到「全 false」，
-		// 但默认值要求「终端输入」开启 —— 只在缺字段时补默认值（显式关闭必须保持关闭）。
+		// 缺失字段保持默认关闭，显式保存的已有能力保持原值。
 		if !models.HasDebugCapabilityFields([]byte(v)) {
-			st.Debug.CapTerminalInput = true
+			st.Debug.CapTerminalInput = models.DefaultDebugSettings().CapTerminalInput
 		}
 	}
 	st.Debug = models.NormalizeDebugSettings(st.Debug)

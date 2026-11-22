@@ -66,6 +66,7 @@ func startHTTP(t *testing.T, gate Gate, exec Executor) (string, *AuditLog) {
 		Gate:     gate,
 		Audits:   audit,
 		Confirms: NewConfirmManager(DefaultConfirmTTL),
+		Approver: approveTestOperation,
 		Executor: exec,
 		Logf:     func(string, ...any) {},
 	})
@@ -83,6 +84,10 @@ func startHTTP(t *testing.T, gate Gate, exec Executor) (string, *AuditLog) {
 
 // httpDo 发一次带 token 的请求，返回状态码与响应体（限长，避免日志被淹没）。
 func httpDo(t *testing.T, base, method, path string, body any) (int, string) {
+	return httpDoHeaders(t, base, method, path, body, nil)
+}
+
+func httpDoHeaders(t *testing.T, base, method, path string, body any, headers map[string]string) (int, string) {
 	t.Helper()
 	var reader io.Reader
 	if body != nil {
@@ -97,6 +102,9 @@ func httpDo(t *testing.T, base, method, path string, body any) (int, string) {
 		t.Fatalf("构造请求失败: %v", err)
 	}
 	req.Header.Set("Authorization", "Bearer test-token")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -185,12 +193,12 @@ func TestHTTPTwoStageConfirmFlow(t *testing.T) {
 	// 1) 通过 MCP 的 confirm.prepare 拿 token（与 HTTP 共用同一个 ConfirmManager）
 	token := mcpPrepareToken(t, base, "settings.update", map[string]any{"settings": map[string]any{"uiScale": 120}})
 	// 2) 带 token 调 HTTP 写路由
-	status, body := httpDo(t, base, http.MethodPut, "/v1/settings?confirmToken="+token, map[string]any{"uiScale": 120})
+	status, body := httpDoHeaders(t, base, http.MethodPut, "/v1/settings", map[string]any{"uiScale": 120}, map[string]string{"X-Ding-Confirm-Token": token})
 	if status != http.StatusOK {
 		t.Fatalf("带有效 token 应成功，实际 %d：%s", status, body)
 	}
 	// 3) token 一次性：再用一次必须 403
-	status, body = httpDo(t, base, http.MethodPut, "/v1/settings?confirmToken="+token, map[string]any{"uiScale": 120})
+	status, body = httpDoHeaders(t, base, http.MethodPut, "/v1/settings", map[string]any{"uiScale": 120}, map[string]string{"X-Ding-Confirm-Token": token})
 	if status != http.StatusForbidden {
 		t.Fatalf("重复使用 token 应 403，实际 %d：%s", status, body)
 	}

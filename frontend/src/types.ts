@@ -205,6 +205,16 @@ export type TerminalColorMode = 'off' | 'auto' | 'vivid'
 
 // 调试模式设置（对应 Go 端 models.DebugSettings）。
 export interface DebugSettings {
+  capTerminalRead?: boolean
+  capRemoteFsRead?: boolean
+  capUiInspect?: boolean
+  capConnect?: boolean
+  capDisconnect?: boolean
+  capTransferCancel?: boolean
+  capLocalExec?: boolean
+  capCredentialUse?: boolean
+  trustedAutomation?: boolean
+  auditPersistent?: boolean
   enabled: boolean // 总开关（默认关）
   port: number // HTTP 端口；0 = 自动挑空闲端口
   bindLan: boolean // false: 仅 127.0.0.1；true: 0.0.0.0
@@ -212,12 +222,12 @@ export interface DebugSettings {
   allowSecrets: boolean // 允许读取敏感数据
   cdpEnabled: boolean // 同时开启 WebView2 CDP（Wails v2.13 下暂不可用，预留）
   // ---- 能力位（权限内核，对应 Go 端 internal/debugsrv 的 Capability）----
-  capTerminalInput: boolean // terminal.input：向终端写入（默认开）
+  capTerminalInput: boolean // terminal.input：向终端写入（默认关）
   capUiWrite: boolean // ui.write：改 CSS / 令牌 / store / 合成事件（默认关）
   capConfigWrite: boolean // config.write：服务器 / 隧道 / 设置写入（默认关）
-  capSecretWrite: boolean // secrets.write：凭据写入（默认关；还需 allowSecrets）
+  capSecretWrite: boolean // secrets.write：凭据写入（默认关；与明文导出独立）
   capRemoteFsWrite: boolean // fs.remote.write：SFTP 写 / 删（默认关）
-  // sudo.credential：用应用里保存的密码执行 sudo -i（默认关；还需 allowSecrets，且每次执行仍需两段式确认）
+  // sudo.credential：用应用里保存的密码执行 sudo -i（默认关；与明文导出独立，且每次执行仍需两段式确认）
   capSudoCredential: boolean
   capLifecycle: boolean // lifecycle：reload / 退出 / 重启（默认关）
   sftpWriteAllowlist: string[] // 远端可写路径前缀白名单（默认空 = 禁止任何写入路径）

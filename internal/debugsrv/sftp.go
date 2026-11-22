@@ -1,37 +1,15 @@
 package debugsrv
 
-// M8：SFTP 文件操作与终端自动化 —— 让 AI 读写远端文件、跑命令并等结果。
+// SFTP and terminal automation share the app's existing connections. File
+// contents require fs.remote.read; mutations require fs.remote.write, approval,
+// lexical and host-resolved path checks. UI directory navigation and transfer
+// cancellation have separate permissions. Interactive terminal input can execute
+// arbitrary commands and is not classified as reversible.
 //
-// # 分层（照既有模式，不另起炉灶）
-//
-//   - **本文件（debugsrv）**：工具条目与入参校验、路径白名单、体积限额与截断标记、
-//     终端输出增量捕获（复用 Hub 的 ssh.output 事件）、传输快照、资源组装；
-//   - **宿主（debug.go）**：sftp.* op 落到「会话已有的那份 SFTP 客户端」
-//     （internal/sshx 的 Manager.SftpClient → App 的既有 SftpRename/Mkdir/Remove/SftpCancelTransfer），
-//     **绝不新建 SSH 连接、不自己写 SFTP 客户端**；
-//   - **前端桥**：只有「页面内才知道」的东西才走桥 —— 终端输入沿用既有 op
-//     （OpTerminalInput → frontend/src/debug/bridge.ts 的 terminal.input），终端尾部文本用 OpTerminalBuffer。
-//
-// # 能力位与确认（登记见 sftp_register.go）
-//
-//	读类（cap 不传 = read，永远允许，但仍全部走审计）：
-//	  sftp.list / sftp.stat / sftp.read / sftp.transfers / terminal.expect
-//	写类（fs.remote.write + 两段式确认）：
-//	  sftp.write / sftp.mkdir / sftp.rename / sftp.remove / sftp.syncCwd / sftp.cancel
-//	终端输入（terminal.input，可逆 / 高频，**不需要 token**）：
-//	  terminal.run
-//
-// # 白名单规则（用户明确要求，见 sftpRequireWritePath）
-//
-//   - sftpWriteAllowlist 为空 ⇒ 一切写 / 删 / 改名 / 同步全部拒绝（中文原因里说明去哪配置）；
-//   - 非空时按「路径段边界」前缀匹配（/srv/app 放行 /srv/app 与 /srv/app/x，
-//     **不放行** /srv/app-evil）；
-//   - 只接受以 / 开头的绝对路径，且拒绝任何含 .. 段的路径（目录穿越）；
-//   - sftp.rename 的 from 与 to **都要**过白名单。
-//
-// 双重校验：宿主侧对同一份白名单再校验一次（见 debug.go 的 ctlRequireWritePaths）——
-// 因为 confirm.commit 走的是 Executor → 宿主 op，会绕过本文件的 preflight。
-// 两处共用同一套规则函数（NormalizeRemotePath / SFTPPathAllowed 导出给宿主复用）。
+// Upload/download exchange bounded base64 payloads with the caller. No tool in
+// this domain reads or writes an arbitrary local filesystem path. Conditional
+// atomic replacement and precise text patches execute in the host; remote SFTP
+// cannot guarantee isolation from concurrent changes by other remote processes.
 
 import (
 	"context"
@@ -60,12 +38,16 @@ const (
 	OpSftpRead      = "sftp.read"
 	OpSftpTransfers = "sftp.transfers"
 	// B. SFTP 写
-	OpSftpWrite   = "sftp.write"
-	OpSftpMkdir   = "sftp.mkdir"
-	OpSftpRename  = "sftp.rename"
-	OpSftpRemove  = "sftp.remove"
-	OpSftpSyncCwd = "sftp.syncCwd"
-	OpSftpCancel  = "sftp.cancel"
+	OpSftpWrite        = "sftp.write"
+	OpSftpMkdir        = "sftp.mkdir"
+	OpSftpRename       = "sftp.rename"
+	OpSftpRemove       = "sftp.remove"
+	OpSftpSyncCwd      = "sftp.syncCwd"
+	OpSftpCancel       = "sftp.cancel"
+	OpSftpPatch        = "sftp.patch"
+	OpSftpPatchPreview = "sftp.patch.preview"
+	OpSftpUpload       = "sftp.upload"
+	OpSftpDownload     = "sftp.download"
 	// C. 终端自动化
 	OpTerminalRun    = "terminal.run"
 	OpTerminalExpect = "terminal.expect"
@@ -86,6 +68,7 @@ var sftpToolNames = []string{
 	OpSftpList, OpSftpStat, OpSftpRead, OpSftpTransfers,
 	OpSftpWrite, OpSftpMkdir, OpSftpRename, OpSftpRemove, OpSftpSyncCwd, OpSftpCancel,
 	OpTerminalRun, OpTerminalExpect,
+	OpSftpPatch, OpSftpPatchPreview, OpSftpUpload, OpSftpDownload,
 }
 
 // sftpToolSet 工具名集合（分发用，避免每次线性扫描）。
@@ -141,7 +124,7 @@ const (
 	// terminalDefMaxBytes / terminalMaxMaxBytes 终端输出文本的上限（默认 256KB，最大 1MB）。
 	terminalDefMaxBytes = 256 << 10
 	terminalMaxMaxBytes = 1 << 20
-	// terminalIdleMS 「输出静默」的判定窗口：超过这个时间没有新输出即认为命令跑完了。
+	// terminalIdleMS 输出静默窗口；只表示观测静默，不证明命令完成。
 	// 这是 terminal.run 未给 expect 时的默认值，可用 idleMs 参数覆盖。
 	terminalIdleMS = 400
 	// terminalMinIdleMS / terminalMaxIdleMS 自定义静默窗口 idleMs 的合法范围。
@@ -342,11 +325,12 @@ func (s *Server) sftpRequireWritePath(label, raw string) (string, error) {
 
 // sftpWritePathArgs 写类工具里需要过白名单的路径参数（sftp.rename 的 from 与 to 两端都要）。
 var sftpWritePathArgs = map[string][]string{
-	OpSftpWrite:   {"path"},
-	OpSftpMkdir:   {"path"},
-	OpSftpRename:  {"from", "to"},
-	OpSftpRemove:  {"path"},
-	OpSftpSyncCwd: {"remotePath"},
+	OpSftpWrite:  {"path"},
+	OpSftpMkdir:  {"path"},
+	OpSftpRename: {"from", "to"},
+	OpSftpRemove: {"path"},
+	OpSftpPatch:  {"path"},
+	OpSftpUpload: {"path"},
 }
 
 // preflightToolArgs 在「能力校验通过之后、token 校验之前」做白名单与体积预检。
@@ -369,9 +353,17 @@ func (s *Server) preflightToolArgs(name string, args map[string]any) error {
 			return err
 		}
 	}
-	if name == OpSftpWrite {
+	if name == OpSftpWrite || name == OpSftpUpload {
 		if _, err := sftpWriteContent(args); err != nil {
 			return err
+		}
+		if hash := appctlString(args, "expectedHash"); hash != "" && hash != "missing" {
+			if len(hash) != 64 {
+				return fmt.Errorf("%w: expectedHash 必须是 SHA-256 或 missing", ErrBadInput)
+			}
+			if _, err := hex.DecodeString(hash); err != nil {
+				return fmt.Errorf("%w: expectedHash 必须是十六进制 SHA-256", ErrBadInput)
+			}
 		}
 	}
 	return nil
@@ -439,6 +431,8 @@ func sftpAuditSafeArgs(tool string, args map[string]any) map[string]any {
 	for k, v := range args {
 		s, isStr := v.(string)
 		switch {
+		case isStr && (k == "oldText" || k == "newText"):
+			out[k] = fmt.Sprintf("<%d 字节的替换文本，已省略>", len(s))
 		case isStr && (k == "base64" || k == "content") && len(s) > 128:
 			out[k] = fmt.Sprintf("<%d 字节的内容，已省略>", len(s))
 		case isStr && k == "command" && len(s) > 1024:
@@ -501,18 +495,19 @@ func sftpToolEntries() []mcpTool {
 				"limit":     intProp("返回条数（默认 50，最多 200）"),
 			})},
 		// ---- B. 写（全部需要 fs.remote.write + 两段式确认 + 白名单）----
-		{Name: OpSftpWrite, Description: "写入远端文件（覆盖写；append=true 时追加）。" + whitelistNote +
+		{Name: OpSftpWrite, Description: "写入远端文件（覆盖写先暂存再原子替换，服务器不支持原子覆盖时保留旧文件并拒绝；append=true 非原子追加）。" + whitelistNote +
 			"content 是文本（encoding=text，默认）或 base64 字符串（encoding=base64）；二进制请直接用 base64 参数。" +
 			"createDirs=true 时先递归创建父目录。单次内容上限 1MB。",
 			InputSchema: obj(map[string]any{
-				"sessionId":  strProp("SSH 会话 id"),
-				"path":       strProp("远端目标路径"),
-				"content":    strProp("要写入的内容（文本或 base64 字符串）"),
-				"base64":     strProp("二进制内容（base64，与 content 二选一）"),
-				"encoding":   strProp("content 的解释方式：text（默认）| base64"),
-				"createDirs": boolProp("true = 先递归创建父目录"),
-				"append":     boolProp("true = 追加而非覆盖"),
-				"confirm":    tokenProp,
+				"sessionId":    strProp("SSH 会话 id"),
+				"path":         strProp("远端目标路径"),
+				"content":      strProp("要写入的内容（文本或 base64 字符串）"),
+				"base64":       strProp("二进制内容（base64，与 content 二选一）"),
+				"encoding":     strProp("content 的解释方式：text（默认）| base64"),
+				"createDirs":   boolProp("true = 先递归创建父目录"),
+				"append":       boolProp("true = 追加而非覆盖"),
+				"expectedHash": strProp("整个现有文件的 SHA-256；missing 表示必须不存在。覆盖写使用同目录临时文件和原子替换；追加不是原子操作"),
+				"confirm":      tokenProp,
 			}, "sessionId", "path")},
 		{Name: OpSftpMkdir, Description: "创建远端目录（recursive=true 时等价于 mkdir -p）。" + whitelistNote,
 			InputSchema: obj(map[string]any{
@@ -535,19 +530,21 @@ func sftpToolEntries() []mcpTool {
 				"recursive": boolProp("true = 递归删除目录（沿用既有 removeRemote 实现）"),
 				"confirm":   tokenProp,
 			}, "sessionId", "path")},
-		{Name: OpSftpSyncCwd, Description: "把 SFTP 面板的当前目录切换到 remotePath（非破坏性；**不会向终端键入任何字符**，" +
-			"只推一条既有的 sftp:sync-path 事件）。remotePath 省略时使用该会话当前的面板目录。" + whitelistNote,
+		{Name: OpSftpSyncCwd, Description: "把 SFTP 面板的当前目录切换到 remotePath，仅需 ui.write；不修改远端文件，不向终端键入字符。remotePath 省略时保持当前面板目录。",
 			InputSchema: obj(map[string]any{
 				"sessionId":  strProp("SSH 会话 id"),
 				"remotePath": strProp("要同步到的远端绝对路径（省略 = 保持当前面板目录）"),
 				"confirm":    tokenProp,
 			}, "sessionId")},
-		{Name: OpSftpCancel, Description: "取消一条正在进行的 SFTP 传输（transferId 见 sftp.transfers 的 id，" +
-			"形如 <sessionId>|<upload|download>|@id:<任务ID>（兼容旧文件名格式））。需要 fs.remote.write 能力位与两段式确认。",
+		{Name: OpSftpCancel, Description: "请求取消一条进行中的传输，需要 transfer.cancel；不要求远端文件写入白名单。停止发生在下一数据块，返回请求状态，不保证已终止。",
 			InputSchema: obj(map[string]any{
 				"transferId": strProp("传输 id（sftp.transfers 返回）"),
 				"confirm":    tokenProp,
 			}, "transferId")},
+		{Name: OpSftpPatchPreview, Description: "预览 UTF-8 文件的精确文本替换，返回原始完整文件 expectedHash、新文件 newHash、匹配次数与大小；不写文件，不回显正文。只处理 1 MiB 以内的普通文件。", InputSchema: sftpPatchSchema(false), OutputSchema: outputObj(nil), structured: structuredIdentity},
+		{Name: OpSftpPatch, Description: "提交精确文本替换；必须提供预览取得的 expectedHash，并重新批准这次参数。先检查文件版本，再原子替换；dryRun=true 仅预览。", InputSchema: sftpPatchSchema(true), OutputSchema: outputObj(nil), structured: structuredIdentity},
+		{Name: OpSftpUpload, Description: "将调用方提供的 base64 内容上传到远端，单次最多 1 MiB，复用安全写入、版本校验和原子覆盖。不读取本机路径。大文件可分片显式 append（非原子）。", InputSchema: obj(map[string]any{"sessionId": strProp("SSH 会话 id"), "path": strProp("远端绝对目标路径"), "base64": strProp("上传内容"), "expectedHash": strProp("现有完整文件 SHA-256 或 missing"), "createDirs": boolProp("创建父目录"), "append": boolProp("显式非原子追加"), "confirm": tokenProp}, "sessionId", "path", "base64"), OutputSchema: outputObj(nil), structured: structuredIdentity},
+		{Name: OpSftpDownload, Description: "下载远端文件的有界分片，返回 base64 与本段 sha256、offset/nextOffset/truncated。单次最多 1 MiB；不会写入任意本机路径，调用方负责保存。", InputSchema: obj(map[string]any{"sessionId": strProp("SSH 会话 id"), "path": strProp("远端路径"), "offset": intProp("字节偏移，默认 0"), "maxBytes": intProp("单次上限，最大 1048576")}, "sessionId", "path"), OutputSchema: outputObj(nil), structured: structuredIdentity},
 		// ---- C. 终端自动化 ----
 		{Name: OpTerminalRun, Description: "在终端里跑一条命令并等结果（AI 管 SSH 的主力工具）。" +
 			"发送 command（缺 \\r 自动补）→ 若给了 expect 正则则等它命中；未给 expect 时等到输出静默" +
@@ -559,8 +556,8 @@ func sftpToolEntries() []mcpTool {
 			"返回里的 echoSkippedBytes 会如实给出跳过的回显字节数。" +
 			"**未给 expect 时按「输出静默」判定结束**：对「启动慢、先静默后吐输出」的命令（如 docker ps）可能过早返回、只拿到回显 —— " +
 			"这类场景请两步走：先 terminal.run（不要 expect）拿初始输出，再用 terminal.expect 等结果；或加大 idleMs（50–60000）。" +
-			"wrapExitMarker=true 会把命令包成 `command; printf '\\n__DING_EXIT__%s\\n' \"$?\"` 以拿到退出码（返回里 wrapped=true 如实说明命令被包裹过）；" +
-			"此时若省略 expect，本工具会**自动等到退出码标记出现**再返回；手写 expect 时请用 `__DING_EXIT__[0-9]`" +
+			"wrapExitMarker=true 使用每次调用随机的退出码标记以取得退出码（返回里 wrapped=true 如实说明命令被包裹过）；" +
+			"此时请省略 expect，本工具会自动等待本次调用的随机退出码标记；返回 exitMarkerPrefix" +
 			"（回显里是字面量 `__DING_EXIT__%s`，没有数字）。" +
 			"expect 超时**不报协议错误**：返回 matched=false + 已捕获输出 + 中文说明。" +
 			"并发：同一会话上同一时刻只允许一个 terminal.run / terminal.expect，第二个调用会被**直接拒绝**（不排队），" +
@@ -607,6 +604,17 @@ func (s *Server) handleSftpOp(ctx context.Context, name string, args map[string]
 		out, err = s.sftpTransfers(args), nil
 	case OpSftpWrite:
 		out, err = s.sftpWrite(ctx, args)
+	case OpSftpUpload:
+		out, err = s.sftpWrite(ctx, args)
+	case OpSftpDownload:
+		copyArgs := make(map[string]any, len(args)+1)
+		for k, v := range args {
+			copyArgs[k] = v
+		}
+		copyArgs["encoding"] = "base64"
+		out, err = s.sftpRead(ctx, copyArgs)
+	case OpSftpPatch, OpSftpPatchPreview:
+		out, err = s.sftpPatch(ctx, name, args)
 	case OpSftpMkdir:
 		out, err = s.sftpMkdir(ctx, args)
 	case OpSftpRename:
@@ -930,14 +938,15 @@ func (s *Server) sftpRead(ctx context.Context, args map[string]any) (any, error)
 		resolved = path
 	}
 	out := map[string]any{
-		"sessionId": sess,
-		"path":      resolved,
-		"bytes":     len(data),
-		"size":      hostInt64(raw, "size"),
-		"offset":    offset,
-		"sha256":    hex.EncodeToString(sum[:]),
-		"encoding":  encoding,
-		"truncated": !hostBool(raw, "eof"),
+		"sessionId":  sess,
+		"path":       resolved,
+		"bytes":      len(data),
+		"size":       hostInt64(raw, "size"),
+		"offset":     offset,
+		"nextOffset": offset + len(data),
+		"sha256":     hex.EncodeToString(sum[:]),
+		"encoding":   encoding,
+		"truncated":  !hostBool(raw, "eof"),
 	}
 	if encoding == "base64" {
 		out["base64"] = base64.StdEncoding.EncodeToString(data)
@@ -1105,11 +1114,12 @@ func (s *Server) sftpWrite(ctx context.Context, args map[string]any) (any, error
 	logx.Debugf("[debugsrv/sftp] 写入文件开始: session=%s path=%q bytes=%d append=%v createDirs=%v",
 		sess, path, len(data), appendMode, appctlBool(args, "createDirs"))
 	raw, err := s.callSFTPHost(ctx, OpSftpWrite, map[string]any{
-		"sessionId":  sess,
-		"path":       path,
-		"base64":     base64.StdEncoding.EncodeToString(data),
-		"createDirs": appctlBool(args, "createDirs"),
-		"append":     appendMode,
+		"sessionId":    sess,
+		"path":         path,
+		"base64":       base64.StdEncoding.EncodeToString(data),
+		"createDirs":   appctlBool(args, "createDirs"),
+		"append":       appendMode,
+		"expectedHash": appctlString(args, "expectedHash"),
 	})
 	if err != nil {
 		logx.Errorf("[debugsrv/sftp] 写入文件失败: session=%s path=%q bytes=%d err=%v", sess, path, len(data), err)
@@ -1118,12 +1128,16 @@ func (s *Server) sftpWrite(ctx context.Context, args map[string]any) (any, error
 	logx.Infof("[debugsrv/sftp] 写入文件完成: session=%s path=%q bytes=%d append=%v elapsed=%s",
 		sess, path, len(data), appendMode, time.Since(start))
 	return map[string]any{
-		"ok":        true,
-		"sessionId": sess,
-		"path":      firstNonEmpty(hostStr(raw, "path"), path),
-		"bytes":     len(data),
-		"append":    appendMode,
-		"note":      "写入成功（远端改动不可撤销，无法通过审计「撤销」回滚）",
+		"ok":                true,
+		"sessionId":         sess,
+		"path":              firstNonEmpty(hostStr(raw, "path"), path),
+		"bytes":             len(data),
+		"append":            appendMode,
+		"atomic":            hostBool(raw, "atomic"),
+		"sha256":            hostStr(raw, "sha256"),
+		"metadataPreserved": hostBool(raw, "metadataPreserved"),
+		"metadataNote":      hostStr(raw, "metadataNote"),
+		"note":              "写入成功（远端改动不可撤销，无法通过审计「撤销」回滚）",
 	}, nil
 }
 
@@ -1231,7 +1245,7 @@ func (s *Server) sftpRemove(ctx context.Context, args map[string]any) (any, erro
 	}, nil
 }
 
-// sftpSyncCwd 把 SFTP 面板的当前目录切到 remotePath（非破坏性，但同属写类：需要能力位 + 白名单 + 确认）。
+// sftpSyncCwd changes only panel navigation; it does not require file write approval.
 func (s *Server) sftpSyncCwd(ctx context.Context, args map[string]any) (any, error) {
 	start := time.Now()
 	sess, err := sftpSessionArg(args)
@@ -1247,7 +1261,7 @@ func (s *Server) sftpSyncCwd(ctx context.Context, args map[string]any) (any, err
 		}
 		target = cur
 	}
-	path, err := s.sftpRequireWritePath("remotePath", target)
+	path, err := NormalizeRemotePath(target)
 	if err != nil {
 		return nil, err
 	}
@@ -1286,12 +1300,14 @@ func (s *Server) sftpCancel(ctx context.Context, args map[string]any) (any, erro
 	logx.Infof("[debugsrv/sftp] 取消传输完成: transferId=%q session=%s direction=%s name=%q",
 		id, sess, direction, name)
 	return map[string]any{
-		"ok":         true,
-		"transferId": id,
-		"sessionId":  sess,
-		"direction":  direction,
-		"name":       name,
-		"note":       "已请求取消：进行中的传输会在下一个数据块处停止（既有实现会删除未完成的本地 / 远端文件）",
+		"ok":                   true,
+		"transferId":           id,
+		"sessionId":            sess,
+		"direction":            direction,
+		"name":                 name,
+		"cancelRequested":      true,
+		"terminationConfirmed": false,
+		"note":                 "已请求取消：进行中的传输会在下一个数据块处停止（既有实现会删除未完成的本地 / 远端文件）",
 	}, nil
 }
 
@@ -1426,8 +1442,9 @@ func (s *Server) terminalRun(ctx context.Context, args map[string]any) (any, err
 	// 而不是靠「输出静默」猜命令是否跑完。
 	// 注意匹配 __DING_EXIT__[0-9]+ 而不是 __DING_EXIT__：后者会先命中**命令行回显**
 	//（回显里是字面量 __DING_EXIT__%s，没有数字）。
+	exitPrefix := terminalMarkerPrefix + newSessionID() + "_"
 	if wrap && ta.pattern == nil {
-		ta.pattern = reExitMarkerCode
+		ta.pattern = regexp.MustCompile(regexp.QuoteMeta(exitPrefix) + `[0-9]+`)
 	}
 	if !s.acquireTerminal(ta.sessionID) {
 		logx.Warnf("[debugsrv/sftp] 执行终端命令被拒绝（会话已被占用）: terminal=%s", ta.sessionID)
@@ -1441,7 +1458,7 @@ func (s *Server) terminalRun(ctx context.Context, args map[string]any) (any, err
 
 	sent := command
 	if wrap {
-		sent = wrapExitCommand(command)
+		sent = wrapExitCommand(command, exitPrefix)
 	}
 	if !strings.HasSuffix(sent, "\r") {
 		sent += "\r"
@@ -1490,9 +1507,14 @@ func (s *Server) terminalRun(ctx context.Context, args map[string]any) (any, err
 	if expect != "" {
 		res["pattern"] = expect
 	}
+	res["completionKnown"] = false
+	res["inputIsolation"] = "shared-pty"
+	res["interference"] = "unknown"
 	if wrap {
-		if code, ok := extractExitMarker(visible); ok {
+		res["exitMarkerPrefix"] = exitPrefix
+		if code, ok := extractExitMarker(visible, exitPrefix); ok {
 			res["exitMarker"] = code
+			res["completionKnown"] = true
 		} else {
 			res["exitMarker"] = nil
 		}
@@ -1945,8 +1967,12 @@ func incompleteEscapeTail(s string) int {
 //
 // 只在 wrapExitMarker=true（AI 显式要求）时才会改动用户命令；返回里会带
 // wrapped=true + wrappedCommand，如实说明实际执行了什么。
-func wrapExitCommand(command string) string {
-	return command + "; printf '\\n" + terminalMarkerPrefix + "%s\\n' \"$?\""
+func wrapExitCommand(command string, prefixes ...string) string {
+	prefix := terminalMarkerPrefix
+	if len(prefixes) > 0 {
+		prefix = prefixes[0]
+	}
+	return command + "; printf '\\n" + prefix + "%s\\n' \"$?\""
 }
 
 // reExitMarker 匹配退出码标记（取最后一次出现的）。
@@ -1959,8 +1985,12 @@ var reExitMarker = regexp.MustCompile(terminalMarkerPrefix + `([0-9]{1,3})`)
 var reExitMarkerCode = regexp.MustCompile(terminalMarkerPrefix + `[0-9]+`)
 
 // extractExitMarker 从可见文本里解析退出码（没有则 ok=false）。
-func extractExitMarker(visible string) (int, bool) {
-	all := reExitMarker.FindAllStringSubmatch(visible, -1)
+func extractExitMarker(visible string, prefixes ...string) (int, bool) {
+	re := reExitMarker
+	if len(prefixes) > 0 {
+		re = regexp.MustCompile(regexp.QuoteMeta(prefixes[0]) + `([0-9]{1,3})`)
+	}
+	all := re.FindAllStringSubmatch(visible, -1)
 	if len(all) == 0 {
 		return 0, false
 	}

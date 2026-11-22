@@ -7,7 +7,7 @@ import {copyText as ClipboardSetText} from '../../utils/clipboard'
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from '../Icon.vue'
 import ToggleSwitch from '../ToggleSwitch.vue'
-import {Button} from '../ui'
+import {Button, Select} from '../ui'
 import {frontendRuntimeStatus} from '../../utils/runtime-status'
 import {sshService} from '../../services/ssh'
 import {APP_COMMIT, APP_VERSION, buildDateLabel, buildTimeLabel, detectPlatform, platformLabel} from '../../version'
@@ -140,12 +140,12 @@ onBeforeUnmount(() => {
 
     <div class="neo px-5 py-4 space-y-4">
       <h4 class="text-sm font-medium text-slate-200">应用更新</h4>
-      <label class="flex items-center justify-between gap-4 text-sm text-slate-300">
-        更新渠道
-        <select :value="updateChannel" :disabled="updateBusy || updateReady" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2" @change="setUpdateChannel(($event.target as HTMLSelectElement).value)">
+      <div class="flex items-center justify-between gap-4 text-sm text-slate-300">
+        <label for="update-channel">更新渠道</label>
+        <Select id="update-channel" :model-value="updateChannel" :disabled="updateBusy || updateReady" class="update-channel-select" @update:model-value="setUpdateChannel(String($event))">
           <option value="main">main（稳定版）</option><option value="dev">dev（测试版）</option>
-        </select>
-      </label>
+        </Select>
+      </div>
       <div class="flex items-center justify-between gap-4">
         <div><p id="startup-update-label" class="text-sm text-slate-300">启动时检查更新</p><p class="mt-1 text-xs text-slate-500">发现新版本后在左下角提示，确认后才下载安装。</p></div>
         <ToggleSwitch :model-value="checkUpdatesOnStartup" aria-labelledby="startup-update-label" @update:model-value="setStartupCheck" />
@@ -210,3 +210,7 @@ onBeforeUnmount(() => {
     </div>
   </section>
 </template>
+
+<style scoped>
+.update-channel-select{width:176px;max-width:65%;flex-shrink:0;cursor:pointer}
+</style>

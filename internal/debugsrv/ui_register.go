@@ -32,7 +32,7 @@ func registerUIToolCaps() {
 			writes++
 			continue
 		}
-		RegisterToolCap(name, CapRead)
+		RegisterToolCap(name, CapUIInspect)
 		reads++
 	}
 	logx.Infof("[debugsrv/ui] 注册 UI 工具能力位: total=%d read=%d write=%d", len(uiToolNames), reads, writes)

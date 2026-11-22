@@ -56,6 +56,8 @@ func ensureSFTPRegistrations(t *testing.T) {
 // 为什么四个域都要登记：注册表驱动的断言（assertRegistryToolsListed）遍历
 // AllRegisteredToolNames()，只要某个域被 ResetRegistrationsForTest 清掉就会漏掉该域的工具。
 func ensureAllRegistrations(t *testing.T) {
+	registerJobsCaps()
+
 	t.Helper()
 	ensureUIRegistrations(t)
 	ensureAppctlRegistrations(t)

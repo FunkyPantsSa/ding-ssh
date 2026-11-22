@@ -108,3 +108,19 @@ describe('startup, close confirmation and motion preferences', () => {
     expect(store.autoStart).toBe(false)
   })
 })
+
+
+it('does not grant new MCP permissions while loading legacy settings', async () => {
+ vi.mocked(settingsService.getSettings).mockResolvedValue({uiSchema:4,debug:{enabled:true,port:8765}} as never)
+ const store=useSettingsStore();await store.load()
+ expect(store.debug.capTerminalInput).toBe(false)
+ expect(store.debug.capTerminalRead).toBe(false)
+ expect(store.debug.capLocalExec).toBe(false)
+ expect(store.debug.trustedAutomation).toBe(false)
+})
+
+it('preserves independently granted credential use and write permissions without exporting secrets', async () => {
+ vi.mocked(settingsService.getSettings).mockResolvedValue({uiSchema:4,debug:{capCredentialUse:true,capSecretWrite:true,allowSecrets:false,capTerminalRead:true,auditPersistent:true}} as never)
+ const store=useSettingsStore();await store.load();await store.setCopyOnSelect(true)
+ expect(settingsService.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({debug:expect.objectContaining({capCredentialUse:true,capSecretWrite:true,allowSecrets:false,capTerminalRead:true,auditPersistent:true})}))
+})

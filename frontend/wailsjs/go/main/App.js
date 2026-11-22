@@ -10,6 +10,10 @@ export function AddGroup(arg1) {
   return window['go']['main']['App']['AddGroup'](arg1);
 }
 
+export function ApplyDebugPreset(arg1) {
+  return window['go']['main']['App']['ApplyDebugPreset'](arg1);
+}
+
 export function BeforeClose(arg1) {
   return window['go']['main']['App']['BeforeClose'](arg1);
 }
@@ -44,6 +48,10 @@ export function ConnectAuthenticated(arg1, arg2, arg3, arg4, arg5) {
 
 export function ConnectLocal(arg1, arg2, arg3) {
   return window['go']['main']['App']['ConnectLocal'](arg1, arg2, arg3);
+}
+
+export function CreateDebugClient(arg1) {
+  return window['go']['main']['App']['CreateDebugClient'](arg1);
 }
 
 export function DebugInfo() {
@@ -158,6 +166,10 @@ export function InstallUpdateNow() {
   return window['go']['main']['App']['InstallUpdateNow']();
 }
 
+export function ListDebugClients() {
+  return window['go']['main']['App']['ListDebugClients']();
+}
+
 export function ListLocalIPv4() {
   return window['go']['main']['App']['ListLocalIPv4']();
 }
@@ -232,6 +244,10 @@ export function RestartTunnel(arg1) {
 
 export function RevealLocalPath(arg1) {
   return window['go']['main']['App']['RevealLocalPath'](arg1);
+}
+
+export function RevokeDebugClient(arg1) {
+  return window['go']['main']['App']['RevokeDebugClient'](arg1);
 }
 
 export function SaveCredential(arg1) {

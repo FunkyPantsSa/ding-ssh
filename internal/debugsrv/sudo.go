@@ -54,7 +54,7 @@ package debugsrv
 //
 // # 能力位与确认（登记见本文件 init）
 //
-//	RegisterToolCap("terminal.sudo", CapSudoCredential, CapTerminalInput)
+//	RegisterToolCap("terminal.sudo", CapSudoCredential, CapTerminalInput, CapCredentialUse)
 //	RegisterToolConfirm("terminal.sudo", "terminal.sudo") // 等价于把该机器的 root 交给 AI → 必须两段式
 //
 // CapSudoCredential 还要求 AllowSecrets=true（密码要从凭据库读出来），缺哪一项由宿主 Gate 明确指出来。
@@ -166,10 +166,10 @@ func init() {
 //   - CapSudoCredential：本次操作的本质（用保存的密码提权），还要求 AllowSecrets=true；
 //   - CapTerminalInput：它仍然是在终端里执行命令（等价于代替用户敲命令）。
 func registerSudoCaps() {
-	RegisterToolCap(OpTerminalSudo, CapSudoCredential, CapTerminalInput)
+	RegisterToolCap(OpTerminalSudo, CapSudoCredential, CapTerminalInput, CapCredentialUse)
 	RegisterToolConfirm(OpTerminalSudo, OpTerminalSudo)
 	logx.Infof("[debugsrv/sudo] 注册提权工具: tool=%s caps=%d confirm=%s",
-		OpTerminalSudo, 2, OpTerminalSudo)
+		OpTerminalSudo, 3, OpTerminalSudo)
 }
 
 // sudoWantRegistry 规格表：工具 → 能力位 → 确认 action（供 sudo_test.go 断言，与登记表一一对应）。
@@ -180,6 +180,7 @@ var sudoWantRegistry = []struct {
 }{
 	{OpTerminalSudo, CapSudoCredential, OpTerminalSudo},
 	{OpTerminalSudo, CapTerminalInput, OpTerminalSudo},
+	{OpTerminalSudo, CapCredentialUse, OpTerminalSudo},
 }
 
 // ---- 工具条目 ----

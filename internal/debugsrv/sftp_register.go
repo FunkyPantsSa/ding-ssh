@@ -2,27 +2,10 @@ package debugsrv
 
 import "ding-ssh/internal/logx"
 
-// M8（SFTP + 终端自动化）的能力位 / 两段式确认登记。
-//
-// 为什么单独一个文件：地基（caps.go 顶部注释）明确规定「各域不许改内置表 toolCaps，
-// 必须在自己文件的 init() 里用 RegisterToolCap / RegisterToolConfirm 登记」。
-// sftp_test.go 会重新调用 registerSFTPCaps() 保证用例之间不互相影响
-// （RegisterToolCap 幂等，重复登记以最后一次为准），并断言 RegistrationErrors() 为空 ——
-// 拼错能力名这类问题不会静默通过。
-//
-// 能力位划分（与任务规格逐条对应）：
-//
-//	读类（cap = read，永远允许；但仍全部走审计）：
-//	  sftp.list / sftp.stat / sftp.read / sftp.transfers / terminal.expect
-//	远端文件写入（fs.remote.write + 两段式确认；路径还要过白名单，见 sftp.go）：
-//	  sftp.write（action sftp.write）/ sftp.mkdir / sftp.rename / sftp.remove /
-//	  sftp.syncCwd（action sftp.write，非破坏性但同属写类）/ sftp.cancel（action sftp.cancel）
-//	终端输入（terminal.input，可逆 / 高频，**不注册** RegisterToolConfirm）：
-//	  terminal.run
-//
-// 为什么 terminal.expect 只登记 CapRead：它不向会话写入任何数据（纯等待 + 读输出增量），
-// 按地基规则「读类工具 RegisterToolCap(tool) 不传能力（= read）」处理；
-// 会改变远端状态的只有 terminal.run（向终端键入命令）→ CapTerminalInput。
+// File content reads, remote mutations, panel navigation and transfer
+// cancellation have independent authorization. Only mutations need a one-time
+// approved operation token. Interactive terminal input remains powerful and
+// requires explicit terminal execution authorization.
 
 func init() {
 	registerSFTPCaps()
@@ -30,16 +13,16 @@ func init() {
 
 // registerSFTPCaps 登记 M8 全部工具的能力位与确认动作（幂等，测试可重复调用）。
 func registerSFTPCaps() {
-	// ---- 读类（永远允许）----
-	readNames := []string{
-		OpSftpList, OpSftpStat, OpSftpRead, OpSftpTransfers, OpTerminalExpect,
+	// File reads are a distinct authorization boundary from app diagnostics.
+	for _, name := range []string{OpSftpList, OpSftpStat, OpSftpRead, OpSftpDownload, OpSftpPatchPreview} {
+		RegisterToolCap(name, CapRemoteFSRead)
 	}
-	for _, name := range readNames {
-		RegisterToolCap(name, CapRead)
-	}
+	RegisterToolCap(OpSftpTransfers, CapRead)
+	RegisterToolCap(OpTerminalExpect, CapTerminalRead)
+	readNames := []string{OpSftpList, OpSftpStat, OpSftpRead, OpSftpDownload, OpSftpPatchPreview, OpSftpTransfers, OpTerminalExpect}
 
 	// ---- 远端文件写入：fs.remote.write + 两段式确认 ----
-	writes := 0
+	writes := 2
 	registerWrite(OpSftpWrite, CapRemoteFSWrite, OpSftpWrite)
 	writes++
 	registerWrite(OpSftpMkdir, CapRemoteFSWrite, OpSftpMkdir)
@@ -48,14 +31,15 @@ func registerSFTPCaps() {
 	writes++
 	registerWrite(OpSftpRemove, CapRemoteFSWrite, OpSftpRemove)
 	writes++
-	// 目录同步 = 写类动作（按规格复用 sftp.write 这个 action 名）
-	registerWrite(OpSftpSyncCwd, CapRemoteFSWrite, OpSftpWrite)
-	writes++
-	// 取消传输：会丢弃一个正在进行的传输（远端 / 本地可能留下半截文件），需要确认
-	registerWrite(OpSftpCancel, CapRemoteFSWrite, OpSftpCancel)
-	writes++
+	registerWrite(OpSftpUpload, CapRemoteFSWrite, OpSftpUpload)
+	registerWrite(OpSftpPatch, CapRemoteFSWrite, OpSftpPatch)
+	RegisterToolCap(OpSftpPatch, CapRemoteFSWrite, CapRemoteFSRead)
+	RegisterToolCap(OpSftpSyncCwd, CapUIWrite)
+	UnregisterToolConfirm(OpSftpSyncCwd)
+	RegisterToolCap(OpSftpCancel, CapTransferCancel)
+	UnregisterToolConfirm(OpSftpCancel)
 
-	// ---- 终端自动化：写入终端只需 terminal.input，可逆 / 高频 → 不注册确认 ----
+	// Interactive input is explicitly authorized; it is not inherently reversible.
 	RegisterToolCap(OpTerminalRun, CapTerminalInput)
 
 	logx.Infof("[debugsrv/sftp] 注册 SFTP 工具能力位: total=%d read=%d write=%d terminalInput=1",
@@ -71,16 +55,20 @@ var sftpWantRegistry = []struct {
 	Cap    Capability
 	Action string
 }{
-	{OpSftpList, CapRead, ""},
-	{OpSftpStat, CapRead, ""},
-	{OpSftpRead, CapRead, ""},
+	{OpSftpList, CapRemoteFSRead, ""},
+	{OpSftpStat, CapRemoteFSRead, ""},
+	{OpSftpRead, CapRemoteFSRead, ""},
 	{OpSftpTransfers, CapRead, ""},
-	{OpTerminalExpect, CapRead, ""},
+	{OpTerminalExpect, CapTerminalRead, ""},
 	{OpSftpWrite, CapRemoteFSWrite, OpSftpWrite},
 	{OpSftpMkdir, CapRemoteFSWrite, OpSftpMkdir},
 	{OpSftpRename, CapRemoteFSWrite, OpSftpRename},
 	{OpSftpRemove, CapRemoteFSWrite, OpSftpRemove},
-	{OpSftpSyncCwd, CapRemoteFSWrite, OpSftpWrite},
-	{OpSftpCancel, CapRemoteFSWrite, OpSftpCancel},
+	{OpSftpSyncCwd, CapUIWrite, ""},
+	{OpSftpCancel, CapTransferCancel, ""},
 	{OpTerminalRun, CapTerminalInput, ""},
+	{OpSftpPatchPreview, CapRemoteFSRead, ""},
+	{OpSftpPatch, CapRemoteFSWrite, OpSftpPatch},
+	{OpSftpUpload, CapRemoteFSWrite, OpSftpUpload},
+	{OpSftpDownload, CapRemoteFSRead, ""},
 }

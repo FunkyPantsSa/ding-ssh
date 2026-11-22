@@ -39,6 +39,7 @@ import (
 // DebugBoot 启动期就需要的调试模式信息。
 // WebView2 的远程调试端口必须在 wails.Run 之前确定，因此这部分设置会在启动前先读一次。
 type DebugBoot struct {
+	Policy       models.DebugSettings
 	Enabled      bool
 	Port         int
 	BindLAN      bool
@@ -87,6 +88,7 @@ func ReadDebugBoot() DebugBoot {
 		logx.Warnf("[apphost] SQLite 与 JSON 设置均不可用，调试配置回落默认值: err=%v", jerr)
 	}
 	boot := DebugBoot{
+		Policy:       d,
 		Enabled:      d.Enabled,
 		Port:         d.Port,
 		BindLAN:      d.BindLAN,
@@ -182,6 +184,8 @@ func (c *debugController) start() {
 	srv := debugsrv.New(debugsrv.Options{
 		Addr:     fmt.Sprintf("%s:%d", host, c.boot.Port),
 		Token:    c.boot.Token,
+		Approver: c.approveDebugOperation,
+		Clients:  debugsrv.NewClientRegistry(),
 		Handler:  c,
 		Hub:      c.hub,
 		Logf:     logx.Infof,
@@ -200,6 +204,8 @@ func (c *debugController) start() {
 		srv = debugsrv.New(debugsrv.Options{
 			Addr:     fmt.Sprintf("%s:0", host),
 			Token:    c.boot.Token,
+			Approver: c.approveDebugOperation,
+			Clients:  debugsrv.NewClientRegistry(),
 			Handler:  c,
 			Hub:      c.hub,
 			Logf:     logx.Infof,
@@ -407,6 +413,9 @@ type debugArgs struct {
 
 // Handle 实现 debugsrv.Handler：把 op 分派到后端（会话/隧道）或前端（xterm / 页面）。
 func (c *debugController) Handle(ctx context.Context, op string, args json.RawMessage) (any, error) {
+	if debugsrv.IsJobsHostOp(op) {
+		return c.handleJobsHostOp(ctx, op, args)
+	}
 	// 调试 API 入口：只记 op 名与参数体积，绝不记录请求正文。
 	logx.Debugf("[apphost] 调试 op 分派: op=%s argsBytes=%d", op, len(args))
 	// ---- UI 观测 / 实验域（M5+M6）：op 形如 ui.*，参数形状各异，原样透传给前端桥 ----
@@ -476,7 +485,7 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 
 	switch op {
 	case debugsrv.OpHealth:
-		return c.info(), nil
+		return debugsrv.SafeProjection(c.info()), nil
 	case debugsrv.OpStatus:
 		return c.statusView(), nil
 	case debugsrv.OpState:
@@ -496,6 +505,11 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 			"id": in.ID, "from": in.From, "lines": in.Lines, "raw": in.Raw,
 		})
 	case debugsrv.OpTerminalInput:
+		if c.app.local != nil && c.app.local.Has(in.ID) {
+			if err := (debugGate{c}).Allow(debugsrv.CapLocalExec, "本机终端输入"); err != nil {
+				return nil, err
+			}
+		}
 		if in.ID == "" {
 			return nil, fmt.Errorf("%w: 缺少 id", debugsrv.ErrBadInput)
 		}
@@ -552,6 +566,14 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 		}
 		return c.settingsView(st), nil
 	case debugsrv.OpSettingsUpdate:
+		var settingsPatch map[string]any
+		if json.Unmarshal(args, &settingsPatch) == nil {
+			for k := range settingsPatch {
+				if strings.EqualFold(k, "debug") || strings.HasPrefix(strings.ToLower(k), "debug.") {
+					return nil, errors.New("MCP 设置写入不能修改权限或监听配置")
+				}
+			}
+		}
 		if len(args) == 0 {
 			return nil, fmt.Errorf(i18n.T("%w: 需要 settings JSON（支持部分字段）"), debugsrv.ErrBadInput)
 		}
@@ -610,7 +632,7 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 // state 汇总后端与前端的状态快照。
 func (c *debugController) state(ctx context.Context) (any, error) {
 	out := map[string]any{
-		"debug":    c.info(),
+		"debug":    debugsrv.SafeProjection(c.info()),
 		"sessions": c.app.manager.List(),
 		"tunnels":  c.app.manager.ListTunnels(),
 	}
@@ -795,6 +817,7 @@ func (a *App) reloadDebug(next models.DebugSettings) {
 // 这里把 models.DebugSettings 的其余字段写回快照。监听地址三字段（Enabled/Port/BindLAN）
 // 不由本函数处理 —— 它们只在启停路径里改，避免「就地生效」路径意外改掉监听配置。
 func (b DebugBoot) withRuntimeSettings(next models.DebugSettings) DebugBoot {
+	b.Policy = next
 	b.AllowEval = next.AllowEval
 	b.AllowSecrets = next.AllowSecrets
 	b.CDPEnabled = next.CDPEnabled
@@ -1255,8 +1278,11 @@ func (a *App) ExportDiagnostics() map[string]any {
 		logx.Errorf("[apphost] 导出诊断包失败（创建日志目录）: dir=%q err=%v", dir, err)
 		return map[string]any{"error": fmt.Sprintf("创建日志目录失败: %v", err)}
 	}
-	path := filepath.Join(dir, "diagnostics-"+time.Now().Format("20060102-150405")+".zip")
-	f, err := os.Create(path)
+	f, err := os.CreateTemp(dir, "diagnostics-"+time.Now().Format("20060102-150405")+"-*.zip")
+	path := ""
+	if f != nil {
+		path = f.Name()
+	}
 	if err != nil {
 		logx.Errorf("[apphost] 导出诊断包失败（创建文件）: path=%q err=%v", path, err)
 		return map[string]any{"error": fmt.Sprintf("创建诊断包失败: %v", err)}
@@ -1297,22 +1323,14 @@ func (a *App) writeDiagnostics(zw *zip.Writer, dir string) error {
 		}
 	}
 
-	// 最近 N 个日志文件（ListFiles 已按修改时间倒序）
-	if files, err := logx.ListFiles(); err != nil {
-		fail(err)
-	} else {
-		if len(files) > diagnosticsMaxLogFiles {
-			files = files[:diagnosticsMaxLogFiles]
+	// Raw logs and terminal buffers may contain unlabelled application secrets.
+	// Export safe metadata by default; explicitly reading logs is a separate capability.
+	if a.debug != nil {
+		if data, err := json.MarshalIndent(debugsrv.SafeProjection(a.debug.info()), "", "  "); err == nil {
+			fail(addBytesToZip(zw, "debug.json", data))
+		} else {
+			fail(err)
 		}
-		for _, lf := range files {
-			fail(addFileToZip(zw, lf.Name, filepath.Join(dir, lf.Name)))
-		}
-	}
-
-	// debug.json（调试模式运行时才有）
-	infoPath := DebugInfoPath()
-	if _, err := os.Stat(infoPath); err == nil {
-		fail(addFileToZip(zw, "debug.json", infoPath))
 	}
 
 	// state.json：/v1/state 的等价快照（会话列表 + 终端诊断）
@@ -1344,38 +1362,15 @@ func (a *App) writeDiagnostics(zw *zip.Writer, dir string) error {
 // 会话列表由后端直接给出；终端诊断（xterm 的行列 / 缓冲区 / 可见文本）只有前端知道，
 // 通过调试服务的前端桥获取，取不到就写 error，保证诊断包本身一定能生成。
 func (a *App) diagnosticsState() map[string]any {
-	logx.Debugf("[apphost] 生成诊断状态快照: debugEnabled=%v", a.debug != nil)
-	out := map[string]any{}
+	out := map[string]any{"note": "默认诊断不包含原始日志、终端输出或前端 store"}
 	if a.manager != nil {
-		out["sessions"] = a.manager.List()
-		out["tunnels"] = a.manager.ListTunnels()
+		out["sessions"] = debugsrv.SafeProjection(a.manager.List())
+		out["tunnels"] = debugsrv.SafeProjection(a.manager.ListTunnels())
 	}
 	if a.settings != nil {
 		if st, err := a.settings.Get(); err == nil {
-			if a.debug != nil {
-				for k, v := range a.debug.settingsView(st) {
-					out[k] = v
-				}
-			} else {
-				out["settings"] = st
-			}
+			out["settings"] = debugsrv.SafeProjection(st)
 		}
-	}
-	if a.debug == nil || a.debug.bridge == nil {
-		out["error"] = "调试模式未开启，无法获取终端诊断（terminals）"
-		return out
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), diagnosticsBridgeTimeout)
-	defer cancel()
-	if v, err := a.debug.callFrontend(ctx, "terminals", nil); err == nil {
-		out["terminals"] = v
-	} else {
-		out["error"] = err.Error()
-	}
-	if v, err := a.debug.callFrontend(ctx, "state", nil); err == nil {
-		out["frontend"] = v
-	} else {
-		out["frontendError"] = err.Error()
 	}
 	return out
 }
@@ -1610,21 +1605,21 @@ func (a *App) currentDebugSettings() models.DebugSettings {
 // settings 把启动期读到的调试配置还原成 models.DebugSettings
 // （存储不可用时的兜底：至少让能力位与启动时一致，而不是全部关闭）。
 func (b DebugBoot) settings() models.DebugSettings {
-	return models.DebugSettings{
-		Enabled:           b.Enabled,
-		Port:              b.Port,
-		BindLAN:           b.BindLAN,
-		AllowEval:         b.AllowEval,
-		AllowSecrets:      b.AllowSecrets,
-		CDPEnabled:        b.CDPEnabled,
-		CapTerminalInput:  b.CapTerminalInput,
-		CapUIWrite:        b.CapUIWrite,
-		CapConfigWrite:    b.CapConfigWrite,
-		CapSecretWrite:    b.CapSecretWrite,
-		CapRemoteFSWrite:  b.CapRemoteFSWrite,
-		CapSudoCredential: b.CapSudoCredential,
-		CapLifecycle:      b.CapLifecycle,
-	}
+	d := b.Policy
+	d.Enabled = b.Enabled
+	d.Port = b.Port
+	d.BindLAN = b.BindLAN
+	d.AllowEval = b.AllowEval
+	d.AllowSecrets = b.AllowSecrets
+	d.CDPEnabled = b.CDPEnabled
+	d.CapTerminalInput = b.CapTerminalInput
+	d.CapUIWrite = b.CapUIWrite
+	d.CapConfigWrite = b.CapConfigWrite
+	d.CapSecretWrite = b.CapSecretWrite
+	d.CapRemoteFSWrite = b.CapRemoteFSWrite
+	d.CapSudoCredential = b.CapSudoCredential
+	d.CapLifecycle = b.CapLifecycle
+	return d
 }
 
 // debugGate 实现 debugsrv.Gate：宿主侧的能力校验。
@@ -1645,8 +1640,14 @@ func (g debugGate) Allow(cap debugsrv.Capability, detail string) error {
 			suffix = fmt.Sprintf("（本次操作涉及：%s）", detail)
 		}
 		return fmt.Errorf(i18n.T("「%s」能力未开启：%s%s。可在 设置 → 调试模式 → MCP 能力 中开启，")+
-			"或先 confirm.prepare（action=capability.enable, args={\"cap\":%q}）再 confirm.commit。",
+			"权限只能由用户在应用内修改（能力：%q）。",
 			label, reason, suffix, string(cap))
+	}
+	if allowed, known := debugCapabilityValue(d, cap); known {
+		if !allowed {
+			return deny("用户尚未授权此能力")
+		}
+		return nil
 	}
 	switch cap {
 	case debugsrv.CapTerminalInput:
@@ -1666,9 +1667,6 @@ func (g debugGate) Allow(cap debugsrv.Capability, detail string) error {
 			return deny("它需要同时开启「允许读取敏感数据」")
 		}
 	case debugsrv.CapSecretsWrite:
-		if !d.AllowSecrets {
-			return deny("凭据写入需要同时开启「允许读取敏感数据」")
-		}
 		if !d.CapSecretWrite {
 			return deny("它控制「写入凭据」（新增 / 修改 / 删除保存的凭据）")
 		}
@@ -1691,8 +1689,8 @@ func (g debugGate) Allow(cap debugsrv.Capability, detail string) error {
 		if !d.CapSudoCredential {
 			missing = append(missing, "「sudo 凭证提权」(sudo.credential) 本身未开启")
 		}
-		if !d.AllowSecrets {
-			missing = append(missing, "「允许读取敏感数据」(secrets.read) 未开启 —— 本能力要用应用里为该服务器保存的密码")
+		if !d.CapCredentialUse {
+			missing = append(missing, "credentials.use 未开启（内部使用保存的凭据，不导出明文）")
 		}
 		if len(missing) > 0 {
 			return deny("它允许 AI 在当前会话对应的服务器上用保存的密码执行 sudo -i（等于交出该机器的 root）。缺：" +
@@ -1717,19 +1715,25 @@ func (g debugGate) Allow(cap debugsrv.Capability, detail string) error {
 // Snapshot 返回当前能力快照（用于 app.permissions 与 initialize.instructions）。
 func (g debugGate) Snapshot() map[debugsrv.Capability]bool {
 	d := g.ctrl.app.currentDebugSettings()
-	return map[debugsrv.Capability]bool{
+	out := map[debugsrv.Capability]bool{
 		debugsrv.CapRead:          true, // 读永远允许
 		debugsrv.CapTerminalInput: d.CapTerminalInput,
 		debugsrv.CapUIWrite:       d.CapUIWrite,
 		debugsrv.CapConfigWrite:   d.CapConfigWrite,
 		debugsrv.CapSecretsRead:   d.AllowSecrets,
-		debugsrv.CapSecretsWrite:  d.AllowSecrets && d.CapSecretWrite,
+		debugsrv.CapSecretsWrite:  d.CapSecretWrite,
 		debugsrv.CapRemoteFSWrite: d.CapRemoteFSWrite,
 		// sudo 凭证提权同样是「能力位 + 允许读取敏感数据」双条件（与 CapSecretsWrite 同款）。
-		debugsrv.CapSudoCredential: d.AllowSecrets && d.CapSudoCredential,
+		debugsrv.CapSudoCredential: d.CapCredentialUse && d.CapSudoCredential,
 		debugsrv.CapLifecycle:      d.CapLifecycle,
 		debugsrv.CapEval:           d.AllowEval,
 	}
+	for _, cap := range debugsrv.AllCapabilities() {
+		if v, ok := debugCapabilityValue(d, cap); ok {
+			out[cap] = v
+		}
+	}
+	return out
 }
 
 // pathAllowed 判断远端路径是否命中白名单前缀。
@@ -1837,33 +1841,20 @@ var ctlActionOps = map[string]string{
 // 为什么把「开启能力」也列为破坏性动作：它等于给 AI 扩权，用户明确要求
 // 「SFTP 写/删打开需要多次确认」，因此它必须走 confirm.prepare → confirm.commit。
 func (c *debugController) executeCapabilityEnable(args map[string]any) (any, error) {
-	name, _ := args["cap"].(string)
-	logx.Debugf("[apphost] 执行能力开关动作: cap=%q", strings.TrimSpace(name))
-	capName, ok := debugsrv.KnownCapability(name)
-	if !ok {
-		logx.Warnf("[apphost] 执行能力开关动作被拒（未知能力）: cap=%q", strings.TrimSpace(name))
-		return nil, fmt.Errorf(i18n.T("未知能力 %q：可选值见 app.permissions 的 descriptions"), strings.TrimSpace(name))
-	}
-	enabled := true
-	if v, has := args["enabled"]; has {
-		if b, isBool := v.(bool); isBool {
-			enabled = b
-		}
-	}
-	if err := c.app.applyCapability(capName, enabled, "mcp"); err != nil {
-		return nil, err
-	}
-	return map[string]any{
-		"cap":     string(capName),
-		"enabled": enabled,
-		"caps":    c.app.capabilitySnapshot(),
-	}, nil
+	return nil, errors.New("MCP 不允许自行扩权；请由用户在应用内修改授权")
 }
 
 // executeSettingsUpdate 执行 settings.update：把设置局部合并后保存（与 update_settings 同路径）。
 func (c *debugController) executeSettingsUpdate(args map[string]any) (any, error) {
 	logx.Debugf("[apphost] 执行设置更新动作")
 	patch, has := args["settings"]
+	if p, ok := patch.(map[string]any); ok {
+		for k := range p {
+			if k == "debug" || strings.HasPrefix(k, "debug.") {
+				return nil, errors.New("不能通过设置更新修改调试授权")
+			}
+		}
+	}
 	if !has {
 		logx.Warnf("[apphost] 执行设置更新动作被拒（缺少 settings）")
 		return nil, fmt.Errorf(i18n.T("%w: 缺少 settings"), debugsrv.ErrBadInput)
@@ -1941,19 +1932,25 @@ func (a *App) GetCapabilities() map[string]any {
 // capabilitySnapshot 返回能力位快照（与 debugGate.Snapshot 同源，供前端与 app.health 使用）。
 func (a *App) capabilitySnapshot() map[string]bool {
 	d := a.currentDebugSettings()
-	return map[string]bool{
+	out := map[string]bool{
 		string(debugsrv.CapRead):          true,
 		string(debugsrv.CapTerminalInput): d.CapTerminalInput,
 		string(debugsrv.CapUIWrite):       d.CapUIWrite,
 		string(debugsrv.CapConfigWrite):   d.CapConfigWrite,
 		string(debugsrv.CapSecretsRead):   d.AllowSecrets,
-		string(debugsrv.CapSecretsWrite):  d.AllowSecrets && d.CapSecretWrite,
+		string(debugsrv.CapSecretsWrite):  d.CapSecretWrite,
 		string(debugsrv.CapRemoteFSWrite): d.CapRemoteFSWrite,
 		// sudo.credential：能力位 + 「允许读取敏感数据」双条件（密码只能从凭据库读）。
-		string(debugsrv.CapSudoCredential): d.AllowSecrets && d.CapSudoCredential,
+		string(debugsrv.CapSudoCredential): d.CapCredentialUse && d.CapSudoCredential,
 		string(debugsrv.CapLifecycle):      d.CapLifecycle,
 		string(debugsrv.CapEval):           d.AllowEval,
 	}
+	for _, cap := range debugsrv.AllCapabilities() {
+		if v, ok := debugCapabilityValue(d, cap); ok {
+			out[string(cap)] = v
+		}
+	}
+	return out
 }
 
 // capabilityLabels 返回「能力名 → 中文短名」（前端列表标题）。
@@ -2012,6 +2009,7 @@ func (a *App) applyCapability(c debugsrv.Capability, enabled bool, source string
 		return fmt.Errorf(i18n.T("读取设置失败: %w"), err)
 	}
 	before := cur.Debug
+	setDebugCapability(&cur.Debug, c, enabled)
 	// 关掉敏感能力时不清空白名单：用户可能只是临时关掉再打开，
 	// 保留已填好的路径更符合直觉。
 	switch c {
@@ -2022,25 +2020,13 @@ func (a *App) applyCapability(c debugsrv.Capability, enabled bool, source string
 	case debugsrv.CapConfigWrite:
 		cur.Debug.CapConfigWrite = enabled
 	case debugsrv.CapSecretsWrite:
-		if enabled && !cur.Debug.AllowSecrets {
-			return errors.New(i18n.T("开启「凭据写入」前必须先开启「允许读取敏感数据」（凭据写入必然要读回凭据）"))
-		}
 		cur.Debug.CapSecretWrite = enabled
 	case debugsrv.CapSecretsRead:
 		// 读取敏感数据对应既有 AllowSecrets 开关（与调试模式页签里的那个开关同源）
 		cur.Debug.AllowSecrets = enabled
-		if !enabled {
-			cur.Debug.CapSecretWrite = false // 不允许读就不可能允许写
-			// sudo 提权同样要读回保存的密码：不允许读时一并回落（NormalizeDebugSettings 也会兜底）
-			cur.Debug.CapSudoCredential = false
-		}
 	case debugsrv.CapRemoteFSWrite:
 		cur.Debug.CapRemoteFSWrite = enabled
 	case debugsrv.CapSudoCredential:
-		if enabled && !cur.Debug.AllowSecrets {
-			return errors.New(i18n.T("开启「sudo 凭证提权」前必须先开启「允许读取敏感数据」（密码只能从凭据库读出来，") +
-				"不允许读取敏感数据就不可能用保存的密码提权）")
-		}
 		cur.Debug.CapSudoCredential = enabled
 	case debugsrv.CapLifecycle:
 		cur.Debug.CapLifecycle = enabled
@@ -2052,7 +2038,9 @@ func (a *App) applyCapability(c debugsrv.Capability, enabled bool, source string
 		}
 		return nil
 	default:
-		return fmt.Errorf(i18n.T("能力 %q 不支持通过该接口修改"), c)
+		if _, known := debugCapabilityValue(cur.Debug, c); !known {
+			return fmt.Errorf(i18n.T("能力 %q 不支持通过该接口修改"), c)
+		}
 	}
 	cur.Debug = models.NormalizeDebugSettings(cur.Debug)
 	if err := a.SaveSettings(cur); err != nil {
@@ -2086,6 +2074,9 @@ func (a *App) logCapabilityChange(source string, args map[string]any) {
 
 // capabilityFieldValue 读取某个能力位在设置里的当前值（审计用）。
 func capabilityFieldValue(d models.DebugSettings, c debugsrv.Capability) bool {
+	if value, known := debugCapabilityValue(d, c); known {
+		return value
+	}
 	switch c {
 	case debugsrv.CapTerminalInput:
 		return d.CapTerminalInput
@@ -3060,9 +3051,9 @@ func ctlSettingsFieldMeta() map[string]any {
 		"debug.capTerminalInput":   map[string]any{"risky": true, "note": capRisky},
 		"debug.capUiWrite":         map[string]any{"risky": true, "note": capRisky},
 		"debug.capConfigWrite":     map[string]any{"risky": true, "note": capRisky},
-		"debug.capSecretWrite":     map[string]any{"risky": true, "note": capRisky + "（还需「允许读取敏感数据」）"},
+		"debug.capSecretWrite":     map[string]any{"risky": true, "note": capRisky + "（与明文导出独立）"},
 		"debug.capRemoteFsWrite":   map[string]any{"risky": true, "note": capRisky + "（SFTP 写入，另受 sftpWriteAllowlist 白名单限制）"},
-		"debug.capSudoCredential":  map[string]any{"risky": true, "note": capRisky + "（用应用里保存的密码执行 sudo -i = 交出该机器 root；还需「允许读取敏感数据」，且每次执行仍需两段式确认）"},
+		"debug.capSudoCredential":  map[string]any{"risky": true, "note": capRisky + "（用应用里保存的密码执行 sudo -i = 交出该机器 root；还需 credentials.use，且每次执行仍需两段式确认）"},
 		"debug.capLifecycle":       map[string]any{"risky": true, "note": capRisky + "（重载 / 退出 / 清空日志）"},
 		"debug.sftpWriteAllowlist": map[string]any{"risky": true, "note": "远端可写路径前缀白名单；留空 = 禁止任何写入"},
 	}
@@ -3139,11 +3130,7 @@ func (c *debugController) ctlSettingsReset(paths []string) (any, error) {
 	if len(paths) == 0 {
 		def := ctlDefaultSettings()
 		// 刻意保留调试模式的「连通性」字段：否则重置会把调试服务本身关掉，AI 立刻失联。
-		def.Debug.Enabled = cur.Debug.Enabled
-		def.Debug.Port = cur.Debug.Port
-		def.Debug.BindLAN = cur.Debug.BindLAN
-		def.Debug.AllowEval = cur.Debug.AllowEval
-		def.Debug.AllowSecrets = cur.Debug.AllowSecrets
+		def.Debug = cur.Debug
 		if err := c.app.SaveSettings(def); err != nil {
 			return nil, err
 		}
@@ -3234,7 +3221,7 @@ func isHostSftpOp(op string) bool {
 	switch strings.TrimSpace(op) {
 	case debugsrv.OpSftpList, debugsrv.OpSftpStat, debugsrv.OpSftpRead, debugsrv.OpSftpWrite,
 		debugsrv.OpSftpMkdir, debugsrv.OpSftpRename, debugsrv.OpSftpRemove,
-		debugsrv.OpSftpSyncCwd, debugsrv.OpSftpCancel:
+		debugsrv.OpSftpSyncCwd, debugsrv.OpSftpCancel, debugsrv.OpSftpPatch:
 		return true
 	}
 	return false
@@ -3246,23 +3233,25 @@ func (c *debugController) handleSftpOp(ctx context.Context, op string, args map[
 		op, ctlSftpSessionID(args), ctlArgStr(args, "path"))
 	switch op {
 	case debugsrv.OpSftpList:
-		return c.sftpHostList(args)
+		return c.sftpHostList(ctx, args)
 	case debugsrv.OpSftpStat:
-		return c.sftpHostStat(args)
+		return c.sftpHostStat(ctx, args)
 	case debugsrv.OpSftpRead:
-		return c.sftpHostRead(args)
+		return c.sftpHostRead(ctx, args)
+	case debugsrv.OpSftpPatch:
+		return c.sftpHostPatch(ctx, args)
 	case debugsrv.OpSftpWrite:
-		return c.sftpHostWrite(args)
+		return c.sftpHostWrite(ctx, args)
 	case debugsrv.OpSftpMkdir:
-		return c.sftpHostMkdir(args)
+		return c.sftpHostMkdir(ctx, args)
 	case debugsrv.OpSftpRename:
-		return c.sftpHostRename(args)
+		return c.sftpHostRename(ctx, args)
 	case debugsrv.OpSftpRemove:
-		return c.sftpHostRemove(args)
+		return c.sftpHostRemove(ctx, args)
 	case debugsrv.OpSftpSyncCwd:
-		return c.sftpHostSyncCwd(args)
+		return c.sftpHostSyncCwd(ctx, args)
 	case debugsrv.OpSftpCancel:
-		return c.sftpHostCancel(args)
+		return c.sftpHostCancel(ctx, args)
 	}
 	logx.Warnf("[apphost] 未知 SFTP 宿主操作: op=%s", op)
 	return nil, fmt.Errorf(i18n.T("%w: 未知 SFTP 操作 %q"), debugsrv.ErrBadInput, op)
@@ -3369,7 +3358,7 @@ func ctlSftpErrText(err error) string {
 // AI 需要的是**此刻的真实目录**，而且 models.SFTPEntry 没有 mode / isSymlink 字段。
 // 写入类操作完成后会调用 Manager.InvalidateSftpCache 让面板缓存失效，
 // 因此「AI 写文件 → 用户面板刷新」不会读到旧值。
-func (c *debugController) sftpHostList(args map[string]any) (any, error) {
+func (c *debugController) sftpHostList(ctx context.Context, args map[string]any) (any, error) {
 	client, sess, err := c.ctlSftpClient(args)
 	if err != nil {
 		return nil, err
@@ -3379,6 +3368,9 @@ func (c *debugController) sftpHostList(args map[string]any) (any, error) {
 		path = "."
 	}
 	path = ctlExpandRemoteTilde(client, path)
+	if err := ctlScopedReadPath(ctx, client, path); err != nil {
+		return nil, err
+	}
 	limit := ctlArgInt(args, "limit")
 	if limit <= 0 {
 		limit = 500
@@ -3434,7 +3426,7 @@ func (c *debugController) sftpHostList(args map[string]any) (any, error) {
 }
 
 // sftpHostStat 读单个路径的属性（Lstat 语义：符号链接看链接本身）。
-func (c *debugController) sftpHostStat(args map[string]any) (any, error) {
+func (c *debugController) sftpHostStat(ctx context.Context, args map[string]any) (any, error) {
 	client, sess, err := c.ctlSftpClient(args)
 	if err != nil {
 		return nil, err
@@ -3444,6 +3436,9 @@ func (c *debugController) sftpHostStat(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%w: 缺少 path", debugsrv.ErrBadInput)
 	}
 	path = ctlExpandRemoteTilde(client, path)
+	if err := ctlScopedReadPath(ctx, client, path); err != nil {
+		return nil, err
+	}
 	logx.Debugf("[apphost] MCP SFTP 读取属性: session=%s path=%q", sess, path)
 	fi, err := client.Lstat(path)
 	if err != nil {
@@ -3506,7 +3501,7 @@ func ctlSftpWriteContentB64(args map[string]any) (string, error) {
 }
 
 // sftpHostRead 读文件的一段字节（最多 maxBytes+1，多读的那一个字节用来判断有没有被截断）。
-func (c *debugController) sftpHostRead(args map[string]any) (any, error) {
+func (c *debugController) sftpHostRead(ctx context.Context, args map[string]any) (any, error) {
 	client, sess, err := c.ctlSftpClient(args)
 	if err != nil {
 		return nil, err
@@ -3516,6 +3511,9 @@ func (c *debugController) sftpHostRead(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%w: 缺少 path", debugsrv.ErrBadInput)
 	}
 	path = ctlExpandRemoteTilde(client, path)
+	if err := ctlScopedReadPath(ctx, client, path); err != nil {
+		return nil, err
+	}
 	maxBytes := ctlArgInt(args, "maxBytes")
 	if maxBytes <= 0 {
 		maxBytes = 256 << 10
@@ -3559,63 +3557,43 @@ func (c *debugController) sftpHostRead(args map[string]any) (any, error) {
 }
 
 // sftpHostWrite 写入 / 追加远端文件。
-func (c *debugController) sftpHostWrite(args map[string]any) (any, error) {
-	logx.Debugf("[apphost] MCP SFTP 写文件: session=%s path=%q append=%v",
-		ctlSftpSessionID(args), ctlArgStr(args, "path"), ctlArgBool(args, "append"))
-	client, sess, err := c.ctlSftpClient(args)
+func (c *debugController) sftpHostWrite(ctx context.Context, args map[string]any) (any, error) {
+	client, _, err := c.ctlSftpClient(args)
 	if err != nil {
 		return nil, err
 	}
-	// 宿主侧复核（confirm.commit 路径绕过了 debugsrv 的 preflight）。
 	paths, err := c.ctlRequireSftpWritePaths(ctlArgStr(args, "path"))
 	if err != nil {
 		return nil, err
 	}
 	target := paths[0]
+	if err := ctlScopedWritePath(ctx, client, target, false); err != nil {
+		return nil, err
+	}
 	contentB64, err := ctlSftpWriteContentB64(args)
 	if err != nil {
 		return nil, err
 	}
-	data, derr := base64.StdEncoding.DecodeString(contentB64)
-	if derr != nil {
-		return nil, fmt.Errorf("%w: base64 解码失败：%v", debugsrv.ErrBadInput, derr)
+	data, err := base64.StdEncoding.DecodeString(contentB64)
+	if err != nil {
+		return nil, fmt.Errorf("%w: base64 解码失败", debugsrv.ErrBadInput)
 	}
 	if len(data) > ctlSFTPWriteMaxBytes {
-		return nil, fmt.Errorf(i18n.T("%w: 写入内容 %d 字节超过上限 %d 字节"), debugsrv.ErrBadInput, len(data), ctlSFTPWriteMaxBytes)
+		return nil, fmt.Errorf("%w: 写入内容超过 1 MiB", debugsrv.ErrBadInput)
 	}
-	appendMode := ctlArgBool(args, "append")
-	if ctlArgBool(args, "createDirs") {
-		if parent := path.Dir(target); parent != "" && parent != "/" {
-			if merr := client.MkdirAll(parent); merr != nil {
-				return nil, fmt.Errorf(i18n.T("创建远端父目录 %q 失败：%w"), parent, merr)
-			}
-		}
-	}
-	flags := os.O_WRONLY | os.O_CREATE
-	if appendMode {
-		flags |= os.O_APPEND
-	} else {
-		flags |= os.O_TRUNC
-	}
-	f, oerr := client.OpenFile(target, flags)
-	if oerr != nil {
-		return nil, fmt.Errorf(i18n.T("打开远端文件 %q 写入失败：%w"), target, oerr)
-	}
-	n, werr := f.Write(data)
-	cerr := f.Close()
-	if werr != nil {
-		return nil, fmt.Errorf(i18n.T("写入远端文件 %q 失败：%w"), target, werr)
-	}
-	if cerr != nil {
-		return nil, fmt.Errorf(i18n.T("关闭远端文件 %q 失败：%w"), target, cerr)
+	result, err := sshx.WriteRemoteFile(ctx, client, target, data, sshx.RemoteWriteOptions{
+		Append: ctlArgBool(args, "append"), CreateDirs: ctlArgBool(args, "createDirs"),
+		ExpectedHash: ctlArgStr(args, "expectedHash"), Allowlist: c.app.currentDebugSettings().SFTPWriteAllowlist,
+	})
+	if err != nil {
+		return nil, err
 	}
 	c.app.manager.InvalidateSftpCache(path.Dir(target))
-	logx.Infof("[apphost] MCP SFTP 写入: session=%s path=%s bytes=%d append=%v", sess, target, n, appendMode)
-	return debugsrv.SFTPWritePayload{Path: target, Bytes: n, Appended: appendMode}, nil
+	return map[string]any{"path": target, "bytes": result.Bytes, "appended": ctlArgBool(args, "append"), "atomic": result.Atomic, "sha256": result.SHA256, "metadataPreserved": result.MetadataPreserved, "metadataNote": "保留文件模式与可用的 owner/group；SFTP 不保证保留 ACL/xattrs"}, nil
 }
 
 // sftpHostMkdir 创建远端目录（recursive=true 等价于 mkdir -p）。
-func (c *debugController) sftpHostMkdir(args map[string]any) (any, error) {
+func (c *debugController) sftpHostMkdir(ctx context.Context, args map[string]any) (any, error) {
 	logx.Debugf("[apphost] MCP SFTP 建目录: session=%s path=%q recursive=%v",
 		ctlSftpSessionID(args), ctlArgStr(args, "path"), ctlArgBool(args, "recursive"))
 	client, sess, err := c.ctlSftpClient(args)
@@ -3627,6 +3605,12 @@ func (c *debugController) sftpHostMkdir(args map[string]any) (any, error) {
 		return nil, err
 	}
 	target := paths[0]
+	if err := ctlScopedWritePath(ctx, client, target, false); err != nil {
+		return nil, err
+	}
+	if err := sshx.ValidateRemoteWritePath(client, c.app.currentDebugSettings().SFTPWriteAllowlist, target, false); err != nil {
+		return nil, err
+	}
 	recursive := ctlArgBool(args, "recursive")
 	if recursive {
 		err = client.MkdirAll(target)
@@ -3642,7 +3626,7 @@ func (c *debugController) sftpHostMkdir(args map[string]any) (any, error) {
 }
 
 // sftpHostRename 重命名 / 移动（from 与 to 都已过白名单）。
-func (c *debugController) sftpHostRename(args map[string]any) (any, error) {
+func (c *debugController) sftpHostRename(ctx context.Context, args map[string]any) (any, error) {
 	logx.Debugf("[apphost] MCP SFTP 重命名: session=%s from=%q to=%q",
 		ctlSftpSessionID(args), ctlArgStr(args, "from"), ctlArgStr(args, "to"))
 	client, sess, err := c.ctlSftpClient(args)
@@ -3654,6 +3638,16 @@ func (c *debugController) sftpHostRename(args map[string]any) (any, error) {
 		return nil, err
 	}
 	from, to := paths[0], paths[1]
+	for _, target := range []string{from, to} {
+		if err := ctlScopedWritePath(ctx, client, target, true); err != nil {
+			return nil, err
+		}
+	}
+	for _, target := range []string{from, to} {
+		if err := sshx.ValidateRemoteWritePath(client, c.app.currentDebugSettings().SFTPWriteAllowlist, target, true); err != nil {
+			return nil, err
+		}
+	}
 	if rerr := client.Rename(from, to); rerr != nil {
 		return nil, fmt.Errorf(i18n.T("重命名 %q → %q 失败（会话 %s）：%w"), from, to, sess, rerr)
 	}
@@ -3668,7 +3662,7 @@ func (c *debugController) sftpHostRename(args map[string]any) (any, error) {
 // recursive=false 时若目标是目录会明确拒绝（而不是像既有 App.SftpRemove 那样一律递归删除）：
 // 「删目录」是本次调试控制面里风险最高的动作，宁可多一轮交互也不做隐式递归。
 // 用 Lstat 判断类型：删除符号链接时删的是链接本身，不会递归删掉它指向的目录内容。
-func (c *debugController) sftpHostRemove(args map[string]any) (any, error) {
+func (c *debugController) sftpHostRemove(ctx context.Context, args map[string]any) (any, error) {
 	logx.Debugf("[apphost] MCP SFTP 删除: session=%s path=%q recursive=%v",
 		ctlSftpSessionID(args), ctlArgStr(args, "path"), ctlArgBool(args, "recursive"))
 	client, sess, err := c.ctlSftpClient(args)
@@ -3680,6 +3674,12 @@ func (c *debugController) sftpHostRemove(args map[string]any) (any, error) {
 		return nil, err
 	}
 	target := paths[0]
+	if err := ctlScopedWritePath(ctx, client, target, true); err != nil {
+		return nil, err
+	}
+	if err := sshx.ValidateRemoteWritePath(client, c.app.currentDebugSettings().SFTPWriteAllowlist, target, true); err != nil {
+		return nil, err
+	}
 	recursive := ctlArgBool(args, "recursive")
 	fi, lerr := client.Lstat(target)
 	if lerr != nil {
@@ -3708,17 +3708,20 @@ func (c *debugController) sftpHostRemove(args map[string]any) (any, error) {
 //
 // 刻意**不**向终端键入 cd：那属于 terminal.input 能力（等于代替用户敲命令），
 // 而本工具按规格是「非破坏性」的界面同步动作。
-func (c *debugController) sftpHostSyncCwd(args map[string]any) (any, error) {
+func (c *debugController) sftpHostSyncCwd(ctx context.Context, args map[string]any) (any, error) {
 	sess := ctlSftpSessionID(args)
 	logx.Debugf("[apphost] MCP SFTP 同步面板目录: session=%s remotePath=%q", sess, ctlArgStr(args, "remotePath"))
 	if sess == "" {
 		return nil, fmt.Errorf(i18n.T("%w: 缺少 sessionId"), debugsrv.ErrBadInput)
 	}
-	paths, err := c.ctlRequireSftpWritePaths(ctlArgStr(args, "remotePath"))
+	target, err := debugsrv.NormalizeRemotePath(ctlArgStr(args, "remotePath"))
 	if err != nil {
 		return nil, err
 	}
-	path := paths[0]
+	path := target
+	if err := (debugGate{c}).Allow(debugsrv.CapUIWrite, path); err != nil {
+		return nil, err
+	}
 	if serr := c.app.SetSftpPathFromTerminal(sess, path); serr != nil {
 		return nil, fmt.Errorf(i18n.T("同步 SFTP 目录失败（会话 %s）：%w"), sess, serr)
 	}
@@ -3727,7 +3730,10 @@ func (c *debugController) sftpHostSyncCwd(args map[string]any) (any, error) {
 }
 
 // sftpHostCancel 取消一条进行中的传输（复用既有 Manager.SftpCancelTransfer）。
-func (c *debugController) sftpHostCancel(args map[string]any) (any, error) {
+func (c *debugController) sftpHostCancel(ctx context.Context, args map[string]any) (any, error) {
+	if debugsrv.IsRestrictedCaller(ctx) {
+		return nil, errors.New("当前传输来自界面所有者；受限客户端不能取消其他调用方的任务")
+	}
 	sess := ctlSftpSessionID(args)
 	logx.Debugf("[apphost] MCP SFTP 取消传输: session=%s transferId=%q", sess, ctlArgStr(args, "transferId"))
 	direction := ctlArgStr(args, "direction")
@@ -3745,8 +3751,8 @@ func (c *debugController) sftpHostCancel(args map[string]any) (any, error) {
 	if sess == "" || direction == "" || name == "" {
 		return nil, fmt.Errorf(i18n.T("%w: 缺少 sessionId / direction / name（或 transferId）"), debugsrv.ErrBadInput)
 	}
-	// 取消传输没有路径可查白名单，但仍属于远端写类：能力位 + 非空白名单必须满足。
-	if err := c.ctlRequireRemoteFSWrite(""); err != nil {
+	// Cancelling an owned transfer is independent of remote file write permissions.
+	if err := (debugGate{c}).Allow(debugsrv.CapTransferCancel, ""); err != nil {
 		return nil, err
 	}
 	if err := c.app.SftpCancelTransfer(sess, direction, name); err != nil {
@@ -3869,6 +3875,9 @@ func (c *debugController) sudoHostStage(ctx context.Context, args map[string]any
 	if target == "" {
 		return nil, fmt.Errorf(i18n.T("%w: 缺少 path（sudo 临时文件路径）"), debugsrv.ErrBadInput)
 	}
+	if !debugsrv.IsSudoTempPath(target) {
+		return nil, fmt.Errorf("%w: invalid sudo temporary path", debugsrv.ErrBadInput)
+	}
 	node, password, err := c.ctlSudoCredential(ctx, sess)
 	if err != nil {
 		return nil, err
@@ -3891,21 +3900,13 @@ func (c *debugController) sudoHostStage(ctx context.Context, args map[string]any
 	if err != nil {
 		return nil, err
 	}
+	if err := ctlScopedWritePath(ctx, client, norm, false); err != nil {
+		return nil, err
+	}
 	payload := []byte(password + "\n")
-	f, oerr := client.OpenFile(norm, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
-	if oerr != nil {
-		return nil, fmt.Errorf(i18n.T("创建 sudo 临时文件 %q 失败：%s"), norm, ctlSftpErrText(oerr))
-	}
-	n, werr := f.Write(payload)
-	cerr := f.Close()
+	n, werr := sshx.CreateRemotePrivateFile(ctx, client, norm, payload, allow)
 	if werr != nil {
-		// 写了一半也可能留下残片：尽力删掉再报错（debugsrv 侧还会再兜底清理一次）。
-		_ = client.Remove(norm)
 		return nil, fmt.Errorf(i18n.T("写入 sudo 临时文件 %q 失败：%w"), norm, werr)
-	}
-	if cerr != nil {
-		_ = client.Remove(norm)
-		return nil, fmt.Errorf(i18n.T("关闭 sudo 临时文件 %q 失败：%w"), norm, cerr)
 	}
 	c.app.manager.InvalidateSftpCache(path.Dir(norm))
 	// 日志只记会话 / 路径 / 字节数（长度有助于排查「写空了」），绝不记内容。
@@ -3970,6 +3971,9 @@ func (c *debugController) sudoHostCleanup(ctx context.Context, args map[string]a
 			"removed": false, "existed": false, "verified": false,
 			"reason": fmt.Sprintf("会话 %s 没有可用的 SFTP 客户端，无法走独立清理通道：%v", sess, cerr),
 		}, nil
+	}
+	if err := sshx.ValidateRemoteWritePath(client, allow, norm, true); err != nil {
+		return map[string]any{"removed": false, "existed": false, "verified": false, "reason": err.Error()}, nil
 	}
 	// 1) 删除 + 复核（核心语义抽在 sudoSftpRemoveAndVerify 里，便于用内存 SFTP 服务端覆盖）。
 	removed, existed, verified, reason := sudoSftpRemoveAndVerify(client, norm)

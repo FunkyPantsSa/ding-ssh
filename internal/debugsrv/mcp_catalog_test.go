@@ -22,12 +22,50 @@ import (
 // 这是**规格清单**（任务要求逐个点名），不是「总数」——总数仍由注册表 / mcpToolEntries 推导。
 var structuredExpect = []string{
 	"app_state", "app.health", "app.permissions",
+	"confirm.status",
 	"list_terminals", "read_terminal",
 	OpUILayout, OpUIDiff, OpUIQuery,
 	OpSftpList,
 	OpServersList, OpServersGet, OpGroupsList, OpServersTest, OpHostTrustList,
 	OpSettingsSchema,
 	"app.recent_calls",
+	"exec.start", "exec.plan", "exec.batch", "jobs.cancel", "jobs.get", "jobs.list", "jobs.output", "jobs.wait",
+	"hostTrust.challenges", "hosts.metrics", "processes.list", "sessions.get", "sessions.wait", "tunnels.health",
+	"servers.search", "services.status", "services.logs", "services.restart", "sessions.connect", "sessions.disconnect", "sessions.reconnect",
+	"sftp.download", "sftp.patch", "sftp.patch.preview", "sftp.upload",
+}
+
+func TestToolSchemasSerializePropertiesAsObjects(t *testing.T) {
+	ensureAllRegistrations(t)
+	var visit func(any, string)
+	visit = func(value any, location string) {
+		switch v := value.(type) {
+		case map[string]any:
+			for key, child := range v {
+				if key == "properties" {
+					if _, ok := child.(map[string]any); !ok {
+						t.Fatalf("%s.properties must serialize as an object: %T", location, child)
+					}
+				}
+				visit(child, location+"."+key)
+			}
+		case []any:
+			for _, child := range v {
+				visit(child, location+"[]")
+			}
+		}
+	}
+	for _, tool := range mcpToolEntries() {
+		encoded, err := json.Marshal(tool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wire map[string]any
+		if err := json.Unmarshal(encoded, &wire); err != nil {
+			t.Fatal(err)
+		}
+		visit(wire, tool.Name)
+	}
 }
 
 // toolsListHTTP 走一次真实 HTTP 的 /mcp tools/list，返回工具名集合与条数。

@@ -41,15 +41,27 @@ $cfg = Get-Content $infoPath -Raw -Encoding UTF8 | ConvertFrom-Json
 if (-not $cfg.url) { Write-Error '调试服务未运行（debug.json 里没有 url）。' }
 $script:Base = $cfg.url
 $script:Auth = @{ Authorization = "Bearer $($cfg.token)" }
+$script:McpSession = $null
 
 function Invoke-DebugApi {
   param([string]$Method, [string]$Path, $Body)
-  $p = @{ Uri = "$script:Base$Path"; Headers = $script:Auth; Method = $Method; TimeoutSec = 40; UseBasicParsing = $true }
+  $headers = $script:Auth.Clone()
+  if ($Path -eq '/mcp') {
+    $headers['Accept'] = 'application/json, text/event-stream'
+    if ($script:McpSession) {
+      $headers['Mcp-Session-Id'] = $script:McpSession
+      $headers['MCP-Protocol-Version'] = '2025-06-18'
+    }
+  }
+  $p = @{ Uri = "$script:Base$Path"; Headers = $headers; Method = $Method; TimeoutSec = 150; UseBasicParsing = $true }
   if ($null -ne $Body) {
     $p.ContentType = 'application/json'
     $p.Body = ($Body | ConvertTo-Json -Compress -Depth 12)
   }
   $resp = Invoke-WebRequest @p
+  if ($Path -eq '/mcp' -and $resp.Headers['Mcp-Session-Id']) {
+    $script:McpSession = [string]($resp.Headers['Mcp-Session-Id'] | Select-Object -First 1)
+  }
   if ($Raw) { return $resp.Content }
   try { return ($resp.Content | ConvertFrom-Json) } catch { return $resp.Content }
 }
@@ -58,6 +70,10 @@ function Show($v) { if ($Raw) { $v } else { $v | ConvertTo-Json -Depth 12 } }
 
 function Invoke-Mcp {
   param([string]$Method, $Params, [int]$Id = 1)
+  if ($Method -ne 'initialize' -and -not $script:McpSession) {
+    $null = Invoke-DebugApi Post '/mcp' @{ jsonrpc = '2.0'; id = 0; method = 'initialize'; params = @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'debug.ps1'; version = '2.0' } } }
+    $null = Invoke-DebugApi Post '/mcp' @{ jsonrpc = '2.0'; method = 'notifications/initialized' }
+  }
   $body = @{ jsonrpc = '2.0'; id = $Id; method = $Method }
   if ($null -ne $Params) { $body.params = $Params }
   Invoke-DebugApi -Method Post -Path '/mcp' -Body $body
@@ -104,7 +120,7 @@ switch ($Cmd.ToLower()) {
         $args = if ($A3) { $A3 | ConvertFrom-Json } else { @{} }
         Show (Invoke-Mcp -Method 'tools/call' -Params @{ name = $A2; arguments = $args })
       }
-      default { Show (Invoke-Mcp -Method 'initialize' -Params @{ protocolVersion = '2025-03-26'; capabilities = @{}; clientInfo = @{ name = 'debug.ps1'; version = '1.0' } }) }
+      default { Show (Invoke-Mcp -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'debug.ps1'; version = '1.0' } }) }
     }
   }
   default { Write-Host "未知命令: $Cmd（可用：health/state/terminals/servers/settings/buffer/input/scroll/resize/open/close/reconnect/disconnect/eval/events/screenshot/stream/mcp）" }

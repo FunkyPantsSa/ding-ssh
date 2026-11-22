@@ -1,0 +1,327 @@
+{
+  "date": "2026-11-22",
+  "isolatedConfig": true,
+  "realSavedRemoteServersAccessed": false,
+  "officialSDK": {
+    "package": "@modelcontextprotocol/sdk",
+    "version": "1.32.2",
+    "results": [
+      {
+        "transport": "http",
+        "tools": 124,
+        "templates": 2,
+        "health": true
+      },
+      {
+        "transport": "stdio",
+        "tools": 124,
+        "templates": 2,
+        "health": true
+      }
+    ]
+  },
+  "securitySmoke": {
+    "passed": 12,
+    "checks": [
+      {
+        "check": "Missing authentication rejected",
+        "passed": true,
+        "detail": {
+          "httpStatus": 401
+        }
+      },
+      {
+        "check": "Query authentication rejected",
+        "passed": true,
+        "detail": {
+          "httpStatus": 401
+        }
+      },
+      {
+        "check": "Cross-origin request rejected",
+        "passed": true,
+        "detail": {
+          "httpStatus": 403
+        }
+      },
+      {
+        "check": "MCP initialization",
+        "passed": true,
+        "detail": "2025-06-18"
+      },
+      {
+        "check": "Complete catalog and HTTP parity",
+        "passed": true,
+        "detail": {
+          "tools": 124,
+          "httpMcpParity": true
+        }
+      },
+      {
+        "check": "Resource templates available",
+        "passed": true,
+        "detail": {
+          "templates": 2
+        }
+      },
+      {
+        "check": "MCP cannot elevate privileges",
+        "passed": true,
+        "detail": {
+          "denied": true
+        }
+      },
+      {
+        "check": "Settings cannot change debug policy",
+        "passed": true,
+        "detail": {
+          "denied": true
+        }
+      },
+      {
+        "check": "UI store cannot change debug policy",
+        "passed": true,
+        "detail": {
+          "denied": true
+        }
+      },
+      {
+        "check": "Real local exec streams exit code and idempotency",
+        "passed": true,
+        "detail": {
+          "state": "failed",
+          "exitCode": 7,
+          "idempotent": true,
+          "stdoutStderr": true
+        }
+      },
+      {
+        "check": "Real local task cancellation",
+        "passed": true,
+        "detail": {
+          "requested": true,
+          "finalState": "cancelled"
+        }
+      },
+      {
+        "check": "Frontend mounted without console errors",
+        "passed": true,
+        "detail": {
+          "clientManagementMounted": true,
+          "consoleErrors": 0
+        }
+      }
+    ]
+  },
+  "uiAndLocalTerminalSmoke": {
+    "passed": 50,
+    "failed": 0,
+    "checks": [
+      {
+        "name": "HTTP rejects missing authentication",
+        "status": "PASS"
+      },
+      {
+        "name": "HTTP and MCP tool catalog parity",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: app.health",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: app.permissions",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: settings.schema",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: groups.list",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: servers.list",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: credentials.list",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: tunnels.list",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: hostTrust.list",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: app.commands",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: list_logs",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: read_logs",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: recent_events",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: app.recent_calls",
+        "status": "PASS"
+      },
+      {
+        "name": "Read tool: sftp.transfers",
+        "status": "PASS"
+      },
+      {
+        "name": "MCP initializes successfully",
+        "status": "PASS"
+      },
+      {
+        "name": "MCP lists resources",
+        "status": "PASS"
+      },
+      {
+        "name": "MCP lists resource templates",
+        "status": "PASS"
+      },
+      {
+        "name": "Navigate page: home",
+        "status": "PASS"
+      },
+      {
+        "name": "Navigate page: servers",
+        "status": "PASS"
+      },
+      {
+        "name": "Navigate page: tunnel",
+        "status": "PASS"
+      },
+      {
+        "name": "Settings section: general",
+        "status": "PASS"
+      },
+      {
+        "name": "Settings section: hotkeys",
+        "status": "PASS"
+      },
+      {
+        "name": "Settings section: connectionInfo",
+        "status": "PASS"
+      },
+      {
+        "name": "Settings section: theme",
+        "status": "PASS"
+      },
+      {
+        "name": "Settings section: credentials",
+        "status": "PASS"
+      },
+      {
+        "name": "Settings section: security",
+        "status": "PASS"
+      },
+      {
+        "name": "Settings section: debug",
+        "status": "PASS"
+      },
+      {
+        "name": "Settings section: logs",
+        "status": "PASS"
+      },
+      {
+        "name": "Settings section: audit",
+        "status": "PASS"
+      },
+      {
+        "name": "Settings section: migrate",
+        "status": "PASS"
+      },
+      {
+        "name": "Settings section: about",
+        "status": "PASS"
+      },
+      {
+        "name": "Real local shell connects",
+        "status": "PASS"
+      },
+      {
+        "name": "Local shell ASCII command and output",
+        "status": "PASS"
+      },
+      {
+        "name": "Local shell Unicode command input",
+        "status": "PASS"
+      },
+      {
+        "name": "Local shell Chinese command input",
+        "status": "PASS"
+      },
+      {
+        "name": "Local shell binary/base64 input",
+        "status": "PASS"
+      },
+      {
+        "name": "Local terminal resize",
+        "status": "PASS"
+      },
+      {
+        "name": "Local terminal scroll",
+        "status": "PASS"
+      },
+      {
+        "name": "Split and restore two live terminals",
+        "status": "PASS"
+      },
+      {
+        "name": "Switch context panel: sftp",
+        "status": "PASS"
+      },
+      {
+        "name": "Switch context panel: sysinfo",
+        "status": "PASS"
+      },
+      {
+        "name": "Switch context panel: transfers",
+        "status": "PASS"
+      },
+      {
+        "name": "Switch context panel: hidden",
+        "status": "PASS"
+      },
+      {
+        "name": "Disconnect a real local session",
+        "status": "PASS"
+      },
+      {
+        "name": "Reconnect a real local session and run a command",
+        "status": "PASS"
+      },
+      {
+        "name": "Frontend console has no errors",
+        "status": "PASS"
+      },
+      {
+        "name": "Cleanup only audit-created tabs and PTYs",
+        "status": "PASS"
+      },
+      {
+        "name": "Original tabs preserved",
+        "status": "PASS"
+      }
+    ]
+  },
+  "frontend": {
+    "testFiles": 69,
+    "testsPassed": 333
+  },
+  "nativeApprovalClickTest": "unverified: computer-use connection timed out; logic covered by native dialog test double"
+}

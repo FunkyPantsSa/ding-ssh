@@ -30,6 +30,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -55,14 +56,14 @@ const (
 
 	// maxLineBytes stdin / SSE 单行上限。MCP 消息可能带较大的 arguments
 	// （整段文本、base64 图片），1MB 足够覆盖正常工具调用，超过则报错而不是静默截断。
-	maxLineBytes = 1 << 20
+	maxLineBytes = 8 << 20
 
 	// maxBodyBytes 响应体读取上限，防止服务端异常时把内存吃满。
 	maxBodyBytes = 64 << 20
 
 	// requestTimeout 单次 POST /mcp 的超时。截图 / eval 等工具可能偏慢，
 	// 因此给较宽松的上限；到点即报错，避免 stdio 侧无限等待。
-	requestTimeout = 120 * time.Second
+	requestTimeout = 11 * time.Minute
 
 	// verifyTimeout 启动时连通性探测的单次超时。
 	verifyTimeout = 10 * time.Second
@@ -164,8 +165,10 @@ type clientMCP struct {
 	cfg   config
 
 	// 会话 id：initialize 响应头里拿到后由后续请求共用，SSE goroutine 也读它。
-	sessMu sync.Mutex
-	sessID string
+	sessMu   sync.Mutex
+	sessID   string
+	protocol string
+	outMu    sync.Mutex
 
 	streamStart sync.Once // SSE 订阅只启动一次
 	streamCtx   context.Context
@@ -538,8 +541,12 @@ func (c *clientMCP) refreshFromDisk() bool {
 // stdin 关闭（MCP 客户端退出）视为正常结束，返回 0。
 func (c *clientMCP) serveStdin(in io.Reader) int {
 	sc := bufio.NewScanner(in)
-	// 默认 64KB 对 MCP 消息太小（稍大的参数就会被截断报错），放大到 1MB。
+	// 默认 64KB 对 MCP 消息太小；与服务端保持相同的 8MB 消息上限。
 	sc.Buffer(make([]byte, 0, 64<<10), maxLineBytes)
+	var pending sync.WaitGroup
+	defer pending.Wait()
+	slots := make(chan struct{}, 32)
+	notificationSlots := make(chan struct{}, 32)
 
 	for sc.Scan() {
 		line := bytes.TrimSpace(sc.Bytes())
@@ -550,7 +557,32 @@ func (c *clientMCP) serveStdin(in io.Reader) int {
 		body := make([]byte, len(line))
 		copy(body, line)
 		c.log.debugf("收到 stdin 消息：%d 字节", len(body))
-		c.handleLine(body)
+		// Initialization and its notification remain ordered. Other requests
+		// run independently so a long tool does not block cancellation/status.
+		method := peekMethod(body)
+		if method == "initialize" || method == "notifications/initialized" {
+			c.handleLine(body)
+			continue
+		}
+		var env rpcEnvelope
+		_ = json.Unmarshal(body, &env)
+		if !hasID(env.ID) {
+			select {
+			case notificationSlots <- struct{}{}:
+				pending.Add(1)
+				go func() { defer pending.Done(); defer func() { <-notificationSlots }(); c.handleLine(body) }()
+			default:
+				c.log.warnf("通知并发达到上限，已丢弃 %s", method)
+			}
+			continue
+		}
+		select {
+		case slots <- struct{}{}:
+			pending.Add(1)
+			go func() { defer pending.Done(); defer func() { <-slots }(); c.handleLine(body) }()
+		default:
+			c.writeLine(errorResponse(env.ID, errors.New("并发请求达到上限，请稍后重试")))
+		}
 	}
 	if err := sc.Err(); err != nil {
 		c.log.errorf("读取 stdin 失败，桥接无法继续：%v", err)
@@ -573,7 +605,7 @@ func (c *clientMCP) handleLine(body []byte) {
 	method := peekMethod(body)
 	if !hasID(env.ID) {
 		c.log.debugf("转发通知：%s", method)
-		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+		ctx, cancel := context.WithTimeout(c.streamCtx, requestTimeout)
 		err := c.post(ctx, body) // 通知不等待响应体
 		cancel()
 		if err != nil {
@@ -613,7 +645,7 @@ func (c *clientMCP) handleLine(body []byte) {
 // doRequest 转发一个请求并返回响应体（原样字节，服务端保证是单行 JSON）。
 func (c *clientMCP) doRequest(body []byte) ([]byte, error) {
 	cfg := c.target()
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	ctx, cancel := context.WithTimeout(c.streamCtx, requestTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.url+"/mcp", bytes.NewReader(body))
@@ -623,15 +655,25 @@ func (c *clientMCP) doRequest(body []byte) ([]byte, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+cfg.token)
+	if v := c.protocolVersion(); v != "" {
+		req.Header.Set("MCP-Protocol-Version", v)
+	}
 	if id := c.sessionID(); id != "" {
 		req.Header.Set(sessionHeader, id)
 	}
 
 	start := time.Now()
 	c.log.debugf("POST %s/mcp（%d 字节，session=%s）", cfg.url, len(body), maskToken(c.sessionID()))
+	var wrote atomic.Bool
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wrote.Store(true) }}))
 	resp, err := c.http.Do(req)
 	if err != nil {
-		// 连不上：请求肯定没被执行，允许上层重试。
+		// Once bytes may have reached the peer the execution outcome is
+		// unknown. Never retry a mutating request based on a transport error.
+		if wrote.Load() {
+			return nil, fmt.Errorf("请求结果未知，请查询操作状态后再决定是否重试：%w", err)
+		}
+		// No request was written; a connection failure can be retried.
 		c.log.debugf("POST 失败（%s）：%v", cfg.url, err)
 		return nil, fmt.Errorf("%w：请求 %s/mcp 失败：%v", errNotForwarded, cfg.url, err)
 	}
@@ -644,7 +686,10 @@ func (c *clientMCP) doRequest(body []byte) ([]byte, error) {
 		c.startStream()
 	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
+	if len(data) > maxBodyBytes {
+		return nil, errors.New("响应体超出大小上限；执行结果未知，请查询操作状态")
+	}
 	if err != nil {
 		// 响应头已到达但读体失败：服务端可能已经开始执行，不能重试，避免副作用重复。
 		return nil, fmt.Errorf("读取响应体失败：%w", err)
@@ -658,6 +703,18 @@ func (c *clientMCP) doRequest(body []byte) ([]byte, error) {
 			return nil, fmt.Errorf("%w：鉴权失败（HTTP %d），token 不正确或已过期", errNotForwarded, resp.StatusCode)
 		}
 		return nil, fmt.Errorf("服务端返回 HTTP %d：%s", resp.StatusCode, truncate(strings.TrimSpace(string(data)), 300))
+	}
+	if peekMethod(body) == "initialize" {
+		var init struct {
+			Result struct {
+				ProtocolVersion string `json:"protocolVersion"`
+			} `json:"result"`
+		}
+		if json.Unmarshal(data, &init) == nil && init.Result.ProtocolVersion != "" {
+			c.sessMu.Lock()
+			c.protocol = init.Result.ProtocolVersion
+			c.sessMu.Unlock()
+		}
 	}
 	line := normalizeJSONLine(data)
 	if len(line) == 0 {
@@ -677,6 +734,9 @@ func (c *clientMCP) post(ctx context.Context, body []byte) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+cfg.token)
+	if v := c.protocolVersion(); v != "" {
+		req.Header.Set("MCP-Protocol-Version", v)
+	}
 	if id := c.sessionID(); id != "" {
 		req.Header.Set(sessionHeader, id)
 	}
@@ -749,6 +809,9 @@ func (c *clientMCP) streamOnce() error {
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+cfg.token)
+	if v := c.protocolVersion(); v != "" {
+		req.Header.Set("MCP-Protocol-Version", v)
+	}
 	req.Header.Set(sessionHeader, id)
 
 	resp, err := c.http.Do(req)
@@ -826,6 +889,8 @@ func (c *clientMCP) readSSE(r io.Reader) error {
 
 // writeLine 向 stdout 写一行并立即冲刷（MCP 客户端按行读取，缓冲会卡住交互）。
 func (c *clientMCP) writeLine(b []byte) {
+	c.outMu.Lock()
+	defer c.outMu.Unlock()
 	if len(bytes.TrimSpace(b)) == 0 {
 		return
 	}
@@ -843,6 +908,12 @@ func (c *clientMCP) writeLine(b []byte) {
 }
 
 // sessionID 读取当前会话 id。
+func (c *clientMCP) protocolVersion() string {
+	c.sessMu.Lock()
+	defer c.sessMu.Unlock()
+	return c.protocol
+}
+
 func (c *clientMCP) sessionID() string {
 	c.sessMu.Lock()
 	defer c.sessMu.Unlock()
@@ -871,9 +942,11 @@ func (c *clientMCP) shutdown() {
 		} else {
 			c.log.debugf("没有会话 id，跳过 DELETE /mcp")
 		}
+		c.outMu.Lock()
 		if err := c.out.Flush(); err != nil {
 			c.log.warnf("退出前冲刷 stdout 失败：%v", err)
 		}
+		c.outMu.Unlock()
 		c.log.debugf("MCP 桥清理完成")
 	})
 }
@@ -888,6 +961,9 @@ func (c *clientMCP) deleteSession(id string) {
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+cfg.token)
+	if v := c.protocolVersion(); v != "" {
+		req.Header.Set("MCP-Protocol-Version", v)
+	}
 	req.Header.Set(sessionHeader, id)
 	resp, err := c.http.Do(req)
 	if err != nil {

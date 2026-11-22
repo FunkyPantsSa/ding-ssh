@@ -91,6 +91,7 @@ func newAppctlTestServerWith(t *testing.T, gate Gate, h Handler) *testServer {
 		Hub:      NewHub(),
 		Gate:     gate,
 		Audits:   ts.audit,
+		Approver: approveTestOperation,
 		Confirms: NewConfirmManager(DefaultConfirmTTL),
 		Executor: &fakeExecutor{},
 	})
@@ -201,7 +202,7 @@ func TestAppctlToolsListedAndRegistryDriven(t *testing.T) {
 			t.Fatalf("tools/list 里缺少应用控制面工具 %s", name)
 		}
 	}
-	// 读类工具的能力要求行应说明「永远允许」；写类工具应提示 confirm.prepare
+	// 基础工具仍须范围授权；写类工具应提示独立审批。
 	for _, tool := range tools {
 		if !strings.Contains(tool.Description, "能力要求：") {
 			t.Fatalf("工具 %s 的描述缺少「能力要求」行", tool.Name)
@@ -213,8 +214,8 @@ func TestAppctlToolsListedAndRegistryDriven(t *testing.T) {
 		{OpServersImport, "confirm.prepare"},
 		{OpSettingsReset, "confirm.prepare"},
 		{OpTunnelsCreate, "confirm.prepare"},
-		{OpServersList, "永远允许"},
-		{OpAppCommands, "永远允许"},
+		{OpServersList, "基础 read"},
+		{OpAppCommands, "基础 read"},
 	} {
 		desc := ""
 		for _, tool := range tools {

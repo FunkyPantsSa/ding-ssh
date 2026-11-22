@@ -86,7 +86,7 @@ func TestRegisterToolCapWithoutConfirm(t *testing.T) {
 	if strings.Contains(note, "需先 confirm.prepare") {
 		t.Fatalf("未注册确认的工具不应提示 token：%s", note)
 	}
-	if !strings.Contains(note, "不需要 confirm.prepare") {
+	if !strings.Contains(note, "无需单次执行 token") {
 		t.Fatalf("应显式说明可逆 / 高频操作不需要 token：%s", note)
 	}
 	if ActionNeedsConfirm("ui.write") {

@@ -20,6 +20,8 @@ var (
 
 // Event 一条推送给订阅者的事件。
 type Event struct {
+	Seq       uint64          `json:"seq"`
+	Dropped   uint64          `json:"dropped,omitempty"`
 	Topic     string          `json:"topic"`               // 例如 ssh.output / ssh.status / tunnel.status
 	SessionID string          `json:"sessionId,omitempty"` // 会话/标签 id（无则空）
 	Name      string          `json:"name"`                // 原始事件名（如 ssh:output:tab-1）
@@ -32,6 +34,7 @@ type Event struct {
 type Hub struct {
 	mu             sync.Mutex
 	seq            int
+	eventSeq       uint64
 	subs           map[int]*hubSub
 	recent         []Event // 环形缓冲（最多 hubRecentLimit 条）
 	transferRecent []Event // 传输事件单独保留，避免被终端输出挤掉
@@ -41,8 +44,9 @@ type Hub struct {
 const hubRecentLimit = 300
 
 type hubSub struct {
-	topics map[string]bool // 空表示全部
-	ch     chan Event
+	topics  map[string]bool // 空表示全部
+	ch      chan Event
+	dropped uint64
 }
 
 // NewHub 创建事件总线。
@@ -88,6 +92,8 @@ func (h *Hub) Publish(ev Event) {
 		ev.TS = time.Now().UnixMilli()
 	}
 	h.mu.Lock()
+	h.eventSeq++
+	ev.Seq = h.eventSeq
 	if ev.Topic == TransferTopic {
 		h.transferRecent = append(h.transferRecent, ev)
 		if len(h.transferRecent) > hubRecentLimit {
@@ -104,10 +110,14 @@ func (h *Hub) Publish(ev Event) {
 		if len(sub.topics) > 0 && !sub.topics[ev.Topic] {
 			continue
 		}
+		out := ev
+		out.Dropped = sub.dropped
 		select {
-		case sub.ch <- ev:
+		case sub.ch <- out:
+			sub.dropped = 0
 		default: // 订阅者跟不上：丢弃，保证读取协程不被阻塞
 			dropped++
+			sub.dropped++
 		}
 	}
 	h.mu.Unlock()
@@ -176,4 +186,37 @@ func SplitEventName(name string) (topic, sessionID string) {
 		sessionID = strings.Join(parts[2:], ":")
 	}
 	return topic, sessionID
+}
+
+// Since reads a bounded replay window. gap=true means the requested cursor is
+// older than retained history; clients must refresh state instead of assuming
+// continuity. Filtered topics do not turn unrelated sequence numbers into gaps.
+func (h *Hub) Since(after uint64, limit int, topics ...string) map[string]any {
+	if limit <= 0 || limit > hubRecentLimit {
+		limit = 50
+	}
+	filter := map[string]bool{}
+	for _, t := range topics {
+		if t = strings.TrimSpace(t); t != "" {
+			filter[t] = true
+		}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	gap := len(h.recent) > 0 && after > 0 && after+1 < h.recent[0].Seq
+	out := []Event{}
+	next := after
+	more := false
+	for _, ev := range h.recent {
+		if ev.Seq <= after || len(filter) > 0 && !filter[ev.Topic] {
+			continue
+		}
+		if len(out) == limit {
+			more = true
+			break
+		}
+		out = append(out, ev)
+		next = ev.Seq
+	}
+	return map[string]any{"events": out, "count": len(out), "after": after, "nextCursor": next, "latestCursor": h.eventSeq, "gap": gap, "hasMore": more}
 }

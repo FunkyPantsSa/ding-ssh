@@ -65,6 +65,39 @@ export namespace apphost {
 
 }
 
+export namespace debugsrv {
+
+	export class ClientPolicy {
+	    id: string;
+	    name: string;
+	    capabilities: string[];
+	    serverIds: string[];
+	    sessionIds: string[];
+	    readPaths: string[];
+	    writePaths: string[];
+	    allTargets: boolean;
+	    expiresAt: number;
+
+	    static createFrom(source: any = {}) {
+	        return new ClientPolicy(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.capabilities = source["capabilities"];
+	        this.serverIds = source["serverIds"];
+	        this.sessionIds = source["sessionIds"];
+	        this.readPaths = source["readPaths"];
+	        this.writePaths = source["writePaths"];
+	        this.allTargets = source["allTargets"];
+	        this.expiresAt = source["expiresAt"];
+	    }
+	}
+
+}
+
 export namespace localterm {
 	
 	export class ShellOption {
@@ -141,6 +174,16 @@ export namespace models {
 	    }
 	}
 	export class DebugSettings {
+	    capTerminalRead: boolean;
+	    capRemoteFsRead: boolean;
+	    capUiInspect: boolean;
+	    capConnect: boolean;
+	    capDisconnect: boolean;
+	    capTransferCancel: boolean;
+	    capLocalExec: boolean;
+	    capCredentialUse: boolean;
+	    trustedAutomation: boolean;
+	    auditPersistent: boolean;
 	    enabled: boolean;
 	    port: number;
 	    bindLan: boolean;
@@ -162,6 +205,16 @@ export namespace models {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.capTerminalRead = source["capTerminalRead"];
+	        this.capRemoteFsRead = source["capRemoteFsRead"];
+	        this.capUiInspect = source["capUiInspect"];
+	        this.capConnect = source["capConnect"];
+	        this.capDisconnect = source["capDisconnect"];
+	        this.capTransferCancel = source["capTransferCancel"];
+	        this.capLocalExec = source["capLocalExec"];
+	        this.capCredentialUse = source["capCredentialUse"];
+	        this.trustedAutomation = source["trustedAutomation"];
+	        this.auditPersistent = source["auditPersistent"];
 	        this.enabled = source["enabled"];
 	        this.port = source["port"];
 	        this.bindLan = source["bindLan"];

@@ -7,10 +7,11 @@ import {t} from '../../i18n'
 
 import {computed, onMounted, ref} from 'vue'
 import ToggleSwitch from '../ToggleSwitch.vue'
+import DebugClientsSection from './DebugClientsSection.vue'
 import {copyText} from '../../utils/clipboard'
 import {useToast} from '../../composables/useToast'
 import {Button, Input, Textarea} from '../ui'
-import {DebugInfo, GetCapabilities, SetCapability} from '../../../wailsjs/go/main/App'
+import {ApplyDebugPreset, DebugInfo, GetCapabilities, SetCapability} from '../../../wailsjs/go/main/App'
 import {useSettingsStore} from '../../stores/settings'
 import type {CapabilitiesView, DebugSettings} from '../../types'
 
@@ -61,7 +62,7 @@ const onDebugPortChange = (value?: string | number) => {
 }
 
 // ---- MCP 能力（权限内核，对应 Go 端 internal/debugsrv 的能力位）----
-const CAP_ORDER = ['terminal.input', 'ui.write', 'config.write', 'secrets.write', 'fs.remote.write', 'sudo.credential', 'lifecycle'] as const
+const CAP_ORDER = ['terminal.read', 'fs.remote.read', 'ui.inspect', 'session.connect', 'session.disconnect', 'credentials.use', 'terminal.input', 'exec.local', 'ui.write', 'automation.trusted', 'config.write', 'secrets.write', 'fs.remote.write', 'transfer.cancel', 'sudo.credential', 'lifecycle'] as const
 const CAP_NEEDS_CONFIRM = new Set(['fs.remote.write', 'sudo.credential', 'lifecycle'])
 const capInfo = ref<CapabilitiesView | null>(null)
 const pendingCap = ref('')
@@ -69,6 +70,17 @@ const capError = ref('')
 const capMsg = ref('')
 const allowlistText = ref('')
 const allowlistDirty = ref(false)
+
+async function applyPreset(mode: string) {
+  saving.value = true
+  capError.value = ''
+  try {
+    await ApplyDebugPreset(mode)
+    await settings.load()
+    await refreshCapabilities()
+  } catch (e) { capError.value = errorText(e) }
+  finally { saving.value = false }
+}
 
 const capRows = computed(() => {
   const caps = capInfo.value?.caps ?? {}
@@ -80,7 +92,7 @@ const capRows = computed(() => {
     desc: descs[name] ?? '',
     enabled: !!caps[name],
     needsConfirm: CAP_NEEDS_CONFIRM.has(name),
-    blocked: (name === 'secrets.write' || name === 'sudo.credential') && !settings.debug.allowSecrets,
+    blocked: false,
   }))
 })
 
@@ -113,13 +125,9 @@ async function applyCapability(name: string, next: boolean) {
   try {
     await SetCapability(name, next)
     pendingCap.value = ''
-    if (name === 'terminal.input') await settings.setDebug({capTerminalInput: next})
-    else if (name === 'ui.write') await settings.setDebug({capUiWrite: next})
-    else if (name === 'config.write') await settings.setDebug({capConfigWrite: next})
-    else if (name === 'secrets.write') await settings.setDebug({capSecretWrite: next})
-    else if (name === 'fs.remote.write') await settings.setDebug({capRemoteFsWrite: next})
-    else if (name === 'sudo.credential') await settings.setDebug({capSudoCredential: next})
-    else if (name === 'lifecycle') await settings.setDebug({capLifecycle: next})
+    // Reload the backend value after native approval; do not persist a second
+    // stale settings snapshot over independently changed capability fields.
+    await settings.load()
     await refreshCapabilities()
     capMsg.value = next ? t("已开启「{0}」", [capLabelOf(name)]) : t("已关闭「{0}」", [capLabelOf(name)])
   } catch (e) {
@@ -161,7 +169,7 @@ onMounted(() => {
   <section class="max-w-2xl space-y-6 fade-rise" data-section-content="debug" aria-labelledby="settings-debug-title">
     <div>
       <h3 id="settings-debug-title" class="text-[18px] font-semibold text-white tracking-tight">{{ $t('调试模式') }}</h3>
-      <p class="text-[13px] text-mist mt-1.5 leading-relaxed">{{ $t('在本地开一个控制面（HTTP，后续提供 MCP），供 AI / 自动化读取状态、驱动终端、订阅输出。\n        默认关闭；开启后仅监听本机（可切换局域网），token 每次启动重新生成。') }}</p>
+      <p class="text-[13px] text-mist mt-1.5 leading-relaxed">{{ $t('在本地开一个控制面（HTTP + MCP），供 AI / 自动化读取状态、驱动终端、订阅输出。\n        默认关闭；开启后仅监听本机（可切换局域网），token 每次启动重新生成。') }}</p>
     </div>
 
     <div class="neo border border-amber-500/30">
@@ -234,7 +242,12 @@ onMounted(() => {
     <div class="neo">
       <div class="px-5 py-4 border-b border-slate-800/60">
         <p class="text-sm font-medium text-slate-200">{{ $t('MCP 能力') }}</p>
-        <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('逐项控制 AI 能做什么。读取类能力永远允许（敏感字段仍受「允许读取敏感数据」控制）；\n          关闭的能力会让工具返回中文拒绝原因，不会影响其余功能。') }}</p>
+        <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('终端、文件和界面读取分别授权。新增能力默认关闭；权限扩大需要系统确认。运维预设允许任意远端命令，开发调试预设允许完整界面自动化。') }}</p>
+        <div class="flex flex-wrap gap-2 mt-3">
+          <Button size="sm" :disabled="saving" @click="applyPreset('observe')">{{ $t('观察') }}</Button>
+          <Button size="sm" :disabled="saving" @click="applyPreset('operate')">{{ $t('运维') }}</Button>
+          <Button size="sm" :disabled="saving" @click="applyPreset('developer')">{{ $t('完全信任的开发调试') }}</Button>
+        </div>
       </div>
       <div
         v-for="row in capRows"
@@ -282,18 +295,25 @@ onMounted(() => {
       </div>
 
       <div class="px-5 py-4">
-        <p class="text-sm font-medium text-slate-200">{{ $t('破坏性操作两段式确认（固定开启）') }}</p>
-        <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('只对') }}<b>{{ $t('不可逆') }}</b>{{ $t('操作生效（删服务器 / 删凭据 / 改隧道 / SFTP 写删 / 改设置 / 清日志 / 退出重载 / 开启敏感能力）。\n          AI / 脚本必须先调用') }} <span class="font-mono">confirm.prepare</span> {{ $t('拿到一次性 token（默认 120 秒有效、绑定本次参数），再用') }} <span class="font-mono">confirm.commit</span> {{ $t('或把 token 传给对应工具才会执行；缺少 token 一律拒绝。此项') }}<b>{{ $t('不提供开关') }}</b>。
-        </p>
-        <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-          <b>{{ $t('可逆 / 高频操作不需要 token') }}</b>{{ $t('：终端输入（') }} <span class="font-mono">send_input</span>）、
-          <span class="font-mono">eval_js</span> {{ $t('、界面写入只受上面的能力位约束 —— 否则 AI 管 SSH 与「改一点看一眼」的界面迭代都没法用。') }}</p>
+        <p class="text-sm font-medium text-slate-200">{{ $t('独立审批与执行确认') }}</p>
+        <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('配置、文件和生命周期等变更先由 confirm.prepare 请求系统原生审批。批准后才能获得绑定客户端、工具和完整参数的一次性 token；有效期 120 秒。可选择十分钟内允许相同参数的同一操作，拒绝或撤销后不能执行。MCP 无权开启自身权限。') }}</p>
+        <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('终端命令按已授予的执行权限持续放行，可能产生不可逆影响。任意 DOM 交互或 JS 还要求完全信任自动化权限，能够保存配置或触发业务操作。') }}</p>
       </div>
       <div v-if="capError || capMsg" class="px-5 pb-4 text-xs space-y-1">
         <p v-if="capError" class="text-rose-400 break-all" role="alert">{{ capError }}</p>
         <p v-else-if="capMsg" class="text-emerald-400 break-all" role="status">{{ capMsg }}</p>
       </div>
     </div>
+
+    <div class="neo px-5 py-4 flex items-center justify-between gap-4">
+      <div>
+        <p class="text-sm font-medium text-slate-200">{{ $t('持久审计') }}</p>
+        <p class="text-xs text-slate-500 mt-1">{{ $t('仅保存客户端、操作、时间和结果等元数据；不保存参数、输出或错误正文。最多两个 2 MiB 文件，权限 0600。') }}</p>
+      </div>
+      <ToggleSwitch :model-value="!!settings.debug.auditPersistent" :disabled="saving" @update:model-value="(v: boolean) => setDebug({auditPersistent: v})" />
+    </div>
+
+    <DebugClientsSection />
 
     <div class="neo">
       <div class="px-5 py-3 border-b border-slate-800/60 flex items-center justify-between">

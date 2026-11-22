@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -126,6 +127,7 @@ type sftpTestEnv struct {
 // newSFTPEnv 组装环境（白名单默认为空 = 拒绝一切写，与真实默认一致）。
 func newSFTPEnv(t *testing.T) *sftpTestEnv {
 	t.Helper()
+	ensureSFTPRegistrations(t)
 	env := &sftpTestEnv{
 		h:     &sftpStubHandler{replies: map[string]any{}, errs: map[string]error{}},
 		hub:   NewHub(),
@@ -142,6 +144,9 @@ func newSFTPEnv(t *testing.T) *sftpTestEnv {
 		Confirms:      NewConfirmManager(DefaultConfirmTTL),
 		Executor:      env.exec,
 		RemoteFSPaths: env.scope,
+		Approver: func(context.Context, ApprovalRequest) (ApprovalDecision, error) {
+			return ApprovalDecision{Approved: true}, nil
+		},
 	})
 	return env
 }
@@ -246,18 +251,19 @@ func TestSFTPCapabilityAndConfirmRegistration(t *testing.T) {
 	for _, a := range ConfirmableActions() {
 		confirmable[a] = true
 	}
-	for _, a := range []string{"sftp.write", "sftp.mkdir", "sftp.rename", "sftp.remove", "sftp.cancel"} {
+	for _, a := range []string{"sftp.write", "sftp.mkdir", "sftp.rename", "sftp.remove", "sftp.patch", "sftp.upload"} {
 		if !confirmable[a] {
 			t.Fatalf("ConfirmableActions 缺少 %s：%v", a, ConfirmableActions())
 		}
 	}
-	// 读类工具必须永远允许（CapRead 不出现在能力快照的"关"里也无所谓，这里只断言登记值）
-	for _, name := range []string{OpSftpList, OpSftpStat, OpSftpRead, OpSftpTransfers, OpTerminalExpect} {
+	// File and terminal content have independent read permissions.
+	for name, want := range map[string]Capability{OpSftpList: CapRemoteFSRead, OpSftpStat: CapRemoteFSRead, OpSftpRead: CapRemoteFSRead, OpSftpTransfers: CapRead, OpTerminalExpect: CapTerminalRead} {
 		caps, _ := ToolCapabilities(name)
-		if len(caps) != 1 || caps[0] != CapRead {
-			t.Fatalf("读类工具 %s 的能力位应为 [read]，实际 %v", name, caps)
+		if len(caps) != 1 || caps[0] != want {
+			t.Fatalf("%s caps %v want %s", name, caps, want)
 		}
 	}
+
 }
 
 // 规格表工具都必须出现在 tools/list，且描述里带自动生成的能力要求行。
@@ -286,7 +292,7 @@ func TestSFTPToolsListed(t *testing.T) {
 	if d := byName[OpTerminalRun].Description; !strings.Contains(d, "并发") || !strings.Contains(d, "直接拒绝") {
 		t.Fatalf("terminal.run 描述应说明并发行为：%s", d)
 	}
-	if d := byName[OpTerminalExpect].Description; !strings.Contains(d, "不需要 confirm.prepare") {
+	if d := byName[OpTerminalExpect].Description; !strings.Contains(d, "无需单次执行 token") {
 		t.Fatalf("terminal.expect 是读类，不应要求 token：%s", d)
 	}
 }
@@ -370,7 +376,6 @@ func TestSFTPWriteRejectedWhenAllowlistEmpty(t *testing.T) {
 		{OpSftpMkdir, map[string]any{"sessionId": "s1", "path": "/srv/app/dir"}},
 		{OpSftpRename, map[string]any{"sessionId": "s1", "from": "/srv/app/a", "to": "/srv/app/b"}},
 		{OpSftpRemove, map[string]any{"sessionId": "s1", "path": "/srv/app/a"}},
-		{OpSftpSyncCwd, map[string]any{"sessionId": "s1", "remotePath": "/srv/app"}},
 	}
 	for _, w := range writes {
 		text := env.callErr(t, w.tool, w.args)
@@ -657,7 +662,7 @@ func TestSFTPCancelAndSyncCwd(t *testing.T) {
 	env.h.replies[OpSftpCancel] = SFTPMutationPayload{OK: true}
 	env.h.replies[OpSftpSyncCwd] = SFTPMutationPayload{OK: true, Path: "/srv/app"}
 
-	out := env.callJSON(t, OpSftpCancel, env.withToken(t, OpSftpCancel, map[string]any{"transferId": "s1|upload|a.bin"}))
+	out := env.callJSON(t, OpSftpCancel, map[string]any{"transferId": "s1|upload|a.bin"})
 	if out["ok"] != true || out["direction"] != "upload" {
 		t.Fatalf("cancel 应解析出方向与文件名：%v", out)
 	}
@@ -668,9 +673,9 @@ func TestSFTPCancelAndSyncCwd(t *testing.T) {
 	env.callErr(t, OpSftpCancel, map[string]any{"transferId": "bad-id"})
 
 	// syncCwd：走白名单，且只推同步事件（不向终端键入任何字符）
-	env.callJSON(t, OpSftpSyncCwd, env.withToken(t, OpSftpWrite, map[string]any{
+	env.callJSON(t, OpSftpSyncCwd, map[string]any{
 		"sessionId": "s1", "remotePath": "/srv/app/sub",
-	}))
+	})
 	if env.h.called(OpTerminalInput) {
 		t.Fatalf("sftp.syncCwd 不应向终端写入任何数据")
 	}
@@ -801,12 +806,12 @@ func TestTerminalRunExpectMatched(t *testing.T) {
 func TestTerminalRunExitMarkerWrap(t *testing.T) {
 	ensureSFTPRegistrations(t)
 	env := newSFTPEnv(t)
-	env.h.onInput = func(id, _ string) {
-		publishOutput(env.hub, id, "done\r\n\r\n__DING_EXIT__3\r\n$ ")
+	env.h.onInput = func(id, sent string) {
+		publishOutput(env.hub, id, "done\r\n\r\n"+testSentExitPrefix(sent)+"3\r\n$ ")
 	}
 	out := env.callJSON(t, OpTerminalRun, map[string]any{
 		"id": "tab-1", "command": "false", "wrapExitMarker": true,
-		"expect": "__DING_EXIT__[0-9]", "timeoutMs": 3000,
+		"timeoutMs": 3000,
 	})
 	if out["wrapped"] != true {
 		t.Fatalf("wrapped 应为 true：%v", out)
@@ -834,9 +839,9 @@ func TestTerminalRunExitMarkerWrap(t *testing.T) {
 func TestTerminalRunExitMarkerAutoExpect(t *testing.T) {
 	ensureSFTPRegistrations(t)
 	env := newSFTPEnv(t)
-	env.h.onInput = func(id, _ string) {
+	env.h.onInput = func(id, sent string) {
 		time.Sleep(20 * time.Millisecond)
-		publishOutput(env.hub, id, "out\r\n__DING_EXIT__0\r\n$ ")
+		publishOutput(env.hub, id, "out\r\n"+testSentExitPrefix(sent)+"0\r\n$ ")
 	}
 	out := env.callJSON(t, OpTerminalRun, map[string]any{
 		"id": "tab-1", "command": "true", "wrapExitMarker": true, "timeoutMs": 3000,
@@ -1145,7 +1150,7 @@ func TestSFTPAuditSafeArgsFolding(t *testing.T) {
 	if strings.Contains(recs[0].Args, long) {
 		t.Fatalf("审计参数不应包含完整内容：%s", truncateForLog(recs[0].Args, 200))
 	}
-	if !strings.Contains(recs[0].Args, "已省略") {
+	if !strings.Contains(recs[0].Args, "已省略") && !strings.Contains(recs[0].Args, "***") {
 		t.Fatalf("审计参数应是折叠后的摘要：%s", truncateForLog(recs[0].Args, 200))
 	}
 }
@@ -1164,4 +1169,17 @@ func anyStr(v any) string {
 func sha256Hex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+func testSentExitPrefix(sent string) string {
+	return regexp.MustCompile(regexp.QuoteMeta(terminalMarkerPrefix) + `[a-f0-9]+_`).FindString(sent)
+}
+
+func TestTerminalRunRandomMarkerRejectsOldOutput(t *testing.T) {
+	env := newSFTPEnv(t)
+	env.h.onInput = func(id, sent string) { publishOutput(env.hub, id, "__DING_EXIT__0\r\n") }
+	out := env.callJSON(t, OpTerminalRun, map[string]any{"id": "tab-1", "command": "sleep 1", "wrapExitMarker": true, "timeoutMs": 300})
+	if out["matched"] != false || out["completionKnown"] != false {
+		t.Fatalf("old marker treated as completion: %v", out)
+	}
 }

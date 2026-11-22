@@ -88,9 +88,39 @@ function describe(el: Element | null): {tag: string; id: string; classes: string
   return {tag: el.tagName.toLowerCase(), id: el.id || '', classes: classList(el)}
 }
 
-/** textContent 归一化（连续空白折叠成一个空格）。 */
+const NON_CONTENT_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'HEAD', 'META'])
+const SENSITIVE_FIELD = /password|passphrase|private.?key|key.?content|(?:^|[-_])(?:token|secret)(?:$|[-_])/i
+
+// Inspect the rendered page, not hidden controls or arbitrary attached data.
+function hiddenInspectionContent(el: Element): boolean {
+  if (!el.isConnected) return true
+  for (let cur: Element | null = el; cur; cur = cur.parentElement) {
+    if (NON_CONTENT_TAGS.has(cur.tagName) || cur.hasAttribute('hidden') || cur.hasAttribute('inert') || cur.getAttribute('aria-hidden') === 'true' || cur.hasAttribute('data-sensitive') || cur.hasAttribute('data-secret')) return true
+    const kind = cur.tagName
+    if (kind === 'INPUT' || kind === 'TEXTAREA' || kind === 'SELECT') {
+      const type = (cur.getAttribute('type') || '').toLowerCase()
+      const autocomplete = (cur.getAttribute('autocomplete') || '').toLowerCase()
+      const identity = `${cur.id} ${cur.getAttribute('name') || ''}`
+      if (type === 'password' || type === 'hidden' || autocomplete.includes('password') || SENSITIVE_FIELD.test(identity)) return true
+    }
+    const cs = getComputedStyle(cur)
+    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.visibility === 'collapse' || (cs.opacity !== '' && Number(cs.opacity) === 0)) return true
+  }
+  return false
+}
+
+/** Visible text only: textContent includes hidden descendants and script data. */
 function textOf(el: Element): string {
-  return (el.textContent ?? '').replace(/\s+/g, ' ').trim()
+  if (hiddenInspectionContent(el)) return ''
+  const pieces: string[] = []
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      return node.parentElement && !hiddenInspectionContent(node.parentElement) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+    },
+  })
+  let node: Node | null
+  while ((node = walker.nextNode())) pieces.push(node.textContent || '')
+  return pieces.join(' ').replace(/\s+/g, ' ').trim()
 }
 
 /**
@@ -102,7 +132,7 @@ function isVisible(el: Element): boolean {
   if (he.hidden) return false
   const cs = getComputedStyle(el)
   if (cs.display === 'none' || cs.visibility === 'hidden' || cs.visibility === 'collapse') return false
-  if (Number(cs.opacity) === 0) return false
+  if (cs.opacity !== '' && Number(cs.opacity) === 0) return false
   if (he.getClientRects().length === 0) return false
   if (cs.position !== 'fixed' && he.offsetParent === null && el.tagName !== 'BODY' && el.tagName !== 'HTML') return false
   const r = he.getBoundingClientRect()
@@ -180,53 +210,18 @@ interface ConsoleEntry {
 const CONSOLE_CAPACITY = 200
 const consoleRing: ConsoleEntry[] = []
 
-function pushConsole(level: string, args: unknown[], source?: string, stack?: string): void {
+function pushConsole(level: string, args: unknown[], source?: string, _stack?: string): void {
   const text = args.slice(0, 20).map((a) => formatArg(a))
-  consoleRing.push({ts: Date.now(), level, text, source, stack: stack ? clip(stack, 2000) : undefined})
+  // Logs and exceptions are not visible page content and can hold unlabelled
+  // passwords, request bodies or URL credentials. Keep metadata only.
+  const origin = source === undefined ? 'console' : source.startsWith('vue:errorHandler:') ? 'vue:errorHandler' : source === 'unhandledrejection' ? source : 'window.onerror'
+  consoleRing.push({ts: Date.now(), level, text, source: origin})
   if (consoleRing.length > CONSOLE_CAPACITY) consoleRing.splice(0, consoleRing.length - CONSOLE_CAPACITY)
 }
 
-/** 把任意值转成一行可读文本（循环安全、体积有界）。 */
-function formatArg(v: unknown, depth = 0): string {
-  if (v === null) return 'null'
-  if (v === undefined) return 'undefined'
-  switch (typeof v) {
-    case 'string':
-      return clip(v, 500)
-    case 'number':
-    case 'boolean':
-    case 'bigint':
-      return String(v)
-    case 'symbol':
-      return v.toString()
-    case 'function':
-      return `[Function ${(v as {name?: string}).name || 'anonymous'}]`
-  }
-  if (v instanceof Error) return clip(`${v.name}: ${v.message}`, 500)
-  if (typeof Element !== 'undefined' && v instanceof Element) {
-    const d = describe(v)
-    return `<${d.tag}${d.id ? '#' + d.id : ''}${d.classes.length ? '.' + d.classes.join('.') : ''}>`
-  }
-  if (depth > 2) return '[…]'
-  if (Array.isArray(v)) {
-    const head = v.slice(0, 20).map((x) => formatArg(x, depth + 1)).join(', ')
-    return `[${head}${v.length > 20 ? `, …+${v.length - 20}` : ''}]`
-  }
-  try {
-    const seen = new WeakSet<object>()
-    const json = JSON.stringify(v, (_k, val) => {
-      if (typeof val === 'function') return `[Function ${(val as {name?: string}).name || 'anonymous'}]`
-      if (typeof val === 'bigint') return String(val)
-      if (val && typeof val === 'object') {
-        if (seen.has(val as object)) return '[Circular]'
-        seen.add(val as object)
-      }
-      return val
-    })
-    return clip(json ?? String(v), 500)
-  } catch {
-    return '[Object]'
-  }
+/** No arbitrary value content, including scalar values or exception messages. */
+function formatArg(v: unknown): string {
+  return summarizeValue(v)
 }
 
 /** 安装 console / window.onerror / unhandledrejection 采集（保留原有行为）。 */
@@ -423,15 +418,17 @@ function queryOp(args: Args): unknown {
   return {selector, total: all.length, matches}
 }
 
-const ATTR_ALLOW = new Set(['id', 'class', 'title', 'role', 'type', 'name', 'value', 'placeholder', 'href', 'aria-label', 'aria-expanded', 'aria-pressed', 'aria-current', 'aria-hidden', 'disabled', 'readonly', 'checked', 'data-statusbar-trigger', 'data-tone'])
+const ATTR_ALLOW = new Set(['id', 'class', 'title', 'role', 'type', 'name', 'placeholder', 'aria-label', 'aria-expanded', 'aria-pressed', 'aria-current', 'aria-hidden', 'disabled', 'readonly', 'checked', 'data-statusbar-trigger', 'data-tone', 'data-ui', 'data-testid', 'data-state'])
 
-function attrsOf(el: Element, extra: string[]): Record<string, string> {
+function attrsOf(el: Element, _extra: string[]): Record<string, string> {
   const out: Record<string, string> = {}
   let n = 0
   for (const attr of Array.from(el.attributes)) {
     const name = attr.name.toLowerCase()
-    const keep = ATTR_ALLOW.has(name) || name.startsWith('data-') || name.startsWith('aria-') || extra.includes(attr.name) || extra.includes(name)
-    if (!keep) continue
+    // value, href and arbitrary requested/data-* attributes are hidden data
+    // channels; only return fixed structural and accessibility metadata.
+    if (!ATTR_ALLOW.has(name)) continue
+    if (hiddenInspectionContent(el) && !['id', 'class', 'role', 'type', 'name', 'aria-hidden'].includes(name)) continue
     out[name] = clip(attr.value, 120)
     if (++n >= 16) break
   }
@@ -590,23 +587,20 @@ function isRefLike(v: unknown): boolean {
 }
 
 /** 值摘要：函数 / 组件实例只报名字，容器只报规模 —— 绝不把响应式对象整个丢回去。 */
-function summarizeValue(v: unknown, depth = 0): string {
+function summarizeValue(v: unknown): string {
   if (v === null) return 'null'
   if (v === undefined) return 'undefined'
   const t = typeof v
-  if (t === 'function') return `[Function ${(v as {name?: string}).name || 'anonymous'}]`
-  if (t === 'string') return clip(v as string, 60)
-  if (t === 'number' || t === 'boolean' || t === 'bigint') return String(v)
-  if (t === 'symbol') return (v as symbol).toString()
-  if (isRefLike(v)) return depth > 1 ? '[Ref]' : `[Ref → ${summarizeValue((v as {value?: unknown}).value, depth + 1)}]`
-  if (isComponentLike(v)) return `[Component ${componentNameFromType(v)}]`
-  if (Array.isArray(v)) {
-    if (depth > 1) return `[Array(${v.length})]`
-    return `[Array(${v.length}) ${v.slice(0, 3).map((x) => summarizeValue(x, depth + 1)).join(', ')}]`
-  }
-  if (typeof Element !== 'undefined' && v instanceof Element) return `[Element <${describe(v).tag}>]`
-  const keys = Object.keys(v as object).slice(0, 8)
-  return `[Object keys: ${keys.join(', ')}${Object.keys(v as object).length > 8 ? ', …' : ''}]`
+  if (t === 'string') return `[String(${(v as string).length})]`
+  if (t !== 'object') return `[${t}]`
+  if (isRefLike(v)) return '[Ref]'
+  if (isComponentLike(v)) return '[Component]'
+  if (Array.isArray(v)) return `[Array(${v.length})]`
+  if (v instanceof Error) return '[Error]'
+  if (typeof Element !== 'undefined' && v instanceof Element) return '[Element]'
+  if (v instanceof Map) return `[Map(${v.size})]`
+  if (v instanceof Set) return `[Set(${v.size})]`
+  return `[Object(${Object.keys(v as object).length} keys)]`
 }
 
 function summarizeProps(props: Record<string, unknown> | undefined): Record<string, string> {
@@ -664,7 +658,7 @@ function treeOp(args: Args): unknown {
     if (!filter || name.toLowerCase().includes(filter)) {
       nodes.push({
         name,
-        key: (instance.vnode?.key ?? null) as unknown,
+        key: summarizeValue(instance.vnode?.key ?? null),
         depth,
         dom: domSummary(instance.vnode?.el),
         propsSummary: summarizeProps(instance.props),
@@ -685,7 +679,7 @@ function treeOp(args: Args): unknown {
     truncated,
     depth: depthMax,
     limit,
-    note: 'props 只做浅层摘要（函数 / 组件实例只报名字），并限制深度与数量；childCount 是直接子组件数。',
+    note: 'props 仅返回字段名、类型和规模，不返回任何值正文；childCount 是直接子组件数。',
   }
 }
 
@@ -868,7 +862,7 @@ function sanitize(value: unknown, depth: number, state: {truncated: boolean}, se
   const out: Record<string, unknown> = {}
   const keys = Object.keys(obj as Record<string, unknown>)
   if (keys.length > 200) state.truncated = true
-  for (const k of keys.slice(0, 200)) out[k] = sanitize((obj as Record<string, unknown>)[k], depth + 1, state, seen)
+  for (const k of keys.slice(0, 200)) out[k] = /password|passphrase|privatekey|keycontent|^content$|^token$|^secret$/i.test(k) ? '***' : sanitize((obj as Record<string, unknown>)[k], depth + 1, state, seen)
   return out
 }
 
@@ -1001,6 +995,7 @@ function injectCSSOp(args: Args): unknown {
 
 function deepMerge(target: Record<string, unknown>, patch: Record<string, unknown>): void {
   for (const [k, v] of Object.entries(patch)) {
+    if (['__proto__', 'prototype', 'constructor'].includes(k)) throw new Error('禁止修改原型字段')
     const cur = target[k]
     if (v && typeof v === 'object' && !Array.isArray(v) && cur && typeof cur === 'object' && !Array.isArray(cur)) {
       deepMerge(cur as Record<string, unknown>, v as Record<string, unknown>)
@@ -1014,6 +1009,11 @@ async function storePatchOp(args: Args): Promise<unknown> {
   const pinia = getActivePinia()
   if (!pinia) throw new Error('Pinia 未初始化：无法修改 store')
   const name = str(args.name)
+  if (!['ui', 'settings'].includes(name)) throw new Error('实验 patch 仅允许导航或外观 store')
+  if (name === 'settings') {
+    const patch = args.patch && typeof args.patch === 'object' ? args.patch as Record<string, unknown> : {}
+    if (Object.keys(patch).some(key => !['theme', 'appearance', 'fonts', 'uiScale'].includes(key))) throw new Error('实验 patch 不能修改权限、凭据或连接设置')
+  }
   const names = Array.from(pinia._s.keys()).sort()
   const store = name ? pinia._s.get(name) : undefined
   if (!store) throw new Error(`未找到 store: ${name || '(空)'}（可用：${names.join(' / ')}）`)
@@ -1043,7 +1043,7 @@ async function storePatchOp(args: Args): Promise<unknown> {
     patchedKeys: Object.keys(patch),
     changedKeys: changed,
     unchangedKeys: Object.keys(patch).filter((k) => !changed.includes(k)),
-    valuesAfter: after,
+    valuesAfter: Object.fromEntries(Object.entries(after).map(([key,value]) => [key, jsonSafe(value, 8192).value])),
     state: safe.value,
     persisted: false,
     note: '只改了内存里的 store：本工具不调用任何 save()（也不会触发写库的 watcher）。',

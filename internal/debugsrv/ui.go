@@ -271,12 +271,12 @@ func uiToolEntries() []mcpTool {
 			}, "entries", "entryCount", "overlaps"),
 			structured: structuredIdentity},
 		{Name: OpUIQuery, Description: "按 CSS 选择器查询元素（默认 20 个，最多 100）：每个命中返回 {index, tag, id, classes[], text(截断 200 字), rect, visible, attrs{}, childCount}。" +
-			"props 可指定要额外收集的属性名（如 [\"data-status\",\"aria-expanded\"]），默认收集 id/class/title/role/type/name/value/placeholder/data-*/aria-* 的常见项。" +
+			"text 排除隐藏后代、脚本数据和敏感控件；attrs 只返回固定结构及无障碍元信息，不返回 value、href 或任意自定义属性正文。props 参数仅为兼容保留，不能扩大可读属性范围。" +
 			"选择器非法或没有命中会返回中文原因。",
 			InputSchema: obj(map[string]any{
 				"selector": strProp("CSS 选择器（如 .xterm / aside.nav / [data-statusbar-trigger]）"),
 				"limit":    intProp("返回条数（默认 20，最多 100）"),
-				"props":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "额外收集的属性名列表"},
+				"props":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "兼容参数；结果始终只包含固定安全属性"},
 			}, "selector"),
 			OutputSchema: outputObj(map[string]any{
 				"selector": outProp("string"), "count": outProp("number"), "total": outProp("number"),
@@ -304,15 +304,14 @@ func uiToolEntries() []mcpTool {
 				"y": intProp("视口 Y（CSS px）"),
 			}, "x", "y")},
 		{Name: OpUITree, Description: "读取 Vue 组件树（从 #app 的 __vue_app__ 根实例开始）：{name, key, depth, dom{tag,id,classes}, propsSummary{}, childCount}。" +
-			"depth 默认 3、最多 6；limit 默认 60、最多 200；filter 按组件名过滤。props 只做浅层摘要（函数 / 组件实例只报名字），并做循环保护，" +
-			"因此不会把几 MB 的响应式对象丢回来。",
+			"depth 默认 3、最多 6；limit 默认 60、最多 200；filter 按组件名过滤。props 和 key 仅返回字段名、类型和规模摘要，不返回任意值正文，包括 modelValue、字符串、数字、布尔或嵌套数据。",
 			InputSchema: obj(map[string]any{
 				"depth":  intProp("最大深度（默认 3，最多 6）"),
 				"limit":  intProp("最大节点数（默认 60，最多 200）"),
 				"filter": strProp("只保留组件名含该子串的节点，可选"),
 			})},
-		{Name: OpUIConsole, Description: "读取前端控制台环形缓冲（容量 200）：{ts, level, text[], source?, stack?}。" +
-			"采集 console.log/info/warn/error/debug、window.onerror 与 unhandledrejection，并保留原有控制台行为（不吞输出）。" +
+		{Name: OpUIConsole, Description: "读取前端控制台安全元信息环形缓冲（容量 200）：{ts, level, text[], source}。" +
+			"text 仅含参数类型和规模，source 为固定来源类别；不保存或返回日志正文、异常消息、URL 或 stack。覆盖 console.log/info/warn/error/debug、window/Vue 错误与 unhandledrejection，保留原有控制台和错误处理行为。" +
 			"level 按 debug < info < warn < error 取「该级别及以上」；since 为毫秒时间戳下界；limit 默认 20、最多 200。",
 			InputSchema: obj(map[string]any{
 				"limit": intProp("返回条数（默认 20，最多 200）"),
@@ -556,6 +555,11 @@ func uiPassthroughTool(ctx context.Context, fe uiFrontend, op string, args map[s
 	}
 	if clip != nil {
 		m = clip(m)
+	}
+	if unsafeUITool(op) {
+		m["persistence"] = "unknown"
+		delete(m, "persisted")
+		m["note"] = "DOM 事件可能触发业务持久化；本工具不能保证没有副作用"
 	}
 	res := uiResult(uiLimitData(m, uiMaxDataBytes, op))
 	logx.Infof("[debugsrv/ui] 透传读取完成: op=%s keys=%d elapsed=%s", op, len(res.Data), time.Since(start))
@@ -880,6 +884,21 @@ func (s *Server) uiWrite(ctx context.Context, fe uiFrontend, op string, args map
 	} else {
 		logx.Debugf("[debugsrv/ui] UI 写操作开始: op=%s", op)
 	}
+	if op == OpUIStorePatch && uiArgString(args, "name") != "" {
+		name := uiArgString(args, "name")
+		if name != "ui" && name != "settings" {
+			return nil, errors.New("实验 patch 仅允许 ui 或 settings 外观字段，禁止凭据与会话 store")
+		}
+		if name == "settings" {
+			for key := range uiMap(args["patch"]) {
+				switch key {
+				case "theme", "appearance", "fonts", "uiScale":
+				default:
+					return nil, errors.New("实验 patch 仅允许 theme/appearance/fonts/uiScale")
+				}
+			}
+		}
+	}
 	if err := uiValidateWriteArgs(op, args); err != nil {
 		return nil, err
 	}
@@ -889,12 +908,18 @@ func (s *Server) uiWrite(ctx context.Context, fe uiFrontend, op string, args map
 		return nil, err
 	}
 	if op == OpUIStorePatch {
+		m = uiMap(SafeProjection(m))
 		m["persistenceHint"] = uiStorePatchHint(uiArgString(args, "name"), uiMap(args["patch"]))
 	}
 	if op == OpUIWindow {
 		m["note"] = "最小化后截图会失败（captureWindowPNG 会返回中文错误）；做视觉验证前请先 restore。"
 	}
 	m = uiClipValue(m, uiMaxStringRunes*2, 100, 40, 0).(map[string]any)
+	if unsafeUITool(op) {
+		m["persistence"] = "unknown"
+		delete(m, "persisted")
+		m["note"] = "DOM 事件可能触发业务持久化；本工具不能保证没有副作用"
+	}
 	res := uiResult(uiLimitData(m, uiMaxDataBytes, op))
 	logx.Infof("[debugsrv/ui] UI 写操作完成: op=%s keys=%d elapsed=%s", op, len(res.Data), time.Since(start))
 	return res, nil
@@ -1570,13 +1595,29 @@ func uiDecodePNG(b []byte) (image.Image, error) {
 
 // uiWriteFile 落盘（自动建目录）。
 func uiWriteFile(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("创建目录失败（%s）：%w", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("写入文件失败（%s）：%w", path, err)
+	if err := os.Chmod(filepath.Dir(path), 0700); err != nil {
+		return err
 	}
-	return nil
+	f, err := os.CreateTemp(filepath.Dir(path), ".snapshot-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }
 
 func uiEncodePNG(img image.Image) ([]byte, error) {
@@ -1881,6 +1922,8 @@ func (s *Server) uiShot(ctx context.Context, fe uiFrontend, op string, args map[
 
 // uiSnapshot 记录一次快照：窗口 PNG（可裁剪）+ 指纹 + 元信息，落盘到 ui-snapshots/。
 func (s *Server) uiSnapshot(ctx context.Context, fe uiFrontend, args map[string]any) (*UIResult, error) {
+	uiSnapshotMu.Lock()
+	defer uiSnapshotMu.Unlock()
 	start := time.Now()
 	rawName := uiArgString(args, "name")
 	selector := uiArgString(args, "selector")
@@ -1971,6 +2014,9 @@ func (s *Server) uiSnapshot(ctx context.Context, fe uiFrontend, args map[string]
 	}
 	if err := uiWriteFile(metaPath, metaBytes); err != nil {
 		logx.Errorf("[debugsrv/ui] 快照元信息落盘失败: name=%q path=%q err=%v", name, metaPath, err)
+		return nil, err
+	}
+	if err := pruneUISnapshots(uiSnapshotDir(), time.Now()); err != nil {
 		return nil, err
 	}
 	if meta.Truncated {

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"runtime"
 	rdebug "runtime/debug"
 	"sort"
@@ -31,7 +32,8 @@ import (
 
 // App 是 Wails 绑定到前端的应用对象。
 type App struct {
-	updates updateState
+	debugDialog func(wailsruntime.MessageDialogOptions) (string, error)
+	updates     updateState
 
 	ctx         context.Context
 	manager     *sshx.Manager
@@ -182,6 +184,7 @@ func (a *App) Startup(ctx context.Context) {
 		logx.Errorf("[apphost] 读取设置失败: err=%v", err)
 	}
 	a.applyLogSettings(settings)
+	a.configureDebugAudit(settings.Debug)
 	logx.Debugf("[apphost] 设置已加载并应用日志开关: elapsed=%s", time.Since(start))
 	// 启动自检：把版本 / 日志目录 / 各项开关写进日志，便于排查「日志页没内容」
 	a.logStartupSelfCheck(settings)
@@ -509,6 +512,9 @@ func (a *App) SaveSettings(settings models.Settings) error {
 		logx.Errorf("[apphost] 保存设置失败（读取旧设置）: err=%v", err)
 		return err
 	}
+	if err := a.approveDebugSettingsChange(previous.Debug, settings.Debug); err != nil {
+		return err
+	}
 	if settings.AutoStart != previous.AutoStart {
 		logx.Debugf("[apphost] 切换开机自启: enabled=%v", settings.AutoStart)
 		if err := autostart.Set(settings.AutoStart); err != nil {
@@ -527,6 +533,13 @@ func (a *App) SaveSettings(settings models.Settings) error {
 		}
 		logx.Errorf("[apphost] 保存设置失败: err=%v", err)
 		return fmt.Errorf(i18n.T("保存设置失败: %w"), err)
+	}
+	if !reflect.DeepEqual(previous.Debug, settings.Debug) && a.debug != nil && a.debug.srv != nil {
+		a.debug.srv.InvalidateAuthorizations()
+	}
+	a.configureDebugAudit(settings.Debug)
+	if !reflect.DeepEqual(previous.Debug, settings.Debug) && a.audits != nil {
+		a.audits.Append(debugsrv.AuditRecord{Source: "ui", Tool: "authorization.settings", ClientID: "local-owner", OK: true})
 	}
 	syncNativeAppearance(settings.Appearance.BaseTone)
 	// 日志四项开关（控制台 / 文件 / 级别 / 调用日志）立即生效

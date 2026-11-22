@@ -22,11 +22,15 @@ class Audit:
         self.token = info['token']
         self.http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         self.seq = 0
+        self.session = None
         self.results = []
         self.created = []
 
     def request(self, path, body=None, auth=True, method=None):
-        headers = {'Accept': 'application/json'}
+        headers = {'Accept': 'application/json, text/event-stream'}
+        if self.session:
+            headers['Mcp-Session-Id'] = self.session
+            headers['MCP-Protocol-Version'] = '2025-06-18'
         if auth:
             headers['Authorization'] = 'Bearer ' + self.token
         data = None
@@ -35,7 +39,9 @@ class Audit:
             headers['Content-Type'] = 'application/json'
         req = urllib.request.Request(self.base + path, data=data, headers=headers, method=method)
         with self.http.open(req, timeout=35) as response:
-            return json.load(response)
+            self.session = response.headers.get('Mcp-Session-Id') or self.session
+            raw = response.read()
+            return json.loads(raw) if raw else {}
 
     def rpc(self, method, params=None):
         self.seq += 1
@@ -113,10 +119,12 @@ class Audit:
         return {'closed': len(self.created), 'remainingTestSessions': 0}
 
     def run(self):
+        initialized = self.rpc('initialize', {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 'ding-audit', 'version': '2'}})
+        self.request('/mcp', {'jsonrpc': '2.0', 'method': 'notifications/initialized'})
         initial = self.request('/v1/state')
         original_view = initial['frontend']['view']
         original_section = self.tool('ui.store', {'name': 'ui'})
-        original_sessions = self.tool('ui.store', {'name': 'sessions'}).get('state', {})
+        original_sessions = self.tool('ui.layout').get('view', {})
         initial_tabs = {t['clientId'] for t in initial['frontend']['tabs']}
         def unauthorized():
             try:
@@ -144,9 +152,7 @@ class Audit:
                            ('app.recent_calls', {'limit': 5}), ('sftp.transfers', {})]:
             self.check('Read tool: ' + name,
                        lambda name=name, args=args: {'responseType': type(self.tool(name, args)).__name__})
-        self.check('MCP initializes successfully', lambda: {'protocol': self.rpc('initialize', {
-            'protocolVersion': '2025-06-18', 'capabilities': {},
-            'clientInfo': {'name': 'ding-audit', 'version': '1'}})['protocolVersion']})
+        self.check('MCP initializes successfully', lambda: {'protocol': initialized['protocolVersion']})
         self.check('MCP lists resources', lambda: {'resources': len(self.rpc('resources/list')['resources'])})
         self.check('MCP lists resource templates', lambda: {'templates': len(self.rpc('resources/templates/list')['resourceTemplates'])})
 
@@ -236,7 +242,7 @@ class Audit:
             panel_patch = {key: original_sessions[key] for key in ['rightPanel', 'sftpVisible']
                            if key in original_sessions}
             if panel_patch:
-                self.tool('ui.storePatch', {'name': 'sessions', 'patch': panel_patch})
+                self.tool('panels.set', {'panel': panel_patch.get('rightPanel', 'sftp') if panel_patch.get('sftpVisible') else 'hidden'})
             active = original_sessions.get('activeId')
             if active in initial_tabs:
                 self.tool('tabs.activate', {'id': active})

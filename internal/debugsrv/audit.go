@@ -25,16 +25,18 @@ import (
 
 // AuditRecord 一条审计记录。
 type AuditRecord struct {
-	ID         string `json:"id"`              // 形如 a12（进程内自增）
-	TS         int64  `json:"ts"`              // 毫秒时间戳
-	Source     string `json:"source"`          // "mcp" | "http" | "ui"
-	Tool       string `json:"tool"`            // 工具名 / HTTP 操作名
-	Cap        string `json:"cap"`             // 主要能力位（读类为空）
-	Args       string `json:"args"`            // 已脱敏的规范化参数 JSON
-	OK         bool   `json:"ok"`              // 是否成功
-	Error      string `json:"error,omitempty"` // 失败原因（中文，已脱敏）
-	DurationMS int64  `json:"durationMs"`      // 耗时
-	Reversible bool   `json:"reversible"`      // 是否可撤销
+	ClientID    string `json:"clientId,omitempty"`
+	OperationID string `json:"operationId,omitempty"`
+	ID          string `json:"id"`              // 形如 a12（进程内自增）
+	TS          int64  `json:"ts"`              // 毫秒时间戳
+	Source      string `json:"source"`          // "mcp" | "http" | "ui"
+	Tool        string `json:"tool"`            // 工具名 / HTTP 操作名
+	Cap         string `json:"cap"`             // 主要能力位（读类为空）
+	Args        string `json:"args"`            // 已脱敏的规范化参数 JSON
+	OK          bool   `json:"ok"`              // 是否成功
+	Error       string `json:"error,omitempty"` // 失败原因（中文，已脱敏）
+	DurationMS  int64  `json:"durationMs"`      // 耗时
+	Reversible  bool   `json:"reversible"`      // 是否可撤销
 	// RevertHint 可撤销时的中文提示（后续 UI 用它生成「撤销」按钮的说明）。
 	RevertHint string `json:"revertHint,omitempty"`
 }
@@ -48,9 +50,10 @@ var auditOverflowLog = logx.NewSampler(64, 5*time.Second)
 
 // AuditLog 审计环形缓冲（并发安全，容量固定，不落盘）。
 type AuditLog struct {
-	mu   sync.Mutex
-	seq  int
-	ring []AuditRecord
+	mu              sync.Mutex
+	seq             int
+	ring            []AuditRecord
+	persistencePath string
 }
 
 // NewAuditLog 创建审计日志。
@@ -73,6 +76,11 @@ func (a *AuditLog) Append(rec AuditRecord) AuditRecord {
 	a.seq++
 	rec.ID = fmt.Sprintf("a%d", a.seq)
 	a.ring = append(a.ring, rec)
+	if a.persistencePath != "" {
+		if err := a.persistLocked(rec); err != nil {
+			logx.Errorf("[debugsrv/audit] 持久审计写入失败: err=%v", err)
+		}
+	}
 	dropped := 0
 	if len(a.ring) > auditRingLimit {
 		dropped = len(a.ring) - auditRingLimit
@@ -252,19 +260,21 @@ func matchSensitiveKeyAt(s string, i int) (int, bool) {
 // 多种提前返回路径都留下审计记录；用一个小结构体承载上下文，比在每个分支里手写
 // Append 更不容易漏记。
 type auditRecorder struct {
-	log        *AuditLog
-	hub        *Hub
-	Source     string
-	Tool       string
-	Cap        Capability
-	Args       map[string]any
-	Reversible bool
-	RevertHint string
-	started    time.Time
+	log         *AuditLog
+	hub         *Hub
+	Source      string
+	Tool        string
+	Cap         Capability
+	Args        map[string]any
+	Reversible  bool
+	RevertHint  string
+	started     time.Time
+	ClientID    string
+	OperationID string
 }
 
 func newAuditRecorder(log *AuditLog, hub *Hub, source, tool string, capCap Capability, args map[string]any) *auditRecorder {
-	return &auditRecorder{log: log, hub: hub, Source: source, Tool: tool, Cap: capCap, Args: args, started: time.Now()}
+	return &auditRecorder{log: log, hub: hub, Source: source, Tool: tool, Cap: capCap, Args: args, started: time.Now(), ClientID: "local-owner"}
 }
 
 // finish 生成并落地审计记录；err 为 nil 表示成功。
@@ -273,15 +283,17 @@ func (r *auditRecorder) finish(err error, reversible bool, revertHint string) Au
 		return AuditRecord{}
 	}
 	rec := AuditRecord{
-		TS:         r.started.UnixMilli(),
-		Source:     r.Source,
-		Tool:       r.Tool,
-		Cap:        string(r.Cap),
-		Args:       NormalizeArgsJSON(r.Args),
-		OK:         err == nil,
-		DurationMS: time.Since(r.started).Milliseconds(),
-		Reversible: reversible,
-		RevertHint: revertHint,
+		ClientID:    r.ClientID,
+		OperationID: r.OperationID,
+		TS:          r.started.UnixMilli(),
+		Source:      r.Source,
+		Tool:        r.Tool,
+		Cap:         string(r.Cap),
+		Args:        NormalizeArgsJSON(r.Args),
+		OK:          err == nil,
+		DurationMS:  time.Since(r.started).Milliseconds(),
+		Reversible:  reversible,
+		RevertHint:  revertHint,
 	}
 	if err != nil {
 		rec.Error = err.Error()

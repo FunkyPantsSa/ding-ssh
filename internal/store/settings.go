@@ -102,10 +102,10 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 		settings.CompletionEnabled = false
 	}
 	// 能力位：升级前的配置完全没有这些字段，反序列化会得到「全 false」，
-	// 但默认值要求「终端输入」开启 —— 因此只在缺字段时补默认值，
+	// 缺失字段保持关闭，不自动增加执行授权；
 	// 用户显式关掉（字段存在且为 false）必须保持关闭。
 	if !models.HasDebugCapabilityFields(data) {
-		settings.Debug.CapTerminalInput = true
+		settings.Debug.CapTerminalInput = models.DefaultDebugSettings().CapTerminalInput
 	}
 	if settings.CompletionNavHotkey == "" {
 		logx.Warnf("[store] 设置项为空，补全导航快捷键回落默认: key=completionNavHotkey value=Alt+ArrowDown")

@@ -5,11 +5,14 @@ import {apphost} from '../models';
 import {models} from '../models';
 import {sshx} from '../models';
 import {localterm} from '../models';
+import {debugsrv} from '../models';
 import {sshconfig} from '../models';
 
 export function AddCommandHistory(arg1:string,arg2:string):Promise<void>;
 
 export function AddGroup(arg1:string):Promise<void>;
+
+export function ApplyDebugPreset(arg1:string):Promise<void>;
 
 export function BeforeClose(arg1:context.Context):Promise<boolean>;
 
@@ -28,6 +31,8 @@ export function Connect(arg1:string,arg2:models.ServerNode,arg3:number,arg4:numb
 export function ConnectAuthenticated(arg1:string,arg2:models.ServerNode,arg3:number,arg4:number,arg5:Record<string, string>):Promise<models.ConnectResult>;
 
 export function ConnectLocal(arg1:string,arg2:number,arg3:number):Promise<models.ConnectResult>;
+
+export function CreateDebugClient(arg1:string):Promise<Record<string, any>>;
 
 export function DebugInfo():Promise<Record<string, any>>;
 
@@ -85,6 +90,8 @@ export function ImportSSHConfig(arg1:string,arg2:Array<apphost.SSHImportChoice>)
 
 export function InstallUpdateNow():Promise<void>;
 
+export function ListDebugClients():Promise<Array<debugsrv.ClientPolicy>>;
+
 export function ListLocalIPv4():Promise<Array<string>>;
 
 export function ListSessions():Promise<Array<models.SessionInfo>>;
@@ -122,6 +129,8 @@ export function ResolveHostTrust(arg1:string,arg2:boolean,arg3:boolean):Promise<
 export function RestartTunnel(arg1:string):Promise<void>;
 
 export function RevealLocalPath(arg1:string):Promise<void>;
+
+export function RevokeDebugClient(arg1:string):Promise<void>;
 
 export function SaveCredential(arg1:models.Credential):Promise<models.Credential>;
 

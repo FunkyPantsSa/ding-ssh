@@ -103,13 +103,13 @@ func ConfirmableActions() []string {
 	seen := make(map[string]bool, len(builtinConfirmActions))
 	out := make([]string, 0, len(builtinConfirmActions))
 	for _, a := range builtinConfirmActions {
-		if !seen[a] {
+		if a != "capability.enable" && !seen[a] {
 			seen[a] = true
 			out = append(out, a)
 		}
 	}
 	for _, a := range registeredConfirmActions() {
-		if !seen[a] {
+		if a != "capability.enable" && !seen[a] {
 			seen[a] = true
 			out = append(out, a)
 		}
@@ -173,6 +173,7 @@ var ErrConfirmRequired = errors.New("需要两段式确认")
 
 // PendingConfirm 一次已登记、等待 commit 的确认操作。
 type PendingConfirm struct {
+	Caller    string         `json:"-"`
 	Token     string         `json:"token"`
 	Tool      string         `json:"tool,omitempty"`
 	Action    string         `json:"action"`
@@ -248,6 +249,10 @@ func (m *ConfirmManager) PrepareTool(action, tool string, args map[string]any, s
 	}
 	m.mu.Lock()
 	m.sweepLocked(now)
+	if len(m.entries) >= 128 {
+		m.mu.Unlock()
+		return "", 0
+	}
 	m.entries[token] = entry
 	pending := len(m.entries)
 	m.mu.Unlock()
@@ -302,8 +307,7 @@ func (m *ConfirmManager) Take(token, action string, args map[string]any) (Pendin
 	if got := confirmHash(action, NormalizeConfirmArgs(args)); got != entry.hash {
 		// 不记 args：错误文案里的规范化参数 JSON 可能含凭据 / 设置正文。
 		logx.Warnf("[debugsrv/confirm] 校验确认 token 失败: reason=参数与确认时不一致 action=%s", action)
-		return PendingConfirm{}, fmt.Errorf("参数与确认时不一致：token 绑定的是确认时的参数（%s），本次是 %s，改动后必须重新 confirm.prepare",
-			NormalizeArgsJSON(entry.pending.Args), NormalizeArgsJSON(args))
+		return PendingConfirm{}, errors.New("参数与确认时不一致：请重新 confirm.prepare（敏感参数不会回显）")
 	}
 	delete(m.entries, token) // 一次性：无论后续执行成功与否都不再可用
 	logx.Debugf("[debugsrv/confirm] 确认 token 已消费: action=%s tool=%s", action, entry.pending.Tool)
@@ -349,7 +353,7 @@ func (m *ConfirmManager) sweepLocked(now time.Time) {
 	}
 }
 
-// NormalizeConfirmArgs 规范化确认参数：排序键、字符串 trim、丢弃 nil / 非有限数字。
+// NormalizeConfirmArgs 规范化确认参数：排序键、保留字符串原字节、丢弃 nil。
 //
 // 规范化的目的：让「同一组参数」永远得到同一个哈希 —— AI 两次传 JSON 的键顺序、
 // 空格可能有微小差异，但语义相同就必须能通过校验；反过来，任何语义变化都必须失败。
@@ -371,11 +375,12 @@ func NormalizeConfirmArgs(args map[string]any) map[string]any {
 	return out
 }
 
-// normalizeConfirmValue 单值规范化：字符串去首尾空白；数字统一为 float64 的规范文本；数组保持顺序。
+// normalizeConfirmValue preserves payload bytes. Whitespace in file contents,
+// patches, environment values and commands is part of the approved operation.
 func normalizeConfirmValue(v any) any {
 	switch t := v.(type) {
 	case string:
-		return strings.TrimSpace(t)
+		return t
 	case float64:
 		return normalizeNumber(t)
 	case int:
@@ -391,7 +396,13 @@ func normalizeConfirmValue(v any) any {
 		}
 		return out
 	case map[string]any:
-		return NormalizeConfirmArgs(t)
+		// Only the outer call's confirmation credential is out of band.
+		// A nested "token" may be an environment value or business payload.
+		out := make(map[string]any, len(t))
+		for k, value := range t {
+			out[k] = normalizeConfirmValue(value)
+		}
+		return out
 	default:
 		return t
 	}
@@ -479,4 +490,22 @@ func defaultConfirmSummary(action string, args map[string]any) string {
 		return fmt.Sprintf("即将执行破坏性操作 %s（无参数）", action)
 	}
 	return fmt.Sprintf("即将执行破坏性操作 %s，参数：%s", action, NormalizeArgsJSON(args))
+}
+
+// BindCaller binds a confirmation to its authenticated owner before exposing it.
+func (m *ConfirmManager) BindCaller(token, caller string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e, ok := m.entries[token]; ok {
+		e.pending.Caller = caller
+		m.entries[token] = e
+	}
+}
+
+func (m *ConfirmManager) Clear() {
+	if m != nil {
+		m.mu.Lock()
+		m.entries = make(map[string]confirmEntry)
+		m.mu.Unlock()
+	}
 }

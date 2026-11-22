@@ -118,7 +118,7 @@ func appctlSummarizeImportArg(v any) any {
 func appctlSensitiveArgKey(key string) bool {
 	switch strings.ToLower(strings.TrimSpace(key)) {
 	case "password", "passwd", "pwd", "passphrase", "privatekey", "keycontent", "key_content",
-		"content", "secret", "apikey", "api_key", "token", "confirm", "authorization":
+		"content", "data", "text", "output", "base64", "oldtext", "newtext", "command", "env", "js", "secret", "apikey", "api_key", "token", "confirm", "authorization":
 		return true
 	}
 	return false
@@ -530,6 +530,47 @@ func (s *Server) appctlServersList(ctx context.Context, h Handler, args map[stri
 	}
 	obj := appctlObj(raw)
 	items := appctlObjSlice(obj["servers"])
+	allTotal := len(items)
+	query := strings.ToLower(appctlString(args, "query"))
+	group := appctlString(args, "group")
+	filtered := make([]map[string]any, 0, len(items))
+	for _, it := range items {
+		if group != "" && appctlString(it, "group") != group {
+			continue
+		}
+		if query != "" {
+			parts := []string{appctlString(it, "name"), appctlString(it, "host"), appctlString(it, "user"), appctlString(it, "group")}
+			if !strings.Contains(strings.ToLower(strings.Join(parts, "\n")), query) {
+				continue
+			}
+		}
+		filtered = append(filtered, it)
+	}
+	items = filtered
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := appctlString(items[i], "name"), appctlString(items[j], "name")
+		if a == b {
+			return appctlString(items[i], "id") < appctlString(items[j], "id")
+		}
+		return a < b
+	})
+	offset, err := jobArgInt(args, "offset", 0, 0, 1<<30)
+	if err != nil {
+		return nil, err
+	}
+	limit, err := jobArgInt(args, "limit", appctlMaxListItems, 1, appctlMaxListItems)
+	if err != nil {
+		return nil, err
+	}
+	total := len(items)
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	items = items[offset:end]
 	fields := map[string]bool{}
 	out := make([]any, 0, len(items))
 	for _, it := range items {
@@ -538,22 +579,17 @@ func (s *Server) appctlServersList(ctx context.Context, h Handler, args map[stri
 		appctlMergeFieldNames(fields, plainNames)
 		out = append(out, view)
 	}
-	total := len(items)
-	truncated := false
-	if total > appctlMaxListItems {
-		out = out[:appctlMaxListItems]
-		truncated = true
-	}
+	truncated := end < total
 	res := map[string]any{
 		"count":    len(out),
 		"total":    total,
 		"servers":  out,
 		"redacted": !include,
+		"totalAll": allTotal, "offset": offset, "limit": limit, "nextOffset": end, "hasMore": truncated,
 	}
 	if truncated {
 		res["truncated"] = true
-		res["limit"] = appctlMaxListItems
-		res["truncatedNote"] = fmt.Sprintf("服务器数量超过 %d 条上限，已只返回前 %d 条。", appctlMaxListItems, appctlMaxListItems)
+		res["truncatedNote"] = fmt.Sprintf("返回筛选结果的第 %d–%d 条，共 %d 条；可用nextOffset继续分页。", offset, end, total)
 	}
 	if include {
 		res["plaintextFields"] = appctlFieldNameList(fields)
