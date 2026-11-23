@@ -17,6 +17,7 @@ ding-ssh is a local-first desktop SSH workspace. The terminal is the center: SFT
 | Storage | Local SQLite (WAL) + system keychain; no account, cloud sync or telemetry |
 | Control plane | Off by default, loopback only; the current `dev` branch exposes **124 MCP tools** (always check `tools/list` / `GET /v1/tools`) |
 | Branches | `dev` for active development, `main` for integration; released version 1.2.1, unreleased changes in [CHANGELOG](CHANGELOG.md) |
+| License | [MIT License](LICENSE) |
 | Documentation | [MCP tasks and files](docs/MCP任务与文件接口.md) · [MCP implementation and validation](docs/MCP改造实施与验证记录.md) · [Logging](docs/logging.md) |
 
 Choose **Settings → General → Language** for Simplified Chinese or English. Chinese is the default and the selection is saved locally. Switching updates the interface in place without reloading the page or closing terminal sessions. Pages, help text, connection and transfer messages, and native file dialog titles support both languages; user content and remote terminal output stay unchanged.
@@ -605,4 +606,4 @@ git push origin v1.2.1
 - [`docs/testing/`](docs/testing/) · [`docs/validation/mcp-2026-11-22.json`](docs/validation/mcp-2026-11-22.json): test records and redacted integration counts.
 - [`scripts/audit/`](scripts/audit/): `mcp_security_smoke.py`, `live_smoke.py` and `mcp_sdk_compat.mjs` for rerunning security and MCP compatibility checks against an isolated configuration.
 
-The repository declares no project-level license (Linux packaging metadata says MIT; formal licensing will follow a future `LICENSE` file). Third-party dependencies and bundled fonts keep their original licenses; an `OFL.txt` ships with the fonts.
+This project is licensed under the [MIT License](LICENSE). Third-party dependencies and bundled fonts retain their original licenses; an `OFL.txt` ships with the fonts, with additional font licenses in `frontend/public/licenses/fonts/`.

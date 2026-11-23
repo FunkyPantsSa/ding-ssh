@@ -17,6 +17,7 @@ ding-ssh 是一个本地优先的桌面 SSH 工作台：终端是中心，SFTP�
 | 数据落地 | 本机 SQLite（WAL）+ 系统钥匙串；无账号、无云同步、无遥测 |
 | 控制面 | 默认关闭，仅本机监听；当前 `dev` 提供 **124 个 MCP 工具**（以 `tools/list` / `GET /v1/tools` 为准） |
 | 分支与版本 | `dev` 持续开发，`main` 为合并线；已发布 1.2.1，未发布改动见 [`CHANGELOG.md`](CHANGELOG.md) |
+| 开源许可 | [MIT 许可证](LICENSE) |
 | 相关文档 | [MCP 任务与文件接口](docs/MCP任务与文件接口.md) · [MCP 改造实施与验证记录](docs/MCP改造实施与验证记录.md) · [日志规范](docs/logging.md) |
 
 设置 → 通用 → 语言支持简体中文和 English，默认中文，选择保存在本机。切换语言原地更新界面，不重载页面、不关闭终端会话；应用界面、说明、连接与传输提示及原生文件选择标题均提供英文，用户内容和远端终端输出保持原样。
@@ -605,4 +606,4 @@ git push origin v1.2.1
 - [`docs/testing/`](docs/testing/) · [`docs/validation/mcp-2026-11-22.json`](docs/validation/mcp-2026-11-22.json)：测试记录与脱敏的联调计数。
 - [`scripts/audit/`](scripts/audit/)：`mcp_security_smoke.py`、`live_smoke.py`、`mcp_sdk_compat.mjs`，用于在隔离配置实例上复跑安全与 MCP 兼容性联调。
 
-仓库未声明项目级许可证（Linux 打包元数据里填的是 MIT，正式授权请以仓库后续补充的 `LICENSE` 为准）。第三方依赖与内嵌字体遵循各自原始许可，字体目录内附 `OFL.txt`。
+本项目采用 [MIT 许可证](LICENSE) 开源。第三方依赖与内嵌字体遵循各自原始许可，字体目录内附 `OFL.txt`，更多字体许可详见 `frontend/public/licenses/fonts/`。
