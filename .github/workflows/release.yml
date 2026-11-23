@@ -123,7 +123,7 @@ jobs:
 
       - name: Wails build (macOS)
         if: runner.os == 'macOS'
-        run: wails3 task build GOOS=darwin ARCH=${{ matrix.arch }} BUILD_COMMIT=${{ github.sha }}
+        run: wails3 task build GOOS=darwin ARCH=${{ matrix.arch }} TARGET_ARCH=${{ matrix.arch }} TARGET_OS=darwin BUILD_COMMIT=${{ github.sha }}
 
       - name: Windows updater tests
         if: runner.os == 'Windows'
@@ -133,11 +133,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         # Keep the directory picker; protected install locations use a UAC update worker.
-        run: wails3 task package GOOS=windows ARCH=${{ matrix.arch }} BUILD_COMMIT=${{ github.sha }} PRODUCT_VERSION=${{ steps.ver.outputs.wails_version }}
+        run: wails3 task package GOOS=windows ARCH=${{ matrix.arch }} TARGET_ARCH=${{ matrix.arch }} TARGET_OS=windows BUILD_COMMIT=${{ github.sha }} PRODUCT_VERSION=${{ steps.ver.outputs.wails_version }}
 
       - name: Wails build (Linux)
         if: runner.os == 'Linux'
-        run: wails3 task build GOOS=linux ARCH=${{ matrix.arch }} BUILD_COMMIT=${{ github.sha }}
+        run: wails3 task build GOOS=linux ARCH=${{ matrix.arch }} TARGET_ARCH=${{ matrix.arch }} TARGET_OS=linux BUILD_COMMIT=${{ github.sha }}
 
       - name: Package macOS
         if: runner.os == 'macOS'
