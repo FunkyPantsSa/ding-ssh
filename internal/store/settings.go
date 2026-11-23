@@ -49,6 +49,15 @@ func DefaultSettingsPath() string {
 
 // Get 读取设置，文件不存在时返回默认值（日志默认关闭）。
 func (s *JSONSettingsStore) Get() (models.Settings, error) {
+	if s == nil {
+		return models.Settings{
+			UISchema:             2,
+			ConfirmCloseTab:      true,
+			KeepAliveEnabled:     true,
+			AutoReconnect:        true,
+			SysInfoCollectEnabled: true,
+		}, nil
+	}
 	start := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -5,6 +5,7 @@ import {t} from '../i18n'
 
 import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {OpenTerminalWindow, OpenSFTPWindow} from '../../bindings/ding-ssh/internal/apphost/app'
 import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
@@ -232,6 +233,18 @@ function closeAll() {
 const tabMenuTab = computed<SessionTab | undefined>(() =>
   tabMenu.value ? sessions.tabs.find((t) => t.clientId === tabMenu.value!.clientId) : undefined,
 )
+
+function openDetachedTerminal(tab?: SessionTab) {
+  if (!tab || !tab.sessionId) return
+  closeTabMenu()
+  void OpenTerminalWindow(tab.sessionId, tab.serverName || tab.node?.name || 'Terminal')
+}
+
+function openDetachedSFTP(tab?: SessionTab) {
+  if (!tab || !tab.sessionId) return
+  closeTabMenu()
+  void OpenSFTPWindow(tab.sessionId, (tab.serverName || tab.node?.name || 'SFTP') + ' - SFTP')
+}
 
 function clearDragState() {
   draggingId.value = ''
@@ -472,6 +485,15 @@ onBeforeUnmount(() => {
           <button @click="splitTab(tabMenu.clientId, 'down')">{{ $t('分屏到下方') }}</button>
         </div>
       </div>
+      <div class="divider-h my-1"></div>
+      <button v-if="tabMenuTab?.sessionId" class="!flex items-center gap-1.5" @click="openDetachedTerminal(tabMenuTab)">
+        <Icon name="terminal" :size="13" />
+        {{ $t('独立窗口终端') }}
+      </button>
+      <button v-if="tabMenuTab?.sessionId && tabMenuTab?.kind !== 'local'" class="!flex items-center gap-1.5" @click="openDetachedSFTP(tabMenuTab)">
+        <Icon name="folder" :size="13" />
+        {{ $t('独立窗口 SFTP') }}
+      </button>
       <div class="divider-h my-1"></div>
       <button @click="sessions.activateTab(tabMenu.clientId); closeTabMenu()">{{ $t('切换到此标签') }}</button>
       <button @click="close(tabMenu.clientId); closeTabMenu()">{{ $t('关闭标签') }}</button>

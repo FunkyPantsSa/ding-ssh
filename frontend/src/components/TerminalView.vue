@@ -33,6 +33,7 @@ import {onSysInfoSnapshot, sysInfoService} from '../services/sysinfo'
 import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../services/zmodem'
 import {Colorizer} from '../utils/output-color'
 import {patchXtermZoomCoords} from '../utils/xterm-zoom'
+import {openTerminalStream, type TerminalStreamClient} from '../services/terminal-stream'
 import {invalidateWebglGlyphModel, patchWebglZoomCanvas, syncWebglCanvas, webglCanvasReport} from '../utils/xterm-webgl-zoom'
 import {
   registerSharedAtlasTerminal,
@@ -83,6 +84,7 @@ const webglFallbackToast = ref('')
 
 let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
+let terminalStream: TerminalStreamClient | null = null
 let searchAddon: SearchAddon | null = null
 let selectionCopyGuard: ReturnType<typeof guardProgrammaticSelection> | null = null
 function onUserSelection(event: PointerEvent) {
@@ -472,7 +474,11 @@ function fit() {
   // （CSS zoom 下观察器上报的是含 zoom 的尺寸，不能直接采用）
   if (webglAddon) syncWebglCanvas(webglAddon)
   if (props.tab.sessionId && (cols !== term.cols || rows !== term.rows)) {
-    sshService.resize(props.tab.sessionId, term.cols, term.rows).catch(() => {})
+    if (terminalStream && terminalStream.isOpen()) {
+      terminalStream.sendResize(term.cols, term.rows)
+    } else {
+      sshService.resize(props.tab.sessionId, term.cols, term.rows).catch(() => {})
+    }
   }
   positionSudo()
 }
@@ -855,21 +861,38 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
   // Connect 返回前就已回传，而 Wails 事件不缓存、无监听即丢弃 —— 订阅晚了会丢掉开头
   // 几行输出（表现为「终端顶部吞字符」，且滚屏也找不回来）。
   // 会话 id 由前端生成并传入后端（后端事件名、返回值都用它），因此可以提前订阅。
+  let streamReady = false
+  const handleTerminalBytes = (bytes: Uint8Array) => {
+    if (disposed || !term) return
+    if (sudoSensitive.value && !zmodem?.active()) {
+      writeOutput(colorize.flush())
+      writeOutput(bytes)
+    }
+    else if (zmodem) zmodem.consume(bytes)
+    // 语义着色：只注入 SGR；off 档 / TUI（alt-buffer）内部直接原样返回输入字节
+    else writeOutput(colorize.feed(bytes))
+  }
+
+  terminalStream = openTerminalStream(sid, (bytes) => {
+    handleTerminalBytes(bytes)
+  }, (ready) => {
+    streamReady = ready
+  })
+  if (terminalStream) {
+    disposers.push(() => {
+      terminalStream?.close()
+      terminalStream = null
+    })
+  }
+
   disposers.push(
     onSudoPrompt(sid, (event) => {
       if (disposed) return
       sudo.handleEvent(event)
     }),
     onSessionOutput(sid, (data) => {
-      if (disposed || !term) return
-      const bytes = base64ToBytes(data)
-      if (sudoSensitive.value && !zmodem?.active()) {
-        writeOutput(colorize.flush())
-        writeOutput(bytes)
-      }
-      else if (zmodem) zmodem.consume(bytes)
-      // 语义着色：只注入 SGR；off 档 / TUI（alt-buffer）内部直接原样返回输入字节
-      else writeOutput(colorize.feed(bytes))
+      if (disposed || !term || streamReady) return
+      handleTerminalBytes(base64ToBytes(data))
     }),
   )
 
@@ -1046,10 +1069,18 @@ function writeRaw(data: string, commandHint?: string, fromUser = true, binary = 
   // 否则逐字符输入会被当成「未完成的输出行」缓存，表现为输入了但屏幕不显示。
   const pending = colorize.beginInput()
   if (pending.length) term?.write(pending)
-  const send = (encoded: string) => fromUser
-    ? sshService.writeInteractive(props.tab.sessionId, encoded, command)
-    : sshService.write(props.tab.sessionId, encoded)
-  void send(encodeTerminalInput(data, binary)).catch(() => {})
+  if (terminalStream && terminalStream.isOpen()) {
+    if (fromUser && command) {
+      terminalStream.sendInteractive(data, command)
+    } else {
+      terminalStream.send(data)
+    }
+  } else {
+    const send = (encoded: string) => fromUser
+      ? sshService.writeInteractive(props.tab.sessionId, encoded, command)
+      : sshService.write(props.tab.sessionId, encoded)
+    void send(encodeTerminalInput(data, binary)).catch(() => {})
+  }
 }
 
 onMounted(() => {
@@ -1102,6 +1133,14 @@ onMounted(() => {
     close: closeTab,
   }
   registerDebugTerminal(debugEntry)
+
+  const onReconnectActive = () => {
+    if (sessions.activeId === props.tab.clientId) {
+      void reconnectSession()
+    }
+  }
+  window.addEventListener('terminal:reconnect-active', onReconnectActive)
+  terminalDisposers.push(() => window.removeEventListener('terminal:reconnect-active', onReconnectActive))
   patchXtermZoomCoords(term, uiZoom)
   tryEnableWebGL()
   applyFontSize()

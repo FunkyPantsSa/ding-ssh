@@ -235,6 +235,14 @@ func (m *Manager) WriteInteractive(sessionID, dataBase64, command string) error 
 	return s.writeInteractive(data, command)
 }
 
+func (m *Manager) WriteRawInteractive(sessionID string, data []byte, command string) error {
+	s, err := m.get(sessionID)
+	if err != nil {
+		return err
+	}
+	return s.writeInteractive(data, command)
+}
+
 func (m *Manager) SudoServer(sessionID, requestID string) (models.ServerNode, error) {
 	s, err := m.get(sessionID)
 	if err != nil {

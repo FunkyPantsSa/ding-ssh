@@ -5,7 +5,8 @@ vars:
   TARGET_OS: '{{.GOOS | default OS}}'
   TARGET_ARCH: '{{.GOARCH | default (.ARCH | default ARCH)}}'
   BUILD_CHANNEL: '{{.BUILD_CHANNEL | default "main"}}'
-  TAGS: '{{if ne .DEV "true"}}production{{if eq .TARGET_OS "linux"}},{{end}}{{end}}{{if eq .TARGET_OS "linux"}}gtk3{{end}}'
+  LINUX_TOOLKIT: '{{.LINUX_TOOLKIT | default "gtk3"}}'
+  TAGS: '{{if ne .DEV "true"}}production{{if and (eq .TARGET_OS "linux") (eq .LINUX_TOOLKIT "gtk3")}},{{end}}{{end}}{{if and (eq .TARGET_OS "linux") (eq .LINUX_TOOLKIT "gtk3")}}gtk3{{end}}'
   EXE: '{{.BIN_DIR}}/ding-ssh{{if eq .TARGET_OS "windows"}}.exe{{end}}'
 
 tasks:
@@ -15,7 +16,7 @@ tasks:
       - touch frontend/dist/.gitkeep
       - wails3 generate bindings -ts -d frontend/bindings
     env:
-      GOFLAGS: '{{if eq OS "linux"}}-tags=gtk3{{end}}'
+      GOFLAGS: '{{if and (eq OS "linux") (eq .LINUX_TOOLKIT "gtk3")}}-tags=gtk3{{end}}'
 
   frontend:
     cmds:
@@ -26,8 +27,26 @@ tasks:
   build:
     cmds:
       - task: frontend
+        vars: {LINUX_TOOLKIT: '{{.LINUX_TOOLKIT}}'}
       - task: compile
+        vars: {LINUX_TOOLKIT: '{{.LINUX_TOOLKIT}}'}
       - task: bundle:macos
+
+  build:linux-gtk3:
+    desc: Build Linux binary using GTK3 / WebKitGTK 4.1
+    cmds:
+      - task: build
+        vars:
+          TARGET_OS: linux
+          LINUX_TOOLKIT: gtk3
+
+  build:linux-gtk4:
+    desc: Build Linux binary using GTK4 / WebKitGTK 6
+    cmds:
+      - task: build
+        vars:
+          TARGET_OS: linux
+          LINUX_TOOLKIT: gtk4
 
   compile:
     internal: true

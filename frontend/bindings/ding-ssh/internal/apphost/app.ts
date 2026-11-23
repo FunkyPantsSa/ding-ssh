@@ -179,6 +179,13 @@ export function Disconnect(sessionID: string): $CancellablePromise<void> {
     return $Call.ByID(2212360915, sessionID);
 }
 
+/**
+ * DisconnectAll 断开所有活动 SSH 会话与正在运行的隧道。
+ */
+export function DisconnectAll(): $CancellablePromise<void> {
+    return $Call.ByID(3381165574);
+}
+
 export function DownloadUpdate(restart: boolean): $CancellablePromise<void> {
     return $Call.ByID(3876228160, restart);
 }
@@ -325,6 +332,13 @@ export function GetUpdateChannel(): $CancellablePromise<string> {
 }
 
 /**
+ * HandleExternalLaunch 处理从外部协议或命令行传入的参数（如 ssh://url 或 .dingpack 文件）。
+ */
+export function HandleExternalLaunch(args: string[]): $CancellablePromise<void> {
+    return $Call.ByID(1654893883, args);
+}
+
+/**
  * ImportConfig 从用户选择的 .dingpack 导入配置；overwrite=true 时同 ID 覆盖。
  */
 export function ImportConfig(passphrase: string, overwrite: boolean): $CancellablePromise<models$0.ImportConfigResult> {
@@ -390,10 +404,31 @@ export function LogClient(level: string, message: string): $CancellablePromise<v
 }
 
 /**
+ * Notify 发送系统原生桌面通知并闪烁窗口。
+ */
+export function Notify(title: string, body: string): $CancellablePromise<void> {
+    return $Call.ByID(1859418372, title, body);
+}
+
+/**
  * OpenLogFolder 在文件管理器中打开日志目录（先确保目录存在）。
  */
 export function OpenLogFolder(): $CancellablePromise<void> {
     return $Call.ByID(213394341);
+}
+
+/**
+ * OpenSFTPWindow 打开独立的 SFTP 弹窗。
+ */
+export function OpenSFTPWindow(sessionID: string, title: string): $CancellablePromise<void> {
+    return $Call.ByID(1096378648, sessionID, title);
+}
+
+/**
+ * OpenTerminalWindow 打开独立的终端弹窗。
+ */
+export function OpenTerminalWindow(sessionID: string, title: string): $CancellablePromise<void> {
+    return $Call.ByID(3042104765, sessionID, title);
 }
 
 export function PreviewSSHConfig(path: string): $CancellablePromise<sshconfig$0.Preview[]> {
@@ -434,6 +469,13 @@ export function Reconnect(sessionID: string, cols: number, rows: number): $Cance
     return $Call.ByID(90620238, sessionID, cols, rows).then(($result: any) => {
         return $$createType2($result);
     });
+}
+
+/**
+ * RegisterGlobalShortcut 动态注册全局系统快捷键。
+ */
+export function RegisterGlobalShortcut(shortcut: string): $CancellablePromise<void> {
+    return $Call.ByID(3895874141, shortcut);
 }
 
 /**
@@ -645,6 +687,13 @@ export function SetUILanguage(language: string): $CancellablePromise<void> {
 }
 
 /**
+ * SetWindowContentProtection 开启或关闭窗口隐私防截屏保护。
+ */
+export function SetWindowContentProtection(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(3027168271, enabled);
+}
+
+/**
  * SftpCancelTransfer 取消指定会话中正在进行的 SFTP 上传/下载。
  */
 export function SftpCancelTransfer(sessionID: string, direction: string, name: string): $CancellablePromise<void> {
@@ -820,6 +869,13 @@ export function UnlockWithMasterPassword(password: string): $CancellablePromise<
 }
 
 /**
+ * UnregisterGlobalShortcut 注销指定的全局快捷键。
+ */
+export function UnregisterGlobalShortcut(shortcut: string): $CancellablePromise<void> {
+    return $Call.ByID(1213455794, shortcut);
+}
+
+/**
  * UpdateTunnel 修改已有隧道的配置，运行中的隧道会按新配置重启。
  */
 export function UpdateTunnel(id: string, node: models$0.ServerNode, name: string, mode: string, localPort: number, remoteHost: string, remotePort: number): $CancellablePromise<models$0.TunnelInfo> {
@@ -855,6 +911,20 @@ export function WriteInteractive(sessionID: string, data: string, command: strin
  */
 export function WriteLocalFileBase64(path: string, dataBase64: string): $CancellablePromise<void> {
     return $Call.ByID(3559624430, path, dataBase64);
+}
+
+/**
+ * WriteRaw 向会话直接写入原始字节数据（Stream 通道使用）。
+ */
+export function WriteRaw(sessionID: string, data: string): $CancellablePromise<void> {
+    return $Call.ByID(308069194, sessionID, data);
+}
+
+/**
+ * WriteRawInteractive 向会话直接写入原始字节并附带命令上下文（Stream 通道使用）。
+ */
+export function WriteRawInteractive(sessionID: string, data: string, command: string): $CancellablePromise<void> {
+    return $Call.ByID(817892058, sessionID, data, command);
 }
 
 // Private type creation functions

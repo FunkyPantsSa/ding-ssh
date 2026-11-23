@@ -31,6 +31,10 @@ type Manager struct {
 	sessions  map[string]*Session
 	notify    Notifier
 	getShell  ShellPrefGetter
+
+	rawSubsMu sync.RWMutex
+	rawSubs   map[string]map[uint64]func([]byte)
+	nextSubID uint64
 }
 
 // NewManager 创建本地终端管理器。
@@ -39,6 +43,53 @@ func NewManager(notify Notifier) *Manager {
 	return &Manager{
 		sessions: make(map[string]*Session),
 		notify:   notify,
+		rawSubs:  make(map[string]map[uint64]func([]byte)),
+	}
+}
+
+// SubscribeRawOutput 注册指定本地终端会话的原始二进制输出监听器（返回注销函数）。
+func (m *Manager) SubscribeRawOutput(sessionID string, fn func([]byte)) func() {
+	m.rawSubsMu.Lock()
+	if m.rawSubs == nil {
+		m.rawSubs = make(map[string]map[uint64]func([]byte))
+	}
+	m.nextSubID++
+	id := m.nextSubID
+	subs, ok := m.rawSubs[sessionID]
+	if !ok {
+		subs = make(map[uint64]func([]byte))
+		m.rawSubs[sessionID] = subs
+	}
+	subs[id] = fn
+	m.rawSubsMu.Unlock()
+
+	return func() {
+		m.rawSubsMu.Lock()
+		defer m.rawSubsMu.Unlock()
+		if subs, ok := m.rawSubs[sessionID]; ok {
+			delete(subs, id)
+			if len(subs) == 0 {
+				delete(m.rawSubs, sessionID)
+			}
+		}
+	}
+}
+
+func (m *Manager) dispatchRawOutput(sessionID string, data []byte) {
+	m.rawSubsMu.RLock()
+	subs, ok := m.rawSubs[sessionID]
+	if !ok || len(subs) == 0 {
+		m.rawSubsMu.RUnlock()
+		return
+	}
+	callbacks := make([]func([]byte), 0, len(subs))
+	for _, fn := range subs {
+		callbacks = append(callbacks, fn)
+	}
+	m.rawSubsMu.RUnlock()
+
+	for _, fn := range callbacks {
+		fn(data)
 	}
 }
 
@@ -105,6 +156,7 @@ func (m *Manager) Connect(sessionID string, shellPref string, cols, rows int) er
 		cols,
 		rows,
 		func(id string, data []byte) {
+			m.dispatchRawOutput(id, data)
 			m.notify("ssh:output:"+id, models.OutputEvent{
 				SessionID: id,
 				Data:      encodeBase64(data),
@@ -167,6 +219,22 @@ func (m *Manager) Write(sessionID, dataBase64 string) error {
 	}
 	// 逐键输入最高频：采样记录方向与字节数，绝不记录输入内容。
 	logx.DebugSampled(localWriteLog, "[localterm] 本地终端输入: session=%s bytes=%d", sessionID, len(data))
+	return nil
+}
+
+// WriteRaw 直接向本机终端写入原始字节。
+func (m *Manager) WriteRaw(sessionID string, data []byte) error {
+	s, err := m.get(sessionID)
+	if err != nil {
+		logx.WarnSampled(localWriteErrLog, "[localterm] 写入本地终端失败，会话不存在: session=%s", sessionID)
+		return err
+	}
+	err = s.Write(data)
+	if err != nil {
+		logx.WarnSampled(localWriteErrLog, "[localterm] 写入本地终端失败: session=%s bytes=%d err=%v", sessionID, len(data), err)
+		return err
+	}
+	logx.DebugSampled(localWriteLog, "[localterm] 本地终端原始输入: session=%s bytes=%d", sessionID, len(data))
 	return nil
 }
 

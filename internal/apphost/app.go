@@ -29,14 +29,20 @@ import (
 	"ding-ssh/internal/store"
 
 	"github.com/google/uuid"
+	"github.com/wailsapp/wails/v3/pkg/services/dock"
+	"github.com/wailsapp/wails/v3/pkg/services/notifications"
+	"strconv"
 )
 
 // App 是 Wails 绑定到前端的应用对象。
 type App struct {
-	desktop      *application.App
-	window       *application.WebviewWindow
-	closePending atomic.Bool
-	quitting     atomic.Bool
+	desktop       *application.App
+	window        *application.WebviewWindow
+	tray          *application.SystemTray
+	notifications *notifications.NotificationService
+	dock          *dock.DockService
+	closePending  atomic.Bool
+	quitting      atomic.Bool
 	debugDialog  func(approvalDialogOptions) (string, error)
 	updates      updateState
 
@@ -253,8 +259,8 @@ func (a *App) initJSONStores() {
 	settingsStore, err := store.NewJSONSettingsStore(store.DefaultSettingsPath())
 	if err != nil {
 		logx.Errorf("[apphost] 初始化设置存储失败: err=%v", err)
-		settingsStore, _ = store.NewJSONSettingsStore("")
-		logx.Warnf("[apphost] 设置存储回退到默认路径")
+		settingsStore, _ = store.NewJSONSettingsStore("settings.json")
+		logx.Warnf("[apphost] 设置存储回退到相对路径: path=settings.json")
 	}
 	a.settings = settingsStore
 	settings, err := a.settings.Get()
@@ -268,16 +274,16 @@ func (a *App) initJSONStores() {
 	credentialStore, err := store.NewJSONCredentialStore(store.DefaultCredentialPath())
 	if err != nil {
 		logx.Errorf("[apphost] 初始化凭证存储失败: err=%v", err)
-		credentialStore, _ = store.NewJSONCredentialStore("")
-		logx.Warnf("[apphost] 凭证存储回退到默认路径")
+		credentialStore, _ = store.NewJSONCredentialStore("credentials.json")
+		logx.Warnf("[apphost] 凭证存储回退到相对路径: path=credentials.json")
 	}
 	a.credentials = credentialStore
 
 	groupStore, err := store.NewJSONGroupStore(store.DefaultGroupPath())
 	if err != nil {
 		logx.Errorf("[apphost] 初始化分组存储失败: err=%v", err)
-		groupStore, _ = store.NewJSONGroupStore("")
-		logx.Warnf("[apphost] 分组存储回退到默认路径")
+		groupStore, _ = store.NewJSONGroupStore("groups.json")
+		logx.Warnf("[apphost] 分组存储回退到相对路径: path=groups.json")
 	}
 	a.groups = groupStore
 	a.history = store.NoopHistoryStore{}
@@ -522,15 +528,38 @@ func (a *App) SaveSettings(settings models.Settings) error {
 	}
 	if settings.AutoStart != previous.AutoStart {
 		logx.Debugf("[apphost] 切换开机自启: enabled=%v", settings.AutoStart)
-		if err := autostart.Set(settings.AutoStart); err != nil {
-			logx.Errorf("[apphost] 设置开机自启失败: enabled=%v err=%v", settings.AutoStart, err)
-			return err
+		if a.desktop != nil && a.desktop.Autostart != nil {
+			var aerr error
+			if settings.AutoStart {
+				aerr = a.desktop.Autostart.Enable()
+			} else {
+				aerr = a.desktop.Autostart.Disable()
+			}
+			if aerr != nil {
+				logx.Errorf("[apphost] 设置开机自启失败: enabled=%v err=%v", settings.AutoStart, aerr)
+				return aerr
+			}
+		} else {
+			if err := autostart.Set(settings.AutoStart); err != nil {
+				logx.Errorf("[apphost] 设置开机自启失败 (fallback): enabled=%v err=%v", settings.AutoStart, err)
+				return err
+			}
 		}
 	}
 
 	if err := a.settings.Save(settings); err != nil {
 		if settings.AutoStart != previous.AutoStart {
-			if rerr := autostart.Set(previous.AutoStart); rerr == nil {
+			var rerr error
+			if a.desktop != nil && a.desktop.Autostart != nil {
+				if previous.AutoStart {
+					rerr = a.desktop.Autostart.Enable()
+				} else {
+					rerr = a.desktop.Autostart.Disable()
+				}
+			} else {
+				rerr = autostart.Set(previous.AutoStart)
+			}
+			if rerr == nil {
 				logx.Warnf("[apphost] 保存设置失败，开机自启已回滚: enabled=%v", previous.AutoStart)
 			} else {
 				logx.Warnf("[apphost] 保存设置失败且开机自启回滚失败: enabled=%v err=%v", previous.AutoStart, rerr)
@@ -1287,6 +1316,7 @@ func (a *App) Connect(sessionID string, node models.ServerNode, cols, rows int) 
 	}
 	logx.Infof("[apphost] SSH 连接已建立: session=%s server=%s host=%s:%d elapsed=%s",
 		sessionID, node.Name, node.Host, node.Port, time.Since(start))
+	a.updateBadge()
 	return models.ConnectResult{SessionID: sessionID, Server: node.Name}, nil
 }
 
@@ -1307,6 +1337,7 @@ func (a *App) ConnectLocal(sessionID string, cols, rows int) (models.ConnectResu
 	}
 	label := a.local.SessionName(sessionID)
 	logx.Infof("[apphost] 本机终端已打开: session=%s shell=%s elapsed=%s", sessionID, label, time.Since(start))
+	a.updateBadge()
 	return models.ConnectResult{SessionID: sessionID, Server: label}, nil
 }
 
@@ -1348,9 +1379,16 @@ func (a *App) RevealLocalPath(path string) error {
 		logx.Warnf("[apphost] 打开本地路径被拒（路径为空）")
 		return fmt.Errorf("%s", i18n.T("路径为空，无法打开所在文件夹"))
 	}
-	if _, err := os.Stat(target); err != nil {
+	info, err := os.Stat(target)
+	if err != nil {
 		logx.Warnf("[apphost] 打开本地路径失败（不存在或不可访问）: path=%q err=%v", target, err)
 		return fmt.Errorf(i18n.T("本地路径不存在或不可访问: %s"), target)
+	}
+	if a.desktop != nil && a.desktop.Env != nil {
+		if err := a.desktop.Env.OpenFileManager(target, !info.IsDir()); err == nil {
+			logx.Infof("[apphost] 已使用 Wails 环境管理器高亮打开本地路径: path=%q", target)
+			return nil
+		}
 	}
 	if err := revealLocalPath(target); err != nil {
 		logx.Errorf("[apphost] 打开本地文件夹失败: path=%q err=%v", target, err)
@@ -1369,6 +1407,7 @@ func (a *App) GetLocalShellOptions() []localterm.ShellOption {
 
 // Disconnect 断开指定会话（SSH 或本机）。
 func (a *App) Disconnect(sessionID string) error {
+	defer a.updateBadge()
 	if a.local != nil && a.local.Has(sessionID) {
 		logx.Debugf("[apphost] 断开本机终端: session=%s", sessionID)
 		if err := a.local.Disconnect(sessionID); err != nil {
@@ -1389,6 +1428,7 @@ func (a *App) Disconnect(sessionID string) error {
 
 // Reconnect 重新建立已断开的 SSH 会话，复用原会话配置与回调。
 func (a *App) Reconnect(sessionID string, cols, rows int) (models.ConnectResult, error) {
+	defer a.updateBadge()
 	start := time.Now()
 	if a.local != nil && a.local.Has(sessionID) {
 		logx.Infof("[apphost] 重连本机终端: session=%s cols=%d rows=%d", sessionID, cols, rows)
@@ -1424,6 +1464,225 @@ func (a *App) Write(sessionID, data string) error {
 		return err
 	}
 	return nil
+}
+
+// WriteRaw 向会话直接写入原始字节数据（Stream 通道使用）。
+func (a *App) WriteRaw(sessionID string, data []byte) error {
+	if a.local != nil && a.local.Has(sessionID) {
+		return a.local.WriteRaw(sessionID, data)
+	}
+	if a.manager != nil {
+		return a.manager.WriteRaw(sessionID, data)
+	}
+	return errors.New("会话不存在")
+}
+
+// WriteRawInteractive 向会话直接写入原始字节并附带命令上下文（Stream 通道使用）。
+func (a *App) WriteRawInteractive(sessionID string, data []byte, command string) error {
+	if a.local != nil && a.local.Has(sessionID) {
+		return a.local.WriteRaw(sessionID, data)
+	}
+	if a.manager != nil {
+		return a.manager.WriteRawInteractive(sessionID, data, command)
+	}
+	return errors.New("会话不存在")
+}
+
+// RegisterTerminalStream 注册指定会话的原始二进制输出监听器（跨 SSH 与本地终端）。
+//
+//wails:ignore
+func (a *App) RegisterTerminalStream(sessionID string, fn func([]byte)) func() {
+	var unsubs []func()
+	if a.manager != nil {
+		unsubs = append(unsubs, a.manager.SubscribeRawOutput(sessionID, fn))
+	}
+	if a.local != nil {
+		unsubs = append(unsubs, a.local.SubscribeRawOutput(sessionID, fn))
+	}
+	return func() {
+		for _, u := range unsubs {
+			u()
+		}
+	}
+}
+
+// Notify 发送系统原生桌面通知并闪烁窗口。
+func (a *App) Notify(title, body string) error {
+	if a.window != nil {
+		a.window.Flash(true)
+	}
+	if a.notifications == nil {
+		return nil
+	}
+	return a.notifications.SendNotification(notifications.NotificationOptions{
+		Title: title,
+		Body:  body,
+	})
+}
+
+// HandleExternalLaunch 处理从外部协议或命令行传入的参数（如 ssh://url 或 .dingpack 文件）。
+func (a *App) HandleExternalLaunch(args []string) {
+	for _, arg := range args {
+		trimmed := strings.TrimSpace(arg)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "ssh://") || strings.HasPrefix(trimmed, "ding-ssh://") {
+			logx.Infof("[apphost] 收到外部协议拉起: %s", trimmed)
+			a.emit("app:external-url", trimmed)
+		} else if strings.HasSuffix(strings.ToLower(trimmed), ".dingpack") {
+			logx.Infof("[apphost] 收到外部文件关联拉起: %s", trimmed)
+			a.emit("app:import-file", trimmed)
+		}
+	}
+}
+
+// DisconnectAll 断开所有活动 SSH 会话与正在运行的隧道。
+func (a *App) DisconnectAll() {
+	defer a.updateBadge()
+	if a.manager != nil {
+		a.manager.CloseAll()
+	}
+	if a.local != nil {
+		a.local.CloseAll()
+	}
+}
+
+// OpenTerminalWindow 打开独立的终端弹窗。
+func (a *App) OpenTerminalWindow(sessionID, title string) error {
+	if a.desktop == nil {
+		return errors.New("桌面环境未就绪")
+	}
+	winName := "terminal-" + sessionID
+	if existing, ok := a.desktop.Window.GetByName(winName); ok {
+		existing.Show()
+		existing.Focus()
+		return nil
+	}
+	if title == "" {
+		title = "DingSSH - Terminal"
+	}
+	opts := application.WebviewWindowOptions{
+		Name:             winName,
+		Title:            title,
+		Width:            1020,
+		Height:           680,
+		MinWidth:         640,
+		MinHeight:        420,
+		InitialPosition:  application.WindowCentered,
+		Frameless:        runtime.GOOS == "windows",
+		URL:              "/?mode=detached-terminal&session=" + sessionID,
+		EnableFileDrop:   true,
+		BackgroundColour: application.NewRGB(15, 23, 42),
+		Mac: application.MacWindow{
+			TitleBar: application.MacTitleBarHidden,
+			Backdrop: application.MacBackdropTranslucent,
+		},
+		Windows: application.WindowsWindow{
+			BackdropType: application.Acrylic,
+		},
+	}
+	if a.desktop.Screen != nil {
+		opts.Screen = a.desktop.Screen.GetPrimary()
+	}
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		opts.BackgroundType = application.BackgroundTypeTranslucent
+	}
+	win := a.desktop.Window.NewWithOptions(opts)
+	win.Show()
+	win.Focus()
+	return nil
+}
+
+// OpenSFTPWindow 打开独立的 SFTP 弹窗。
+func (a *App) OpenSFTPWindow(sessionID, title string) error {
+	if a.desktop == nil {
+		return errors.New("桌面环境未就绪")
+	}
+	winName := "sftp-" + sessionID
+	if existing, ok := a.desktop.Window.GetByName(winName); ok {
+		existing.Show()
+		existing.Focus()
+		return nil
+	}
+	if title == "" {
+		title = "DingSSH - SFTP"
+	}
+	opts := application.WebviewWindowOptions{
+		Name:             winName,
+		Title:            title,
+		Width:            960,
+		Height:           640,
+		MinWidth:         600,
+		MinHeight:        400,
+		InitialPosition:  application.WindowCentered,
+		Frameless:        runtime.GOOS == "windows",
+		URL:              "/?mode=detached-sftp&session=" + sessionID,
+		EnableFileDrop:   true,
+		BackgroundColour: application.NewRGB(15, 23, 42),
+		Mac: application.MacWindow{
+			TitleBar: application.MacTitleBarHidden,
+			Backdrop: application.MacBackdropTranslucent,
+		},
+		Windows: application.WindowsWindow{
+			BackdropType: application.Acrylic,
+		},
+	}
+	if a.desktop.Screen != nil {
+		opts.Screen = a.desktop.Screen.GetPrimary()
+	}
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		opts.BackgroundType = application.BackgroundTypeTranslucent
+	}
+	win := a.desktop.Window.NewWithOptions(opts)
+	win.Show()
+	win.Focus()
+	return nil
+}
+
+func (a *App) updateBadge() {
+	if a.dock == nil {
+		return
+	}
+	count := len(a.ListSessions())
+	if count > 0 {
+		_ = a.dock.SetBadge(strconv.Itoa(count))
+	} else {
+		_ = a.dock.RemoveBadge()
+	}
+}
+
+// SetWindowContentProtection 开启或关闭窗口隐私防截屏保护。
+func (a *App) SetWindowContentProtection(enabled bool) {
+	if a.window != nil {
+		a.window.SetContentProtection(enabled)
+		logx.Infof("[apphost] 窗口防截屏/防录屏隐私保护已变更: enabled=%v", enabled)
+	}
+}
+
+// RegisterGlobalShortcut 动态注册全局系统快捷键。
+func (a *App) RegisterGlobalShortcut(shortcut string) error {
+	if a.desktop == nil || a.desktop.GlobalShortcut == nil {
+		return errors.New("桌面环境未就绪")
+	}
+	return a.desktop.GlobalShortcut.Register(shortcut, func() {
+		if a.window != nil {
+			if a.window.IsVisible() && a.window.IsFocused() {
+				a.window.Hide()
+			} else {
+				a.window.Show()
+				a.window.Focus()
+			}
+		}
+	})
+}
+
+// UnregisterGlobalShortcut 注销指定的全局快捷键。
+func (a *App) UnregisterGlobalShortcut(shortcut string) error {
+	if a.desktop == nil || a.desktop.GlobalShortcut == nil {
+		return errors.New("桌面环境未就绪")
+	}
+	return a.desktop.GlobalShortcut.Unregister(shortcut)
 }
 
 // Resize 调整会话终端尺寸（前端 resize 高频 RPC，采样记录）。

@@ -64,6 +64,10 @@ type Manager struct {
 
 	cache       *SFTPCacheManager // SWR 目录缓存
 	getSettings SettingsGetter    // 读取应用设置（可为 nil，使用默认值）
+
+	rawSubsMu sync.RWMutex
+	rawSubs   map[string]map[uint64]func([]byte)
+	nextSubID uint64
 }
 
 // NewManager 创建会话管理器。
@@ -77,6 +81,53 @@ func NewManager(notify Notifier) *Manager {
 		transfers:       make(map[string][]*activeTransfer),
 		notify:          notify,
 		cache:           NewSFTPCacheManager(),
+		rawSubs:         make(map[string]map[uint64]func([]byte)),
+	}
+}
+
+// SubscribeRawOutput 注册指定会话的原始二进制输出监听器（返回注销函数）。
+func (m *Manager) SubscribeRawOutput(sessionID string, fn func([]byte)) func() {
+	m.rawSubsMu.Lock()
+	if m.rawSubs == nil {
+		m.rawSubs = make(map[string]map[uint64]func([]byte))
+	}
+	m.nextSubID++
+	id := m.nextSubID
+	subs, ok := m.rawSubs[sessionID]
+	if !ok {
+		subs = make(map[uint64]func([]byte))
+		m.rawSubs[sessionID] = subs
+	}
+	subs[id] = fn
+	m.rawSubsMu.Unlock()
+
+	return func() {
+		m.rawSubsMu.Lock()
+		defer m.rawSubsMu.Unlock()
+		if subs, ok := m.rawSubs[sessionID]; ok {
+			delete(subs, id)
+			if len(subs) == 0 {
+				delete(m.rawSubs, sessionID)
+			}
+		}
+	}
+}
+
+func (m *Manager) dispatchRawOutput(sessionID string, data []byte) {
+	m.rawSubsMu.RLock()
+	subs, ok := m.rawSubs[sessionID]
+	if !ok || len(subs) == 0 {
+		m.rawSubsMu.RUnlock()
+		return
+	}
+	callbacks := make([]func([]byte), 0, len(subs))
+	for _, fn := range subs {
+		callbacks = append(callbacks, fn)
+	}
+	m.rawSubsMu.RUnlock()
+
+	for _, fn := range callbacks {
+		fn(data)
 	}
 }
 
@@ -119,6 +170,7 @@ func (m *Manager) Connect(sessionID string, node models.ServerNode, cols, rows i
 	cfg := m.currentSettings()
 	s, err := newSession(sessionID, node, cols, rows,
 		func(id string, data []byte) {
+			m.dispatchRawOutput(id, data)
 			// 事件按会话粒度命名，便于前端独立注册/注销监听。
 			m.notify("ssh:output:"+id, models.OutputEvent{
 				SessionID: id,
@@ -201,6 +253,15 @@ func (m *Manager) Write(sessionID string, dataBase64 string) error {
 	data, err := decodeBase64(dataBase64)
 	if err != nil {
 		logx.Debugf("[sshx] 终端输入解码失败: session=%s length=%d err=%v", sessionID, len(dataBase64), err)
+		return err
+	}
+	return s.Write(data)
+}
+
+// WriteRaw 直接向会话写入原始字节切片。
+func (m *Manager) WriteRaw(sessionID string, data []byte) error {
+	s, err := m.get(sessionID)
+	if err != nil {
 		return err
 	}
 	return s.Write(data)

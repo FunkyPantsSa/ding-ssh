@@ -2,7 +2,9 @@ package main
 
 import (
 	"embed"
+	"os"
 	"runtime"
+	"time"
 
 	"ding-ssh/internal/apphost"
 	"ding-ssh/internal/logx"
@@ -10,6 +12,8 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
+	"github.com/wailsapp/wails/v3/pkg/services/dock"
+	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
 //go:embed all:frontend/dist
@@ -23,26 +27,63 @@ func main() {
 	}
 
 	host := apphost.NewApp(apphost.ReadDebugBoot())
+	notifyService := notifications.New()
+	dockService := dock.New()
+
+	sessionSvc := apphost.NewSessionService(host)
+	sftpSvc := apphost.NewSFTPService(host)
+	tunnelSvc := apphost.NewTunnelService(host)
+	settingsSvc := apphost.NewSettingsService(host)
+	debugSvc := apphost.NewDebugService(host)
+	updateSvc := apphost.NewUpdateService(host)
+
+	var window *application.WebviewWindow
+
 	desktop := application.New(application.Options{
-		Name:        "ding-ssh",
-		Description: "Local-first SSH workstation",
-		Assets:      application.AssetOptions{Handler: application.BundledAssetFileServer(assets)},
-		Mac:         application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
-		ShouldQuit:  func() bool { return apphost.ShouldQuit(host) },
-		Services:    []application.Service{application.NewService(host)},
+		Name:             "ding-ssh",
+		Description:      "Local-first SSH workstation",
+		Assets:           application.AssetOptions{Handler: application.BundledAssetFileServer(assets)},
+		Mac:              application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: false},
+		ShouldQuit:       func() bool { return apphost.ShouldQuit(host) },
+		Services: []application.Service{
+			application.NewService(host),
+			application.NewService(notifyService),
+			application.NewService(dockService),
+			application.NewService(sessionSvc),
+			application.NewService(sftpSvc),
+			application.NewService(tunnelSvc),
+			application.NewService(settingsSvc),
+			application.NewService(debugSvc),
+			application.NewService(updateSvc),
+		},
+		FileAssociations: []string{".dingpack"},
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: "com.funkypantssa.ding-ssh",
+			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
+				logx.Infof("[main] 收到第二实例启动通知: args=%v dir=%s", data.Args, data.WorkingDir)
+				if window != nil {
+					window.Show()
+					window.Focus()
+				}
+				if len(data.Args) > 1 {
+					host.HandleExternalLaunch(data.Args[1:])
+				}
+			},
+		},
 	})
 
 	windowOptions := application.WebviewWindowOptions{
-		Name:             "main",
-		Title:            "ding-ssh",
-		Width:            1280,
-		Height:           800,
-		MinWidth:         900,
-		MinHeight:        600,
-		Frameless:        runtime.GOOS == "windows",
-		URL:              "/",
-		EnableFileDrop:   true,
-		BackgroundColour: application.NewRGB(15, 23, 42),
+		Name:               "main",
+		Title:              "ding-ssh",
+		Width:              1280,
+		Height:             800,
+		MinWidth:           900,
+		MinHeight:          600,
+		Frameless:          runtime.GOOS == "windows",
+		URL:                "/",
+		EnableFileDrop:     true,
+		UseApplicationMenu: true,
+		BackgroundColour:   application.NewRGB(15, 23, 42),
 		Mac: application.MacWindow{
 			TitleBar: application.MacTitleBarHidden,
 			Backdrop: application.MacBackdropTranslucent,
@@ -54,8 +95,8 @@ func main() {
 	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 		windowOptions.BackgroundType = application.BackgroundTypeTranslucent
 	}
-	window := desktop.Window.NewWithOptions(windowOptions)
-	apphost.ConfigureDesktop(host, desktop, window)
+	window = desktop.Window.NewWithOptions(windowOptions)
+	apphost.ConfigureDesktop(host, desktop, window, notifyService, dockService)
 	window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
 		ctx := event.Context()
 		if target := ctx.DropTargetDetails(); target != nil && target.ElementID != "" {
@@ -65,6 +106,13 @@ func main() {
 			})
 		}
 	})
+
+	if len(os.Args) > 1 {
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			host.HandleExternalLaunch(os.Args[1:])
+		}()
+	}
 
 	if err := desktop.Run(); err != nil {
 		logx.Errorf("[main] Wails 运行失败: err=%v", err)
