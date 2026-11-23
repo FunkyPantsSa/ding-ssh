@@ -6,7 +6,7 @@
   <p><strong>把 SSH 终端、SFTP、端口转发与本机 shell 装进同一个桌面工作台，并给它们一个可被脚本和 AI 驱动的本机控制面。</strong></p>
 </div>
 
-[![CI](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml)
+[![CI](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ding-ssh 是一个本地优先的桌面 SSH 工作台：终端是中心，SFTP、隧道、本机 shell 与分屏共用同一套标签体系；设置里打开调试模式后，应用还会在回环地址上提供一个 HTTP + SSE + MCP 控制面，让脚本和 AI 客户端能够读取状态、操作终端、执行任务和修改文件。
 

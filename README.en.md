@@ -6,7 +6,7 @@
   <p><strong>SSH terminals, SFTP, port forwarding and local shells in one desktop workspace — with a local control plane scripts and AI clients can drive.</strong></p>
 </div>
 
-[![CI](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml)
+[![CI](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/FunkyPantsSa/ding-ssh/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ding-ssh is a local-first desktop SSH workspace. The terminal is the center: SFTP, tunnels, local shells and split panes share one tab system. When debug mode is enabled, the app also exposes an HTTP + SSE + MCP control plane on the loopback interface so scripts and AI clients can inspect state, operate terminals, run tasks and modify remote files.
 
