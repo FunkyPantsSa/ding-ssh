@@ -54,7 +54,7 @@ package debugsrv
 //
 // # 能力位与确认（登记见本文件 init）
 //
-//	RegisterToolCap("terminal.sudo", CapSudoCredential, CapTerminalInput)
+//	RegisterToolCap("terminal.sudo", CapSudoCredential, CapTerminalInput, CapCredentialUse)
 //	RegisterToolConfirm("terminal.sudo", "terminal.sudo") // 等价于把该机器的 root 交给 AI → 必须两段式
 //
 // CapSudoCredential 还要求 AllowSecrets=true（密码要从凭据库读出来），缺哪一项由宿主 Gate 明确指出来。
@@ -71,6 +71,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ding-ssh/internal/logx"
 )
 
 // ---- 工具名 / 宿主 op 名 ----
@@ -164,8 +166,10 @@ func init() {
 //   - CapSudoCredential：本次操作的本质（用保存的密码提权），还要求 AllowSecrets=true；
 //   - CapTerminalInput：它仍然是在终端里执行命令（等价于代替用户敲命令）。
 func registerSudoCaps() {
-	RegisterToolCap(OpTerminalSudo, CapSudoCredential, CapTerminalInput)
+	RegisterToolCap(OpTerminalSudo, CapSudoCredential, CapTerminalInput, CapCredentialUse)
 	RegisterToolConfirm(OpTerminalSudo, OpTerminalSudo)
+	logx.Infof("[debugsrv/sudo] 注册提权工具: tool=%s caps=%d confirm=%s",
+		OpTerminalSudo, 3, OpTerminalSudo)
 }
 
 // sudoWantRegistry 规格表：工具 → 能力位 → 确认 action（供 sudo_test.go 断言，与登记表一一对应）。
@@ -176,6 +180,7 @@ var sudoWantRegistry = []struct {
 }{
 	{OpTerminalSudo, CapSudoCredential, OpTerminalSudo},
 	{OpTerminalSudo, CapTerminalInput, OpTerminalSudo},
+	{OpTerminalSudo, CapCredentialUse, OpTerminalSudo},
 }
 
 // ---- 工具条目 ----
@@ -227,12 +232,14 @@ func sudoToolEntries() []mcpTool {
 
 // terminalSudo 实现 terminal.sudo。
 func (s *Server) terminalSudo(ctx context.Context, args map[string]any) (any, error) {
+	start := time.Now()
 	id := appctlString(args, "id")
 	if id == "" {
 		return nil, fmt.Errorf("%w: 缺少 id（终端 id，见 list_terminals）", ErrBadInput)
 	}
 	// 安全硬要求 1：永不接受调用方传入的密码（schema 里也没有这个字段）。
 	if _, has := args["password"]; has {
+		logx.Warnf("[debugsrv/sudo] 提权请求被拒绝: 不接受调用方传入密码 session=%s", id)
 		return nil, fmt.Errorf("%w: 不接受 password 参数：terminal.sudo 只用应用里为该服务器保存的密码；"+
 			"请先在应用里为这台服务器保存密码（服务器 → 编辑 → 密码），再重试", ErrBadInput)
 	}
@@ -243,6 +250,7 @@ func (s *Server) terminalSudo(ctx context.Context, args map[string]any) (any, er
 	// 判定依据是「键存在且不是 null」：显式传空字符串会被当成 cleanupOnly 模式并明确拒绝
 	//（说清要传完整路径），而 JSON null / 缺键走主流程 —— 模型经常给可选字段填 null。
 	if raw, has := args["cleanupOnly"]; has && raw != nil {
+		logx.Debugf("[debugsrv/sudo] 走事后清理入口: session=%s", id)
 		return s.sudoCleanupOnly(ctx, id, appctlString(args, "cleanupOnly"))
 	}
 	command := appctlString(args, "command")
@@ -264,17 +272,22 @@ func (s *Server) terminalSudo(ctx context.Context, args map[string]any) (any, er
 		idleMS = v
 	}
 	if s.opts.Hub == nil {
+		logx.Warnf("[debugsrv/sudo] 提权请求失败: 事件流未启用（Hub 为空） session=%s", id)
 		return nil, errors.New("事件流未启用（Hub 为空），无法捕获终端输出")
 	}
+	logx.Debugf("[debugsrv/sudo] 提权请求开始: session=%s commandBytes=%d timeoutMs=%d idleMs=%d",
+		id, len(command), timeoutMS, idleMS)
 
 	// 1) 随机临时文件路径 + 白名单（白名单不含 /tmp 时在这里被拒，且不消耗任何远端资源）。
 	tempFile, err := s.sudoTempPath()
 	if err != nil {
 		return nil, err
 	}
+	logx.Debugf("[debugsrv/sudo] 已生成受控临时文件路径: session=%s path=%q", id, tempFile)
 
 	// 2) 占住会话名额（与 terminal.run / terminal.expect 共用，避免互相偷走输出增量）。
 	if !s.acquireTerminal(id) {
+		logx.Warnf("[debugsrv/sudo] 提权请求被拒绝（会话已被占用）: session=%s", id)
 		return nil, terminalBusyError(id)
 	}
 	defer s.releaseTerminal(id)
@@ -285,10 +298,12 @@ func (s *Server) terminalSudo(ctx context.Context, args map[string]any) (any, er
 
 	// 4) 宿主把 `<密码>\n` 写进临时文件（本包只拿到「写成功了」，永远不接触明文）。
 	if _, err := s.callSFTPHost(ctx, OpSudoStage, map[string]any{"sessionId": id, "path": tempFile}); err != nil {
+		logx.Errorf("[debugsrv/sudo] 写入密码临时文件失败（未触碰终端）: session=%s path=%q err=%v", id, tempFile, err)
 		return nil, err
 	}
 	// 写入后复核一次白名单：接下来要把这个路径拼进 shell 命令，必须确认它仍是受控路径。
 	if _, err := s.sftpRequireWritePath("sudo 临时文件（写入后复核）", tempFile); err != nil {
+		logx.Errorf("[debugsrv/sudo] 临时文件写入后复核白名单失败: session=%s path=%q err=%v", id, tempFile, err)
 		return nil, err
 	}
 
@@ -303,6 +318,8 @@ func (s *Server) terminalSudo(ctx context.Context, args map[string]any) (any, er
 		if !cleaned {
 			extra = "；" + sudoResidualHint(tempFile, cleanup.reason)
 		}
+		logx.Errorf("[debugsrv/sudo] 向终端发送提权命令失败: session=%s path=%q cleanedUp=%v err=%v",
+			id, tempFile, cleaned, err)
 		return nil, fmt.Errorf("向终端 %s 发送 sudo 命令失败：%w（已请求删除临时文件，cleanedUp=%v%s）", id, err, cleaned, extra)
 	}
 
@@ -363,11 +380,29 @@ func (s *Server) terminalSudo(ctx context.Context, args map[string]any) (any, er
 	}
 	if !scrubbed {
 		res["scrubHint"] = "输出净化未生效（宿主未返回净化结果）：本段输出未经密码打码，请勿落盘 / 勿写入对话记录"
+		logx.Warnf("[debugsrv/sudo] 输出净化未生效: session=%s outputBytes=%d", id, len(visible))
 	}
 	if len(scrubbedText) > len(out) {
 		res["truncatedHint"] = fmt.Sprintf("可见文本共 %d 字节，按 %d 字节上限截断（只保留开头部分）",
 			len(scrubbedText), terminalDefMaxBytes)
 	}
+
+	// 结果判定：只记「流程与安全相关事实」，绝不记录密码 / 输出正文。
+	if chmodFailed {
+		logx.Warnf("[debugsrv/sudo] 临时文件 chmod 600 失败，已放弃提权: session=%s path=%q", id, tempFile)
+	}
+	switch {
+	case !matched && reason == "timeout":
+		logx.Warnf("[debugsrv/sudo] 提权等待超时: session=%s timeoutMs=%d cleanedUp=%v", id, timeoutMS, cleanedUp)
+	case !matched && reason == "idle":
+		logx.Warnf("[debugsrv/sudo] 提权输出静默提前返回: session=%s idleMs=%d cleanedUp=%v", id, idleMS, cleanedUp)
+	}
+	if !cleanedUp {
+		logx.Warnf("[debugsrv/sudo] 临时文件清理未确认（可能残留明文密码）: session=%s path=%q reason=%s",
+			id, tempFile, cleanup.reason)
+	}
+	logx.Infof("[debugsrv/sudo] 提权请求完成: session=%s matched=%v exitCode=%d chmodFailed=%v cleanedUp=%v scrubbed=%v outputBytes=%d elapsed=%s",
+		id, matched, rc, chmodFailed, cleanedUp, scrubbed, len(scrubbedText), time.Since(start))
 	return res, nil
 }
 
@@ -394,9 +429,11 @@ func (s *Server) sudoCleanupViaHost(ctx context.Context, id, path string) sudoCl
 	res := sudoCleanupResult{attempted: true}
 	callCtx, cancel := sudoCleanupContext(ctx)
 	defer cancel()
+	logx.Debugf("[debugsrv/sudo] 独立清理通道调用开始: session=%s path=%q", id, path)
 	m, err := s.callSFTPHost(callCtx, OpSudoCleanup, map[string]any{"sessionId": id, "path": path})
 	if err != nil {
 		res.reason = err.Error()
+		logx.Warnf("[debugsrv/sudo] 独立清理通道调用失败: session=%s path=%q err=%v", id, path, err)
 		return res
 	}
 	res.removed = hostBool(m, "removed")
@@ -405,6 +442,13 @@ func (s *Server) sudoCleanupViaHost(ctx context.Context, id, path string) sudoCl
 	res.reason = hostStr(m, "reason")
 	if !res.verified && strings.TrimSpace(res.reason) == "" {
 		res.reason = "宿主未确认删除（返回里 verified=false）"
+	}
+	if res.verified {
+		logx.Infof("[debugsrv/sudo] 独立清理通道确认临时文件已删除: session=%s path=%q removed=%v existed=%v",
+			id, path, res.removed, res.existed)
+	} else {
+		logx.Warnf("[debugsrv/sudo] 独立清理通道未确认删除: session=%s path=%q removed=%v existed=%v reason=%s",
+			id, path, res.removed, res.existed, res.reason)
 	}
 	return res
 }
@@ -429,11 +473,16 @@ func sudoCleanupContext(ctx context.Context) (context.Context, context.CancelFun
 func (s *Server) sudoCleanupBoth(ctx context.Context, ch <-chan Event, id, tempFile string, shellVerified bool) (sudoCleanupResult, bool) {
 	cleanup := s.sudoCleanupViaHost(ctx, id, tempFile)
 	if cleanup.verified || shellVerified {
+		logx.Debugf("[debugsrv/sudo] 临时文件已确认清理: session=%s path=%q shellVerified=%v verified=%v",
+			id, tempFile, shellVerified, cleanup.verified)
 		return cleanup, true
 	}
+	logx.Warnf("[debugsrv/sudo] 独立清理通道未确认，降级到终端兜底清理: session=%s path=%q", id, tempFile)
 	if s.sudoCleanupAttempt(ctx, ch, id, tempFile) {
+		logx.Infof("[debugsrv/sudo] 终端兜底清理确认临时文件已删除: session=%s path=%q", id, tempFile)
 		return cleanup, true
 	}
+	logx.Warnf("[debugsrv/sudo] 两条清理通道均未确认删除，临时文件可能残留: session=%s path=%q", id, tempFile)
 	return cleanup, false
 }
 
@@ -449,6 +498,7 @@ func (s *Server) sudoRequireCleanupPath(raw string) (string, error) {
 		return "", fmt.Errorf("%w: cleanupOnly 为空：请传入本工具生成的临时文件路径（形态 %s）", ErrBadInput, sudoTempPathShape)
 	}
 	if !IsSudoTempPath(p) {
+		logx.Warnf("[debugsrv/sudo] 清理路径被拒绝: path=%q 不符合本工具生成的形态（防任意删除）", p)
 		return "", fmt.Errorf("%w: 拒绝清理路径 %q：只接受本工具生成的临时文件（严格匹配 %s），"+
 			"不接受任意路径 —— 这是超时/异常后的清理入口，不是删除原语；"+
 			"请把上一次返回里的 tempFile 字段原样传进来", ErrBadInput, p, sudoTempPathShape)
@@ -460,6 +510,7 @@ func (s *Server) sudoRequireCleanupPath(raw string) (string, error) {
 	if norm != p {
 		return "", fmt.Errorf("%w: 清理路径 %q 归一化后变成 %q：拒绝使用", ErrBadInput, p, norm)
 	}
+	logx.Debugf("[debugsrv/sudo] 清理路径校验通过: path=%q", p)
 	return p, nil
 }
 
@@ -489,6 +540,8 @@ func (s *Server) preflightSudoArgs(name string, args map[string]any) error {
 // 返回 {ok, sudo:false, cleanupOnly:true, sessionId, path, removed, existed,
 // cleanupAttempted, cleanupVerified, cleanedUp, hint?}：ok/cleanedUp = cleanupVerified。
 func (s *Server) sudoCleanupOnly(ctx context.Context, id, rawPath string) (any, error) {
+	start := time.Now()
+	logx.Debugf("[debugsrv/sudo] 事后清理开始: session=%s", id)
 	path, err := s.sudoRequireCleanupPath(rawPath)
 	if err != nil {
 		return nil, err
@@ -508,7 +561,11 @@ func (s *Server) sudoCleanupOnly(ctx context.Context, id, rawPath string) (any, 
 	}
 	if !cleanup.verified {
 		res["hint"] = sudoResidualHint(path, cleanup.reason)
+		logx.Warnf("[debugsrv/sudo] 事后清理未确认（临时文件可能残留明文密码）: session=%s path=%q reason=%s",
+			id, path, cleanup.reason)
 	}
+	logx.Infof("[debugsrv/sudo] 事后清理完成: session=%s path=%q removed=%v verified=%v elapsed=%s",
+		id, path, cleanup.removed, cleanup.verified, time.Since(start))
 	return res, nil
 }
 
@@ -521,11 +578,14 @@ func (s *Server) sudoCleanupOnly(ctx context.Context, id, rawPath string) (any, 
 func (s *Server) sudoTempPath() (string, error) {
 	buf := make([]byte, sudoTempRandomBytes)
 	if _, err := rand.Read(buf); err != nil {
+		logx.Errorf("[debugsrv/sudo] 生成 sudo 临时文件名失败（随机源不可用）: err=%v", err)
 		return "", fmt.Errorf("生成 sudo 临时文件名失败（随机源不可用）：%v", err)
 	}
 	raw := sudoTempPrefix + hex.EncodeToString(buf)
 	p, err := s.sftpRequireWritePath("sudo 临时文件", raw)
 	if err != nil {
+		// 白名单拒绝由 sftpRequireWritePath 记 WARN（含具体原因），这里只补充 sudo 上下文。
+		logx.Warnf("[debugsrv/sudo] 提权请求被拒绝（/tmp 不在远端写入白名单）: path=%q err=%v", raw, err)
 		return "", fmt.Errorf("sudo 凭证提权被拒绝：临时文件 %s 未通过远端写入白名单校验。%w；"+
 			"本工具必须把密码写进 %s<随机 12 位十六进制> 的临时文件（写完立即 chmod 600、用完即删），"+
 			"因此请在 设置 → 调试模式 → MCP 能力 →「远端文件写入」白名单里加上 /tmp 前缀后重试",
@@ -533,8 +593,10 @@ func (s *Server) sudoTempPath() (string, error) {
 	}
 	// 兜底：即使白名单规则日后被放宽，也只允许使用本工具自己的前缀（防止拼进 shell 的路径被改写）。
 	if p != raw || !strings.HasPrefix(p, sudoTempPrefix) {
+		logx.Warnf("[debugsrv/sudo] 临时文件路径不在受控前缀下: path=%q", p)
 		return "", fmt.Errorf("sudo 临时文件路径 %q 不在受控前缀 %s 下：拒绝使用", p, sudoTempPrefix)
 	}
+	logx.Debugf("[debugsrv/sudo] 生成受控临时文件路径: path=%q", p)
 	return p, nil
 }
 
@@ -600,11 +662,15 @@ func sudoCleanupLine(tempFile string) string {
 // sftp 子系统）而终端正常时，它是唯一的补救通道。
 func (s *Server) sudoCleanupAttempt(ctx context.Context, ch <-chan Event, id, tempFile string) bool {
 	line := sudoCleanupLine(tempFile)
+	logx.Debugf("[debugsrv/sudo] 终端兜底清理开始: session=%s path=%q", id, tempFile)
 	if _, err := s.callSFTPHost(ctx, OpTerminalInput, map[string]any{"id": id, "data": line + "\r"}); err != nil {
+		logx.Warnf("[debugsrv/sudo] 终端兜底清理发送失败: session=%s path=%q err=%v", id, tempFile, err)
 		return false
 	}
 	wait := s.waitTerminal(ctx, ch, id, reSudoCleanMarker, sudoCleanupWait, 0, strings.TrimRight(line, "\r\n"))
-	return sudoCleanupOK(wait.visible)
+	ok := sudoCleanupOK(wait.visible)
+	logx.Debugf("[debugsrv/sudo] 终端兜底清理结果: session=%s path=%q cleaned=%v reason=%s", id, tempFile, ok, wait.reason)
+	return ok
 }
 
 // shellSingleQuote 把字符串包进单引号（内部的单引号用「反斜杠 + 单引号」序列替换），
@@ -651,7 +717,11 @@ func sudoCleanupOK(visible string) bool {
 // 拿不到净化结果时**按未净化如实报告**（返回 scrubbed=false），由调用方在返回里明确警告，
 // 而不是假装已经打码 —— 后者会让调用方误以为输出是安全的。
 func (s *Server) sudoScrubOutput(ctx context.Context, sessionID, text string) (string, bool) {
-	if strings.TrimSpace(text) == "" || s.opts.Handler == nil {
+	if strings.TrimSpace(text) == "" {
+		return text, false
+	}
+	if s.opts.Handler == nil {
+		logx.Warnf("[debugsrv/sudo] 输出净化不可用（调试服务未就绪）: session=%s outputBytes=%d", sessionID, len(text))
 		return text, false
 	}
 	raw, err := json.Marshal(map[string]any{"sessionId": sessionID, "text": text})
@@ -660,6 +730,7 @@ func (s *Server) sudoScrubOutput(ctx context.Context, sessionID, text string) (s
 	}
 	v, err := s.opts.Handler.Handle(ctx, OpSudoScrub, raw)
 	if err != nil {
+		logx.Warnf("[debugsrv/sudo] 输出净化调用失败: session=%s outputBytes=%d err=%v", sessionID, len(text), err)
 		return text, false
 	}
 	m := appctlObj(v)
@@ -667,7 +738,9 @@ func (s *Server) sudoScrubOutput(ctx context.Context, sessionID, text string) (s
 	if !isStr {
 		return text, false
 	}
-	return out, hostBool(m, "scrubbed")
+	scrubbed := hostBool(m, "scrubbed")
+	logx.Debugf("[debugsrv/sudo] 输出净化完成: session=%s outputBytes=%d scrubbed=%v", sessionID, len(text), scrubbed)
+	return out, scrubbed
 }
 
 // ---- 中文提示 ----

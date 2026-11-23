@@ -10,25 +10,27 @@ permissions:
 
 env:
   NODE_OPTIONS: --max-old-space-size=4096
-  WAILS_CLI_VERSION: v2.13.0
+  WAILS_CLI_VERSION: v3.1.0
 
 jobs:
   test:
     name: Preflight tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
           cache: true
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Linux WebKitGTK
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
       - name: Go tests
-        run: go test ./internal/...
+        run: go test -tags gtk3 ./internal/... ./cmd/...
       - name: Frontend typecheck
         working-directory: frontend
         run: |
@@ -43,18 +45,18 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            platform: darwin/arm64
+            arch: arm64
             artifact: macos-arm64
             macos_arch: arm64
           - os: macos-latest
-            platform: darwin/amd64
+            arch: amd64
             artifact: macos-amd64
             macos_arch: amd64
           - os: windows-latest
-            platform: windows/amd64
+            arch: amd64
             artifact: windows
           - os: ubuntu-24.04
-            platform: linux/amd64
+            arch: amd64
             artifact: linux
     runs-on: ${{ matrix.os }}
     steps:
@@ -80,7 +82,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
           cache: true
 
       - uses: actions/setup-node@v4
@@ -108,7 +110,10 @@ jobs:
 
       - name: Install Wails CLI
         shell: bash
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_CLI_VERSION}
+        # The Linux CLI also links against WebKitGTK at build time.
+        env:
+          GOFLAGS: ${{ runner.os == 'Linux' && '-tags=gtk3' || '' }}
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_CLI_VERSION}
 
       - name: Stamp product version
         shell: bash
@@ -118,16 +123,21 @@ jobs:
 
       - name: Wails build (macOS)
         if: runner.os == 'macOS'
-        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildCommit=${{ github.sha }}" -clean -platform ${{ matrix.platform }}
+        run: wails3 task build GOOS=darwin ARCH=${{ matrix.arch }} BUILD_COMMIT=${{ github.sha }}
+
+      - name: Windows updater tests
+        if: runner.os == 'Windows'
+        run: go test ./internal/updater
 
       - name: Wails build (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildCommit=${{ github.sha }}" -clean -platform ${{ matrix.platform }} -nsis -webview2 embed
+        # Keep the directory picker; protected install locations use a UAC update worker.
+        run: wails3 task package GOOS=windows ARCH=${{ matrix.arch }} BUILD_COMMIT=${{ github.sha }} PRODUCT_VERSION=${{ steps.ver.outputs.wails_version }}
 
       - name: Wails build (Linux)
         if: runner.os == 'Linux'
-        run: wails build -ldflags "-X ding-ssh/internal/updater.BuildCommit=${{ github.sha }}" -clean -platform ${{ matrix.platform }} -tags webkit2_41
+        run: wails3 task build GOOS=linux ARCH=${{ matrix.arch }} BUILD_COMMIT=${{ github.sha }}
 
       - name: Package macOS
         if: runner.os == 'macOS'
@@ -170,7 +180,7 @@ jobs:
     name: GitHub Release
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:

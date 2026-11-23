@@ -648,7 +648,7 @@ func TestUIToolCapsRegistered(t *testing.T) {
 		if !known {
 			t.Fatalf("工具 %s 未登记能力位", name)
 		}
-		want := CapRead
+		want := CapUIInspect
 		if uiWriteTools[name] {
 			want = CapUIWrite
 		}
@@ -659,18 +659,18 @@ func TestUIToolCapsRegistered(t *testing.T) {
 			t.Fatalf("可逆 / 高频的 ui.* 工具不应要求两段式确认：%s", name)
 		}
 	}
-	// 写类工具的描述里必须出现「界面写入（ui.write）」与「不需要 confirm.prepare」
+	// 写类工具的描述说明能力要求与无需单次执行 token。
 	s := testServerForNotes(t)
 	note := s.capabilityRequirementText(OpUIClick)
 	if !strings.Contains(note, "界面写入") || !strings.Contains(note, "ui.write") {
 		t.Fatalf("写类工具的能力要求文案应含「界面写入 / ui.write」：%s", note)
 	}
-	if !strings.Contains(note, "不需要 confirm.prepare") {
+	if !strings.Contains(note, "无需单次执行 token") {
 		t.Fatalf("写类工具应说明不需要 token：%s", note)
 	}
 	readNote := s.capabilityRequirementText(OpUILayout)
-	if !strings.Contains(readNote, "永远允许") {
-		t.Fatalf("读类工具的能力要求文案应说明永远允许：%s", readNote)
+	if !strings.Contains(readNote, "ui.inspect") {
+		t.Fatalf("界面读取工具应说明独立 ui.inspect 能力：%s", readNote)
 	}
 	if ActionNeedsConfirm(string(CapUIWrite)) {
 		t.Fatalf("ui.write 能力本身不应需要确认 token")

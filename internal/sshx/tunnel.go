@@ -19,6 +19,9 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// tunnelConnLog 隧道转发连接的采样器：繁忙隧道每连接一条 DEBUG 会淹没日志，按时间限流。
+var tunnelConnLog = logx.NewSampler(0, 5*time.Second)
+
 // TunnelStatus 隧道运行状态。
 type TunnelStatus string
 
@@ -125,6 +128,8 @@ func (t *Tunnel) Start() error {
 		t.mu.Unlock()
 		return fmt.Errorf("%s", i18n.T("隧道已在运行"))
 	}
+	logx.Debugf("[sshx] 启动隧道: id=%s mode=%s listen=%s:%d target=%s:%d server=%s",
+		t.id, t.mode, t.listenHost, t.localPort, t.remoteHost, t.remotePort, t.node.Name)
 	if t.client != nil {
 		_ = t.client.Close()
 	}
@@ -137,8 +142,10 @@ func (t *Tunnel) Start() error {
 	t.stopFn = cancel
 	t.mu.Unlock()
 
+	start := time.Now()
 	client, err := dialNodeContext(ctx, t.node, noopProgress)
 	if err != nil {
+		logx.Debugf("[sshx] 隧道 SSH 连接失败: id=%s server=%s elapsed=%s err=%v", t.id, t.node.Name, time.Since(start), err)
 		return err
 	}
 
@@ -150,12 +157,14 @@ func (t *Tunnel) Start() error {
 		ln, err = client.Listen("tcp", addr)
 		stopListen()
 		if err != nil {
+			logx.Debugf("[sshx] 隧道远程监听失败: id=%s addr=%s err=%v", t.id, addr, err)
 			client.Close()
 			return fmt.Errorf(i18n.T("远程监听 %s 失败: %w"), addr, err)
 		}
 	case TunnelDynamic:
 		ln, err = net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(t.localPort)))
 		if err != nil {
+			logx.Debugf("[sshx] 隧道本地 SOCKS5 监听失败: id=%s port=%d err=%v", t.id, t.localPort, err)
 			client.Close()
 			return fmt.Errorf(i18n.T("监听本地 SOCKS5 端口 %d 失败: %w"), t.localPort, err)
 		}
@@ -167,6 +176,7 @@ func (t *Tunnel) Start() error {
 		}
 		ln, err = net.Listen(network, addr)
 		if err != nil {
+			logx.Debugf("[sshx] 隧道本地监听失败: id=%s addr=%s err=%v", t.id, addr, err)
 			client.Close()
 			return fmt.Errorf(i18n.T("监听本地地址 %s 失败: %w"), addr, err)
 		}
@@ -187,8 +197,8 @@ func (t *Tunnel) Start() error {
 	t.wg.Add(1)
 	t.mu.Unlock()
 
-	logx.Infof("SSH 隧道已启动: id=%s mode=%s name=%s local=%d remote=%s:%d",
-		t.id, t.mode, t.name, t.localPort, t.remoteHost, t.remotePort)
+	logx.Infof("[sshx] SSH 隧道已启动: id=%s mode=%s name=%s local=%d remote=%s:%d elapsed=%s",
+		t.id, t.mode, t.name, t.localPort, t.remoteHost, t.remotePort, time.Since(start))
 	t.notify(TunnelRunning, "")
 	go t.acceptLoop(ctx, ln, client)
 	return nil
@@ -197,6 +207,7 @@ func (t *Tunnel) Start() error {
 // Stop 停止隧道。
 func (t *Tunnel) Stop() {
 	t.mu.Lock()
+	logx.Debugf("[sshx] 停止隧道: id=%s name=%s mode=%s status=%s", t.id, t.name, t.mode, t.status)
 	t.stopFn()
 	if t.client != nil {
 		_ = t.client.Close()
@@ -208,7 +219,7 @@ func (t *Tunnel) Stop() {
 	t.message = ""
 	t.mu.Unlock()
 	t.wg.Wait()
-	logx.Infof("SSH 隧道已停止: id=%s name=%s", t.id, t.name)
+	logx.Infof("[sshx] SSH 隧道已停止: id=%s name=%s", t.id, t.name)
 	t.notify(TunnelStopped, "")
 }
 
@@ -231,6 +242,7 @@ func (t *Tunnel) acceptLoop(ctx context.Context, listener net.Listener, client *
 			// sshd can override the requested bind address. Only accept loopback peers.
 			peer, ok := conn.RemoteAddr().(*net.TCPAddr)
 			if !ok || !peer.IP.IsLoopback() {
+				logx.WarnSampled(tunnelConnLog, "[sshx] 反向动态隧道拒绝非回环连接: id=%s peer=%s", t.id, conn.RemoteAddr())
 				conn.Close()
 				continue
 			}
@@ -246,11 +258,13 @@ func (t *Tunnel) acceptLoop(ctx context.Context, listener net.Listener, client *
 
 func (t *Tunnel) handleLocalConn(client *ssh.Client, local net.Conn) {
 	defer local.Close()
+	logx.DebugSampled(tunnelConnLog, "[sshx] 本地转发收到连接: id=%s peer=%s", t.id, local.RemoteAddr())
 	remote, err := client.Dial("tcp", net.JoinHostPort(t.remoteHost, strconv.Itoa(t.remotePort)))
 	if err != nil {
-		logx.Debugf("SSH 本地转发失败: id=%s remote=%s:%d err=%v", t.id, t.remoteHost, t.remotePort, err)
+		logx.WarnSampled(tunnelConnLog, "[sshx] SSH 本地转发失败: id=%s remote=%s:%d err=%v", t.id, t.remoteHost, t.remotePort, err)
 		return
 	}
+	logx.DebugSampled(tunnelConnLog, "[sshx] 本地转发通道已建立: id=%s target=%s:%d", t.id, t.remoteHost, t.remotePort)
 	defer remote.Close()
 	pipe(local, remote)
 }
@@ -258,11 +272,13 @@ func (t *Tunnel) handleLocalConn(client *ssh.Client, local net.Conn) {
 func (t *Tunnel) handleRemoteConn(remote net.Conn) {
 	defer remote.Close()
 	// Remote Forward：远程连入后转发到本地目标
+	logx.DebugSampled(tunnelConnLog, "[sshx] 远程转发收到连接: id=%s peer=%s", t.id, remote.RemoteAddr())
 	local, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(t.localPort)), 10*time.Second)
 	if err != nil {
-		logx.Debugf("SSH 远程转发连接本地失败: id=%s localPort=%d err=%v", t.id, t.localPort, err)
+		logx.WarnSampled(tunnelConnLog, "[sshx] SSH 远程转发连接本地失败: id=%s localPort=%d err=%v", t.id, t.localPort, err)
 		return
 	}
+	logx.DebugSampled(tunnelConnLog, "[sshx] 远程转发通道已建立: id=%s localPort=%d", t.id, t.localPort)
 	defer local.Close()
 	pipe(remote, local)
 }
@@ -275,15 +291,17 @@ func (t *Tunnel) handleSocksConn(ctx context.Context, conn net.Conn, dial func(s
 	target, err := socks5Handshake(conn)
 	handshakeTimeout.Stop()
 	if err != nil {
-		logx.Debugf("SOCKS5 握手失败: id=%s err=%v", t.id, err)
+		logx.DebugSampled(tunnelConnLog, "[sshx] SOCKS5 握手失败: id=%s peer=%s err=%v", t.id, conn.RemoteAddr(), err)
 		return
 	}
 	remote, err := dial(target)
 	if err != nil {
+		logx.WarnSampled(tunnelConnLog, "[sshx] SOCKS5 目标连接失败: id=%s target=%s err=%v", t.id, target, err)
 		// 回复连接失败
 		_, _ = conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
+	logx.DebugSampled(tunnelConnLog, "[sshx] SOCKS5 通道已建立: id=%s target=%s", t.id, target)
 	defer remote.Close()
 	stopRemote := context.AfterFunc(ctx, func() { remote.Close() })
 	defer stopRemote()
@@ -310,7 +328,7 @@ func (t *Tunnel) fail(ctx context.Context, message string) {
 	t.status = TunnelError
 	t.message = message
 	t.mu.Unlock()
-	logx.Errorf("SSH 隧道异常: id=%s err=%s", t.id, message)
+	logx.Errorf("[sshx] SSH 隧道异常: id=%s mode=%s err=%s", t.id, t.mode, message)
 	t.notify(TunnelError, message)
 }
 
@@ -344,9 +362,10 @@ func socks5Handshake(conn net.Conn) (string, error) {
 	if _, err := io.ReadFull(conn, buf[:4]); err != nil {
 		return "", err
 	}
-	if buf[0] != 0x05 || buf[1] != 0x01 {
+	if buf[0] != 0x05 || buf[2] != 0 {
 		return "", fmt.Errorf("%s", i18n.T("仅支持 CONNECT"))
 	}
+	command := buf[1]
 	var host string
 	switch buf[3] {
 	case 0x01: // IPv4
@@ -369,11 +388,18 @@ func socks5Handshake(conn net.Conn) (string, error) {
 		}
 		host = net.IP(buf[:16]).String()
 	default:
+		_, _ = conn.Write([]byte{5, 8, 0, 1, 0, 0, 0, 0, 0, 0})
 		return "", fmt.Errorf("%s", i18n.T("不支持的地址类型"))
 	}
 	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
 		return "", err
 	}
 	port := binary.BigEndian.Uint16(buf[:2])
+	if command != 1 {
+		// Read the complete request before replying so closing the socket does
+		// not discard the error reply due to unread TCP data.
+		_, _ = conn.Write([]byte{5, 7, 0, 1, 0, 0, 0, 0, 0, 0})
+		return "", fmt.Errorf("%s", i18n.T("仅支持 CONNECT"))
+	}
 	return net.JoinHostPort(host, strconv.Itoa(int(port))), nil
 }

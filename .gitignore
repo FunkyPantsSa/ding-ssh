@@ -5,6 +5,8 @@ build/AppDir
 dist/
 node_modules
 frontend/dist
+# 本地冒烟运行目录（调试日志、临时配置、截图等），不入版本控制
+.smoke/
 # 本机构建缓存（沙箱内 go build 的 GOCACHE 落点）
 .go-cache/
 # 权限修复记录，不入版本控制
@@ -18,3 +20,7 @@ frontend/dist
 findings.md
 progress.md
 task_plan.md
+
+# Wails v3 generated native build inputs
+/ding_windows_*.syso
+/build/windows/installer/tmp/

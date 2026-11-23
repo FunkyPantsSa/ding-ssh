@@ -1,7 +1,7 @@
 import {t} from '../i18n'
 import { computed, onBeforeUnmount, ref, type Ref } from 'vue'
-import { EventsOn } from '../../wailsjs/runtime/runtime'
-import { GetAuditRecords, UndoAuditRecord } from '../../wailsjs/go/main/App'
+import { EventsOn } from '../services/desktop'
+import { GetAuditRecords, UndoAuditRecord } from '../../bindings/ding-ssh/internal/apphost/app'
 import type { AuditRecordView, CapabilitiesView } from '../types'
 
 /** State and event lifetime for the Settings audit section. */

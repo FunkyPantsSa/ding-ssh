@@ -552,8 +552,8 @@ func TestJSONSettingsStoreDebugCapabilityDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取设置失败: %v", err)
 	}
-	if !got.Debug.CapTerminalInput {
-		t.Fatalf("默认值：终端输入应为开启")
+	if got.Debug.CapTerminalInput {
+		t.Fatalf("默认观察模式禁止终端输入")
 	}
 	for name, on := range map[string]bool{
 		"ui.write":        got.Debug.CapUIWrite,
@@ -572,7 +572,7 @@ func TestJSONSettingsStoreDebugCapabilityDefaults(t *testing.T) {
 	}
 }
 
-// 旧配置文件（完全没有能力位字段）升级后应补上默认值「终端输入开启」。
+// 旧配置缺失能力位时保持观察模式，不增加执行权限。
 func TestJSONSettingsStoreDebugCapabilityLegacyDefault(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	// 旧版本写出的 debug 段：只有总开关/端口等老字段，没有任何 cap* 字段
@@ -588,8 +588,8 @@ func TestJSONSettingsStoreDebugCapabilityLegacyDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取设置失败: %v", err)
 	}
-	if !got.Debug.CapTerminalInput {
-		t.Fatalf("旧配置升级后：终端输入应补默认值 true，实际 false")
+	if got.Debug.CapTerminalInput {
+		t.Fatalf("旧配置升级后不应自动开启终端输入")
 	}
 	if !got.Debug.Enabled || got.Debug.Port != 8765 {
 		t.Fatalf("旧配置的既有字段被破坏：enabled=%v port=%d", got.Debug.Enabled, got.Debug.Port)
@@ -647,8 +647,8 @@ func TestSQLiteSettingsStoreDebugCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取设置失败: %v", err)
 	}
-	if !settings.Debug.CapTerminalInput {
-		t.Fatalf("SQLite 默认能力位：终端输入应为开启")
+	if settings.Debug.CapTerminalInput {
+		t.Fatalf("SQLite 默认观察模式禁止终端输入")
 	}
 	if settings.Debug.CapConfigWrite || settings.Debug.CapRemoteFSWrite || settings.Debug.CapLifecycle {
 		t.Fatalf("SQLite 默认能力位：危险能力应全关，实际 %+v", settings.Debug)
@@ -657,8 +657,8 @@ func TestSQLiteSettingsStoreDebugCapabilities(t *testing.T) {
 	settings.Debug.CapRemoteFSWrite = true
 	settings.Debug.CapLifecycle = true
 	settings.Debug.SFTPWriteAllowlist = []string{"/home/deploy", "/home/deploy"}
-	settings.Debug.CapSecretWrite = true    // 但 AllowSecrets=false → 归一化时必须回落 false
-	settings.Debug.CapSudoCredential = true // 同上：不允许读取敏感数据时不可能用保存的密码提权
+	settings.Debug.CapSecretWrite = true    // 独立于明文导出
+	settings.Debug.CapSudoCredential = true // 内部使用在执行时另查 credentials.use
 	if err := s.Save(settings); err != nil {
 		t.Fatalf("保存设置失败: %v", err)
 	}
@@ -669,11 +669,11 @@ func TestSQLiteSettingsStoreDebugCapabilities(t *testing.T) {
 	if !reloaded.Debug.CapRemoteFSWrite || !reloaded.Debug.CapLifecycle {
 		t.Fatalf("落库后能力位丢失：%+v", reloaded.Debug)
 	}
-	if reloaded.Debug.CapSecretWrite {
-		t.Fatalf("未开启「允许读取敏感数据」时 secrets.write 应为 false")
+	if !reloaded.Debug.CapSecretWrite {
+		t.Fatalf("凭据写入不应要求明文导出权限")
 	}
-	if reloaded.Debug.CapSudoCredential {
-		t.Fatalf("未开启「允许读取敏感数据」时 sudo.credential 应为 false")
+	if !reloaded.Debug.CapSudoCredential {
+		t.Fatalf("内部 sudo 凭据使用不应要求明文导出权限")
 	}
 	if len(reloaded.Debug.SFTPWriteAllowlist) != 1 || reloaded.Debug.SFTPWriteAllowlist[0] != "/home/deploy" {
 		t.Fatalf("落库后的白名单 = %v，期望 [/home/deploy]", reloaded.Debug.SFTPWriteAllowlist)
@@ -685,7 +685,7 @@ func TestSQLiteSettingsStoreDebugCapabilities(t *testing.T) {
 		t.Fatalf("读取 debug 设置键失败: %v", err)
 	}
 	for _, frag := range []string{
-		`"capRemoteFsWrite":true`, `"capLifecycle":true`, `"capSudoCredential":false`,
+		`"capRemoteFsWrite":true`, `"capLifecycle":true`, `"capSudoCredential":true`,
 		`"sftpWriteAllowlist":["/home/deploy"]`,
 	} {
 		if !strings.Contains(raw, frag) {
@@ -701,8 +701,8 @@ func TestDebugSettingsSudoCredentialNormalization(t *testing.T) {
 	}
 	// 未开启「允许读取敏感数据」→ 归一化回落 false（与 capSecretWrite 同款）
 	off := models.NormalizeDebugSettings(models.DebugSettings{CapSudoCredential: true})
-	if off.CapSudoCredential {
-		t.Fatalf("AllowSecrets=false 时 sudo.credential 必须回落 false")
+	if !off.CapSudoCredential {
+		t.Fatalf("sudo 内部使用凭据不依赖 secrets.read 明文导出")
 	}
 	on := models.NormalizeDebugSettings(models.DebugSettings{AllowSecrets: true, CapSudoCredential: true})
 	if !on.CapSudoCredential {

@@ -1,3 +1,4 @@
+import {WriteLocalFileBase64, ReadLocalFileBase64} from '../../bindings/ding-ssh/internal/apphost/app'
 import {errorText} from '../i18n'
 import {t} from '../i18n'
 // Zmodem (rz/sz) 会话接管：基于 zmodem.js Sentry。
@@ -170,7 +171,7 @@ export async function attachZmodem(opts: {
 
           const payloads = await offer.accept()
           const merged = mergePayloads(Array.isArray(payloads) ? payloads : [])
-          await (window as AnyZ).go.main.App.WriteLocalFileBase64(savePath, bytesToBase64(merged))
+          await WriteLocalFileBase64(savePath, bytesToBase64(merged))
           opts.onProgress?.({
             name,
             direction: 'download',
@@ -259,7 +260,7 @@ export async function attachZmodem(opts: {
         finish(session, t("已取消 Zmodem 发送"))
         return
       }
-      const b64 = await (window as AnyZ).go.main.App.ReadLocalFileBase64(path)
+      const b64 = await ReadLocalFileBase64(path)
       const bytes = base64ToBytes(b64)
       const name = path.split(/[/\\]/).pop() || 'upload.bin'
       const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer

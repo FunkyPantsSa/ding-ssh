@@ -2,7 +2,13 @@ import {reactive} from 'vue'
 import type {ServerNode, SysInfoSnapshot} from '../types'
 const key = (node: ServerNode) => `${node.id}:${node.user}@${node.host}:${node.port}`
 function load(): Record<string, SysInfoSnapshot> {
-  try { return JSON.parse(localStorage.getItem('server-config-snapshots') || '{}') } catch { return {} }
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem('server-config-snapshots') || '{}')
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+    return Object.fromEntries(Object.entries(value).filter(([, snapshot]) =>
+      snapshot !== null && typeof snapshot === 'object' && !Array.isArray(snapshot),
+    ))
+  } catch { return {} }
 }
 export const serverSnapshots = reactive(load())
 export function getServerSnapshot(node: ServerNode) { return serverSnapshots[key(node)] }

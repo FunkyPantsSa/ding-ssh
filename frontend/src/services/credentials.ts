@@ -1,5 +1,5 @@
 // 封装凭证相关的 Wails 绑定。
-import {DeleteCredential, GetCredentials, SaveCredential} from '../../wailsjs/go/main/App'
+import {DeleteCredential, GetCredentials, SaveCredential} from '../../bindings/ding-ssh/internal/apphost/app'
 import type {Credential} from '../types'
 
 export const credentialService = {

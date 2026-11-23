@@ -31,7 +31,7 @@ func TestConfirmPrepareCommit(t *testing.T) {
 	}
 }
 
-// args 的键顺序 / 空格差异不得影响校验（规范化），但语义变化必须失败。
+// JSON 键顺序和数值表示不影响校验；字符串原字节必须保留。
 func TestConfirmArgsNormalization(t *testing.T) {
 	m := NewConfirmManager(DefaultConfirmTTL)
 	token, _ := m.Prepare("settings.update", map[string]any{
@@ -39,7 +39,7 @@ func TestConfirmArgsNormalization(t *testing.T) {
 	}, "")
 	// 同样语义（键顺序不同 + 数字写成 120.0）应通过
 	same := map[string]any{
-		"settings": map[string]any{"logLevel": "debug", "uiScale": 120},
+		"settings": map[string]any{"logLevel": " debug ", "uiScale": 120},
 	}
 	if err := m.Commit(token, "settings.update", same); err != nil {
 		t.Fatalf("等价参数应通过校验：%v", err)
@@ -190,7 +190,7 @@ func TestMCPConfirmTools(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &out); err != nil {
 		t.Fatalf("解析 prepare 结果失败: %v（%s）", err, text)
 	}
-	if out.Token == "" || out.Summary != "清空日志" {
+	if out.Token == "" || out.Summary != "logs.clear\n{}" {
 		t.Fatalf("prepare 结果不完整：%s", text)
 	}
 
@@ -213,6 +213,47 @@ func TestMCPConfirmTools(t *testing.T) {
 	isErr, text, _ = callTool(t, ts.srv, "confirm.commit", map[string]any{})
 	if !isErr || !strings.Contains(text, "confirm.prepare") {
 		t.Fatalf("缺 token 应提示先 prepare：isError=%v text=%s", isErr, text)
+	}
+}
+
+func TestConfirmationStatusIsIdentityBoundAndNeverReturnsToken(t *testing.T) {
+	ts := newTestServer(t, &fakeGate{}, &fakeExecutor{})
+	isErr, text, _ := callTool(t, ts.srv, "confirm.prepare", map[string]any{"action": "logs.clear", "tool": "clear_logs", "args": map[string]any{}})
+	if isErr {
+		t.Fatal(text)
+	}
+	var approved struct {
+		OperationID string `json:"operationId"`
+		Token       string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(text), &approved); err != nil || approved.OperationID == "" || approved.Token == "" {
+		t.Fatalf("missing approval: %s", text)
+	}
+	isErr, text, _ = callTool(t, ts.srv, "confirm.status", map[string]any{"operationId": approved.OperationID})
+	if isErr || !strings.Contains(text, `"approved"`) || strings.Contains(text, approved.Token) {
+		t.Fatalf("unsafe status response: %s", text)
+	}
+	if _, err := ts.srv.confirmationStatus(WithCaller(context.Background(), "other-client"), approved.OperationID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("another identity observed approval: %v", err)
+	}
+	isErr, text, _ = callTool(t, ts.srv, "confirm.commit", map[string]any{"token": approved.Token})
+	if isErr || !ts.h.called(OpLogsClear) {
+		t.Fatalf("exact approved tool was not executed: %s", text)
+	}
+	status, err := ts.srv.confirmationStatus(context.Background(), approved.OperationID)
+	if err != nil || status["status"] != "consumed" {
+		t.Fatalf("consumed status: %v %v", status, err)
+	}
+	state := ts.srv.approvalState()
+	state.mu.Lock()
+	op := state.operations[approved.OperationID]
+	op.ExpiresAt = time.Now().Add(-time.Second).UnixMilli()
+	op.Consumed = false
+	state.operations[approved.OperationID] = op
+	state.mu.Unlock()
+	status, err = ts.srv.confirmationStatus(context.Background(), approved.OperationID)
+	if err != nil || status["status"] != "expired" {
+		t.Fatalf("expired status: %v %v", status, err)
 	}
 }
 

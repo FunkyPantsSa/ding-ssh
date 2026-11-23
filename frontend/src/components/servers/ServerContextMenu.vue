@@ -3,16 +3,18 @@ import {t as $t} from '../../i18n'
 
 import {t} from '../../i18n'
 
-import {nextTick, onMounted, ref} from 'vue'
+import {nextTick, onMounted} from 'vue'
 import Icon from '../Icon.vue'
 import type {ServerNode} from '../../types'
+import {useMenuPlacement} from '../../composables/useMenuPlacement'
 
-defineProps<{node: ServerNode; position: {x: number; y: number}; copied: boolean; cloning: boolean}>()
+const props = defineProps<{node: ServerNode; position: {x: number; y: number}; copied: boolean; cloning: boolean}>()
 const emit = defineEmits<{edit: []; copy: []; duplicate: []; test: []; remove: []; close: []}>()
-const root = ref<HTMLElement | null>(null)
+// 打开后按真实高度定位，贴近窗口底部时上移，避免菜单项被裁掉
+const {menuEl, menuStyle, place} = useMenuPlacement()
 
 function items(): HTMLElement[] {
-  return Array.from(root.value?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])
+  return Array.from(menuEl.value?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])
 }
 
 function focusAt(index: number) {
@@ -45,18 +47,19 @@ function onKeydown(event: KeyboardEvent) {
 onMounted(async () => {
   await nextTick()
   focusAt(0)
+  void place(props.position.x, props.position.y)
 })
 </script>
 <template>
   <Teleport to="body">
     <div
-      ref="root"
+      ref="menuEl"
       class="menu-pop neo fixed"
       role="menu"
       :aria-label="$t('服务器操作')"
       data-ui="context-menu"
       data-testid="server-context-menu"
-      :style="{left: position.x + 'px', top: position.y + 'px'}"
+      :style="menuStyle"
       @contextmenu.prevent
       @click.stop
       @keydown="onKeydown"

@@ -2,6 +2,7 @@ import {defineStore} from 'pinia'
 import {DEFAULT_COMPLETION_NAV_HOTKEY} from '../completion/hotkey'
 import {settingsService} from '../services/settings'
 import {paletteToTheme, defaultPreset} from '../theme/presets'
+import {DEFAULT_TERMINAL_FONT} from '../theme/font-catalog'
 import {migrateUiSettings, normalizeAppearance, UI_SCHEMA, UI2_MIGRATION_BACKUP_KEY, THEME_V4_MIGRATION_BACKUP_KEY} from '../theme/migrate'
 import type {DebugSettings, Fonts, LogLevel, NavSectionOrder, RightClickAction, TabBarPlacement, TerminalColorMode, Theme, UIAppearance} from '../types'
 
@@ -33,7 +34,7 @@ export function defaultAppearance(): UIAppearance {
 export function defaultFonts(): Fonts {
   return {
     uiFont: 'Geist Sans',
-    terminalFont: 'JetBrains Mono + Sarasa Mono SC',
+    terminalFont: DEFAULT_TERMINAL_FONT,
     terminalFontSize: 13,
   }
 }
@@ -48,12 +49,22 @@ export function defaultDebug(): DebugSettings {
     allowEval: false,
     allowSecrets: false,
     cdpEnabled: false,
-    capTerminalInput: true,
+    capTerminalInput: false,
+    capTerminalRead: false,
+    capRemoteFsRead: false,
+    capUiInspect: false,
+    capConnect: false,
+    capDisconnect: false,
+    capTransferCancel: false,
+    capLocalExec: false,
+    capCredentialUse: false,
+    trustedAutomation: false,
     capUiWrite: false,
     capConfigWrite: false,
     capSecretWrite: false,
     capRemoteFsWrite: false,
-    // sudo.credential：用应用里保存的密码执行 sudo -i（默认关；还需 allowSecrets）
+    auditPersistent: false,
+    // sudo.credential：用应用里保存的密码执行 sudo -i（默认关；与明文导出独立）
     capSudoCredential: false,
     capLifecycle: false,
     sftpWriteAllowlist: [],
@@ -336,8 +347,7 @@ function normalizeDebug(d: DebugSettings): DebugSettings {
   d.sftpWriteAllowlist = normalizeAllowlist(d.sftpWriteAllowlist)
   // 不允许读取敏感数据时，凭据写入必然不成立（与 Go 端 NormalizeDebugSettings 一致）；
   // sudo 提权同样要读回保存的密码，因此一并回落 false。
-  if (!d.allowSecrets) d.capSecretWrite = false
-  if (!d.allowSecrets) d.capSudoCredential = false
+
   return d
 }
 

@@ -1,3 +1,4 @@
+import {isDesktop} from './services/desktop-environment'
 import {ref, type App} from 'vue'
 import en from './locales/en.json'
 
@@ -18,8 +19,9 @@ export function errorText(error: unknown): string {
   return message.split(/(: |：)/).map(part => t(part)).join('')
 }
 export async function syncBackendLanguage(value: Language = language.value) {
-  const api = (window as any).go?.main?.App
-  if (typeof api?.SetUILanguage === 'function') await api.SetUILanguage(value)
+  if (!isDesktop()) return
+  const {SetUILanguage} = await import('../bindings/ding-ssh/internal/apphost/app')
+  await SetUILanguage(value)
 }
 export async function setLanguage(value: Language) {
   if (value === language.value) return

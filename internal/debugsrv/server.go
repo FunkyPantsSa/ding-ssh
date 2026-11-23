@@ -9,7 +9,6 @@ package debugsrv
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +18,20 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"ding-ssh/internal/logx"
+)
+
+// 高频路径的日志限流器（见 docs/logging.md §5）：
+//   - 调试服务的 HTTP 请求可能被脚本 / AI 高频轮询（/v1/health、/v1/state），
+//     请求开始与结束各用一个采样器，避免逐条 DEBUG 刷屏；
+//   - 鉴权失败同理（错误的 token 会被反复重试），首次必定输出，之后限流。
+var (
+	requestStartLog = logx.NewSampler(64, 2*time.Second)
+	requestEndLog   = logx.NewSampler(64, 2*time.Second)
+	authFailLog     = logx.NewSampler(16, 5*time.Second)
 )
 
 // Handler 由宿主实现：把一次操作翻译成对后端 / 前端的调用。
@@ -144,6 +156,8 @@ type Options struct {
 	// Executor 执行已确认的动作（confirm.commit / 写工具携带 token 时由本包调用）。
 	// 为 nil 时 confirm.commit 返回中文错误「宿主未实现动作执行器」。
 	Executor Executor
+	Approver ApprovalFunc
+	Clients  *ClientRegistry
 
 	// ---- M8（SFTP + 终端自动化）----
 	//
@@ -156,14 +170,22 @@ type Options struct {
 
 // Server 调试 HTTP 服务。
 type Server struct {
-	opts Options
-	srv  *http.Server
-	ln   net.Listener
-	mu   sync.Mutex
+	opts        Options
+	srv         *http.Server
+	ln          net.Listener
+	mu          sync.Mutex
+	policyMu    sync.Mutex
+	policyEpoch atomic.Uint64
 
 	// MCP 会话（支持服务端推送的客户端用 GET /mcp 挂 SSE 通道）
 	mcpMu       sync.Mutex
 	mcpSessions map[string]*mcpSession
+	httpSlots   chan struct{}
+	streamSlots chan struct{}
+	jobsOnce    sync.Once
+	jobs        *jobManager
+	rpcMu       sync.Mutex
+	rpcActive   map[string]context.CancelFunc
 
 	// M8：终端自动化的「同会话串行化」状态（见 sftp.go 的 acquireTerminal）。
 	// 键是终端 / 会话 id；同一时刻只允许一个 terminal.run / terminal.expect 在跑，
@@ -177,22 +199,32 @@ func New(o Options) *Server {
 	if o.Logf == nil {
 		o.Logf = func(string, ...any) {}
 	}
-	return &Server{opts: o, mcpSessions: make(map[string]*mcpSession), termBusy: make(map[string]bool)}
+	// 只记「有没有鉴权 / 有没有注入各子系统」，不记 token 本身。
+	logx.Debugf("[debugsrv/server] 创建调试服务: addr=%s auth=%v hub=%v gate=%v audits=%v confirms=%v executor=%v",
+		o.Addr, o.Token != "", o.Hub != nil, o.Gate != nil, o.Audits != nil, o.Confirms != nil, o.Executor != nil)
+	return &Server{opts: o, mcpSessions: make(map[string]*mcpSession), termBusy: make(map[string]bool), httpSlots: make(chan struct{}, 64), streamSlots: make(chan struct{}, 128), rpcActive: make(map[string]context.CancelFunc)}
 }
 
 // Start 启动监听并返回实际监听地址（端口填 0 时由系统分配）。
 func (s *Server) Start() (string, error) {
 	if s.opts.Handler == nil {
+		logx.Errorf("[debugsrv/server] 调试服务启动失败: addr=%s reason=未注入 Handler", s.opts.Addr)
 		return "", errors.New("debugsrv: Handler 不能为空")
 	}
 	mux := http.NewServeMux()
 
+	// coreRoutes 统计本文件注册的核心路由数量（ui.go 的 UI 路由由 registerUIRoutes
+	// 自行注册，不在这个计数里），启动日志用它核对「路由是否少注册」。
+	coreRoutes := 0
+
 	// 只读：read 能力永远允许，因此不套 guard（审计由 auditLog 中间件统一记账，
 	// tool 名由 s.named 标注，与 MCP 工具同名，便于 app.recent_calls 统一过滤）。
 	read := func(pattern string, tool string, h http.HandlerFunc) {
+		coreRoutes++
 		mux.HandleFunc(pattern, s.named(tool, h))
 	}
 	write := func(pattern string, route httpRoute, h http.HandlerFunc) {
+		coreRoutes++
 		if route.cap == "" {
 			route.cap = CapRead
 		}
@@ -214,9 +246,11 @@ func (s *Server) Start() (string, error) {
 	// 这里没有用 read() 标注审计工具名：它不是某个 MCP 工具，而是「工具目录」本身，
 	// 审计记录里保持 "GET /v1/tools" 更诚实（避免伪造一个不存在的工具名）。
 	// 鉴权仍然沿用同一个 Bearer token（auth 中间件包住整张 mux，不做读类免鉴权的例外）。
+	coreRoutes++
 	mux.HandleFunc("GET /v1/tools", s.toolsHTTP)
 	// 截图单独返回 PNG（审计由 auditLog 中间件按 GET 记录）
-	mux.HandleFunc("GET /v1/screenshot", s.screenshot)
+	coreRoutes++
+	mux.HandleFunc("GET /v1/screenshot", s.named("screenshot", s.screenshot))
 
 	// 写：每条写类路由声明「所需能力 + 确认 action + 审计用工具名」，
 	// 由 guarded 统一做 Gate 校验、两段式确认与审计登记（见 guarded 的说明）。
@@ -226,7 +260,7 @@ func (s *Server) Start() (string, error) {
 	// 保留字段只为「路由的主语义」自解释，避免读者以为它们不受任何校验（能力位仍然校验）。
 	//
 	// 注意 HTTP 与 MCP 的确认语义差别：HTTP 调用方是脚本 / 人，token 走
-	// ?confirmToken=…（见 httpConfirmToken）；MCP 调用方是 AI，token 走工具参数
+	// X-Ding-Confirm-Token 请求头；MCP 调用方是 AI，token 走工具参数
 	// token=…（见 mcp.go）。两者共用同一个 ConfirmManager，因此 token 可以互相使用。
 	write("POST /v1/terminals/{id}/input", httpRoute{
 		cap: CapTerminalInput, action: string(CapTerminalInput), tool: "send_input"}, s.opWithID(OpTerminalInput))
@@ -248,12 +282,15 @@ func (s *Server) Start() (string, error) {
 	write("POST /v1/logs/options", httpRoute{
 		cap: CapConfigWrite, action: "settings.update", tool: "set_log_options"}, s.op(OpLogsOptions))
 	// 实时事件流（SSE）：AI 可以"看着"终端输出而不必轮询
+	coreRoutes++
 	mux.HandleFunc("GET /v1/stream", s.stream)
 	// 最近事件（无需订阅，直接取环形缓冲）
+	coreRoutes++
 	mux.HandleFunc("GET /v1/events", s.events)
 	// ---- UI 观测 / 实验域（M5+M6）：路由、能力位与观察器都在 ui.go 里集中注册 ----
 	registerUIRoutes(mux, s)
 	// MCP（Streamable HTTP）：把上述操作暴露为 MCP 工具/资源，供任意 AI 客户端接入
+	coreRoutes++
 	mux.HandleFunc("/mcp", s.mcp)
 
 	// 用局部变量贯穿监听 goroutine 的整个生命周期。Stop 会在锁内把 s.srv
@@ -263,36 +300,56 @@ func (s *Server) Start() (string, error) {
 		// apiLog 放在最外层：鉴权失败的请求（401）同样要留下调用记录。
 		// auditLog 紧贴它之内：MCP 的工具调用由 mcp.go 自己记账（那里信息更全，
 		// 含能力位与是否可撤销），这里只负责非 /mcp 的 HTTP 路由。
-		Handler:           s.apiLog(s.auditLog(s.auth(mux))),
+		Handler:           s.transportSafety(s.apiLog(s.auditLog(s.auth(mux)))),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       90 * time.Second,
+		MaxHeaderBytes:    64 << 10,
 	}
 	ln, err := net.Listen("tcp", s.opts.Addr)
 	if err != nil {
+		logx.Errorf("[debugsrv/server] 调试服务监听失败: addr=%s err=%v", s.opts.Addr, err)
 		return "", err
 	}
 	s.mu.Lock()
 	s.srv = httpSrv
 	s.ln = ln
 	s.mu.Unlock()
+	logx.Debugf("[debugsrv/server] 已监听: addr=%s network=tcp", ln.Addr().String())
 	go func(srv *http.Server, listener net.Listener) {
 		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logx.Errorf("[debugsrv/server] 调试服务异常退出: addr=%s err=%v", listener.Addr().String(), err)
 			s.opts.Logf("调试服务退出: %v", err)
 		}
 	}(httpSrv, ln)
+	// INFO 是服务状态主线：地址、路由数量与是否鉴权一眼可见（不含 token 本身）。
+	logx.Infof("[debugsrv/server] 调试服务已启动: addr=%s routes=%d auth=%v hub=%v",
+		ln.Addr().String(), coreRoutes, s.opts.Token != "", s.opts.Hub != nil)
 	s.opts.Logf("调试服务已启动: http://%s", ln.Addr().String())
 	return ln.Addr().String(), nil
 }
 
 // Stop 关闭监听。
 func (s *Server) Stop(ctx context.Context) error {
+	s.CloseJobs()
+	s.InvalidateAuthorizations()
+	s.closeProtocolSessions()
 	s.mu.Lock()
 	srv := s.srv
 	s.srv = nil
 	s.mu.Unlock()
 	if srv == nil {
+		logx.Debugf("[debugsrv/server] 跳过停止调试服务: reason=未启动")
 		return nil
 	}
-	return srv.Shutdown(ctx)
+	start := time.Now()
+	logx.Debugf("[debugsrv/server] 开始停止调试服务")
+	if err := srv.Shutdown(ctx); err != nil {
+		logx.Warnf("[debugsrv/server] 调试服务停止时出错: elapsed=%s err=%v", time.Since(start), err)
+		return err
+	}
+	logx.Infof("[debugsrv/server] 调试服务已停止: elapsed=%s", time.Since(start))
+	return nil
 }
 
 // apiLog 调用日志中间件：每次请求记录一行
@@ -305,6 +362,10 @@ func (s *Server) Stop(ctx context.Context) error {
 func (s *Server) apiLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.opts.APILogf == nil {
+			// 未注入 [api] 调用日志时，至少留一条采样后的请求入口日志
+			// （拿不到状态码，所以只记 method/path；query 不记，避免 token 落盘）。
+			logx.DebugSampled(requestStartLog, "[debugsrv/server] 收到请求: method=%s path=%s stream=%v",
+				r.Method, r.URL.Path, isStreamRequest(r))
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -315,15 +376,21 @@ func (s *Server) apiLog(next http.Handler) http.Handler {
 		lw := &logResponseWriter{ResponseWriter: w}
 
 		if isStreamRequest(r) {
+			logx.Debugf("[debugsrv/server] SSE 请求开始: method=%s path=%s", r.Method, r.URL.Path)
 			s.opts.APILogf("%s %s%s sse=start", r.Method, r.URL.Path, detail)
 			next.ServeHTTP(lw, r)
 			s.opts.APILogf("%s %s%s %d sse=end %dms %db",
 				r.Method, r.URL.Path, detail, lw.statusCode(), time.Since(start).Milliseconds(), lw.bytes)
+			// SSE 连接本身低频（每次连接一条），无需采样。
+			logx.Debugf("[debugsrv/server] SSE 请求结束: method=%s path=%s status=%d elapsed=%s bytes=%d",
+				r.Method, r.URL.Path, lw.statusCode(), time.Since(start), lw.bytes)
 			return
 		}
+		logx.DebugSampled(requestStartLog, "[debugsrv/server] 收到请求: method=%s path=%s detail=%s",
+			r.Method, r.URL.Path, detail)
 		next.ServeHTTP(lw, r)
-		s.opts.APILogf("%s %s%s %d %dms %db",
-			r.Method, r.URL.Path, detail, lw.statusCode(), time.Since(start).Milliseconds(), lw.bytes)
+		logx.DebugSampled(requestEndLog, "[debugsrv/server] 请求完成: method=%s path=%s status=%d elapsed=%s bytes=%d",
+			r.Method, r.URL.Path, lw.statusCode(), time.Since(start), lw.bytes)
 	})
 }
 
@@ -342,7 +409,7 @@ func (s *Server) requestDetail(r *http.Request) string {
 	if r.Method != http.MethodPost || r.URL.Path != "/mcp" || r.Body == nil {
 		return ""
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, mcpBodyLimit))
+	body, err := io.ReadAll(io.LimitReader(r.Body, mcpBodyLimit+1))
 	if err != nil {
 		return ""
 	}
@@ -402,17 +469,15 @@ func (w *logResponseWriter) statusCode() int {
 // auth 校验 Bearer token（也允许 ?token= 便于浏览器/脚本直接访问）。
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.opts.Token != "" {
-			tok := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-			if tok == "" {
-				tok = r.URL.Query().Get("token")
-			}
-			if subtle.ConstantTimeCompare([]byte(tok), []byte(s.opts.Token)) != 1 {
-				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid token"})
-				return
-			}
+		request, err := s.authenticateClient(r)
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": err.Error()})
+			return
 		}
-		next.ServeHTTP(w, r)
+		if info := auditInfoFrom(r); info != nil {
+			info.ClientID = CallerID(request.Context())
+		}
+		next.ServeHTTP(w, request)
 	})
 }
 
@@ -443,11 +508,12 @@ type httpRoute struct {
 
 // auditInfo 由 guarded / named 写入请求上下文，供 auditLog 中间件在响应后记账。
 type auditInfo struct {
-	Tool   string
-	Cap    string
-	Args   map[string]any
-	ErrMsg string // 守卫层产生的失败原因（例如能力被拒 / 缺少确认 token）
-	Action string // 确认 action（审计里 cap 与 action 相对应）
+	ClientID string
+	Tool     string
+	Cap      string
+	Args     map[string]any
+	ErrMsg   string // 守卫层产生的失败原因（例如能力被拒 / 缺少确认 token）
+	Action   string // 确认 action（审计里 cap 与 action 相对应）
 }
 
 type auditCtxKey struct{}
@@ -473,7 +539,23 @@ func (s *Server) named(tool string, next http.HandlerFunc) http.HandlerFunc {
 			r = withAuditInfo(r, info)
 		}
 		info.Tool = tool
-		info.Args = queryArgs(r)
+		args, err := s.readArgsQuietly(r)
+		if err != nil {
+			info.ErrMsg = err.Error()
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		info.Args = args
+		if err := s.authorizeInvocation(r.Context(), tool, info.Args); err != nil {
+			info.ErrMsg = err.Error()
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+			return
+		}
+		if err := s.checkToolCaps(tool, httpDetail(info.Args)); err != nil {
+			info.ErrMsg = err.Error()
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+			return
+		}
 		next(w, r)
 	}
 }
@@ -484,14 +566,29 @@ func (s *Server) named(tool string, next http.HandlerFunc) http.HandlerFunc {
 // 两者都通过才交给真正的 handler。被拒时返回 403 + 中文原因，AI 能直接读懂要开什么。
 func (s *Server) guarded(route httpRoute, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		args, _ := s.readArgsQuietly(r)
+		args, err := s.readArgsQuietly(r)
 		info := auditInfoFrom(r)
 		if info == nil {
 			info = &auditInfo{}
 			r = withAuditInfo(r, info)
 		}
 		info.Tool, info.Cap, info.Args, info.Action = route.tool, string(route.cap), args, route.action
+		if err != nil {
+			info.ErrMsg = err.Error()
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
 
+		if err := s.authorizeInvocation(r.Context(), route.tool, args); err != nil {
+			info.ErrMsg = err.Error()
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+			return
+		}
+		if err := s.checkToolCaps(route.tool, httpDetail(args)); err != nil {
+			info.ErrMsg = err.Error()
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+			return
+		}
 		if route.cap != "" && route.cap != CapRead {
 			if err := s.allowCap(route.cap, httpDetail(args)); err != nil {
 				info.ErrMsg = err.Error()
@@ -509,6 +606,10 @@ func (s *Server) guarded(route httpRoute, next http.HandlerFunc) http.HandlerFun
 			// 确认绑定的参数形状必须与 confirm.prepare 时一致：设置类路由用
 			// {"settings": {...}} 包一层（见 confirmRouteArgs），否则 AI 先 prepare
 			// 再用 HTTP 带 token 调用会「参数不一致」。
+			if err := s.checkConfirmCaller(r.Context(), token); err != nil {
+				writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+				return
+			}
 			if _, err := s.takeConfirm(token, route.action, confirmRouteArgs(route.action, args)); err != nil {
 				info.ErrMsg = err.Error()
 				writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error(), "action": route.action})
@@ -539,7 +640,11 @@ func (s *Server) takeConfirm(token, action string, args map[string]any) (Pending
 	if s.opts.Confirms == nil {
 		return PendingConfirm{}, errors.New("确认管理器未启用：请先在应用内开启调试模式")
 	}
-	return s.opts.Confirms.Take(token, action, args)
+	pending, err := s.opts.Confirms.Take(token, action, args)
+	if err == nil {
+		s.markConfirmationConsumed(token)
+	}
+	return pending, err
 }
 
 // confirmRequiredMessage 缺少 token 时的标准中文提示（HTTP 与 MCP 共用同一句话）。
@@ -566,9 +671,10 @@ func httpDetail(args map[string]any) string {
 // 为什么不复用请求体里的 token：请求体的 token 是调试服务鉴权用的（?token= 也可以），
 // 与「确认 token」语义不同；这里显式用 confirmToken 字段，避免两者混淆。
 func httpConfirmToken(r *http.Request) string {
-	if v := strings.TrimSpace(r.URL.Query().Get("confirmToken")); v != "" {
+	if v := strings.TrimSpace(r.Header.Get("X-Ding-Confirm-Token")); v != "" {
 		return v
 	}
+
 	return ""
 }
 
@@ -576,11 +682,9 @@ func httpConfirmToken(r *http.Request) string {
 //
 // 实现上直接复用 buildArgs：这样「审计里看到的参数」「confirm 绑定的参数」
 // 与「handler 实际收到的参数」永远是同一份，不会出现三者不一致的诡异问题。
-// 注意 buildArgs 不带 {id} 路径参数（那是 opWithID 在 dispatch 时才补的），
-// 因此对带 id 的路由，args 里可能没有 id —— 这没关系：确认动作的绑定以调用方
-// 显式传的参数为准，路径参数属于同一资源定位信息，不参与哈希。
+// 路径 id 同样参与授权、审计和确认绑定，并覆盖 body/query 里的同名字段。
 func (s *Server) readArgsQuietly(r *http.Request) (map[string]any, error) {
-	raw, err := s.buildArgs(r, "")
+	raw, err := s.buildArgs(r, r.PathValue("id"))
 	if err != nil || len(raw) == 0 {
 		return nil, err
 	}
@@ -624,6 +728,7 @@ func (s *Server) auditLog(next http.Handler) http.Handler {
 		rec := AuditRecord{
 			TS:         start.UnixMilli(),
 			Source:     "http",
+			ClientID:   info.ClientID,
 			Tool:       info.Tool,
 			Cap:        info.Cap,
 			Args:       NormalizeArgsJSON(info.Args),
@@ -634,6 +739,7 @@ func (s *Server) auditLog(next http.Handler) http.Handler {
 		if rec.OK && reversible {
 			rec.Reversible = true
 			rec.RevertHint = hint
+			logx.Debugf("[debugsrv/audit] 审计记录标记为可撤销: id=%s tool=%s", rec.ID, rec.Tool)
 		}
 		if err != nil {
 			rec.Error = err.Error()
@@ -661,25 +767,43 @@ func queryArgs(r *http.Request) map[string]any {
 }
 
 func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, op, id string) {
+	start := time.Now()
 	args, err := s.buildArgs(r, id)
 	if err != nil {
+		logx.Warnf("[debugsrv/server] 解析请求参数失败: op=%s err=%v", op, err)
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
-	res, err := s.opts.Handler.Handle(r.Context(), op, args)
+	// 只记参数大小与 id，不记任何参数值（里面可能有终端输入 / 设置正文）。
+	logx.Debugf("[debugsrv/server] 执行操作: op=%s id=%s argsBytes=%d", op, id, len(args))
+	var res any
+	if op == OpServers {
+		var listing map[string]any
+		_ = json.Unmarshal(args, &listing)
+		if listing == nil {
+			listing = map[string]any{}
+		}
+		// Legacy listings are always redacted; secrets require the explicit
+		// servers.list/includeSecrets API and its separate credential grant.
+		listing["includeSecrets"] = false
+		res, err = s.appctlServersList(r.Context(), s.opts.Handler, listing)
+	} else {
+		res, err = s.opts.Handler.Handle(r.Context(), op, args)
+	}
 	if err != nil {
-		writeJSON(w, statusFor(err), map[string]any{"error": err.Error()})
+		status := statusFor(err)
+		logx.Errorf("[debugsrv/server] 操作执行失败: op=%s status=%d elapsed=%s err=%v",
+			op, status, time.Since(start), err)
+		writeJSON(w, status, map[string]any{"error": err.Error()})
 		return
 	}
+	logx.Debugf("[debugsrv/server] 操作完成: op=%s elapsed=%s", op, time.Since(start))
 	writeJSON(w, http.StatusOK, res)
 }
 
 // buildArgs 把 URL 路径参数 / 查询参数 / JSON body 合并成一次操作的入参。
 func (s *Server) buildArgs(r *http.Request, id string) (json.RawMessage, error) {
 	args := map[string]any{}
-	if id != "" {
-		args["id"] = id
-	}
 	for k, vs := range r.URL.Query() {
 		// token / confirmToken 都是控制面自身的凭据，不能混进业务参数：
 		// token 是调试服务鉴权，confirmToken 是「本次破坏性操作已获确认」的一次性凭据。
@@ -696,8 +820,12 @@ func (s *Server) buildArgs(r *http.Request, id string) (json.RawMessage, error) 
 		}
 	}
 	if r.Body != nil && r.Method != http.MethodGet {
-		body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
+		body, err := io.ReadAll(io.LimitReader(r.Body, (8<<20)+1))
+		if len(body) > 8<<20 {
+			return nil, fmt.Errorf("请求体超过 8MB 上限")
+		}
 		if err != nil {
+			logx.Debugf("[debugsrv/server] 读取请求体失败: method=%s path=%s err=%v", r.Method, r.URL.Path, err)
 			return nil, fmt.Errorf("读取请求体失败: %w", err)
 		}
 		// 读完放回去：guarded 里的能力校验 / 确认绑定会先解析一次参数，
@@ -706,12 +834,24 @@ func (s *Server) buildArgs(r *http.Request, id string) (json.RawMessage, error) 
 		if len(strings.TrimSpace(string(body))) > 0 {
 			var extra map[string]any
 			if err := json.Unmarshal(body, &extra); err != nil {
+				logx.Debugf("[debugsrv/server] 请求体不是合法 JSON: method=%s path=%s bytes=%d err=%v",
+					r.Method, r.URL.Path, len(body), err)
 				return nil, fmt.Errorf("请求体不是合法 JSON: %w", err)
 			}
 			for k, v := range extra {
 				args[k] = v
 			}
 		}
+	}
+	// The URL target must be identical at authorization and execution. Body or
+	// query parameters cannot redirect an operation to another session/server.
+	if id != "" {
+		for _, key := range []string{"id", "sessionId"} {
+			if v, present := args[key]; present && v != id {
+				return nil, fmt.Errorf("%w: %s 与 URL 目标不一致", ErrBadInput, key)
+			}
+		}
+		args["id"] = id
 	}
 	if len(args) == 0 {
 		return nil, nil
@@ -749,11 +889,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // 用法：GET /v1/stream?topics=ssh.output,ssh.status&token=...
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	if s.opts.Hub == nil {
+		logx.Warnf("[debugsrv/stream] 拒绝 SSE 订阅: path=/v1/stream reason=事件流未启用")
 		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "事件流未启用"})
 		return
 	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		logx.Errorf("[debugsrv/stream] 无法建立 SSE 连接: path=/v1/stream reason=当前环境不支持 SSE")
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "当前环境不支持 SSE"})
 		return
 	}
@@ -771,24 +913,37 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, ": connected\n\n")
 	flusher.Flush()
 
+	start := time.Now()
+	events := 0 // 本次连接已推送的事件数，断开时汇总
+	logx.Infof("[debugsrv/stream] SSE 连接建立: sub=%d topics=%v", id, topics)
+
 	ping := time.NewTicker(15 * time.Second)
 	defer ping.Stop()
 	for {
 		select {
 		case ev, open := <-ch:
 			if !open {
+				logx.Infof("[debugsrv/stream] SSE 连接关闭: sub=%d events=%d elapsed=%s", id, events, time.Since(start))
 				return
+			}
+			if !s.authorizeEvent(r.Context(), ev) {
+				continue
 			}
 			body, err := json.Marshal(ev)
 			if err != nil {
+				logx.Debugf("[debugsrv/stream] 事件序列化失败，已跳过: sub=%d topic=%s err=%v", id, ev.Topic, err)
 				continue
 			}
 			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Topic, body)
 			flusher.Flush()
+			events++
+			// 逐事件推送是热路径：采样限流，只记 topic 与字节数，不记事件内容。
+			logx.DebugSampled(streamEventLog, "[debugsrv/stream] 推送事件: sub=%d topic=%s bytes=%d", id, ev.Topic, len(body))
 		case <-ping.C:
 			_, _ = io.WriteString(w, ": ping\n\n")
 			flusher.Flush()
 		case <-r.Context().Done():
+			logx.Infof("[debugsrv/stream] SSE 客户端断开: sub=%d events=%d elapsed=%s", id, events, time.Since(start))
 			return
 		}
 	}
@@ -797,6 +952,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 // events 返回最近的后端事件（环形缓冲），供不想订阅 SSE 的调用方使用。
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	if s.opts.Hub == nil {
+		logx.Warnf("[debugsrv/stream] 读取最近事件失败: reason=事件流未启用")
 		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "事件流未启用"})
 		return
 	}
@@ -810,17 +966,34 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	if v := strings.TrimSpace(r.URL.Query().Get("topics")); v != "" {
 		topics = strings.Split(v, ",")
 	}
+	if r.URL.Query().Has("after") {
+		writeJSON(w, http.StatusOK, s.eventPage(r))
+		return
+	}
 	events := s.opts.Hub.Recent(limit, topics...)
+	filtered := events[:0]
+	for _, ev := range events {
+		if s.authorizeEvent(r.Context(), ev) {
+			filtered = append(filtered, ev)
+		}
+	}
+	events = filtered
+	logx.Debugf("[debugsrv/stream] 读取最近事件: limit=%d topics=%v count=%d", limit, topics, len(events))
 	writeJSON(w, http.StatusOK, map[string]any{"count": len(events), "events": events})
 }
 
 // screenshot 返回应用窗口的 PNG 截图（平台相关实现；用于 AI 目视校验界面）。
 func (s *Server) screenshot(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	data, err := captureWindowPNG()
 	if err != nil {
+		// 截图失败的具体原因由 captureWindowPNG 自己记（平台能力缺失是 WARN），
+		// 这里只补请求侧的耗时，避免同一次失败留下两条同级别日志。
+		logx.Debugf("[debugsrv/server] 窗口截图未完成: elapsed=%s err=%v", time.Since(start), err)
 		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": err.Error()})
 		return
 	}
+	logx.Debugf("[debugsrv/server] 窗口截图完成: bytes=%d elapsed=%s", len(data), time.Since(start))
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)

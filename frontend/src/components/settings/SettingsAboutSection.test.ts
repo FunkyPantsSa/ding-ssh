@@ -1,9 +1,9 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, expect, it, vi} from 'vitest'
-import {GetRuntimeStatus} from '../../../wailsjs/go/main/App'
+import {GetRuntimeStatus} from '../../../bindings/ding-ssh/internal/apphost/app'
 import SettingsAboutSection from './SettingsAboutSection.vue'
 
-vi.mock('../../../wailsjs/go/main/App', () => ({
+vi.mock('../../../bindings/ding-ssh/internal/apphost/app', () => ({
   GetRuntimeStatus: vi.fn().mockResolvedValue({uptimeSec: 1, goroutines: 2, heapBytes: 3}),
 }))
 vi.mock('../../services/ssh', () => ({

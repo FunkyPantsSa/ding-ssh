@@ -339,7 +339,7 @@ func TestSudoCapabilityAndConfirmRegistration(t *testing.T) {
 	}
 	// 两个能力位都要登记（sudo.credential 是本质，terminal.input 是「仍在敲命令」）
 	caps, _ := ToolCapabilities(OpTerminalSudo)
-	if len(caps) != 2 {
+	if len(caps) != 3 {
 		t.Fatalf("terminal.sudo 的能力位应为 [sudo.credential terminal.input]，实际 %v", caps)
 	}
 	// ConfirmableActions 必须包含它

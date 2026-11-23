@@ -137,7 +137,8 @@ export const useSessionsStore = defineStore('sessions', {
       this.activateTab(tab.clientId)
       return tab
     },
-    openLocalTab(shellLabel = t("本机")): SessionTab {
+    openLocalTab(shellLabel = ''): SessionTab {
+      shellLabel = shellLabel.trim() || t('本地终端')
       const node: ServerNode = {
         id: '__local__',
         name: shellLabel,
@@ -166,9 +167,14 @@ export const useSessionsStore = defineStore('sessions', {
       this.activateTab(tab.clientId)
       return tab
     },
-    bindSession(clientId: string, sessionId: string) {
+    bindSession(clientId: string, sessionId: string, serverName?: string) {
       const tab = this.tabs.find((t) => t.clientId === clientId)
-      if (tab) tab.sessionId = sessionId
+      if (!tab) return
+      tab.sessionId = sessionId
+      if (tab.kind === 'local') {
+        tab.serverName = serverName?.trim() || t('本地终端')
+        tab.node.name = tab.serverName
+      }
     },
     /**
      * 激活标签：

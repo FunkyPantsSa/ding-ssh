@@ -21,6 +21,42 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// dirLineCarryMax 限制"尚未成行"尾部的最大保留长度，避免没有换行的巨量输出占内存。
+// 正常的一行终端输出远小于该值；超长行会被截断，其中的 cd 回显不再解析。
+const dirLineCarryMax = 4 * 1024
+
+const (
+	// dirJobQueue 目录同步队列长度。目录事件只在路径真正变化时入队，正常远小于该值。
+	dirJobQueue = 64
+	// dirVerifyTimeout 单次远端目录存在性校验的超时；超时按"无法判断"处理，不阻塞终端。
+	dirVerifyTimeout = 800 * time.Millisecond
+	// dirVerifyCooldown 校验超时后的冷却时间，避免 SFTP 卡住时为每次 cd 反复起协程。
+	dirVerifyCooldown = 30 * time.Second
+)
+
+// 以下高频路径只允许采样 DEBUG：终端输出/输入、窗口尺寸、心跳、目录校验。
+var (
+	termOutputLog = logx.NewSampler(0, 2*time.Second)
+	termInputLog  = logx.NewSampler(0, 2*time.Second)
+	termResizeLog = logx.NewSampler(0, 2*time.Second)
+	keepAliveLog  = logx.NewSampler(0, 60*time.Second)
+	dirSyncLog    = logx.NewSampler(0, 2*time.Second)
+	dirVerifyLog  = logx.NewSampler(0, 5*time.Second)
+)
+
+// dirCandidate 解析出的目录变更候选：src 为 "cd" 时 value 是回显参数（可能是相对路径），
+// 其余 src 的 value 已经是绝对目录（提示符 / OSC 7 / OSC 3008）。
+type dirCandidate struct {
+	value string
+	src   string
+}
+
+// dirJob 交给串行同步协程处理的目录事件。gen 用于丢弃旧连接（含重连前）遗留的任务。
+type dirJob struct {
+	dirCandidate
+	gen uint64
+}
+
 // Session 表示一条已建立的 SSH 终端会话。
 type Session struct {
 	ID     string
@@ -43,10 +79,25 @@ type Session struct {
 	onProgress   func(id, step, status, log, message string) // 连接过程分步日志
 	lastDir      string                                      // 最近一次同步的路径，用于去重避免重复事件
 
+	// 终端目录同步：解析结果入队，由单个协程串行处理（必要时做远端存在性校验），
+	// 避免 SFTP 请求阻塞终端输出读取，也保证相对 cd 按顺序解析。
+	dirJobs   chan dirJob
+	dirStop   chan struct{}
+	dirGen    uint64                                // 每次启动/停止同步协程递增；旧任务据此丢弃
+	dirSignal string                                // 最近一次入队的绝对目录，用于抑制提示符重复入队
+	verifyDir func(dir string) (exists, known bool) // 远端目录校验，测试可替换
+
+	dirVerifyMu         sync.Mutex
+	dirVerifyQuietUntil time.Time // 校验超时后的冷却截止时间
+	dirVerifyBroken     bool      // SFTP 与 Shell 目录视图不一致，停用校验
+
 	sftpState *sessionSFTP
 	home      string // 远程 home，用于把提示符里的 ~ 展开成绝对路径
 
 	keepAliveEnabled bool // 是否发送心跳包（由应用设置控制）
+	sudo             sudoAssistantState
+	sudoSequence     uint64
+	onSudoPrompt     func(models.SudoPromptEvent)
 }
 
 type sessionSFTP struct {
@@ -81,6 +132,9 @@ func newSession(
 			onProgress(id, step, status, log, message)
 		}
 	}
+	start := time.Now()
+	logx.Debugf("[sshx] 新建会话: session=%s server=%s host=%s:%d user=%s auth=%s size=%dx%d jumps=%d keepAlive=%v",
+		id, node.Name, node.Host, node.Port, node.User, node.AuthType, cols, rows, len(node.ResolvedJumps), keepAliveEnabled)
 	report(models.ConnectStepDNS, "running", i18n.T("正在初始化连接…"), "")
 	ctx := context.Background()
 	if len(contexts) > 0 {
@@ -88,16 +142,17 @@ func newSession(
 	}
 	client, err := dialNodeContext(ctx, node, report)
 	if err != nil {
+		logx.Debugf("[sshx] 会话 SSH 传输层建立失败: session=%s server=%s elapsed=%s err=%v", id, node.Name, time.Since(start), err)
 		return nil, err
 	}
 	stopSetupCancel := context.AfterFunc(ctx, func() { client.Close() })
 	defer stopSetupCancel()
-	logx.Debugf("SSH TCP 连接已建立: session=%s host=%s:%d", id, node.Host, node.Port)
 
 	// 分配 PTY，使用 256 色终端。
 	report(models.ConnectStepPTY, "running", i18n.T("正在创建 SSH 会话通道…"), "")
 	shell, err := client.NewSession()
 	if err != nil {
+		logx.Debugf("[sshx] 创建 SSH 会话通道失败: session=%s err=%v", id, err)
 		client.Close()
 		report(models.ConnectStepPTY, "error", fmt.Sprintf(i18n.T("创建 SSH 会话失败：%v"), err), i18n.T("创建 SSH 会话失败"))
 		return nil, fmt.Errorf(i18n.T("创建 SSH 会话失败: %w"), err)
@@ -109,12 +164,15 @@ func newSession(
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
 	}
+	ptyStart := time.Now()
 	if err := shell.RequestPty("xterm-256color", rows, cols, modes); err != nil {
+		logx.Debugf("[sshx] 请求 PTY 失败: session=%s term=xterm-256color size=%dx%d err=%v", id, rows, cols, err)
 		shell.Close()
 		client.Close()
 		report(models.ConnectStepPTY, "error", fmt.Sprintf(i18n.T("请求 PTY 失败：%v"), err), i18n.T("请求 PTY 失败"))
 		return nil, fmt.Errorf(i18n.T("请求 PTY 失败: %w"), err)
 	}
+	logx.Debugf("[sshx] PTY 分配成功: session=%s term=xterm-256color size=%dx%d elapsed=%s", id, rows, cols, time.Since(ptyStart))
 	report(models.ConnectStepPTY, "done", i18n.T("PTY 分配成功"), "")
 
 	report(models.ConnectStepReady, "running", i18n.T("正在获取 IO 管道…"), "")
@@ -141,13 +199,15 @@ func newSession(
 	}
 
 	report(models.ConnectStepReady, "running", i18n.T("正在启动 Shell…"), "")
+	shellStart := time.Now()
 	if err := shell.Shell(); err != nil {
+		logx.Debugf("[sshx] 启动 Shell 失败: session=%s err=%v", id, err)
 		shell.Close()
 		client.Close()
 		report(models.ConnectStepReady, "error", fmt.Sprintf(i18n.T("启动 Shell 失败：%v"), err), i18n.T("启动 Shell 失败"))
 		return nil, fmt.Errorf(i18n.T("启动 Shell 失败: %w"), err)
 	}
-	logx.Debugf("SSH Shell 已就绪: session=%s server=%s", id, node.Name)
+	logx.Debugf("[sshx] SSH Shell 已就绪: session=%s server=%s shellElapsed=%s totalElapsed=%s", id, node.Name, time.Since(shellStart), time.Since(start))
 	report(models.ConnectStepReady, "done", i18n.T("Shell 已启动，会话就绪"), "")
 
 	s := &Session{
@@ -169,6 +229,13 @@ func newSession(
 	// 启动 SSH KeepAlive 心跳 Goroutine
 	go s.keepAliveLoop(client)
 
+	// 目录同步解析结果串行处理（含 SFTP 存在性校验），与终端输出读取解耦。
+	if onDirSync != nil && !node.JumpServerMode {
+		s.startDirSync()
+	} else if onDirSync != nil {
+		logx.Debugf("[sshx] JumpServer 模式下跳过终端目录同步: session=%s", id)
+	}
+
 	go s.pump(stdout)
 	go s.pump(stderr)
 	go s.prefetchHomeAndSync()
@@ -186,11 +253,17 @@ func newSession(
 func (s *Session) pump(r io.Reader) {
 	buf := make([]byte, 32*1024)
 	acc := make([]byte, 0, 64*1024)
+	var carry []byte // 尚未成行的尾部：同一条输出行被拆成多次 Read 时仍只解析一次
+	var total int64
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
+			total += int64(n)
+			// 高频路径：只记长度与累计值，绝不记输出内容。
+			logx.DebugSampled(termOutputLog, "[sshx] 终端输出分块: session=%s bytes=%d total=%d", s.ID, n, total)
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
+			s.observeSudoOutput(chunk)
 			if s.onOutput != nil {
 				s.onOutput(s.ID, chunk)
 			}
@@ -199,44 +272,291 @@ func (s *Session) pump(r io.Reader) {
 				acc = acc[len(acc)-64*1024:]
 			}
 			if s.onDirSync != nil && !s.server.JumpServerMode {
-				if dir, src, ok := ParseDirFromOutput(acc); ok {
-					if dir = s.expandPath(dir); dir != "" {
-						s.mu.Lock()
-						same := dir == s.lastDir
-						s.lastDir = dir
-						s.mu.Unlock()
-						if same {
-							if containsNewline(chunk) {
-								logx.Debugf("目录同步跳过(未变化): session=%s path=%s src=%s", s.ID, dir, src)
-							}
-						} else {
-							logx.Infof("目录同步: session=%s path=%s src=%s", s.ID, dir, src)
-							s.onDirSync(s.ID, dir)
-						}
-					}
-				} else if containsNewline(chunk) {
-					logx.Debugf("目录同步未解析: session=%s tail=%q", s.ID, previewTail(acc, 120))
+				candidates, next := s.resolveDirChange(acc, carry, chunk)
+				carry = next
+				for _, c := range candidates {
+					s.enqueueDir(c)
 				}
 			}
 		}
 		if err != nil {
+			if err != io.EOF {
+				logx.Debugf("[sshx] 终端输出流异常结束: session=%s totalBytes=%d err=%v", s.ID, total, err)
+			} else {
+				logx.Debugf("[sshx] 终端输出流结束: session=%s totalBytes=%d", s.ID, total)
+			}
 			return
 		}
 	}
 }
 
+// resolveDirChange 从一块新到达的终端输出中解析目录变更候选。
+//   - cd 回显只在"本次补齐的完整行"里匹配，每条回显最多消费一次，避免历史回显被反复叠加；
+//   - 提示符 / OSC 7 / OSC 3008 给出的都是绝对路径，重复解析结果稳定，仍在滚动缓冲上匹配；
+//   - 优先级与 ParseDirFromOutput 一致：提示符 > cd > OSC 7 > OSC 3008。
+//
+// cd 候选只返回回显参数（可能是相对路径），由串行同步协程按"执行该命令前"的目录补全，
+// 这样即使存在待校验的历史 cd，顺序也不会错。carry 是上一块未成行的尾部。
+func (s *Session) resolveDirChange(acc, carry, chunk []byte) ([]dirCandidate, []byte) {
+	lines, nextCarry := splitOutputLines(carry, chunk)
+
+	if p, matched := ParsePrompt(acc); matched {
+		if d := s.expandPath(p); d != "" {
+			return []dirCandidate{{value: d, src: "prompt"}}, nextCarry
+		}
+	}
+
+	var cds []dirCandidate
+	for _, line := range lines {
+		if p, matched := parseCdLine(line); matched {
+			cds = append(cds, dirCandidate{value: p, src: "cd"})
+		}
+	}
+	if len(cds) > 0 {
+		return cds, nextCarry
+	}
+	if p, matched := ParseOSC7(acc); matched {
+		if d := s.expandPath(p); d != "" {
+			return []dirCandidate{{value: d, src: "osc7"}}, nextCarry
+		}
+	}
+	if p, matched := ParseOSC3008(acc); matched {
+		if d := s.expandPath(p); d != "" {
+			return []dirCandidate{{value: d, src: "osc3008"}}, nextCarry
+		}
+	}
+	return nil, nextCarry
+}
+
+// splitOutputLines 按换行把新输出拆成完整行，返回这些行与尚未成行的尾部。
+// 每条完整行只会返回一次 —— 这是"cd 回显不被重复消费"的关键。
+func splitOutputLines(carry, chunk []byte) ([][]byte, []byte) {
+	if len(chunk) == 0 {
+		return nil, carry
+	}
+	data := make([]byte, 0, len(carry)+len(chunk))
+	data = append(data, carry...)
+	data = append(data, chunk...)
+
+	var lines [][]byte
+	start := 0
+	for i := 0; i < len(data); i++ {
+		if data[i] != '\n' && data[i] != '\r' {
+			continue
+		}
+		if i > start {
+			lines = append(lines, data[start:i])
+		}
+		start = i + 1
+	}
+	rest := data[start:]
+	if len(rest) > dirLineCarryMax {
+		rest = rest[len(rest)-dirLineCarryMax:]
+	}
+	return lines, rest
+}
+
+// startDirSync 启动串行目录同步协程（新建会话与重连都会调用）。
+// 解析结果集中到一个协程处理，终端输出读取不会因为 SFTP 校验而阻塞。
+func (s *Session) startDirSync() {
+	s.mu.Lock()
+	if s.dirJobs != nil {
+		s.mu.Unlock()
+		return
+	}
+	s.dirGen++
+	s.dirSignal = ""
+	jobs := make(chan dirJob, dirJobQueue)
+	stop := make(chan struct{})
+	s.dirJobs, s.dirStop = jobs, stop
+	s.mu.Unlock()
+
+	s.dirVerifyMu.Lock()
+	s.dirVerifyQuietUntil = time.Time{}
+	s.dirVerifyBroken = false
+	s.dirVerifyMu.Unlock()
+
+	go s.dirSyncLoop(jobs, stop)
+	logx.Debugf("[sshx] 目录同步协程已启动: session=%s queue=%d gen=%d", s.ID, dirJobQueue, s.dirGen)
+}
+
+// stopDirSync 停止同步协程并丢弃尚未处理的任务（关闭 / 重连时调用）。
+func (s *Session) stopDirSync() {
+	s.mu.Lock()
+	stop := s.dirStop
+	if stop == nil {
+		s.mu.Unlock()
+		return
+	}
+	s.dirGen++ // 让正在校验或已出队的旧任务失效
+	s.dirJobs, s.dirStop = nil, nil
+	s.mu.Unlock()
+	close(stop)
+}
+
+func (s *Session) dirSyncLoop(jobs <-chan dirJob, stop <-chan struct{}) {
+	for {
+		select {
+		case <-stop:
+			return
+		case job := <-jobs:
+			s.processDirJob(job)
+		}
+	}
+}
+
+// enqueueDir 把候选目录交给同步协程。提示符 / OSC 的绝对目录连续重复时不再入队，
+// 避免每个输出块都触发一次；队列满时丢弃并记日志（目录事件只在路径变化时产生，正常不会发生）。
+func (s *Session) enqueueDir(c dirCandidate) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dirJobs == nil {
+		return
+	}
+	if c.src != "cd" && c.value == s.dirSignal {
+		return
+	}
+	select {
+	case s.dirJobs <- dirJob{dirCandidate: c, gen: s.dirGen}:
+		// 只有真正入队后才记录，避免队列满丢事件后把同样的提示符永久抑制掉。
+		if c.src != "cd" {
+			s.dirSignal = c.value
+		}
+		logx.DebugSampled(dirSyncLog, "[sshx] 目录事件入队: session=%s path=%s src=%s gen=%d", s.ID, c.value, c.src, s.dirGen)
+	default:
+		logx.Debugf("[sshx] 目录同步队列已满，丢弃: session=%s path=%s src=%s", s.ID, c.value, c.src)
+	}
+}
+
+// processDirJob 串行处理一条目录事件：补全路径、校验目标是否真实存在、去重上报。
+// cd 回显可能来自失败的命令（目录不存在 / 是文件），只按回显上报会把 SFTP 面板带到
+// 不存在的路径；因此上报前用 SFTP Stat 校验一次。校验不可用（SFTP 被禁用、超时等）
+// 时退回旧行为直接上报，保证目录同步本身仍可用。
+func (s *Session) processDirJob(job dirJob) {
+	if !s.dirJobValid(job.gen) {
+		return
+	}
+	if job.src != "cd" {
+		s.reportDir(job.value, job.src)
+		return
+	}
+	dir := s.expandPath(job.value)
+	if dir == "" {
+		return
+	}
+	logx.Debugf("[sshx] 校验 cd 目标目录: session=%s path=%s raw=%q", s.ID, dir, job.value)
+	if exists, known := s.remoteDirExists(dir); known && !exists {
+		// 有些部署的 SFTP 根目录与 Shell 不同（如 chroot 的 sftp-server）：目标在 SFTP 视角
+		// "不存在"并不代表 cd 失败。当前目录也 Stat 不到时判定为视图不一致，停用校验。
+		if s.sftpViewMismatch(dir) {
+			s.disableDirVerify()
+			logx.Warnf("[sshx] SFTP 与 Shell 目录视图不一致，降级为不校验存在性: session=%s path=%s", s.ID, dir)
+			if s.dirJobValid(job.gen) {
+				s.reportDir(dir, "cd")
+			}
+			return
+		}
+		logx.Debugf("[sshx] 目录同步忽略不可进入的目标: session=%s path=%s", s.ID, dir)
+		return
+	}
+	if !s.dirJobValid(job.gen) {
+		return
+	}
+	s.reportDir(dir, "cd")
+}
+
+// dirJobValid 判断任务是否仍属于当前连接：重连 / 关闭后旧任务（含校验中的）应被丢弃。
+func (s *Session) dirJobValid(gen uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dirGen == gen && !s.closed && !s.closing
+}
+
+// sftpViewMismatch 判断"目标不存在"是否源于 SFTP 与 Shell 的目录视图差异：
+// 若当前目录本身在 SFTP 视角也 Stat 不到，则目标路径不可信，调用方应停用校验。
+func (s *Session) sftpViewMismatch(dir string) bool {
+	base := s.currentDir()
+	if base == "" || base == dir {
+		return false
+	}
+	exists, known := s.remoteDirExists(base)
+	return known && !exists
+}
+
+func (s *Session) disableDirVerify() {
+	s.dirVerifyMu.Lock()
+	s.dirVerifyBroken = true
+	s.dirVerifyMu.Unlock()
+}
+
+// remoteDirExists 通过 SFTP 判断目录是否存在且确实是目录。
+// exists 为结果，known 表示是否得到了确定结论；known=false 时调用方应退回乐观上报。
+func (s *Session) remoteDirExists(dir string) (exists, known bool) {
+	s.dirVerifyMu.Lock()
+	skip := s.dirVerifyBroken || time.Now().Before(s.dirVerifyQuietUntil)
+	s.dirVerifyMu.Unlock()
+	if skip {
+		return false, false
+	}
+	if s.verifyDir != nil {
+		return s.verifyDir(dir)
+	}
+	c, err := s.SftpClient()
+	if err != nil || c == nil {
+		logx.DebugSampled(dirVerifyLog, "[sshx] 目录校验不可用，退回乐观上报: session=%s err=%v", s.ID, err)
+		return false, false
+	}
+
+	type statResult struct {
+		fi  os.FileInfo
+		err error
+	}
+	done := make(chan statResult, 1)
+	go func() {
+		fi, err := c.Stat(dir)
+		done <- statResult{fi: fi, err: err}
+	}()
+	select {
+	case r := <-done:
+		if r.err != nil {
+			if errors.Is(r.err, os.ErrNotExist) {
+				return false, true
+			}
+			logx.DebugSampled(dirVerifyLog, "[sshx] 目录校验失败(未知): session=%s path=%s err=%v", s.ID, dir, r.err)
+			return false, false
+		}
+		logx.DebugSampled(dirVerifyLog, "[sshx] 目录校验结果: session=%s path=%s exists=%v isDir=%v", s.ID, dir, true, r.fi.IsDir())
+		return r.fi.IsDir(), true
+	case <-time.After(dirVerifyTimeout):
+		s.dirVerifyMu.Lock()
+		s.dirVerifyQuietUntil = time.Now().Add(dirVerifyCooldown)
+		s.dirVerifyMu.Unlock()
+		logx.Debugf("[sshx] 目录校验超时，暂时跳过校验: session=%s path=%s timeout=%s cooldown=%s", s.ID, dir, dirVerifyTimeout, dirVerifyCooldown)
+		return false, false
+	}
+}
+
+// reportDir 上报目录变更：与上次相同时只记调试日志，避免重复推送。
+func (s *Session) reportDir(dir, src string) {
+	s.mu.Lock()
+	same := dir == s.lastDir
+	if !same {
+		s.lastDir = dir
+	}
+	s.mu.Unlock()
+	if same {
+		logx.Debugf("[sshx] 目录同步跳过(未变化): session=%s path=%s src=%s", s.ID, dir, src)
+		return
+	}
+	logx.Infof("[sshx] 目录同步: session=%s path=%s src=%s", s.ID, dir, src)
+	s.onDirSync(s.ID, dir)
+}
+
 // Write 向前端写入终端输入。
 func (s *Session) Write(data []byte) error {
-	s.mu.Lock()
-	stdin, closed := s.stdin, s.closed || s.closing
-	s.mu.Unlock()
-	if closed {
-		return fmt.Errorf("%s", i18n.T("会话已关闭"))
-	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	_, err := stdin.Write(data)
-	return err
+	// 高频输入路径：只按采样记录长度，绝不记录输入内容。
+	logx.DebugSampled(termInputLog, "[sshx] 终端输入: session=%s bytes=%d", s.ID, len(data))
+	return s.writeTerminal(data, "", false)
 }
 
 // Resize 调整终端窗口尺寸。
@@ -247,7 +567,11 @@ func (s *Session) Resize(cols, rows int) error {
 	if closed {
 		return nil
 	}
-	return shell.WindowChange(rows, cols)
+	logx.DebugSampled(termResizeLog, "[sshx] 终端尺寸变更: session=%s cols=%d rows=%d", s.ID, cols, rows)
+	err := shell.WindowChange(rows, cols)
+	if err != nil {
+	}
+	return err
 }
 
 // SftpClient 返回会话对应的 SFTP 客户端（按需懒创建，随 SSH 连接关闭）。
@@ -260,7 +584,12 @@ func (s *Session) SftpClient() (*sftp.Client, error) {
 	state, client := s.sftpState, s.client
 	s.mu.Unlock()
 	state.once.Do(func() {
+		createStart := time.Now()
 		state.client, state.err = sftp.NewClient(client)
+		if state.err != nil {
+			logx.Warnf("[sshx] 懒创建 SFTP 客户端失败: session=%s elapsed=%s err=%v", s.ID, time.Since(createStart), state.err)
+			return
+		}
 	})
 	return state.client, state.err
 }
@@ -286,8 +615,14 @@ func (s *Session) guessHome() string {
 //   - 其余（提示符后 cd 回显的相对参数，如 ..、subdir）：基于最近一次已知目录 lastDir 解析。
 //
 // 只有 cd 回显会产生相对参数（prompt / osc7 / osc3008 给出的都是绝对路径或 ~），
-// 因此这里按 lastDir 拼接是安全的；解析不了时返回空串。
+// 每条回显只会被消费一次，因此这里按当时的目录拼接是安全的；解析不了时返回空串。
 func (s *Session) expandPath(p string) string {
+	return s.expandPathFrom(p, s.currentDir())
+}
+
+// expandPathFrom 以 base 为基准补全路径。相对参数必须用"该 cd 命令执行前"的目录解析；
+// 流式场景由串行同步协程保证这一点，不要在一条回显上二次复用它更新后的目录。
+func (s *Session) expandPathFrom(p, base string) string {
 	p = strings.TrimSpace(p)
 	if strings.HasPrefix(p, "/") {
 		return path.Clean(p)
@@ -302,13 +637,17 @@ func (s *Session) expandPath(p string) string {
 	if p == "-" || p == "" || p == "." {
 		return ""
 	}
-	s.mu.Lock()
-	base := s.lastDir
-	s.mu.Unlock()
 	if base == "" {
 		return ""
 	}
 	return path.Clean(path.Join(base, p))
+}
+
+// currentDir 返回最近一次同步（或探测）到的目录。
+func (s *Session) currentDir() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastDir
 }
 
 // prefetchHomeAndSync 用 SFTP Getwd 校正 home，并在尚未同步过目录时推一次，
@@ -323,7 +662,10 @@ func (s *Session) prefetchHomeAndSync() {
 			s.mu.Lock()
 			s.home = path.Clean(wd)
 			s.mu.Unlock()
+			logx.Debugf("[sshx] 远程 home 已探测: session=%s home=%s", s.ID, s.home)
+		} else if werr != nil {
 		}
+	} else if err != nil {
 	}
 	home := s.guessHome()
 	if home == "" || s.onDirSync == nil {
@@ -336,7 +678,7 @@ func (s *Session) prefetchHomeAndSync() {
 	}
 	s.lastDir = home
 	s.mu.Unlock()
-	logx.Infof("目录同步: session=%s path=%s src=sftp-home", s.ID, home)
+	logx.Infof("[sshx] 目录同步: session=%s path=%s src=sftp-home", s.ID, home)
 	s.onDirSync(s.ID, home)
 }
 
@@ -374,7 +716,11 @@ func (s *Session) closeClient(expected *ssh.Client, status models.SessionStatus,
 	s.closing = false
 	s.mu.Unlock()
 
-	logx.Debugf("SSH 会话关闭: session=%s status=%s message=%q", s.ID, status, message)
+	// 停掉目录同步协程：连接已关，未处理的事件不再有参考价值。
+	s.stopDirSync()
+
+	logx.Infof("[sshx] SSH 会话已关闭: session=%s server=%s status=%s message=%q uptime=%s",
+		s.ID, s.server.Name, status, message, time.Since(time.UnixMilli(s.createdAt)).Round(time.Second))
 	if s.onStatus != nil {
 		s.onStatus(s.ID, status, message)
 	}
@@ -388,8 +734,11 @@ func (s *Session) closeClient(expected *ssh.Client, status models.SessionStatus,
 func buildClientConfig(node models.ServerNode, report progressFn) (*ssh.ClientConfig, error) {
 	auths, err := buildAuthMethods(node)
 	if err != nil {
+		logx.Debugf("[sshx] 构造鉴权方式失败: server=%s auth=%s err=%v", node.Name, node.AuthType, err)
 		return nil, err
 	}
+	logx.Debugf("[sshx] 构造 SSH 客户端配置: server=%s host=%s:%d user=%s auth=%s methods=%d hostKeyAlias=%q knownHostSources=%d",
+		node.Name, node.Host, node.Port, node.User, node.AuthType, len(auths), node.HostKeyAlias, len(node.KnownHostsSources))
 	if node.AuthType == "privateKey" {
 		report(models.ConnectStepAuth, "running", i18n.T("鉴权配置：私钥认证"), "")
 	} else if node.AuthType == "agent" || node.AuthType == "auto" {
@@ -406,18 +755,28 @@ func buildClientConfig(node models.ServerNode, report progressFn) (*ssh.ClientCo
 			if node.HostKeyAlias != "" {
 				host = net.JoinHostPort(node.HostKeyAlias, strconv.Itoa(node.Port))
 			}
-			return verifyConnectionHostSources(host, remote, key, node.KnownHostsSources)
+			logx.Debugf("[sshx] 校验服务端主机密钥: server=%s host=%s keyType=%s fingerprint=%s",
+				node.Name, host, key.Type(), ssh.FingerprintSHA256(key))
+			err := verifyConnectionHostSources(host, remote, key, node.KnownHostsSources)
+			if err != nil {
+				logx.Debugf("[sshx] 服务端主机密钥校验未通过: server=%s host=%s err=%v", node.Name, host, err)
+			}
+			return err
 		},
 		BannerCallback: func(message string) error {
+			// 横幅是服务端文本，可能带主机信息：只记长度，不落内容。
+			logx.Debugf("[sshx] 收到服务端横幅: server=%s bytes=%d", node.Name, len(message))
 			report(models.ConnectStepAuth, "running", fmt.Sprintf(i18n.T("服务端横幅：%s"), message), "")
 			return nil
 		},
 		AuthCallback: func(ctx *ssh.ClientAuthContext) (ssh.AuthMethod, error) {
 			if len(ctx.AllowedMethods) > 0 {
+				logx.Debugf("[sshx] 服务端允许的鉴权方式: server=%s methods=%s", node.Name, strings.Join(ctx.AllowedMethods, ", "))
 				report(models.ConnectStepAuth, "running",
 					fmt.Sprintf(i18n.T("服务器允许的鉴权方式：%s"), strings.Join(ctx.AllowedMethods, ", ")), "")
 			}
 			if len(ctx.TriedMethods) > 0 {
+				logx.Debugf("[sshx] 已失败的鉴权尝试: server=%s methods=%s", node.Name, strings.Join(ctx.TriedMethods, ", "))
 				report(models.ConnectStepAuth, "running",
 					fmt.Sprintf(i18n.T("已失败的鉴权尝试：%s"), strings.Join(ctx.TriedMethods, ", ")), "")
 			}
@@ -430,24 +789,33 @@ func buildClientConfig(node models.ServerNode, report progressFn) (*ssh.ClientCo
 func buildAuthMethods(node models.ServerNode) ([]ssh.AuthMethod, error) {
 	switch node.AuthType {
 	case "agent":
+		logx.Debugf("[sshx] 选择鉴权方式: auth=agent server=%s", node.Name)
 		return []ssh.AuthMethod{ssh.PublicKeysCallback(func() ([]ssh.Signer, error) { return AgentSigners(node) })}, nil
 	case "auto":
+		logx.Debugf("[sshx] 选择鉴权方式: auth=auto server=%s identityFiles=%d", node.Name, len(node.IdentityFiles))
 		return []ssh.AuthMethod{ssh.PublicKeysCallback(func() ([]ssh.Signer, error) { return autoSigners(node) })}, nil
 	case "privateKey":
+		logx.Debugf("[sshx] 选择鉴权方式: auth=privateKey server=%s keyPath=%q keyContent=%v",
+			node.Name, node.KeyPath, strings.TrimSpace(node.KeyContent) != "")
 		data, err := privateKeyData(node)
 		if err != nil {
+			logx.Debugf("[sshx] 读取私钥失败: server=%s keyPath=%q err=%v", node.Name, node.KeyPath, err)
 			return nil, err
 		}
 		phrase := node.RuntimePassphrases[node.KeyPath]
 		if phrase == "" {
 			phrase = node.Password
 		}
+		// 只记是否使用密码短语，绝不记录密码短语本身。
+		logx.Debugf("[sshx] 私钥密码短语状态: server=%s passphrase=%v", node.Name, phrase != "")
 		key, err := parsePrivateKey(data, phrase)
 		if err != nil {
+			logx.Debugf("[sshx] 解析私钥失败: server=%s keyPath=%q passphrase=%v err=%v", node.Name, node.KeyPath, phrase != "", err)
 			return nil, err
 		}
 		return []ssh.AuthMethod{ssh.PublicKeys(key)}, nil
 	case "password", "": // legacy password
+		logx.Debugf("[sshx] 选择鉴权方式: auth=password server=%s keyboardInteractive=true", node.Name)
 		return []ssh.AuthMethod{
 			ssh.Password(node.Password),
 			ssh.KeyboardInteractive(func(user, instruction string, questions []string, echos []bool) ([]string, error) {
@@ -472,11 +840,14 @@ func dialSSH(host string, port int, config *ssh.ClientConfig, report progressFn)
 	return dialSSHContext(context.Background(), host, port, config, report)
 }
 func dialSSHContext(ctx context.Context, host string, port int, config *ssh.ClientConfig, report progressFn) (*ssh.Client, error) {
+	dialTotalStart := time.Now()
 	// 步骤 1：DNS / 直连。
 	report(models.ConnectStepDNS, "running", fmt.Sprintf(i18n.T("目标主机：%s"), host), "")
 	if ip := net.ParseIP(host); ip != nil {
+		logx.Debugf("[sshx] 目标是 IP 地址，跳过 DNS: host=%s", host)
 		report(models.ConnectStepDNS, "running", fmt.Sprintf(i18n.T("主机为 IP 地址，采用直连（%s）"), ip), "")
 	} else {
+		dnsStart := time.Now()
 		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 		if err != nil || len(ips) == 0 {
 			msg := i18n.T("DNS 解析失败")
@@ -487,6 +858,7 @@ func dialSSHContext(ctx context.Context, host string, port int, config *ssh.Clie
 		for _, ip := range ips {
 			addrs = append(addrs, ip.String())
 		}
+		logx.Debugf("[sshx] DNS 解析成功: host=%s count=%d addrs=%s elapsed=%s", host, len(addrs), strings.Join(addrs, ","), time.Since(dnsStart))
 		report(models.ConnectStepDNS, "running", fmt.Sprintf(i18n.T("DNS 解析成功：%s"), strings.Join(addrs, ", ")), "")
 	}
 	report(models.ConnectStepDNS, "done", fmt.Sprintf(i18n.T("目标地址已确定：%s:%d"), host, port), "")
@@ -501,6 +873,7 @@ func dialSSHContext(ctx context.Context, host string, port int, config *ssh.Clie
 		report(models.ConnectStepTCP, "error", fmt.Sprintf(i18n.T("TCP 连接失败：%v"), err), cerr.Error())
 		return nil, cerr
 	}
+	logx.Debugf("[sshx] TCP 已连接: addr=%s local=%s elapsed=%s", addr, conn.LocalAddr(), time.Since(dialStart))
 	report(models.ConnectStepTCP, "done", fmt.Sprintf(i18n.T("TCP 连接成功，耗时 %dms，对端 %s"),
 		time.Since(dialStart).Milliseconds(), conn.RemoteAddr().String()), "")
 
@@ -513,19 +886,24 @@ func dialSSHContext(ctx context.Context, host string, port int, config *ssh.Clie
 		return nil, fmt.Errorf(i18n.T("SSH 连接失败: %w"), err)
 	}
 	report(models.ConnectStepAuth, "running", i18n.T("开始 SSH 版本协商与密钥交换…"), "")
+	handshakeStart := time.Now()
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
+		logx.Debugf("[sshx] SSH 握手/鉴权失败: addr=%s user=%s elapsed=%s err=%v", addr, config.User, time.Since(handshakeStart), err)
 		conn.Close()
 		cerr := connectError(err)
 		report(models.ConnectStepAuth, "error", fmt.Sprintf(i18n.T("SSH 握手失败：%v"), err), cerr.Error())
 		return nil, cerr
 	}
+	logx.Debugf("[sshx] SSH 握手与鉴权成功: addr=%s user=%s serverVersion=%q elapsed=%s",
+		addr, config.User, sshConn.ServerVersion(), time.Since(handshakeStart))
 	report(models.ConnectStepAuth, "running", fmt.Sprintf(i18n.T("服务端版本：%s"), sshConn.ServerVersion()), "")
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		sshConn.Close()
 		return nil, fmt.Errorf(i18n.T("SSH 连接失败: %w"), err)
 	}
 	report(models.ConnectStepAuth, "done", fmt.Sprintf(i18n.T("SSH 鉴权成功（用户 %s）"), config.User), "")
+	logx.Debugf("[sshx] SSH 连接建立完成: addr=%s user=%s totalElapsed=%s", addr, config.User, time.Since(dialTotalStart))
 	return ssh.NewClient(sshConn, chans, reqs), nil
 }
 
@@ -555,6 +933,7 @@ func readKey(path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf(i18n.T("读取私钥文件失败: %w"), err)
 	}
+	logx.Debugf("[sshx] 私钥文件已读取: path=%q bytes=%d", path, len(data))
 	return data, nil
 }
 
@@ -578,6 +957,7 @@ func (s *Session) keepAliveLoop(client *ssh.Client) {
 	const replyTimeout = 10 * time.Second
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
+	logx.Debugf("[sshx] 心跳循环已启动: session=%s interval=15s replyTimeout=%s", s.ID, replyTimeout)
 	for range ticker.C {
 		s.mu.Lock()
 		closed := s.closed || s.closing || s.client != client
@@ -587,7 +967,9 @@ func (s *Session) keepAliveLoop(client *ssh.Client) {
 			return
 		}
 		if !enabled {
+			// 关闭检测时只发不等待回复的 no-op 心跳，避免误断。
 			_, _, _ = client.SendRequest("keepalive@openssh.com", false, nil)
+			logx.DebugSampled(keepAliveLog, "[sshx] 已发送 no-op 心跳(未开启检测): session=%s", s.ID)
 			continue
 		}
 
@@ -601,12 +983,13 @@ func (s *Session) keepAliveLoop(client *ssh.Client) {
 		case err := <-result:
 			timer.Stop()
 			if err == nil {
+				logx.DebugSampled(keepAliveLog, "[sshx] 心跳成功: session=%s", s.ID)
 				continue
 			}
-			logx.Warnf("SSH 心跳请求失败: session=%s err=%v", s.ID, err)
+			logx.Warnf("[sshx] SSH 心跳请求失败: session=%s err=%v", s.ID, err)
 			s.closeClient(client, models.StatusDisconnected, i18n.T("连接已断开（心跳请求失败）"))
 		case <-timer.C:
-			logx.Warnf("SSH 心跳未在期限内收到回复: session=%s timeout=%s", s.ID, replyTimeout)
+			logx.Warnf("[sshx] SSH 心跳未在期限内收到回复: session=%s timeout=%s", s.ID, replyTimeout)
 			s.closeClient(client, models.StatusDisconnected, i18n.T("连接已断开（心跳超时）"))
 		}
 		return
@@ -616,8 +999,11 @@ func (s *Session) keepAliveLoop(client *ssh.Client) {
 // SetKeepAliveEnabled 动态更新心跳检测开关（不影响终端 no-op 心跳）。
 func (s *Session) SetKeepAliveEnabled(enabled bool) {
 	s.mu.Lock()
+	prev := s.keepAliveEnabled
 	s.keepAliveEnabled = enabled
 	s.mu.Unlock()
+	if prev != enabled {
+	}
 }
 
 // Reconnect 重新建立 SSH 连接，复用原会话配置。
@@ -627,8 +1013,13 @@ func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 	s.mu.Lock()
 	if !s.closed || s.closing || s.reconnecting {
 		s.mu.Unlock()
+		logx.Debugf("[sshx] 会话仍在连接中，拒绝重连: session=%s closed=%v closing=%v reconnecting=%v",
+			s.ID, s.closed, s.closing, s.reconnecting)
 		return fmt.Errorf("%s", i18n.T("会话仍在连接中，无需重连"))
 	}
+	s.sudo = sudoAssistantState{}
+	reconnectStart := time.Now()
+	logx.Debugf("[sshx] 开始重连会话: session=%s server=%s host=%s:%d", s.ID, s.server.Name, s.server.Host, s.server.Port)
 	server := s.server
 	onStatus := s.onStatus
 	onProgress := s.onProgress
@@ -649,6 +1040,7 @@ func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 
 	client, err := dialNode(server, report)
 	if err != nil {
+		logx.Debugf("[sshx] 重连 SSH 传输层失败: session=%s elapsed=%s err=%v", s.ID, time.Since(reconnectStart), err)
 		return err
 	}
 
@@ -716,6 +1108,9 @@ func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 	s.mu.Unlock()
 
 	go s.keepAliveLoop(client)
+	if s.onDirSync != nil && !s.server.JumpServerMode {
+		s.startDirSync()
+	}
 	go s.pump(stdout)
 	go s.pump(stderr)
 
@@ -724,6 +1119,7 @@ func (s *Session) Reconnect(cols, rows int, keepAliveEnabled bool) error {
 		s.closeClient(client, models.StatusClosed, "")
 	}()
 
+	logx.Infof("[sshx] 会话已重连: session=%s server=%s elapsed=%s", s.ID, s.server.Name, time.Since(reconnectStart))
 	if onStatus != nil {
 		onStatus(s.ID, models.StatusConnected, i18n.T("已重新连接"))
 	}

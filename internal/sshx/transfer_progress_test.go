@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -149,5 +150,30 @@ func TestCancelledStreamReturnsCancellationWithPartialBytes(t *testing.T) {
 	}
 	if final.TransferID == "" || final.Error != "已取消" || final.Transferred != 1 || final.Total != 100 {
 		t.Fatalf("incorrect cancellation progress: %+v", final)
+	}
+}
+
+func TestStreamTransferCountsPartialWritesAndRejectsShortWrites(t *testing.T) {
+	for _, writeErr := range []error{nil, io.ErrClosedPipe} {
+		t.Run(fmt.Sprint(writeErr), func(t *testing.T) {
+			var final models.SFTPTransferEvent
+			m := NewManager(func(_ string, p interface{}) {
+				if e, ok := p.(models.SFTPTransferEvent); ok && e.Done {
+					final = e
+				}
+			})
+			src := bytes.NewReader([]byte("data"))
+			err := m.streamTransfer(context.Background(), "s", "upload", "partial", 4, src.Read, func([]byte) (int, error) { return 2, writeErr })
+			want := writeErr
+			if want == nil {
+				want = io.ErrShortWrite
+			}
+			if !errors.Is(err, want) {
+				t.Fatalf("partial write reported wrong result: %v", err)
+			}
+			if final.Transferred != 2 || final.Error == "" {
+				t.Fatalf("partial write lost progress or error: %+v", final)
+			}
+		})
 	}
 }

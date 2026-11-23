@@ -1,5 +1,7 @@
 <script lang="ts" setup>
+import {ResolveAppClose} from '../bindings/ding-ssh/internal/apphost/app'
 import UpdatePanel from './components/UpdatePanel.vue'
+import {checkUpdates} from './services/updates'
 import {errorText} from './i18n'
 
 import {t as $t} from './i18n'
@@ -7,7 +9,7 @@ import {t as $t} from './i18n'
 import {t} from './i18n'
 
 import {confirmAppClose} from './services/closeConfirmation'
-import {EventsOn, WindowToggleMaximise, WindowMinimise, Quit} from '../wailsjs/runtime/runtime'
+import {EventsOn, WindowToggleMaximise, WindowMinimise, WindowClose} from './services/desktop'
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './components/Icon.vue'
 import {useWorkspaceLayout} from './composables/useWorkspaceLayout'
@@ -22,7 +24,7 @@ import WidthResizer from './components/WidthResizer.vue'
 import {layoutPanes} from './panes/layout'
 import type {PaneDirection, SplitDirection} from './types'
 import QuickConnectPanel from './components/QuickConnectPanel.vue'
-import {securityService} from './services/security'
+import {getStartupSecurityStatus, securityService} from './services/security'
 import {getElementRect} from './utils/dom'
 import {buildCommands} from './commands'
 import type {AppCommand} from './commands'
@@ -50,14 +52,141 @@ import WorkspaceHome from './views/WorkspaceHome.vue'
 const sessions = useSessionsStore()
 const ui = useUIStore()
 const settings = useSettingsStore()
-let disposeCloseRequest: (() => void) | undefined
+let appEventDisposers: Array<() => void> = []
+
+const queryParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+const detachedMode = ref(queryParams?.get('mode') || '')
+const detachedSession = ref(queryParams?.get('session') || '')
+
+function handleExternalUrl(urlString: string) {
+  try {
+    if (urlString.startsWith('ding-ssh://connect/')) {
+      const serverId = urlString.replace('ding-ssh://connect/', '').trim()
+      const server = servers.servers.find(s => s.id === serverId)
+      if (server) {
+        sessions.openTab(server)
+        ui.showWorkspace()
+        toast.show(t('已连接服务器: ') + (server.name || server.host), {tone: 'info'})
+      } else {
+        toast.error(t('未找到匹配的服务器 ID: ') + serverId)
+      }
+      return
+    }
+
+    if (urlString.startsWith('ssh://')) {
+      const parsed = new URL(urlString)
+      const host = parsed.hostname
+      const port = Number(parsed.port) || 22
+      const user = parsed.username || 'root'
+      if (!host) return
+      const existing = servers.servers.find(s => s.host === host && (s.port || 22) === port && (s.user || 'root') === user)
+      if (existing) {
+        sessions.openTab(existing)
+      } else {
+        sessions.openTab({
+          id: 'temp-' + Date.now(),
+          name: `${user}@${host}:${port}`,
+          host,
+          port,
+          user,
+          group: '',
+          authType: 'password',
+          bgImage: '',
+          blurAmount: 0,
+          envVars: {},
+        })
+      }
+      ui.showWorkspace()
+      toast.show(t('正在连接外部 URL: ') + `${user}@${host}:${port}`, {tone: 'info'})
+    }
+  } catch (err) {
+    console.error('[App] Failed to parse external URL:', err)
+  }
+}
+
+function handleImportFile(filePath: string) {
+  toast.show(t('检测到配置包: ') + filePath, {tone: 'info'})
+  ui.showSettings('migrate')
+}
+
 onMounted(() => {
-  disposeCloseRequest = EventsOn('app:confirm-close', async () => {
-    const confirmed = await confirmAppClose()
-    await (window as any).go.main.App.ResolveAppClose(confirmed)
-  })
+  if (detachedMode.value && detachedSession.value) {
+    if (!sessions.tabs.some(t => t.sessionId === detachedSession.value || t.clientId === detachedSession.value)) {
+      sessions.tabs.push({
+        clientId: detachedSession.value,
+        sessionId: detachedSession.value,
+        serverName: detachedMode.value === 'detached-sftp' ? 'SFTP - ' + detachedSession.value : 'Terminal - ' + detachedSession.value,
+        host: '',
+        user: '',
+        status: 'connected',
+        createdAt: Date.now(),
+        sftpPath: '',
+        kind: 'ssh',
+        node: {
+          id: detachedSession.value,
+          name: detachedSession.value,
+          host: '',
+          port: 22,
+          user: '',
+          group: '',
+          authType: 'password',
+          bgImage: '',
+          blurAmount: 0,
+          envVars: {},
+        },
+      })
+      sessions.activeId = detachedSession.value
+    }
+  }
+
+  appEventDisposers = [
+    EventsOn('app:confirm-close', async () => {
+      const confirmed = await confirmAppClose()
+      await ResolveAppClose(confirmed)
+    }),
+    EventsOn('app:external-url', (url: string) => {
+      handleExternalUrl(url)
+    }),
+    EventsOn('app:import-file', (path: string) => {
+      handleImportFile(path)
+    }),
+    EventsOn('menu:new-connection', () => {
+      ui.requestNewServer()
+    }),
+    EventsOn('menu:quick-connect', () => {
+      ui.showWorkspace()
+      ui.openTerminalSidebar()
+    }),
+    EventsOn('menu:import-config', () => {
+      ui.showSettings('migrate')
+    }),
+    EventsOn('menu:export-config', () => {
+      ui.showSettings('migrate')
+    }),
+    EventsOn('menu:reconnect-current', () => {
+      window.dispatchEvent(new CustomEvent('terminal:reconnect-active'))
+    }),
+    EventsOn('menu:disconnect-current', () => {
+      if (sessions.activeId) sessions.closeTab(sessions.activeId)
+    }),
+    EventsOn('menu:open-debug', () => {
+      ui.showSettings('debug')
+    }),
+    EventsOn('menu:check-updates', () => {
+      void checkUpdates(true)
+    }),
+    EventsOn('system:did-wake', () => {
+      toast.show(t('系统已从休眠唤醒，正在校验连接状态'), {tone: 'info'})
+    }),
+    EventsOn('system:network-changed', () => {
+      toast.show(t('系统网络状态已变更'), {tone: 'info'})
+    }),
+  ]
 })
-onBeforeUnmount(() => disposeCloseRequest?.())
+onBeforeUnmount(() => {
+  appEventDisposers.forEach(d => d())
+  appEventDisposers = []
+})
 
 watch(() => settings.smoothAnimations, value => document.documentElement.toggleAttribute('data-smooth-animations', value), {immediate: true})
 const servers = useServersStore()
@@ -94,6 +223,7 @@ watch(navCollapsed, (v) => {
 const {onSchemeChange} = useTheme(settings)
 
 const needsUnlock = ref(false)
+const initializationError = ref('')
 const unlockPassword = ref('')
 const unlockError = ref('')
 const unlocking = ref(false)
@@ -390,12 +520,9 @@ function markRestorePromptSettled() {
 }
 
 onMounted(async () => {
-  try {
-    const st = await securityService.getStatus()
-    needsUnlock.value = st.needsUnlock
-  } catch {
-    needsUnlock.value = false
-  }
+  const st = await getStartupSecurityStatus()
+  initializationError.value = st.initializationError ?? ''
+  needsUnlock.value = !st.unlocked || st.needsUnlock || !!initializationError.value
   if (!needsUnlock.value) {
     await settings.load()
     await servers.load()
@@ -405,6 +532,7 @@ onMounted(async () => {
 })
 
 async function doUnlock() {
+  if (initializationError.value) return
   unlockError.value = ''
   unlocking.value = true
   try {
@@ -430,10 +558,23 @@ onBeforeUnmount(() => {
   <UpdatePanel />
   <div class="app-shell" :class="{'smooth-animations': settings.smoothAnimations, 'platform-macos': isMacOS, 'platform-windows': isWindows}" :style="{zoom: (settings.uiScale || 100) / 100}" data-ui="app" :data-view="ui.view">
     <div v-if="isMacOS || isWindows" class="window-drag-region" @dblclick="WindowToggleMaximise">
-      <div v-if="isWindows" class="window-controls"><button :aria-label="$t('最小化')" @dblclick.stop @click="WindowMinimise">−</button><button :aria-label="$t('最大化或还原')" @dblclick.stop @click="WindowToggleMaximise">□</button><button :aria-label="$t('关闭窗口')" @dblclick.stop @click="Quit">×</button></div>
+      <div v-if="isWindows" class="window-controls"><button :aria-label="$t('最小化')" @dblclick.stop @click="WindowMinimise">−</button><button :aria-label="$t('最大化或还原')" @dblclick.stop @click="WindowToggleMaximise">□</button><button :aria-label="$t('关闭窗口')" @dblclick.stop @click="WindowClose">×</button></div>
     </div>
+
+    <!-- 独立终端窗口模式 -->
+    <div v-if="detachedMode === 'detached-terminal'" class="w-full h-full bg-[#0f172a] overflow-hidden flex flex-col p-1">
+      <div v-for="tab in sessions.tabs" :key="tab.clientId" class="flex-1 w-full h-full min-h-0">
+        <TerminalView v-if="tab.clientId === detachedSession || tab.sessionId === detachedSession" :tab="tab" />
+      </div>
+    </div>
+
+    <!-- 独立 SFTP 窗口模式 -->
+    <div v-else-if="detachedMode === 'detached-sftp'" class="w-full h-full bg-[#0f172a] overflow-hidden flex flex-col p-2">
+      <SftpPanel v-if="sessions.activeTab" :tab="sessions.activeTab" class="flex-1 w-full h-full min-h-0" />
+    </div>
+
     <!-- 解锁页 -->
-    <AppUnlock v-if="needsUnlock" v-model="unlockPassword" :unlocking="unlocking" :error="unlockError" @submit="doUnlock" />
+    <AppUnlock v-else-if="needsUnlock" v-model="unlockPassword" :unlocking="unlocking" :error="unlockError" :initialization-error="initializationError" @submit="doUnlock" />
 
     <!-- 主壳 -->
     <AppLayout

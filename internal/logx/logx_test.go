@@ -795,3 +795,157 @@ func BenchmarkRedactPlainChinese(b *testing.B) {
 		_ = Redact(line)
 	}
 }
+
+// ---- 级别判定辅助与采样器（高频路径限流） ----
+
+// 级别辅助函数必须与 SetEnabled/SetFileEnabled/SetLevel 的真实输出行为一致，
+// 否则调用方会把昂贵参数白算一遍或不必要地跳过日志。
+func TestEnabledHelpers(t *testing.T) {
+	_ = setupTempLogDir(t)
+
+	// 任一通道都关闭：所有级别都不输出。
+	if DebugEnabled() || InfoEnabled() || WarnEnabled() || ErrorEnabled() {
+		t.Fatal("通道全关时所有 Enabled 辅助函数都应返回 false")
+	}
+
+	// 只开控制台、级别 info：debug 不输出，其余输出。
+	SetEnabled(true)
+	SetLevel("info")
+	if DebugEnabled() {
+		t.Fatal("info 级别下 DebugEnabled 应为 false")
+	}
+	if !InfoEnabled() || !WarnEnabled() || !ErrorEnabled() {
+		t.Fatal("info 级别下 Info/Warn/Error 都应为 true")
+	}
+
+	// 切到 debug 后 debug 也输出。
+	SetLevel("debug")
+	if !DebugEnabled() {
+		t.Fatal("debug 级别下 DebugEnabled 应为 true")
+	}
+
+	// 切到 error 后只有 error 输出。
+	SetLevel("error")
+	if DebugEnabled() || InfoEnabled() || WarnEnabled() || !ErrorEnabled() {
+		t.Fatal("error 级别下只应 ErrorEnabled 为 true")
+	}
+
+	// 控制台关掉、文件打开：文件通道同样计入。
+	SetEnabled(false)
+	SetLevel("debug")
+	if err := SetFileEnabled(true); err != nil {
+		t.Fatalf("开启文件日志失败: %v", err)
+	}
+	if !DebugEnabled() {
+		t.Fatal("仅文件通道开启且 debug 级别时 DebugEnabled 应为 true")
+	}
+}
+
+// Sampler 按次数放行：首次必放行，之后每 every 次放行一次。
+func TestSamplerEvery(t *testing.T) {
+	s := NewSampler(3, 0)
+	want := []bool{true, false, false, true, false, false, true, false, false}
+	for i, exp := range want {
+		if got := s.Allow(); got != exp {
+			t.Fatalf("第 %d 次 Allow = %v，期望 %v", i+1, got, exp)
+		}
+	}
+
+	// Reset 后下一次必放行。
+	s.Reset()
+	if !s.Allow() {
+		t.Fatal("Reset 后第一次 Allow 应为 true")
+	}
+
+	// nil 采样器视为每次都放行；两个参数都 0 时同样每次放行。
+	var nilSampler *Sampler
+	if !nilSampler.Allow() {
+		t.Fatal("nil Sampler.Allow 应为 true")
+	}
+	always := NewSampler(0, 0)
+	for i := 0; i < 5; i++ {
+		if !always.Allow() {
+			t.Fatalf("every/interval 都为 0 时第 %d 次 Allow 应为 true", i+1)
+		}
+	}
+}
+
+// Sampler 按时间放行：间隔内的多次调用被限流，超过间隔后恢复放行。
+func TestSamplerInterval(t *testing.T) {
+	s := NewSampler(0, 200*time.Millisecond)
+	if !s.Allow() {
+		t.Fatal("首次 Allow 应为 true")
+	}
+	if s.Allow() {
+		t.Fatal("间隔内的第二次 Allow 应被限流")
+	}
+	time.Sleep(250 * time.Millisecond)
+	if !s.Allow() {
+		t.Fatal("超过间隔后 Allow 应恢复为 true")
+	}
+}
+
+// every 与 interval 任一满足即放行。
+func TestSamplerEveryOrInterval(t *testing.T) {
+	s := NewSampler(2, time.Hour)
+	if !s.Allow() {
+		t.Fatal("首次 Allow 应为 true")
+	}
+	if s.Allow() {
+		t.Fatal("第 2 次 Allow 应被限流（every=2 表示再隔 2 次才放行）")
+	}
+	if !s.Allow() {
+		t.Fatal("第 3 次 Allow 应命中 every 放行")
+	}
+}
+
+// 采样日志：级别不允许时不消耗采样配额，打开日志后的第一条必定可见。
+func TestSampledHelpersRespectLevelAndQuota(t *testing.T) {
+	_ = setupTempLogDir(t)
+	SetEnabled(true)
+	SetLevel("info")
+
+	s := NewSampler(3, 0)
+	startCapture := captureStdout(t)
+	// debug 级别不输出，也不应消耗 s 的采样配额；随后第一条 INFO 必须可见。
+	DebugSampled(s, "[test] debug-first")
+	DebugSampled(s, "[test] debug-second")
+	InfoSampled(s, "[test] info-one")
+	InfoSampled(s, "[test] info-two")
+	InfoSampled(s, "[test] info-three")
+	// 其余级别用独立采样器，只验证 level 前缀与输出通道。
+	WarnSampled(NewSampler(0, 0), "[test] warn-one")
+	ErrorSampled(nil, "[test] error-one")
+	out := startCapture()
+
+	for _, want := range []string{"[INFO] [test] info-one", "[WARN] [test] warn-one", "[ERROR] [test] error-one"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("采样输出缺少 %q，实际: %q", want, out)
+		}
+	}
+	if strings.Contains(out, "info-two") || strings.Contains(out, "info-three") {
+		t.Fatalf("后续 INFO 应被采样限流，实际: %q", out)
+	}
+	if strings.Contains(out, "debug-") {
+		t.Fatalf("info 级别不应输出 DEBUG 日志，实际: %q", out)
+	}
+}
+
+// 采样日志同样走脱敏与文件通道（与普通日志共用输出管道）。
+func TestSampledRedactsAndWritesFile(t *testing.T) {
+	dir := setupTempLogDir(t)
+	SetEnabled(false)
+	SetLevel("debug")
+	if err := SetFileEnabled(true); err != nil {
+		t.Fatalf("开启文件日志失败: %v", err)
+	}
+	DebugSampled(NewSampler(0, 0), "[test] 连接串: password=%s", "topsecret")
+	_ = SetFileEnabled(false)
+	got := readCurrent(t, dir)
+	if !strings.Contains(got, "***") {
+		t.Fatalf("采样日志未脱敏: %q", got)
+	}
+	if strings.Contains(got, "topsecret") {
+		t.Fatalf("采样日志泄露明文: %q", got)
+	}
+}

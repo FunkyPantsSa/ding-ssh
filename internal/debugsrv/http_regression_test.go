@@ -20,7 +20,7 @@ func TestConfirmTokenNotPartOfBusinessArgs(t *testing.T) {
 	base, _ := startHTTP(t, gate, &stubExecutor{})
 
 	token := mcpPrepareToken(t, base, "settings.update", map[string]any{"settings": map[string]any{"uiScale": 120}})
-	status, body := httpDo(t, base, http.MethodPut, "/v1/settings?confirmToken="+token+"&token=ignored", map[string]any{"uiScale": 120})
+	status, body := httpDoHeaders(t, base, http.MethodPut, "/v1/settings?confirmToken=ignored&token=ignored", map[string]any{"uiScale": 120}, map[string]string{"X-Ding-Confirm-Token": token})
 	if status != http.StatusOK {
 		t.Fatalf("带 confirmToken 的写请求应成功，实际 %d：%s", status, body)
 	}
@@ -52,7 +52,7 @@ func TestAuditMiddlewareSharesInfo(t *testing.T) {
 	gate := &stubGate{open: map[Capability]bool{CapConfigWrite: true}}
 	base, audit := startHTTP(t, gate, &stubExecutor{})
 	token := mcpPrepareToken(t, base, "settings.update", map[string]any{"settings": map[string]any{"uiScale": 120}})
-	status, _ := httpDo(t, base, http.MethodPut, "/v1/settings?confirmToken="+token, map[string]any{"uiScale": 120})
+	status, _ := httpDoHeaders(t, base, http.MethodPut, "/v1/settings", map[string]any{"uiScale": 120}, map[string]string{"X-Ding-Confirm-Token": token})
 	if status != http.StatusOK {
 		t.Fatalf("写请求应成功，实际 %d", status)
 	}

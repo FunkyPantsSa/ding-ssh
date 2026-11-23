@@ -16,7 +16,7 @@ import {
   OpenLogFolder,
   ReadLogTail,
   SetLogOptions,
-} from '../../../wailsjs/go/main/App'
+} from '../../../bindings/ding-ssh/internal/apphost/app'
 import {useSettingsStore} from '../../stores/settings'
 import type {LogLevel} from '../../types'
 
@@ -181,7 +181,7 @@ onMounted(() => {
       <div class="flex items-center justify-between gap-4 px-5 py-4">
         <div class="min-w-0">
           <p class="text-sm font-medium text-slate-200">{{ $t('运行日志（控制台）') }}</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('开启后日志同时打印到') }} <span class="font-mono">wails dev</span> {{ $t('的控制台（启动终端），开发调试时最直观；\n            正式使用可以关掉它、改成写入日志文件。') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('开启后日志同时打印到') }} <span class="font-mono">wails3 dev</span> {{ $t('的控制台（启动终端），开发调试时最直观；\n            正式使用可以关掉它、改成写入日志文件。') }}</p>
         </div>
         <ToggleSwitch :model-value="settings.logEnabled" :disabled="saving" @update:model-value="(v: boolean) => applyLogOptions({consoleEnabled: v})" />
       </div>

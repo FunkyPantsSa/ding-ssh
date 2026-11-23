@@ -1,0 +1,351 @@
+{
+  "date": "2026-11-21",
+  "timezone": "Asia/Shanghai",
+  "baselineCommit": "3ffe48d",
+  "branch": "dev",
+  "findingCount": 5,
+  "findingIds": [
+    "R2-01",
+    "R2-02",
+    "R2-03",
+    "R2-04",
+    "R2-05"
+  ],
+  "go": {
+    "topLevelPassed": 431,
+    "passedRecordsIncludingParentsAndSubtests": 522,
+    "failed": 0,
+    "skipped": 0,
+    "manualProbeFlagsEnabled": true,
+    "race": "PASS",
+    "vet": "PASS"
+  },
+  "frontend": {
+    "files": 67,
+    "passed": 314,
+    "failed": 0,
+    "typecheckAndBuild": "PASS"
+  },
+  "live": {
+    "PASS": 49,
+    "SKIP": 1
+  },
+  "liveCases": [
+    {
+      "name": "HTTP rejects missing authentication",
+      "status": "PASS",
+      "seconds": 0.0
+    },
+    {
+      "name": "HTTP and MCP tool catalog parity",
+      "status": "PASS",
+      "seconds": 0.006
+    },
+    {
+      "name": "Read tool: app.health",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "Read tool: app.permissions",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "Read tool: settings.schema",
+      "status": "PASS",
+      "seconds": 0.004
+    },
+    {
+      "name": "Read tool: groups.list",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "Read tool: servers.list",
+      "status": "PASS",
+      "seconds": 0.025
+    },
+    {
+      "name": "Read tool: credentials.list",
+      "status": "PASS",
+      "seconds": 0.037
+    },
+    {
+      "name": "Read tool: tunnels.list",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "Read tool: hostTrust.list",
+      "status": "PASS",
+      "seconds": 0.003
+    },
+    {
+      "name": "Read tool: app.commands",
+      "status": "PASS",
+      "seconds": 0.002
+    },
+    {
+      "name": "Read tool: list_logs",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "Read tool: read_logs",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "Read tool: recent_events",
+      "status": "PASS",
+      "seconds": 0.0
+    },
+    {
+      "name": "Read tool: app.recent_calls",
+      "status": "PASS",
+      "seconds": 0.0
+    },
+    {
+      "name": "Read tool: sftp.transfers",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "MCP initializes successfully",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "MCP lists resources",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "MCP lists resource templates",
+      "status": "SKIP",
+      "seconds": 0.0
+    },
+    {
+      "name": "Navigate page: home",
+      "status": "PASS",
+      "seconds": 0.01
+    },
+    {
+      "name": "Navigate page: servers",
+      "status": "PASS",
+      "seconds": 0.079
+    },
+    {
+      "name": "Navigate page: tunnel",
+      "status": "PASS",
+      "seconds": 0.031
+    },
+    {
+      "name": "Settings section: general",
+      "status": "PASS",
+      "seconds": 0.042
+    },
+    {
+      "name": "Settings section: hotkeys",
+      "status": "PASS",
+      "seconds": 0.022
+    },
+    {
+      "name": "Settings section: connectionInfo",
+      "status": "PASS",
+      "seconds": 0.053
+    },
+    {
+      "name": "Settings section: theme",
+      "status": "PASS",
+      "seconds": 0.104
+    },
+    {
+      "name": "Settings section: credentials",
+      "status": "PASS",
+      "seconds": 0.745
+    },
+    {
+      "name": "Settings section: security",
+      "status": "PASS",
+      "seconds": 0.032
+    },
+    {
+      "name": "Settings section: debug",
+      "status": "PASS",
+      "seconds": 0.059
+    },
+    {
+      "name": "Settings section: logs",
+      "status": "PASS",
+      "seconds": 0.026
+    },
+    {
+      "name": "Settings section: audit",
+      "status": "PASS",
+      "seconds": 0.033
+    },
+    {
+      "name": "Settings section: migrate",
+      "status": "PASS",
+      "seconds": 0.038
+    },
+    {
+      "name": "Settings section: about",
+      "status": "PASS",
+      "seconds": 0.026
+    },
+    {
+      "name": "Real local shell connects",
+      "status": "PASS",
+      "seconds": 0.0
+    },
+    {
+      "name": "Local shell ASCII command and output",
+      "status": "PASS",
+      "seconds": 0.812
+    },
+    {
+      "name": "Local shell Unicode command input",
+      "status": "PASS",
+      "seconds": 0.012
+    },
+    {
+      "name": "Local shell Chinese command input",
+      "status": "PASS",
+      "seconds": 0.011
+    },
+    {
+      "name": "Local shell binary/base64 input",
+      "status": "PASS",
+      "seconds": 0.118
+    },
+    {
+      "name": "Local terminal resize",
+      "status": "PASS",
+      "seconds": 0.002
+    },
+    {
+      "name": "Local terminal scroll",
+      "status": "PASS",
+      "seconds": 0.003
+    },
+    {
+      "name": "Split and restore two live terminals",
+      "status": "PASS",
+      "seconds": 0.012
+    },
+    {
+      "name": "Switch context panel: sftp",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "Switch context panel: sysinfo",
+      "status": "PASS",
+      "seconds": 0.005
+    },
+    {
+      "name": "Switch context panel: transfers",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "Switch context panel: hidden",
+      "status": "PASS",
+      "seconds": 0.002
+    },
+    {
+      "name": "Disconnect a real local session",
+      "status": "PASS",
+      "seconds": 0.004
+    },
+    {
+      "name": "Reconnect a real local session and run a command",
+      "status": "PASS",
+      "seconds": 0.925
+    },
+    {
+      "name": "Frontend console has no errors",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "Cleanup only audit-created tabs and PTYs",
+      "status": "PASS",
+      "seconds": 0.078
+    },
+    {
+      "name": "Original tabs preserved",
+      "status": "PASS",
+      "seconds": 0.0
+    }
+  ],
+  "testCaseCsv": {
+    "records": 886,
+    "PASS": 885,
+    "SKIP": 1,
+    "FAIL": 0,
+    "goParentsAndSubtestsCountSeparately": true
+  },
+  "coverage": {
+    "scope": "internal packages with TestGoFiles; excludes main, cmd, logfilter and models; separate run without live/UI probe environment flags",
+    "weightedStatementPercent": 54.5,
+    "packages": {
+      "ding-ssh/internal/appdir": 85.7,
+      "ding-ssh/internal/apphost": 18.1,
+      "ding-ssh/internal/autostart": 39.4,
+      "ding-ssh/internal/cryptox": 62.2,
+      "ding-ssh/internal/debugsrv": 71.8,
+      "ding-ssh/internal/i18n": 91.3,
+      "ding-ssh/internal/localterm": 74.8,
+      "ding-ssh/internal/logx": 85.1,
+      "ding-ssh/internal/sshconfig": 80.3,
+      "ding-ssh/internal/sshx": 61.8,
+      "ding-ssh/internal/store": 56.3,
+      "ding-ssh/internal/updater": 22.3
+    }
+  },
+  "stress": {
+    "storageRotationRaceRepeat3": "PASS",
+    "confinedDownloadsRaceRepeat5": "PASS"
+  },
+  "nativeBuild": {
+    "darwin-arm64": "PASS"
+  },
+  "crossCompilationOnly": {
+    "windows-amd64": "PASS",
+    "linux-amd64": "PASS"
+  },
+  "resourceGate": {
+    "status": "FAIL",
+    "command": "bash scripts/verify-ui2.sh",
+    "exitCode": 1,
+    "actualFailure": "font-face budget exceeded",
+    "fontFaceCount": 114,
+    "fontFaceLimit": 32,
+    "fontFiles": 222,
+    "fontFileLimit": 32,
+    "fontBytes": 6110464,
+    "distDiskBytes": 10240000,
+    "distDiskLimit": 2621440,
+    "cssBytes": 263454,
+    "cssGzipBytes": 77575,
+    "indexJSBytes": 764093,
+    "indexJSGzipBytes": 250245,
+    "thresholdsModified": false,
+    "laterAssertionsNotReached": [
+      "font file count",
+      "dist disk size"
+    ]
+  },
+  "limitations": [
+    "Real Windows/Linux desktop runtime not executed; cross-compilation only",
+    "Remote SSH/SFTP/tunnels use generated local fixtures, not external production hosts",
+    "Real privileged updater installation and destructive OS keychain transitions not performed",
+    "Long-duration weak-network large-file transfer and abrupt power loss between metadata and SQLite not simulated",
+    "Existing resource-size gate remains failed; functional regression success does not imply all quality gates pass",
+    "Optional MCP resources/templates/list is not implemented and was skipped"
+  ]
+}

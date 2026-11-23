@@ -1,21 +1,20 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import type {ServerNode} from '../types'
-vi.mock('../../wailsjs/go/main/App', async importOriginal => ({...await importOriginal<object>(), Connect: vi.fn()}))
+vi.mock('../../bindings/ding-ssh/internal/apphost/app', async importOriginal => ({...await importOriginal<object>(), Connect: vi.fn(), ConnectAuthenticated: vi.fn(), ResolveHostTrust: vi.fn()}))
 vi.mock('./passphrase', () => ({requestPassphrase: vi.fn()}))
-import {Connect} from '../../wailsjs/go/main/App'
+import {Connect, ConnectAuthenticated, ResolveHostTrust} from '../../bindings/ding-ssh/internal/apphost/app'
 import {requestPassphrase} from './passphrase'
 vi.mock('./hostTrust', () => ({requestHostTrust: vi.fn()}))
 import {requestHostTrust} from './hostTrust'
 import {sshService} from './ssh'
 const node: ServerNode = {id: 'n', name: 'host', group: '', host: 'example.org', port: 22, user: 'user', authType: 'agent', bgImage: '', blurAmount: 0, envVars: {}}
-const connected = {sessionId: 's', server: 'host'}
-let connect: ReturnType<typeof vi.fn>
-let confirm: ReturnType<typeof vi.fn>
+const connected = {sessionId: 's', server: 'host'} as Awaited<ReturnType<typeof ConnectAuthenticated>>
+const connect = vi.mocked(ConnectAuthenticated)
+const confirm = vi.mocked(ResolveHostTrust)
 beforeEach(() => {
  vi.clearAllMocks()
- connect = vi.fn()
- confirm = vi.fn()
- ;(window as any).go = {main: {App: {ConnectAuthenticated: connect, ResolveHostTrust: confirm}}}
+ connect.mockReset()
+ confirm.mockReset()
 })
 describe('SSH security UI boundaries', () => {
  it('does not retry or save trust when confirmation is cancelled', async () => {

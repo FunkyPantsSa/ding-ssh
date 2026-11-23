@@ -32,6 +32,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"ding-ssh/internal/logx"
 )
 
 // ---- 限额（所有输出都必须体积有界，见 ui.go 的同类常量）----
@@ -65,6 +67,7 @@ func appctlText(v any) ([]any, error) {
 	}
 	text := string(b)
 	if len(text) > appctlMaxTextBytes {
+		logx.Warnf("[debugsrv/appctl] 控制面工具结果超限，已截断: bytes=%d limit=%d", len(text), appctlMaxTextBytes)
 		text = text[:appctlMaxTextBytes] +
 			fmt.Sprintf("\n…（结果超过 %d 字节上限，已截断；请用更小的 limit / 更精确的 id 重试）", appctlMaxTextBytes)
 	}
@@ -115,7 +118,7 @@ func appctlSummarizeImportArg(v any) any {
 func appctlSensitiveArgKey(key string) bool {
 	switch strings.ToLower(strings.TrimSpace(key)) {
 	case "password", "passwd", "pwd", "passphrase", "privatekey", "keycontent", "key_content",
-		"content", "secret", "apikey", "api_key", "token", "confirm", "authorization":
+		"content", "data", "text", "output", "base64", "oldtext", "newtext", "command", "env", "js", "secret", "apikey", "api_key", "token", "confirm", "authorization":
 		return true
 	}
 	return false
@@ -327,7 +330,15 @@ func appctlCall(ctx context.Context, h Handler, op string, args map[string]any) 
 		}
 		raw = b
 	}
-	return h.Handle(ctx, op, raw)
+	start := time.Now()
+	v, err := h.Handle(ctx, op, raw)
+	if err != nil {
+		logx.Debugf("[debugsrv/appctl] 宿主调用失败: op=%s argsBytes=%d elapsed=%s err=%v",
+			op, len(raw), time.Since(start), err)
+		return nil, err
+	}
+	logx.Debugf("[debugsrv/appctl] 宿主调用完成: op=%s argsBytes=%d elapsed=%s", op, len(raw), time.Since(start))
+	return v, nil
 }
 
 // appctlAllowSecrets 校验「是否允许读取明文密钥」（secrets.read = 设置里的「允许读取敏感数据」）。
@@ -350,12 +361,20 @@ func isAppctlTool(name string) bool {
 //   - app.command 的「按命令」能力位与确认（框架的确认是工具级的，粒度不够）。
 func (s *Server) handleAppctl(ctx context.Context, name string, args map[string]any) ([]any, error) {
 	if s.opts.Handler == nil {
+		logx.Errorf("[debugsrv/appctl] 控制面工具不可用: tool=%s reason=宿主 Handler 为空", name)
 		return nil, errors.New("调试服务未就绪：宿主 Handler 为空")
+	}
+	start := time.Now()
+	if logx.DebugEnabled() {
+		// 只记参数键名，不记值（servers.create 的 node 里可能有密码 / 私钥）。
+		logx.Debugf("[debugsrv/appctl] 执行控制面工具: tool=%s argKeys=%v", name, appctlSortedKeys(args))
 	}
 	res, err := s.appctlDispatch(ctx, name, args)
 	if err != nil {
+		logx.Debugf("[debugsrv/appctl] 控制面工具返回错误: tool=%s elapsed=%s err=%v", name, time.Since(start), err)
 		return nil, err
 	}
+	logx.Debugf("[debugsrv/appctl] 控制面工具完成: tool=%s elapsed=%s", name, time.Since(start))
 	return appctlText(res)
 }
 
@@ -398,6 +417,8 @@ func (s *Server) appctlDispatch(ctx context.Context, name string, args map[strin
 		if err != nil {
 			return nil, err
 		}
+		// 窗口 / 界面控制类操作：结果记 DEBUG（高频、可逆），不记具体布局参数值。
+		logx.Debugf("[debugsrv/appctl] 窗口控制已生效: op=%s", name)
 		return appctlObj(raw), nil
 	case OpGroupsList, OpGroupsCreate, OpGroupsRename, OpGroupsDelete, OpServersTest, OpHostTrustList:
 		for _, key := range map[string][]string{
@@ -416,6 +437,12 @@ func (s *Server) appctlDispatch(ctx context.Context, name string, args map[strin
 		raw, err := appctlCall(ctx, h, name, withoutToken(args))
 		if err != nil {
 			return nil, err
+		}
+		switch name {
+		case OpGroupsCreate, OpGroupsRename, OpGroupsDelete:
+			logx.Infof("[debugsrv/appctl] 分组操作完成: op=%s name=%q", name, appctlString(args, "name"))
+		case OpServersTest:
+			logx.Debugf("[debugsrv/appctl] 服务器连通性测试完成: id=%s mode=%s", appctlString(args, "id"), appctlString(args, "mode"))
 		}
 		return appctlObj(raw), nil
 	// ---- A. 服务器 ----
@@ -477,11 +504,13 @@ func (s *Server) appctlDispatch(ctx context.Context, name string, args map[strin
 		if err != nil {
 			return nil, err
 		}
+		logx.Infof("[debugsrv/appctl] 应用退出请求已提交: action=app.quit 影响=断开全部会话与本机终端")
 		out := appctlObj(res)
 		out["quitting"] = true
 		out["note"] = "应用即将退出：所有 SSH 会话、本机终端与隧道都会被断开。"
 		return out, nil
 	}
+	logx.Warnf("[debugsrv/appctl] 未知的应用控制面工具: tool=%s", name)
 	return nil, fmt.Errorf("未知的应用控制面工具: %s", name)
 }
 
@@ -501,6 +530,47 @@ func (s *Server) appctlServersList(ctx context.Context, h Handler, args map[stri
 	}
 	obj := appctlObj(raw)
 	items := appctlObjSlice(obj["servers"])
+	allTotal := len(items)
+	query := strings.ToLower(appctlString(args, "query"))
+	group := appctlString(args, "group")
+	filtered := make([]map[string]any, 0, len(items))
+	for _, it := range items {
+		if group != "" && appctlString(it, "group") != group {
+			continue
+		}
+		if query != "" {
+			parts := []string{appctlString(it, "name"), appctlString(it, "host"), appctlString(it, "user"), appctlString(it, "group")}
+			if !strings.Contains(strings.ToLower(strings.Join(parts, "\n")), query) {
+				continue
+			}
+		}
+		filtered = append(filtered, it)
+	}
+	items = filtered
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := appctlString(items[i], "name"), appctlString(items[j], "name")
+		if a == b {
+			return appctlString(items[i], "id") < appctlString(items[j], "id")
+		}
+		return a < b
+	})
+	offset, err := jobArgInt(args, "offset", 0, 0, 1<<30)
+	if err != nil {
+		return nil, err
+	}
+	limit, err := jobArgInt(args, "limit", appctlMaxListItems, 1, appctlMaxListItems)
+	if err != nil {
+		return nil, err
+	}
+	total := len(items)
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	items = items[offset:end]
 	fields := map[string]bool{}
 	out := make([]any, 0, len(items))
 	for _, it := range items {
@@ -509,22 +579,17 @@ func (s *Server) appctlServersList(ctx context.Context, h Handler, args map[stri
 		appctlMergeFieldNames(fields, plainNames)
 		out = append(out, view)
 	}
-	total := len(items)
-	truncated := false
-	if total > appctlMaxListItems {
-		out = out[:appctlMaxListItems]
-		truncated = true
-	}
+	truncated := end < total
 	res := map[string]any{
 		"count":    len(out),
 		"total":    total,
 		"servers":  out,
 		"redacted": !include,
+		"totalAll": allTotal, "offset": offset, "limit": limit, "nextOffset": end, "hasMore": truncated,
 	}
 	if truncated {
 		res["truncated"] = true
-		res["limit"] = appctlMaxListItems
-		res["truncatedNote"] = fmt.Sprintf("服务器数量超过 %d 条上限，已只返回前 %d 条。", appctlMaxListItems, appctlMaxListItems)
+		res["truncatedNote"] = fmt.Sprintf("返回筛选结果的第 %d–%d 条，共 %d 条；可用nextOffset继续分页。", offset, end, total)
 	}
 	if include {
 		res["plaintextFields"] = appctlFieldNameList(fields)
@@ -532,6 +597,8 @@ func (s *Server) appctlServersList(ctx context.Context, h Handler, args map[stri
 	} else {
 		res["redactedFields"] = appctlFieldNameList(fields)
 	}
+	logx.Debugf("[debugsrv/appctl] 服务器列表: count=%d total=%d includeSecrets=%v truncated=%v",
+		len(out), total, include, truncated)
 	return res, nil
 }
 
@@ -566,6 +633,7 @@ func (s *Server) appctlServersGet(ctx context.Context, h Handler, args map[strin
 	} else {
 		res["redactedFields"] = redactedNames
 	}
+	logx.Debugf("[debugsrv/appctl] 读取服务器: id=%s includeSecrets=%v", id, include)
 	return res, nil
 }
 
@@ -592,6 +660,7 @@ func (s *Server) appctlServersCreate(ctx context.Context, h Handler, args map[st
 	}
 	saved := appctlObj(appctlObj(raw)["server"])
 	view, redactedNames, _ := appctlNodeSecretView(saved, false)
+	logx.Infof("[debugsrv/appctl] 服务器已创建: id=%s name=%s", appctlString(saved, "id"), appctlString(saved, "name"))
 	return map[string]any{
 		"ok":             true,
 		"server":         view,
@@ -620,6 +689,7 @@ func (s *Server) appctlServersUpdate(ctx context.Context, h Handler, args map[st
 	}
 	saved := appctlObj(appctlObj(raw)["server"])
 	view, redactedNames, _ := appctlNodeSecretView(saved, false)
+	logx.Infof("[debugsrv/appctl] 服务器已更新: id=%s fields=%d", id, len(node))
 	return map[string]any{
 		"ok":             true,
 		"server":         view,
@@ -638,6 +708,7 @@ func (s *Server) appctlServersDelete(ctx context.Context, h Handler, args map[st
 	if err != nil {
 		return nil, err
 	}
+	logx.Infof("[debugsrv/appctl] 服务器已删除: id=%s", id)
 	out := appctlObj(raw)
 	out["ok"] = true
 	out["note"] = "服务器已删除（不可恢复；已打开的会话不受影响，但下次无法再据此连接）。"
@@ -660,6 +731,7 @@ func (s *Server) appctlServersDuplicate(ctx context.Context, h Handler, args map
 	}
 	saved := appctlObj(appctlObj(raw)["server"])
 	view, redactedNames, _ := appctlNodeSecretView(saved, false)
+	logx.Infof("[debugsrv/appctl] 服务器已复制: sourceId=%s newId=%s", id, appctlString(saved, "id"))
 	return map[string]any{
 		"ok":             true,
 		"server":         view,
@@ -688,6 +760,7 @@ func (s *Server) appctlServersMoveGroup(ctx context.Context, h Handler, args map
 	if err != nil {
 		return nil, err
 	}
+	logx.Infof("[debugsrv/appctl] 服务器分组已移动: count=%d group=%q", len(clean), group)
 	out := appctlObj(raw)
 	out["ok"] = true
 	if group == "" {
@@ -756,6 +829,8 @@ func (s *Server) appctlServersExport(ctx context.Context, h Handler, args map[st
 	if err != nil {
 		return nil, fmt.Errorf("序列化导出内容失败: %w", err)
 	}
+	logx.Infof("[debugsrv/appctl] 服务器已导出: count=%d total=%d bytes=%d truncated=%v includeSecrets=%v",
+		len(kept), len(items), len(text), len(kept) < len(items), include)
 	res := map[string]any{
 		"json":     string(text),
 		"count":    len(kept),
@@ -800,6 +875,7 @@ func (s *Server) appctlServersImport(ctx context.Context, h Handler, args map[st
 	if err != nil {
 		return nil, err
 	}
+	logx.Infof("[debugsrv/appctl] 服务器已导入: count=%d mode=%s", len(servers), mode)
 	out := appctlObj(raw)
 	out["ok"] = true
 	out["mode"] = mode
@@ -920,6 +996,7 @@ func (s *Server) appctlCredentialsList(ctx context.Context, h Handler) (map[stri
 		res["truncated"] = true
 		res["limit"] = appctlMaxListItems
 	}
+	logx.Debugf("[debugsrv/appctl] 凭据列表: count=%d total=%d", len(out), total)
 	return res, nil
 }
 
@@ -974,6 +1051,8 @@ func (s *Server) appctlCredentialsCreate(ctx context.Context, h Handler, args ma
 		return nil, err
 	}
 	cred := appctlObj(appctlObj(raw)["credential"])
+	// 只记 id / 名称 / 类型：content 是明文密码或私钥，绝不进日志。
+	logx.Infof("[debugsrv/appctl] 凭据已创建: id=%s name=%s type=%s", appctlString(cred, "id"), name, typ)
 	return map[string]any{
 		"ok":         true,
 		"id":         appctlString(cred, "id"),
@@ -1015,6 +1094,7 @@ func (s *Server) appctlCredentialsUpdate(ctx context.Context, h Handler, args ma
 	if v, has := cred["hasContent"].(bool); has {
 		hasContent = v
 	}
+	logx.Infof("[debugsrv/appctl] 凭据已更新: id=%s contentChanged=%v", id, content != "")
 	return map[string]any{
 		"ok":         true,
 		"id":         appctlString(cred, "id"),
@@ -1035,6 +1115,7 @@ func (s *Server) appctlCredentialsDelete(ctx context.Context, h Handler, args ma
 	if err != nil {
 		return nil, err
 	}
+	logx.Infof("[debugsrv/appctl] 凭据已删除: id=%s", id)
 	out := appctlObj(raw)
 	out["ok"] = true
 	out["note"] = "凭据已删除（不可恢复）；已使用它的服务器节点不受影响（它们的字段是复制出来的）。"
@@ -1058,6 +1139,7 @@ func (s *Server) appctlCredentialsAttach(ctx context.Context, h Handler, args ma
 	obj := appctlObj(raw)
 	node := appctlObj(obj["server"])
 	view, redactedNames, _ := appctlNodeSecretView(node, false)
+	logx.Infof("[debugsrv/appctl] 凭据已绑定到服务器: serverId=%s credentialId=%s", serverID, credID)
 	res := map[string]any{
 		"ok":             true,
 		"serverId":       serverID,
@@ -1091,6 +1173,7 @@ func (s *Server) appctlTunnelsList(ctx context.Context, h Handler) (map[string]a
 		out = out[:appctlMaxListItems]
 		truncated = true
 	}
+	logx.Debugf("[debugsrv/appctl] 隧道列表: count=%d total=%d", len(out), total)
 	res := map[string]any{"count": len(out), "total": total, "tunnels": out}
 	if truncated {
 		res["truncated"] = true
@@ -1110,6 +1193,7 @@ func (s *Server) appctlTunnelsCreate(ctx context.Context, h Handler, args map[st
 	if err != nil {
 		return nil, err
 	}
+	logx.Infof("[debugsrv/appctl] 隧道已创建: type=%s listenPort=%v", appctlString(callArgs, "type"), callArgs["listenPort"])
 	return appctlTunnelResult(raw, "隧道已创建并启动（start 失败时会在返回里给出中文原因）。"), nil
 }
 
@@ -1128,6 +1212,7 @@ func (s *Server) appctlTunnelsUpdate(ctx context.Context, h Handler, args map[st
 	if err != nil {
 		return nil, err
 	}
+	logx.Infof("[debugsrv/appctl] 隧道已更新: id=%s", id)
 	return appctlTunnelResult(raw, "隧道配置已更新（原本在运行的隧道已按新配置重启）。"), nil
 }
 
@@ -1141,6 +1226,7 @@ func (s *Server) appctlTunnelsDelete(ctx context.Context, h Handler, args map[st
 	if err != nil {
 		return nil, err
 	}
+	logx.Infof("[debugsrv/appctl] 隧道已删除: id=%s", id)
 	out := appctlObj(raw)
 	out["ok"] = true
 	out["note"] = "隧道已停止并移除（该隧道不落库，移除后无法恢复配置）。"
@@ -1157,6 +1243,11 @@ func (s *Server) appctlTunnelsStartStop(ctx context.Context, h Handler, args map
 	if err != nil {
 		return nil, err
 	}
+	action := "启动"
+	if op == OpTunnelsStop {
+		action = "停止"
+	}
+	logx.Infof("[debugsrv/appctl] 隧道已%s: id=%s", action, id)
 	note := "隧道已启动（会新建一条 SSH 连接）。"
 	if op == OpTunnelsStop {
 		note = "隧道已停止（条目保留，可用 tunnels.start 重新启动）。"
@@ -1295,6 +1386,7 @@ func (s *Server) appctlSettingsSchema(ctx context.Context, h Handler, args map[s
 		fields = fields[:appctlMaxSchemaFields]
 		truncated = true
 	}
+	logx.Debugf("[debugsrv/appctl] 返回设置字段清单: count=%d truncated=%v includeSecrets=%v", len(fields), truncated, include)
 	res := map[string]any{
 		"count":  len(fields),
 		"fields": fields,
@@ -1433,6 +1525,7 @@ func (s *Server) appctlSettingsReset(ctx context.Context, h Handler, args map[st
 	if err != nil {
 		return nil, err
 	}
+	logx.Infof("[debugsrv/appctl] 设置已重置: paths=%d resetAll=%v", len(paths), len(paths) == 0)
 	out := appctlObj(raw)
 	out["ok"] = true
 	if len(paths) == 0 {
@@ -1474,6 +1567,7 @@ func (s *Server) appctlAppCommands(ctx context.Context, h Handler) (map[string]a
 		out = out[:appctlMaxListItems]
 		truncated = true
 	}
+	logx.Debugf("[debugsrv/appctl] 命令列表: count=%d total=%d", len(out), total)
 	res := map[string]any{"count": len(out), "total": total, "commands": out}
 	if truncated {
 		res["truncated"] = true
@@ -1507,12 +1601,16 @@ func (s *Server) appctlAppCommand(ctx context.Context, h Handler, args map[strin
 	if rule.confirm {
 		token := appctlTokenArg(args)
 		if token == "" {
+			logx.Warnf("[debugsrv/appctl] 命令缺少确认 token: id=%s action=%s", id, appctlCommandConfirmAction)
 			return nil, fmt.Errorf("%w: 命令 %q 属于会改动配置 / 连接状态的命令，需要两段式确认："+
 				"请先 confirm.prepare（action=%s, args={\"id\":%q}）取得 token 再调用"+
 				"（只读 / 切换视图类命令不需要 token）。",
 				ErrConfirmRequired, id, appctlCommandConfirmAction, id)
 		}
+		// 校验失败只记命令 id：Take 的错误文案含规范化参数，可能含命令入参正文。
 		if _, err := s.takeConfirm(token, appctlCommandConfirmAction, withoutToken(args)); err != nil {
+			// 具体原因由 ConfirmManager.Take 记 WARN，这里只留 DEBUG 上下文。
+			logx.Debugf("[debugsrv/appctl] 命令确认 token 校验失败: id=%s", id)
 			return nil, err
 		}
 	}
@@ -1524,6 +1622,7 @@ func (s *Server) appctlAppCommand(ctx context.Context, h Handler, args map[strin
 	if err != nil {
 		return nil, err
 	}
+	logx.Infof("[debugsrv/appctl] 内置命令已执行: id=%s cap=%s confirm=%v", id, rule.cap, rule.confirm)
 	out := appctlObj(raw)
 	out["ok"] = true
 	out["id"] = id

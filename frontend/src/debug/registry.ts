@@ -23,7 +23,7 @@ export interface DebugTerminalEntry {
   /** 终端容器（absolute inset-0 那层），用于测量几何。 */
   container: () => HTMLElement | null
   /** 向会话写入数据（走应用原有通道，含连接态/冻结态校验）。 */
-  write: (data: string) => void
+  write: (data: string, binary?: boolean) => void
   /** 触发重连（复用标签自身的重连逻辑，保留缓冲区）。 */
   reconnect: () => void
   /** 关闭标签。 */

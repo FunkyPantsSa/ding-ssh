@@ -14,7 +14,11 @@ echo "== frontend unit and UI contract tests =="
 (cd "$repo_root/frontend" && npm test)
 
 echo "== go tests =="
-(cd "$repo_root" && go test ./...)
+if [[ "$(uname -s)" == Linux ]]; then
+  (cd "$repo_root" && go test -tags gtk3 ./...)
+else
+  (cd "$repo_root" && go test ./...)
+fi
 
 echo "== UI 2.0 baseline budgets =="
 
@@ -78,9 +82,13 @@ printf 'dist bytes: %d\n' "$dist_bytes"
 ((css_gzip_bytes <= 30000)) || echo "warning: CSS gzip budget exceeded (target <= 30000)" >&2
 ((js_bytes <= 900000)) || { echo "error: JS raw budget exceeded" >&2; exit 1; }
 ((js_gzip_bytes <= 270000)) || { echo "error: JS gzip budget exceeded" >&2; exit 1; }
-((font_face_count <= 32)) || { echo "error: font-face budget exceeded" >&2; exit 1; }
-((${#font_files[@]} <= 32)) || { echo "error: font file budget exceeded" >&2; exit 1; }
-((dist_bytes <= 2621440)) || { echo "error: dist size budget exceeded" >&2; exit 1; }
+# The one offline set includes Noto's full Unicode shards. Count shards separately
+# from families; enforce a 3 MiB byte budget instead of excluding Chinese coverage.
+((font_bytes <= 3145728)) || { echo "error: bundled font size budget exceeded (3 MiB)" >&2; exit 1; }
+((font_face_count <= 128)) || { echo "error: font-face budget exceeded (128)" >&2; exit 1; }
+((${#font_files[@]} <= 128)) || { echo "error: font file budget exceeded (128)" >&2; exit 1; }
+# Allow the existing application assets plus the 3 MiB offline font allowance.
+((dist_bytes <= 7340032)) || { echo "error: dist size budget exceeded (7 MiB)" >&2; exit 1; }
 
 echo "== UI 2.0 migration guards =="
 legacy_pattern='--(ink|mist|signal|copper|ok-500|warn-500|danger-500|primary-ink)'

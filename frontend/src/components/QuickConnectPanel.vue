@@ -10,6 +10,7 @@ import {useServersStore} from '../stores/servers'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import type {ServerNode} from '../types'
+import {buildGroupTree, type GroupNode} from '../utils/groupTree'
 import {Button, Input} from './ui'
 
 const servers = useServersStore()
@@ -59,24 +60,70 @@ const filtered = computed(() => {
   )
 })
 
-// 按分组聚合：未分组在前，其余按名称排序。
-const grouped = computed(() => {
+const searching = computed(() => !!keyword.value.trim())
+
+// 分组树：未分组单独置顶；分组节点按完整路径建树，服务器挂在“直接所属”的分组下。
+// 搜索时只保留有命中的服务器，避免把空分组也铺出来。
+const tree = computed(() => buildGroupTree(searching.value ? [] : groups.list, filtered.value))
+const ungroupedServers = computed(() => filtered.value.filter((node) => !node.group.trim()))
+const serversByPath = computed(() => {
   const map = new Map<string, ServerNode[]>()
   for (const node of filtered.value) {
     const key = node.group.trim()
+    if (!key) continue
     if (!map.has(key)) map.set(key, [])
     map.get(key)!.push(node)
   }
-  const buckets: {name: string; items: ServerNode[]}[] = []
-  const keys = new Set<string>(groups.list)
-  for (const k of map.keys()) keys.add(k)
-  const sorted = [...keys].filter((k) => k !== '').sort((a, b) => a.localeCompare(b))
-  if (map.has('')) buckets.push({get name() { return t("未分组") }, items: map.get('')!})
-  for (const key of sorted) {
-    buckets.push({name: key, items: map.get(key) ?? []})
-  }
-  return buckets
+  return map
 })
+
+type QuickRow =
+  | {kind: 'ungrouped'; count: number}
+  | {kind: 'group'; node: GroupNode; depth: number; open: boolean}
+  | {kind: 'server'; node: ServerNode; depth: number}
+
+const rows = computed<QuickRow[]>(() => {
+  const out: QuickRow[] = []
+  const showAll = searching.value
+  if (ungroupedServers.value.length) {
+    const open = showAll || !collapsed['']
+    out.push({kind: 'ungrouped', count: ungroupedServers.value.length})
+    if (open) {
+      for (const node of ungroupedServers.value) out.push({kind: 'server', node, depth: 1})
+    }
+  }
+  const walk = (nodes: GroupNode[], depth: number) => {
+    for (const node of nodes) {
+      const open = showAll || !collapsed[node.path]
+      out.push({kind: 'group', node, depth, open})
+      if (!open) continue
+      for (const server of serversByPath.value.get(node.path) ?? []) {
+        out.push({kind: 'server', node: server, depth: depth + 1})
+      }
+      walk(node.children, depth + 1)
+    }
+  }
+  walk(tree.value, 0)
+  return out
+})
+
+function indent(depth: number): string {
+  return `${8 + depth * 12}px`
+}
+
+function groupHasChildren(node: GroupNode): boolean {
+  return node.children.length > 0 || node.total > 0
+}
+
+function rowKey(row: QuickRow): string {
+  if (row.kind === 'server') return `server-${row.node.id}`
+  if (row.kind === 'group') return `group-${row.node.path}`
+  return 'ungrouped'
+}
+
+function isCollapsed(key: string): boolean {
+  return !searching.value && !!collapsed[key]
+}
 
 function connect(node: ServerNode) {
   // 已收起（连点防抖）：面板收起后按钮仍短暂存在于 DOM，避免同一次连点开出多个标签
@@ -148,37 +195,52 @@ function isActiveNode(node: ServerNode): boolean {
             <span>{{ $t('暂无服务器') }}</span>
             <Button variant="primary" size="sm" @click="ui.showServers()">{{ $t('去添加服务器') }}</Button>
           </div>
-          <div v-else-if="!filtered.length" class="px-3 py-8 text-center text-xs text-mist">{{ $t('无匹配服务器') }}</div>
-
-          <div v-for="bucket in grouped" :key="bucket.name" class="flex flex-col gap-0.5">
-            <button class="group-h" @click="toggleGroup(bucket.name)">
+          <div v-if="servers.servers.length && !rows.length" class="px-3 py-8 text-center text-xs text-mist">{{ $t('无匹配服务器') }}</div>
+          <template v-for="row in rows" :key="rowKey(row)">
+            <button
+              v-if="row.kind === 'ungrouped'"
+              class="group-h qc-group"
+              :style="{paddingLeft: indent(0)}"
+              @click="toggleGroup('')"
+            >
+              <Icon name="chevron-down" :size="14" extra-class="transition-transform" :class="isCollapsed('') ? '-rotate-90' : ''" />
+              <span class="qc-group-label">{{ $t('未分组') }}</span>
+              <span class="qc-count">{{ row.count }}</span>
+            </button>
+            <button
+              v-else-if="row.kind === 'group'"
+              class="group-h qc-group"
+              :style="{paddingLeft: indent(row.depth)}"
+              :title="row.node.path"
+              @click="toggleGroup(row.node.path)"
+            >
               <Icon
+                v-if="groupHasChildren(row.node)"
                 name="chevron-down"
                 :size="14"
                 extra-class="transition-transform"
-                :class="collapsed[bucket.name] ? '-rotate-90' : ''"
+                :class="isCollapsed(row.node.path) ? '-rotate-90' : ''"
               />
-              {{ bucket.name }} · {{ bucket.items.length }}
+              <span v-else class="qc-chevron-empty"></span>
+              <span class="qc-group-label">{{ row.node.name }}</span>
+              <span class="qc-count">{{ row.node.total }}</span>
             </button>
-
-            <div v-if="!collapsed[bucket.name]" class="flex flex-col gap-0.5">
-              <button
-                v-for="node in bucket.items"
-                :key="node.id"
-                class="qconn-item group"
-                :class="isActiveNode(node) ? 'active' : ''"
-                :title="t('连接 {0}', [node.name])"
-                @click="connect(node)"
-              >
-                <span class="status" :class="nodeStatus(node)"></span>
-                <span class="min-w-0 flex-1 text-left">
-                  <span class="block text-[13px] font-medium text-[var(--foreground)] truncate">{{ node.name }}</span>
-                  <span class="block font-mono text-[12px] text-mist truncate">{{ node.user }}@{{ node.host }}:{{ node.port }}</span>
-                </span>
-                <Icon name="arrow-right" :size="14" extra-class="text-mist opacity-0 group-hover:opacity-100 transition-opacity" />
-              </button>
-            </div>
-          </div>
+            <button
+              v-else
+              class="qconn-item group"
+              :class="isActiveNode(row.node) ? 'active' : ''"
+              :style="{paddingLeft: indent(row.depth)}"
+              :title="t('连接 {0}', [row.node.name])"
+              @click="connect(row.node)"
+            >
+              <span class="status" :class="nodeStatus(row.node)"></span>
+              <span class="min-w-0 flex-1 text-left">
+                <span class="block text-[13px] font-medium text-[var(--foreground)] truncate">{{ row.node.name }}</span>
+                <span class="block font-mono text-[12px] text-mist truncate">{{ row.node.user }}@{{ row.node.host }}:{{ row.node.port }}</span>
+              </span>
+              <Icon name="arrow-right" :size="14" extra-class="text-mist opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
+          </template>
         </div>
 
         <div class="p-2.5 shrink-0 inset-line-t">
@@ -192,4 +254,10 @@ function isActiveNode(node: ServerNode): boolean {
 <style scoped>
 .qconn-search-input{height:30px}
 .search :deep(input.qconn-search-input){padding-left:32px}
+.qc-group{display:flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 8px;border-radius:var(--radius-small);font-size:11.5px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--foreground-secondary)}
+.qc-group:hover{background:var(--interactive-hover-bg);color:var(--foreground)}
+.qc-group-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+.qc-count{min-width:17px;height:17px;padding:0 5px;display:grid;place-items:center;border-radius:var(--radius-small);background:var(--hover);color:var(--muted-foreground);font-family:var(--font-mono);font-size:10px;font-weight:400}
+.qc-chevron-empty{width:14px;height:14px;flex:none}
+.qconn-item{padding-left:8px}
 </style>

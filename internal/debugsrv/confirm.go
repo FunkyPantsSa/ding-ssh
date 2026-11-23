@@ -12,7 +12,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ding-ssh/internal/logx"
 )
+
+// confirmExpireLog 限流「过期确认被清理」告警：惰性清理每次 Prepare / Take 都会跑，
+// 过期条目则可能在短时间内成批出现（AI 连续 prepare 后不再 commit）。
+var confirmExpireLog = logx.NewSampler(16, 10*time.Second)
 
 // 两段式确认（破坏性操作）。
 //
@@ -97,13 +103,13 @@ func ConfirmableActions() []string {
 	seen := make(map[string]bool, len(builtinConfirmActions))
 	out := make([]string, 0, len(builtinConfirmActions))
 	for _, a := range builtinConfirmActions {
-		if !seen[a] {
+		if a != "capability.enable" && !seen[a] {
 			seen[a] = true
 			out = append(out, a)
 		}
 	}
 	for _, a := range registeredConfirmActions() {
-		if !seen[a] {
+		if a != "capability.enable" && !seen[a] {
 			seen[a] = true
 			out = append(out, a)
 		}
@@ -167,6 +173,7 @@ var ErrConfirmRequired = errors.New("需要两段式确认")
 
 // PendingConfirm 一次已登记、等待 commit 的确认操作。
 type PendingConfirm struct {
+	Caller    string         `json:"-"`
 	Token     string         `json:"token"`
 	Tool      string         `json:"tool,omitempty"`
 	Action    string         `json:"action"`
@@ -198,6 +205,7 @@ func NewConfirmManager(ttl time.Duration) *ConfirmManager {
 	if ttl <= 0 {
 		ttl = DefaultConfirmTTL
 	}
+	logx.Debugf("[debugsrv/confirm] 创建确认管理器: ttl=%s", ttl)
 	return &ConfirmManager{ttl: ttl, entries: make(map[string]confirmEntry)}
 }
 
@@ -241,8 +249,17 @@ func (m *ConfirmManager) PrepareTool(action, tool string, args map[string]any, s
 	}
 	m.mu.Lock()
 	m.sweepLocked(now)
+	if len(m.entries) >= 128 {
+		m.mu.Unlock()
+		return "", 0
+	}
 	m.entries[token] = entry
+	pending := len(m.entries)
 	m.mu.Unlock()
+	// INFO：一次待确认的破坏性操作已登记（用户 / AI 可据此查看「要做什么」）。
+	// 不记 token 与 summary/args —— summary 里含规范化参数，可能有凭据。
+	logx.Infof("[debugsrv/confirm] 已登记待确认操作: action=%s tool=%s ttl=%s pending=%d",
+		action, tool, m.ttl, pending)
 	return token, entry.pending.ExpiresAt
 }
 
@@ -254,6 +271,7 @@ func (m *ConfirmManager) PrepareTool(action, tool string, args map[string]any, s
 //   - action 不匹配（说明拿 A 的 token 去执行 B）；
 //   - args 与登记时不一致（参数被篡改）。
 func (m *ConfirmManager) Commit(token, action string, args map[string]any) error {
+	logx.Debugf("[debugsrv/confirm] 提交确认: action=%s", action)
 	_, err := m.Take(token, action, args)
 	return err
 }
@@ -263,6 +281,7 @@ func (m *ConfirmManager) Take(token, action string, args map[string]any) (Pendin
 	token = strings.TrimSpace(token)
 	action = strings.TrimSpace(action)
 	if token == "" {
+		logx.Warnf("[debugsrv/confirm] 校验确认 token 失败: reason=缺少 token action=%s", action)
 		return PendingConfirm{}, errors.New("缺少 token：请先调用 confirm.prepare 获取 token")
 	}
 	now := time.Now()
@@ -271,21 +290,27 @@ func (m *ConfirmManager) Take(token, action string, args map[string]any) (Pendin
 	m.sweepLocked(now)
 	entry, ok := m.entries[token]
 	if !ok {
+		logx.Warnf("[debugsrv/confirm] 校验确认 token 失败: reason=无效或已被使用 action=%s", action)
 		return PendingConfirm{}, errors.New("token 无效、已被使用或已过期：每个 token 只能使用一次且有效期有限，请重新调用 confirm.prepare")
 	}
 	if now.UnixMilli() > entry.pending.ExpiresAt {
 		delete(m.entries, token)
+		logx.Warnf("[debugsrv/confirm] 校验确认 token 失败: reason=已过期 action=%s ttl=%s", action, m.ttl)
 		return PendingConfirm{}, fmt.Errorf("token 已过期：确认有效期 %s，请重新调用 confirm.prepare", m.ttl)
 	}
 	if entry.pending.Action != action {
+		logx.Warnf("[debugsrv/confirm] 校验确认 token 失败: reason=动作不匹配 tokenAction=%s action=%s",
+			entry.pending.Action, action)
 		return PendingConfirm{}, fmt.Errorf("token 与当前操作不匹配：该 token 用于 %q，本次操作是 %q（请重新 confirm.prepare）",
 			entry.pending.Action, action)
 	}
 	if got := confirmHash(action, NormalizeConfirmArgs(args)); got != entry.hash {
-		return PendingConfirm{}, fmt.Errorf("参数与确认时不一致：token 绑定的是确认时的参数（%s），本次是 %s，改动后必须重新 confirm.prepare",
-			NormalizeArgsJSON(entry.pending.Args), NormalizeArgsJSON(args))
+		// 不记 args：错误文案里的规范化参数 JSON 可能含凭据 / 设置正文。
+		logx.Warnf("[debugsrv/confirm] 校验确认 token 失败: reason=参数与确认时不一致 action=%s", action)
+		return PendingConfirm{}, errors.New("参数与确认时不一致：请重新 confirm.prepare（敏感参数不会回显）")
 	}
 	delete(m.entries, token) // 一次性：无论后续执行成功与否都不再可用
+	logx.Debugf("[debugsrv/confirm] 确认 token 已消费: action=%s tool=%s", action, entry.pending.Tool)
 	return entry.pending, nil
 }
 
@@ -316,14 +341,19 @@ func (m *ConfirmManager) PendingCount() int {
 
 // sweepLocked 惰性清理过期项（调用方必须持有锁）。
 func (m *ConfirmManager) sweepLocked(now time.Time) {
+	expired := 0
 	for tok, entry := range m.entries {
 		if now.UnixMilli() > entry.pending.ExpiresAt {
 			delete(m.entries, tok)
+			expired++
 		}
+	}
+	if expired > 0 {
+		logx.WarnSampled(confirmExpireLog, "[debugsrv/confirm] 清理过期确认: count=%d remaining=%d", expired, len(m.entries))
 	}
 }
 
-// NormalizeConfirmArgs 规范化确认参数：排序键、字符串 trim、丢弃 nil / 非有限数字。
+// NormalizeConfirmArgs 规范化确认参数：排序键、保留字符串原字节、丢弃 nil。
 //
 // 规范化的目的：让「同一组参数」永远得到同一个哈希 —— AI 两次传 JSON 的键顺序、
 // 空格可能有微小差异，但语义相同就必须能通过校验；反过来，任何语义变化都必须失败。
@@ -345,11 +375,12 @@ func NormalizeConfirmArgs(args map[string]any) map[string]any {
 	return out
 }
 
-// normalizeConfirmValue 单值规范化：字符串去首尾空白；数字统一为 float64 的规范文本；数组保持顺序。
+// normalizeConfirmValue preserves payload bytes. Whitespace in file contents,
+// patches, environment values and commands is part of the approved operation.
 func normalizeConfirmValue(v any) any {
 	switch t := v.(type) {
 	case string:
-		return strings.TrimSpace(t)
+		return t
 	case float64:
 		return normalizeNumber(t)
 	case int:
@@ -365,7 +396,13 @@ func normalizeConfirmValue(v any) any {
 		}
 		return out
 	case map[string]any:
-		return NormalizeConfirmArgs(t)
+		// Only the outer call's confirmation credential is out of band.
+		// A nested "token" may be an environment value or business payload.
+		out := make(map[string]any, len(t))
+		for k, value := range t {
+			out[k] = normalizeConfirmValue(value)
+		}
+		return out
 	default:
 		return t
 	}
@@ -419,6 +456,8 @@ func confirmHash(action string, norm map[string]any) string {
 func newConfirmToken() string {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
+		// 随机源不可用是安全降级（token 变成可预测的时间戳），必须留 WARN。
+		logx.Warnf("[debugsrv/confirm] 生成确认 token 失败，回退时间戳: err=%v", err)
 		return fmt.Sprintf("confirm-%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(buf)
@@ -451,4 +490,22 @@ func defaultConfirmSummary(action string, args map[string]any) string {
 		return fmt.Sprintf("即将执行破坏性操作 %s（无参数）", action)
 	}
 	return fmt.Sprintf("即将执行破坏性操作 %s，参数：%s", action, NormalizeArgsJSON(args))
+}
+
+// BindCaller binds a confirmation to its authenticated owner before exposing it.
+func (m *ConfirmManager) BindCaller(token, caller string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e, ok := m.entries[token]; ok {
+		e.pending.Caller = caller
+		m.entries[token] = e
+	}
+}
+
+func (m *ConfirmManager) Clear() {
+	if m != nil {
+		m.mu.Lock()
+		m.entries = make(map[string]confirmEntry)
+		m.mu.Unlock()
+	}
 }

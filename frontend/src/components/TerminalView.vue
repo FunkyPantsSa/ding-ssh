@@ -8,6 +8,7 @@ import {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} fr
 import {Terminal} from '@xterm/xterm'
 import {guardProgrammaticSelection} from '../utils/selection-copy-guard'
 import {isTerminalSearchShortcut} from '../utils/terminal-search'
+import {encodeTerminalInput} from '../utils/terminal-input'
 import {SearchAddon} from '@xterm/addon-search'
 import {Button, Input} from './ui'
 import {FitAddon} from '@xterm/addon-fit'
@@ -22,6 +23,7 @@ import {
   onSessionOutput,
   onSessionProgress,
   onSessionStatus,
+  onSudoPrompt,
   onSftpSyncPath,
   reconnect,
   sshService,
@@ -31,6 +33,7 @@ import {onSysInfoSnapshot, sysInfoService} from '../services/sysinfo'
 import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../services/zmodem'
 import {Colorizer} from '../utils/output-color'
 import {patchXtermZoomCoords} from '../utils/xterm-zoom'
+import {openTerminalStream, type TerminalStreamClient} from '../services/terminal-stream'
 import {invalidateWebglGlyphModel, patchWebglZoomCanvas, syncWebglCanvas, webglCanvasReport} from '../utils/xterm-webgl-zoom'
 import {
   registerSharedAtlasTerminal,
@@ -44,14 +47,19 @@ import TerminalContextMenu from './terminal/TerminalContextMenu.vue'
 import TerminalCompletionPanel from './terminal/TerminalCompletionPanel.vue'
 import TerminalConnectionOverlay from './terminal/TerminalConnectionOverlay.vue'
 import TerminalTransferOverlay from './terminal/TerminalTransferOverlay.vue'
+import TerminalSudoPopover from './terminal/TerminalSudoPopover.vue'
+import {readScreenCommand} from './terminal/command-line'
+import {useSudoAssistant} from '../composables/useSudoAssistant'
+import {terminalCursorAnchor, type CursorAnchor} from '../utils/terminal-popover'
 import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
 import {useUIStore} from '../stores/ui'
 import {useTerminalCompletion} from '../composables/useTerminalCompletion'
-import {loadTerminalFonts} from '../theme/terminal-fonts'
+import {fontPair, loadTerminalFonts} from '../theme/terminal-fonts'
+import {remoteFontStatus} from '../theme/remote-fonts'
 import {systemTone} from '../composables/useSystemTone'
-import {ClipboardGetText} from '../../wailsjs/runtime/runtime'
-import {LogClient, SetLogTrace} from '../../wailsjs/go/main/App'
+import {ClipboardGetText} from '../services/desktop'
+import {LogClient, SetLogTrace} from '../../bindings/ding-ssh/internal/apphost/app'
 import {terminalAccentColor, resolveTerminalForeground, resolveTerminalSurface, effectiveBrand, monoFontStack, readableOn, rgba} from '../theme/engine'
 import {recordRecentServer} from '../services/recent'
 import type {SessionTab} from '../types'
@@ -76,6 +84,7 @@ const webglFallbackToast = ref('')
 
 let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
+let terminalStream: TerminalStreamClient | null = null
 let searchAddon: SearchAddon | null = null
 let selectionCopyGuard: ReturnType<typeof guardProgrammaticSelection> | null = null
 function onUserSelection(event: PointerEvent) {
@@ -166,6 +175,27 @@ const {
   hideSuggestions, enterNavigation, scheduleSuggest, trackLineInput,
   acceptSuggestion, handleCompletionKey, resetInput, dispose: disposeCompletion,
 } = completion
+
+const sudo = useSudoAssistant({
+  sessionId: () => props.tab.sessionId,
+  active: () => isActiveTab.value && props.tab.status === 'connected' && !!container.value?.clientWidth && !!container.value?.clientHeight && !inputLocked && !zmodem?.active(),
+  focusTerminal,
+  resetInput,
+})
+const {prompt: sudoPrompt, sensitive: sudoSensitive, automatic: sudoAutomatic, password: sudoPassword, submitting: sudoSubmitting, error: sudoError} = sudo
+const sudoAnchor = ref<CursorAnchor | null>(null)
+const sudoBounds = ref({width: 0, height: 0})
+function positionSudo() {
+  if (!term || !container.value || !sudoPrompt.value) return
+  sudoAnchor.value = terminalCursorAnchor(term, container.value)
+  sudoBounds.value = {width: container.value.clientWidth, height: container.value.clientHeight}
+  if (!sudoAnchor.value) sudo.cancel(false)
+}
+function interruptSudo() {
+  sudo.cancel()
+  writeRaw('\x03')
+}
+watch(sudoPrompt, () => { if (sudoPrompt.value) { hideSuggestions(); void nextTick(positionSudo) } })
 
 function uiZoom(): number {
   const z = (settings.uiScale || 100) / 100
@@ -278,10 +308,7 @@ function applyFontSettings() {
   term.options.fontFamily = monoFontStack(settings.fonts.terminalFont)
   term.options.fontSize = effectiveFontSize()
   fit()
-  void Promise.all([
-    loadTerminalFonts(settings.fonts.terminalFont, effectiveFontSize(), terminalFontWeight()),
-    document.fonts.load(`${effectiveFontSize()}px "Noto Sans SC"`, "终端中文"),
-  ]).then(() => {
+  void loadTerminalFonts(settings.fonts.terminalFont, effectiveFontSize(), terminalFontWeight()).finally(() => {
     if (!term) return
     term.clearTextureAtlas()
     fit()
@@ -411,6 +438,7 @@ function disableWebGL() {
 
 function focusActiveSurface() {
   if (disposed || !isActiveTab.value) return
+  if (sudoPrompt.value) return
   if (props.tab.status === 'connected') {
     container.value?.focus()
     term?.focus()
@@ -446,8 +474,13 @@ function fit() {
   // （CSS zoom 下观察器上报的是含 zoom 的尺寸，不能直接采用）
   if (webglAddon) syncWebglCanvas(webglAddon)
   if (props.tab.sessionId && (cols !== term.cols || rows !== term.rows)) {
-    sshService.resize(props.tab.sessionId, term.cols, term.rows).catch(() => {})
+    if (terminalStream && terminalStream.isOpen()) {
+      terminalStream.sendResize(term.cols, term.rows)
+    } else {
+      sshService.resize(props.tab.sessionId, term.cols, term.rows).catch(() => {})
+    }
   }
+  positionSudo()
 }
 
 function effectiveFontSize(): number {
@@ -576,7 +609,8 @@ function openMenu(e: MouseEvent) {
     void pasteFromClipboard()
     return
   }
-  menu.value = {x: Math.min(e.clientX, window.innerWidth - 160), y: Math.min(e.clientY, window.innerHeight - 160)}
+  // 原始点击坐标交给 TerminalContextMenu：它在渲染后按真实尺寸贴边/翻转
+  menu.value = {x: e.clientX, y: e.clientY}
 }
 
 function closeMenu(restoreFocus = false) {
@@ -759,6 +793,7 @@ async function connect(keepBuffer = false): Promise<boolean> {
  */
 async function doConnect(keepBuffer = false): Promise<boolean> {
   cancelAutoReconnect()
+  sudo.reset()
   disposers.forEach((d) => d())
   disposers.length = 0
   sessions.setStatus(props.tab.clientId, 'connecting')
@@ -794,6 +829,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
   disposers.push(
     onSessionStatus(sid, (evt) => {
       sessions.setStatus(props.tab.clientId, evt.status, evt.message)
+      if (evt.status !== 'connected') sudo.reset()
       if (evt.status !== 'connected') hideSuggestions()
       if (evt.status === 'disconnected' && settings.autoReconnect && !disposed) {
         scheduleAutoReconnect()
@@ -825,13 +861,38 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
   // Connect 返回前就已回传，而 Wails 事件不缓存、无监听即丢弃 —— 订阅晚了会丢掉开头
   // 几行输出（表现为「终端顶部吞字符」，且滚屏也找不回来）。
   // 会话 id 由前端生成并传入后端（后端事件名、返回值都用它），因此可以提前订阅。
+  let streamReady = false
+  const handleTerminalBytes = (bytes: Uint8Array) => {
+    if (disposed || !term) return
+    if (sudoSensitive.value && !zmodem?.active()) {
+      writeOutput(colorize.flush())
+      writeOutput(bytes)
+    }
+    else if (zmodem) zmodem.consume(bytes)
+    // 语义着色：只注入 SGR；off 档 / TUI（alt-buffer）内部直接原样返回输入字节
+    else writeOutput(colorize.feed(bytes))
+  }
+
+  terminalStream = openTerminalStream(sid, (bytes) => {
+    handleTerminalBytes(bytes)
+  }, (ready) => {
+    streamReady = ready
+  })
+  if (terminalStream) {
+    disposers.push(() => {
+      terminalStream?.close()
+      terminalStream = null
+    })
+  }
+
   disposers.push(
+    onSudoPrompt(sid, (event) => {
+      if (disposed) return
+      sudo.handleEvent(event)
+    }),
     onSessionOutput(sid, (data) => {
-      if (disposed || !term) return
-      const bytes = base64ToBytes(data)
-      if (zmodem) zmodem.consume(bytes)
-      // 语义着色：只注入 SGR；off 档 / TUI（alt-buffer）内部直接原样返回输入字节
-      else writeOutput(colorize.feed(bytes))
+      if (disposed || !term || streamReady) return
+      handleTerminalBytes(base64ToBytes(data))
     }),
   )
 
@@ -844,7 +905,7 @@ async function doConnect(keepBuffer = false): Promise<boolean> {
       sshService.disconnect(result.sessionId).catch(() => {})
       return false
     }
-    sessions.bindSession(props.tab.clientId, result.sessionId)
+    sessions.bindSession(props.tab.clientId, result.sessionId, result.server)
     sessions.setStatus(props.tab.clientId, 'connected')
     if (!isLocal) recordRecentServer({id: props.tab.node.id, name: props.tab.serverName, host: props.tab.host, connectedAt: Date.now()})
     if (!isLocal) {
@@ -999,22 +1060,26 @@ function closeTab() {
   sessions.closeTab(props.tab.clientId)
 }
 
-function writeRaw(data: string) {
+function writeRaw(data: string, commandHint?: string, fromUser = true, binary = false) {
   if (!props.tab.sessionId) return
+  const command = fromUser && !sudoSensitive.value && (data === '\r' || data === '\n') && term?.buffer.active.type === 'normal'
+    ? (commandHint ?? readScreenCommand(term).cmd) : ''
+  sudo.terminalInput()
   // 发往会话的输入（按键 / 粘贴 / 补全）先补写被语义着色挂起的提示符，并让回显逐字符透传。
   // 否则逐字符输入会被当成「未完成的输出行」缓存，表现为输入了但屏幕不显示。
   const pending = colorize.beginInput()
   if (pending.length) term?.write(pending)
-  // btoa 仅支持 latin1；对 Unicode 用 encodeURIComponent 兜底
-  try {
-    void sshService.write(props.tab.sessionId, btoa(data)).catch(() => {})
-  } catch {
-    const bytes = new TextEncoder().encode(data)
-    let bin = ''
-    bytes.forEach((b) => {
-      bin += String.fromCharCode(b)
-    })
-    void sshService.write(props.tab.sessionId, btoa(bin)).catch(() => {})
+  if (terminalStream && terminalStream.isOpen()) {
+    if (fromUser && command) {
+      terminalStream.sendInteractive(data, command)
+    } else {
+      terminalStream.send(data)
+    }
+  } else {
+    const send = (encoded: string) => fromUser
+      ? sshService.writeInteractive(props.tab.sessionId, encoded, command)
+      : sshService.write(props.tab.sessionId, encoded)
+    void send(encodeTerminalInput(data, binary)).catch(() => {})
   }
 }
 
@@ -1061,13 +1126,21 @@ onMounted(() => {
     term,
     runtimeStatus: () => ({webgl: webglAddon !== null, pendingOutputBytes, peakOutputBytes}),
     container: () => container.value ?? null,
-    write: writeRaw,
+    write: (data, binary) => writeRaw(data, undefined, false, binary),
     reconnect: () => {
       void reconnectSession()
     },
     close: closeTab,
   }
   registerDebugTerminal(debugEntry)
+
+  const onReconnectActive = () => {
+    if (sessions.activeId === props.tab.clientId) {
+      void reconnectSession()
+    }
+  }
+  window.addEventListener('terminal:reconnect-active', onReconnectActive)
+  terminalDisposers.push(() => window.removeEventListener('terminal:reconnect-active', onReconnectActive))
   patchXtermZoomCoords(term, uiZoom)
   tryEnableWebGL()
   applyFontSize()
@@ -1099,16 +1172,28 @@ onMounted(() => {
     // 非连接态（断开/关闭/失败）：画面冻结只读，忽略键盘输入，避免写入已死会话
     if (props.tab.status !== 'connected') return
     if (inputLocked || zmodem?.active()) return
+    if (sudoSensitive.value) {
+      resetInput()
+      writeRaw(data)
+      return
+    }
     // 粘贴大段文本抑制补全
     if (data.length > 80) {
       resetInput()
       writeRaw(data)
       return
     }
-    trackLineInput(data)
-    writeRaw(data)
+    const executedCommand = trackLineInput(data)
+    writeRaw(data, executedCommand)
     if (settings.completionEnabled) scheduleSuggest()
   })
+  terminalDisposers.push(() => sudo.reset())
+  const sudoWrite = term.onWriteParsed(positionSudo)
+  const sudoScroll = term.onScroll(positionSudo)
+  terminalDisposers.push(() => { sudoWrite.dispose(); sudoScroll.dispose() })
+  const cancelSudoOnBlur = () => sudo.cancel(false)
+  window.addEventListener('blur', cancelSudoOnBlur)
+  terminalDisposers.push(() => window.removeEventListener('blur', cancelSudoOnBlur))
 
   selectionCopyGuard = guardProgrammaticSelection(term)
   container.value?.addEventListener('pointerdown', onUserSelection, true)
@@ -1167,6 +1252,17 @@ watch(
   {deep: true},
 )
 
+// A retry in Settings can finish without changing the saved font preference.
+// Rebuild existing terminals when that selection becomes available.
+watch(
+  () => fontPair(settings.fonts.terminalFont).flatMap(family =>
+    [400, 500, 700].map(weight => remoteFontStatus[`${family}:${weight}`] === 'ready'),
+  ),
+  (ready, previous) => {
+    if (ready.some((value, index) => value && !previous[index])) applyFontSettings()
+  },
+)
+
 watch(
   () => settings.loaded,
   (loaded) => {
@@ -1196,7 +1292,7 @@ watch(
 watch(
   () => [isActiveTab.value, props.tab.status] as const,
   ([active]) => {
-    if (!active) return
+    if (!active) { sudo.cancel(false); return }
     // 共享字形图集可能在后台标签渲染时被清空/重排；切回时丢弃顶点模型并整屏重绘。
     atlasEntry.invalidateModel()
     atlasEntry.refresh()
@@ -1306,6 +1402,8 @@ onBeforeUnmount(() => {
     />
 
     <TerminalCompletionPanel v-if="suggestions.length && panelPos" ref="panelEl" :items="suggestions" :position="panelPos" :navigating="navigating" :selected-index="selectedIdx" :hotkey-label="formatHotkeyLabel(settings.completionNavHotkey || DEFAULT_COMPLETION_NAV_HOTKEY)" :source-label="sourceLabel" @hover="enterNavigation" @accept="acceptSuggestion" />
+
+    <TerminalSudoPopover v-if="sudoPrompt && isActiveTab" v-model:password="sudoPassword" :prompt="sudoPrompt" :anchor="sudoAnchor" :bounds="sudoBounds" :server-name="tab.serverName" :automatic="sudoAutomatic" :submitting="sudoSubmitting" :error="sudoError" @submit="sudo.submit" @cancel="sudo.cancel()" @manual="sudo.manual" @interrupt="interruptSudo" />
 
     <TerminalContextMenu v-if="menu" :position="menu" :log-tracking="logTracking" @copy="doCopy" @paste="doPaste" @select-all="doSelectAll" @clear="doClear" @font="adjustFontSize" @fullscreen="toggleFullscreen" @log-trace="toggleLogTrace" @close="closeMenu(true)" />
   </div>

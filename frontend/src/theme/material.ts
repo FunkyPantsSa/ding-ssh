@@ -1,3 +1,4 @@
+import {isDesktop} from '../services/desktop-environment'
 /**
  * Dynamic color core for ding-ssh.
  *
@@ -1081,7 +1082,7 @@ export function detectPlatform(): ThemePlatform {
 export function detectCapabilities(): ThemeCapabilities {
   const platform = detectPlatform()
   const wails =
-    typeof window !== 'undefined' && !!(window as unknown as {runtime?: unknown}).runtime
+    typeof window !== 'undefined' && isDesktop()
   return {
     platform,
     wails,

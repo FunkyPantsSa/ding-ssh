@@ -7,7 +7,7 @@ REM All tool locations are resolved inside dev-env.ps1.
 REM
 REM Usage:
 REM   scripts\dev\dev.cmd                          open an activated shell at the project root
-REM   scripts\dev\dev.cmd wails dev                run one command with the environment ready
+REM   scripts\dev\dev.cmd wails3 dev                run one command with the environment ready
 REM   scripts\dev\dev.cmd go test ./internal/...
 
 SETLOCAL

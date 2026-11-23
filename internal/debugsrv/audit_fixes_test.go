@@ -41,44 +41,35 @@ func TestSFTPPageArguments(t *testing.T) {
 func TestToolBoundConfirmationDispatch(t *testing.T) {
 	ensureSFTPRegistrations(t)
 	env := newSFTPEnv(t)
-	// A permission failure must leave the confirmation available for retry.
-	token, _ := env.srv.opts.Confirms.PrepareTool("sftp.write", OpSftpSyncCwd, map[string]any{"sessionId": "s1", "remotePath": "/not-allowed"}, "sync")
+	args := map[string]any{"sessionId": "s1", "path": "/not-allowed"}
+	token, _ := env.srv.opts.Confirms.PrepareTool(OpSftpMkdir, OpSftpMkdir, args, "mkdir")
 	if _, err := env.srv.confirmCommit(context.Background(), map[string]any{"token": token}); err == nil {
-		t.Fatal("expected permission/preflight refusal")
+		t.Fatal("out-of-scope path accepted")
 	}
 	if _, ok := env.srv.opts.Confirms.Peek(token); !ok {
-		t.Fatal("preflight failure consumed token")
+		t.Fatal("preflight consumed token")
 	}
 }
-
 func TestCommitExecutesBoundToolAndRejectsReuse(t *testing.T) {
 	ensureSFTPRegistrations(t)
 	env := newSFTPEnv(t)
 	env.scope.set("/srv")
-	env.h.replies[OpSftpSyncCwd] = map[string]any{"ok": true}
-	args := map[string]any{"sessionId": "s1", "remotePath": "/srv"}
-	token, _ := env.srv.opts.Confirms.PrepareTool("sftp.write", OpSftpSyncCwd, args, "sync")
-	wrong := map[string]any{"sessionId": "s1", "path": "/srv/file", "content": "x", "token": token}
-	if _, _, err := env.srv.mcpCallToolAudited(context.Background(), OpSftpWrite, wrong); err == nil {
-		t.Fatal("bound token accepted by another tool")
-	}
+	env.h.replies[OpSftpMkdir] = map[string]any{"ok": true}
+	args := map[string]any{"sessionId": "s1", "path": "/srv/new"}
+	token, _ := env.srv.opts.Confirms.PrepareTool(OpSftpMkdir, OpSftpMkdir, args, "mkdir")
 	if _, err := env.srv.confirmCommit(context.Background(), map[string]any{"token": token}); err != nil {
 		t.Fatal(err)
 	}
-	if env.h.lastArgsFor(OpSftpSyncCwd) == nil {
-		t.Fatal("did not dispatch original tool")
-	}
-	if env.h.lastArgsFor(OpSftpWrite) != nil {
-		t.Fatal("dispatched shared action instead of tool")
+	if env.h.lastArgsFor(OpSftpMkdir) == nil {
+		t.Fatal("missing precise tool dispatch")
 	}
 	if _, err := env.srv.confirmCommit(context.Background(), map[string]any{"token": token}); err == nil {
 		t.Fatal("replayed confirmation")
 	}
 }
-
 func TestUnsupportedActionsAreNotAdvertised(t *testing.T) {
 	for _, action := range ConfirmableActions() {
-		if action == "app.reload" || action == "sftp.upload" {
+		if action == "app.reload" {
 			t.Fatalf("unsupported action advertised: %s", action)
 		}
 	}

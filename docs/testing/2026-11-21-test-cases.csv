@@ -1,0 +1,860 @@
+layer,suite,case,status,duration_ms
+Go,ding-ssh/internal/appdir,TestConfigDirUsesAbsoluteDevOverride,PASS,0
+Go,ding-ssh/internal/appdir,TestConfigDirRejectsRelativeDevOverride,PASS,0
+Go,ding-ssh/internal/apphost,TestDebugDiscoveryAlwaysUsesDialableLoopbackURL,PASS,0
+Go,ding-ssh/internal/apphost,TestReloadDebugCapabilityChangeKeepsListener,PASS,10.0
+Go,ding-ssh/internal/apphost,TestReloadDebugListenerChangeRestarts,PASS,0
+Go,ding-ssh/internal/apphost,TestSessionBindingDiagnosticsDoesNotTreatMissingFrontendAsOrphans,PASS,0
+Go,ding-ssh/internal/apphost,TestAppGetGroupsImplicitAncestors,PASS,10.0
+Go,ding-ssh/internal/apphost,TestAppGroupLifecycleSQLite,PASS,10.0
+Go,ding-ssh/internal/apphost,TestAppGroupJSONFallback,PASS,0
+Go,ding-ssh/internal/apphost,TestAppMasterPasswordRotationRoundTripAndRollback/enable-success,PASS,170.0
+Go,ding-ssh/internal/logx,TestFileEnabledWritesToFile,PASS,0
+Go,ding-ssh/internal/logx,TestFileDisabledStopsWriting,PASS,0
+Go,ding-ssh/internal/logx,TestLevelFiltering,PASS,0
+Go,ding-ssh/internal/logx,TestAPILogToggle,PASS,0
+Go,ding-ssh/internal/logx,TestListFilesAndTotalSize,PASS,0
+Go,ding-ssh/internal/logx,TestClearRemovesFilesAndReopens,PASS,0
+Go,ding-ssh/internal/logx,TestMissingDirIsNotAnError,PASS,0
+Go,ding-ssh/internal/logx,TestReadTail,PASS,0
+Go,ding-ssh/internal/logx,TestRotateAndPrune,PASS,10.0
+Go,ding-ssh/internal/logx,TestClose,PASS,0
+Go,ding-ssh/internal/logx,TestFileChannelIndependentOfConsole,PASS,0
+Go,ding-ssh/internal/logx,TestConsoleChannelIndependentOfFile,PASS,0
+Go,ding-ssh/internal/logx,TestBothChannelsDisabled,PASS,0
+Go,ding-ssh/internal/logx,TestConcurrentWriteAndManage,PASS,10.0
+Go,ding-ssh/internal/logx,TestLogDirFollowsUserConfigDir,PASS,0
+Go,ding-ssh/internal/logx,TestOutputRedactsCredentialsOnBothChannels,PASS,0
+Go,ding-ssh/internal/logx,TestRedactIdempotent,PASS,0
+Go,ding-ssh/internal/logx,TestRedactFastPathPlainText,PASS,0
+Go,ding-ssh/internal/logx,TestStdLogWriterRedacts,PASS,0
+Go,ding-ssh/internal/logx,TestEnabledHelpers,PASS,0
+Go,ding-ssh/internal/logx,TestSamplerEvery,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlCapabilityAndConfirmRegistration,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlToolsListedAndRegistryDriven,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlBadInput,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlServersUpdatePartialNode,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlUnknownTool,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlServersExportRedactsSecretsByDefault,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlServersExportIncludeSecrets,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlServersGetAndListRedaction,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlServersCreatePassesNodeWithoutID,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlCredentialsListHasNoPlaintext,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlCredentialsCreateReturnsMetaOnly,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAuditSafeArgsRedactsSecrets,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlCredentialsCreateAuditHasNoPlaintext,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlSettingsSchemaCoversAllFields,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlAppCommandPerCommandRules,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlAppCommandConfirmable,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlWriteToolsRequireToken,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppctlWriteToolsDeniedWithoutCapability,PASS,0
+Go,ding-ssh/internal/debugsrv,TestManagementToolsValidationAndReadDispatch,PASS,0
+Go,ding-ssh/internal/debugsrv,TestGroupWritesRequireConfirmationAndRetestPermission/groups.create,PASS,0
+Go,ding-ssh/internal/debugsrv,TestGroupWritesRequireConfirmationAndRetestPermission/groups.rename,PASS,0
+Go,ding-ssh/internal/debugsrv,TestGroupWritesRequireConfirmationAndRetestPermission/groups.delete,PASS,0
+Go,ding-ssh/internal/debugsrv,TestGroupWritesRequireConfirmationAndRetestPermission,PASS,0
+Go,ding-ssh/internal/debugsrv,TestLegacyGroupCommitChecksPermissionBeforeConsumption,PASS,0
+Go,ding-ssh/internal/debugsrv,TestWorkspaceToolsRequireUIWrite,PASS,0
+Go,ding-ssh/internal/debugsrv,TestStoreSecretGateBeforeFrontend,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSFTPPageArguments,PASS,0
+Go,ding-ssh/internal/debugsrv,TestToolBoundConfirmationDispatch,PASS,0
+Go,ding-ssh/internal/debugsrv,TestCommitExecutesBoundToolAndRejectsReuse,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUnsupportedActionsAreNotAdvertised,PASS,0
+Go,ding-ssh/internal/debugsrv,TestTransferTasksSurviveTerminalTrafficAndSameName,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAuditRedactsSecrets,PASS,0
+Go,ding-ssh/internal/debugsrv,TestRedactArgsJSONVariants,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAuditRingLimit,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAuditRecentLimit,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAuditFilter,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAuditPublishesEvent,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAuditRecordFields,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAuditToolArgsRedacted,PASS,0
+Go,ding-ssh/internal/debugsrv,TestToolCallDeniedByGate,PASS,0
+Go,ding-ssh/internal/debugsrv,TestToolCallAllowedByGate,PASS,0
+Go,ding-ssh/internal/debugsrv,TestWriteToolRequiresToken,PASS,0
+Go,ding-ssh/internal/logx,TestSamplerInterval,PASS,250.0
+Go,ding-ssh/internal/logx,TestSamplerEveryOrInterval,PASS,0
+Go,ding-ssh/internal/logx,TestSampledHelpersRespectLevelAndQuota,PASS,0
+Go,ding-ssh/internal/logx,TestSampledRedactsAndWritesFile,PASS,0
+Go,ding-ssh/internal/logx,TestRedactToken,PASS,0
+Go,ding-ssh/internal/logx,TestRedactJSONSecrets,PASS,0
+Go,ding-ssh/internal/logx,TestRedactAuthorizationBearer,PASS,0
+Go,ding-ssh/internal/logx,TestRedactPrivateKey,PASS,0
+Go,ding-ssh/internal/debugsrv,TestReadToolsAlwaysAllowed,PASS,0
+Go,ding-ssh/internal/debugsrv,TestNilGateDeniesWrites,PASS,0
+Go,ding-ssh/internal/logx,TestRedactKeepsPlainText,PASS,0
+Go,ding-ssh/internal/debugsrv,TestToolListCapabilityNotes,PASS,10.0
+Go,ding-ssh/internal/debugsrv,TestAppPermissionsView,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAppRecentCalls,PASS,0
+Go,ding-ssh/internal/debugsrv,TestInitializeIncludesCapabilitySnapshot,PASS,0
+Go,ding-ssh/internal/debugsrv,TestCapabilityDescriptionsComplete,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUnknownTool,PASS,0
+Go,ding-ssh/internal/debugsrv,TestLegacyToolCapabilityTable,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSendInputNoLongerRequiresToken,PASS,0
+Go,ding-ssh/internal/debugsrv,TestEvalNoLongerRequiresToken,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIWriteActionDoesNotRequireToken,PASS,0
+Go,ding-ssh/internal/debugsrv,TestDestructiveToolsStillRequireToken,PASS,0
+Go,ding-ssh/internal/debugsrv,TestConfirmPrepareCommit,PASS,0
+Go,ding-ssh/internal/debugsrv,TestConfirmArgsNormalization,PASS,0
+Go,ding-ssh/internal/debugsrv,TestConfirmArgsTampered,PASS,0
+Go,ding-ssh/internal/debugsrv,TestConfirmActionMismatch,PASS,0
+Go,ding-ssh/internal/apphost,TestAppMasterPasswordRotationRoundTripAndRollback/change-success,PASS,310.0
+Go,ding-ssh/internal/debugsrv,TestConfirmExpired,PASS,40.0
+Go,ding-ssh/internal/debugsrv,TestConfirmExpiredMessage,PASS,30.0
+Go,ding-ssh/internal/debugsrv,TestConfirmMissingAndUnknownToken,PASS,0
+Go,ding-ssh/internal/debugsrv,TestConfirmableActionsList,PASS,0
+Go,ding-ssh/internal/debugsrv,TestMCPConfirmTools,PASS,0
+Go,ding-ssh/internal/debugsrv,TestConfirmCommitWithoutExecutor,PASS,0
+Go,ding-ssh/internal/debugsrv,TestNormalizeConfirmArgsDropsToken,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSettingsPatchArgsNormalization,PASS,0
+Go,ding-ssh/internal/debugsrv,TestCapabilityOfAction,PASS,0
+Go,ding-ssh/internal/debugsrv,TestWriteToolWithoutConfirmManager,PASS,0
+Go,ding-ssh/internal/debugsrv,TestConfirmManagerConcurrent,PASS,0
+Go,ding-ssh/internal/debugsrv,TestDefaultConfirmSummary,PASS,0
+Go,ding-ssh/internal/debugsrv,TestHTTPWriteRouteDeniedWithoutCapability,PASS,10.0
+Go,ding-ssh/internal/debugsrv,TestHTTPWriteRouteRequiresConfirmToken,PASS,10.0
+Go,ding-ssh/internal/debugsrv,TestHTTPTerminalInputNoConfirmToken,PASS,10.0
+Go,ding-ssh/internal/debugsrv,TestHTTPTwoStageConfirmFlow,PASS,10.0
+Go,ding-ssh/internal/debugsrv,TestHTTPReadRouteAlwaysAllowed,PASS,10.0
+Go,ding-ssh/internal/debugsrv,TestHTTPMCPInitializeAndToolsList,PASS,20.0
+Go,ding-ssh/internal/debugsrv,TestConfirmTokenNotPartOfBusinessArgs,PASS,0
+Go,ding-ssh/internal/debugsrv,TestBuildArgsRestoresBody,PASS,0
+Go,ding-ssh/internal/debugsrv,TestAuditMiddlewareSharesInfo,PASS,0
+Go,ding-ssh/internal/debugsrv,TestManualLiveProbe,PASS,20.0
+Go,ding-ssh/internal/debugsrv,TestToolsCatalogHTTP,PASS,10.0
+Go,ding-ssh/internal/debugsrv,TestMCPStructuredContent,PASS,0
+Go,ding-ssh/internal/debugsrv,TestRegisterToolCapAppearsInToolsList,PASS,0
+Go,ding-ssh/internal/debugsrv,TestRegisterToolCapWithoutConfirm,PASS,0
+Go,ding-ssh/internal/debugsrv,TestRegisterToolCapOverride,PASS,0
+Go,ding-ssh/internal/debugsrv,TestRegisterToolCapInvalid,PASS,0
+Go,ding-ssh/internal/debugsrv,TestRegisterToolConfirmInvalid,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUnregisterToolConfirm,PASS,0
+Go,ding-ssh/internal/debugsrv,TestRegisterToolCapConcurrent,PASS,0
+Go,ding-ssh/internal/debugsrv,TestBuiltinToolCapsComplete,PASS,0
+Go,ding-ssh/internal/i18n,TestLanguageAndFallback,PASS,0
+Go,ding-ssh/internal/i18n,TestFormatPlaceholders,PASS,0
+Go,ding-ssh/internal/debugsrv,TestServerImmediateStopDoesNotRaceServe,PASS,40.0
+Go,ding-ssh/internal/debugsrv,TestSFTPCapabilityAndConfirmRegistration,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSFTPToolsListed,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSFTPPathAllowedMatrix,PASS,0
+Go,ding-ssh/internal/debugsrv,TestNormalizeRemotePathMatrix,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSFTPWriteRejectedWhenAllowlistEmpty,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSFTPWritePreflightRejectsPathAndKeepsToken,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSFTPRenameRequiresBothEnds,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSFTPWriteRejectsDotDot,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSFTPWriteContentTooLarge,PASS,10.0
+Go,ding-ssh/internal/debugsrv,TestSFTPListShapingAndTruncation,PASS,10.0
+Go,ding-ssh/internal/debugsrv,TestSFTPStatAndTransfers,PASS,0
+Go,ding-ssh/internal/debugsrv,TestParseTransferIDMatrix,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSFTPCancelAndSyncCwd,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSFTPReadTextBase64AndTruncation,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSFTPReadArgValidation,PASS,0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunExpectMatched,PASS,0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunExitMarkerWrap,PASS,0
+Go,ding-ssh/internal/apphost,TestAppMasterPasswordRotationRoundTripAndRollback/disable-success,PASS,370.0
+Go,ding-ssh/internal/cryptox,TestEncryptDecryptRoundTrip,PASS,0
+Go,ding-ssh/internal/cryptox,TestEncryptEmpty,PASS,0
+Go,ding-ssh/internal/cryptox,TestDecryptRejectsPlaintext,PASS,0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunExitMarkerAutoExpect,PASS,320.0
+Go,ding-ssh/internal/apphost,TestAppMasterPasswordRotationRoundTripAndRollback/enable-rollback,PASS,210.0
+Go,ding-ssh/internal/localterm,TestLocalTerminalRealPTYLifecycle,PASS,30.0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunExpectTimeoutIsNotProtocolError,PASS,300.0
+Go,ding-ssh/internal/autostart,TestRegistrationIsPerUserAndRemovable,PASS,0
+Go,ding-ssh/internal/cryptox,TestDeriveKeyDeterministic,PASS,500.0
+Go,ding-ssh/internal/cryptox,TestVaultFailedFieldMigrationPreservesPersistentState/enable,PASS,130.0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunIdleFinishWithoutExpect,PASS,400.0
+Go,ding-ssh/internal/apphost,TestAppMasterPasswordRotationRoundTripAndRollback/change-rollback,PASS,840.0
+Go,ding-ssh/internal/apphost,TestAppMasterPasswordRotationRoundTripAndRollback/disable-rollback,PASS,570.0
+Go,ding-ssh/internal/apphost,TestAppMasterPasswordRotationRoundTripAndRollback,PASS,2470.0
+Go,ding-ssh/internal/apphost,TestDebugDisconnectRoutesLocalSession,PASS,0
+Go,ding-ssh/internal/apphost,TestSftpWriteContentResolution,PASS,0
+Go,ding-ssh/internal/apphost,TestSSHImportAtomicGraph,PASS,10.0
+Go,ding-ssh/internal/apphost,TestSavedSudoPasswordUsesLatestBoundServerAndNeverKeyPhrase/host,PASS,0
+Go,ding-ssh/internal/apphost,TestSavedSudoPasswordUsesLatestBoundServerAndNeverKeyPhrase/port,PASS,0
+Go,ding-ssh/internal/apphost,TestSavedSudoPasswordUsesLatestBoundServerAndNeverKeyPhrase/user,PASS,0
+Go,ding-ssh/internal/apphost,TestSavedSudoPasswordUsesLatestBoundServerAndNeverKeyPhrase/disabled,PASS,0
+Go,ding-ssh/internal/apphost,TestSavedSudoPasswordUsesLatestBoundServerAndNeverKeyPhrase/privateKey,PASS,0
+Go,ding-ssh/internal/apphost,TestSavedSudoPasswordUsesLatestBoundServerAndNeverKeyPhrase/agent,PASS,0
+Go,ding-ssh/internal/apphost,TestSavedSudoPasswordUsesLatestBoundServerAndNeverKeyPhrase/empty,PASS,0
+Go,ding-ssh/internal/apphost,TestSavedSudoPasswordUsesLatestBoundServerAndNeverKeyPhrase,PASS,0
+Go,ding-ssh/internal/apphost,TestSudoHostCleanupRejectsBadPaths,PASS,0
+Go,ding-ssh/internal/apphost,TestSudoHostCleanupRequiresAllowlist,PASS,0
+Go,ding-ssh/internal/apphost,TestSudoHostCleanupWithoutSftpReturnsUnverified,PASS,0
+Go,ding-ssh/internal/apphost,TestSudoHostCleanupRequiresPath,PASS,0
+Go,ding-ssh/internal/apphost,TestIsHostSudoOpIncludesCleanup,PASS,0
+Go,ding-ssh/internal/apphost,TestSudoSftpRemoveAndVerifySemantics,PASS,0
+Go,ding-ssh/internal/apphost,TestUpdateUsesExplicitBuildCommit,PASS,0
+Go,ding-ssh/internal/cryptox,TestVaultFailedFieldMigrationPreservesPersistentState/change,PASS,1000
+Go,ding-ssh/internal/cryptox,TestVaultFailedFieldMigrationPreservesPersistentState/disable,PASS,640.0
+Go,ding-ssh/internal/cryptox,TestVaultFailedFieldMigrationPreservesPersistentState,PASS,1770.0
+Go,ding-ssh/internal/cryptox,TestVaultRejectsMissingVerifier,PASS,250.0
+Go,ding-ssh/internal/cryptox,TestVaultCorruptFileKeyIsNotOverwritten,PASS,0
+Go,ding-ssh/internal/cryptox,TestVaultRejectsMalformedMasterMetadata,PASS,0
+Go,ding-ssh/internal/sshconfig,TestSnapshotRules,PASS,30.0
+Go,ding-ssh/internal/sshconfig,TestUnsafeConfigNeverExecutes,PASS,10.0
+Go,ding-ssh/internal/sshconfig,TestIncludeCycle,PASS,0
+Go,ding-ssh/internal/cryptox,TestIsolatedVaultMasterPasswordNeverChangesKeyring,PASS,450.0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunConcurrentRejected,PASS,3000
+Go,ding-ssh/internal/debugsrv,TestTerminalExpectSinceMarker,PASS,60.0
+Go,ding-ssh/internal/debugsrv,TestTerminalArgValidation,PASS,0
+Go,ding-ssh/internal/debugsrv,TestTerminalOutputTruncated,PASS,400.0
+Go,ding-ssh/internal/debugsrv,TestSFTPResources,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSFTPAuditSafeArgsFolding,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoCapabilityAndConfirmRegistration,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoToolDescription,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoSchemaHasNoPasswordField,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoArgValidation,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoRequiresTwoPhaseConfirm,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoCapabilityDenied,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoRejectPathsFromHost/本机终端,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoRejectPathsFromHost/无服务器,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoRejectPathsFromHost/无保存密码,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoRejectPathsFromHost,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoWhitelistRequiresTmp,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoTempFileLifecycleAndScrub,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoTempFileIsRandom,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoTimeoutCleansUpTempFile,PASS,300.0
+Go,ding-ssh/internal/debugsrv,TestSudoIdleReturnsChineseHint,PASS,80.0
+Go,ding-ssh/internal/debugsrv,TestSudoChmodFailureSkipsSudo,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoCommonFailureHints/密码错误,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoCommonFailureHints/不在_sudoers,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoCommonFailureHints/要求_TTY,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoCommonFailureHints/没有_sudo_命令,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoCommonFailureHints,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoShellLineQuoting,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoShellLineUsesShellDashC,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoSharesTerminalSlot,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoAuditArgsHaveNoPassword,PASS,0
+Go,ding-ssh/internal/cryptox,TestVaultMasterPasswordLifecycle,PASS,1650.0
+Go,ding-ssh/internal/debugsrv,TestSudoTimeoutUsesIndependentCleanup,PASS,300.0
+Go,ding-ssh/internal/cryptox,TestVaultFailedMetadataSavePreservesState,PASS,340.0
+Go,ding-ssh/internal/localterm,TestImmediateShellExitDoesNotLeaveConnectedSession,PASS,5050.0
+Go,ding-ssh/internal/localterm,TestLocalTerminalEnvironmentDefaults,PASS,0
+Go,ding-ssh/internal/localterm,TestLocalTerminalConcurrentReplacementCleansAllSessions,PASS,20.0
+Go,ding-ssh/internal/store,TestHistoryLifecycleFilteringAndLimits,PASS,40.0
+Go,ding-ssh/internal/sshx,TestAgentIdentityFilteringAndSigning,PASS,10.0
+Go,ding-ssh/internal/sshx,TestDynamicTunnelRealSOCKS5RoundTrip,PASS,20.0
+Go,ding-ssh/internal/sshx,TestRemoteTunnelRealForwardedChannelRoundTrip,PASS,10.0
+Go,ding-ssh/internal/sshx,TestSFTPManagerCRUDAndBinaryTransfers,PASS,10.0
+Go,ding-ssh/internal/sshx,TestTestConnectivityUnreachable,PASS,0
+Go,ding-ssh/internal/sshx,TestTestConnectivityReachable,PASS,0
+Go,ding-ssh/internal/sshx,TestFilesystemClassification,PASS,0
+Go,ding-ssh/internal/sshx,TestHostKeyVerifier/example.org:22,PASS,0
+Go,ding-ssh/internal/sshx,TestHostKeyVerifier/example.org:2222,PASS,0
+Go,ding-ssh/internal/sshx,TestHostKeyVerifier/[2001:db8::1]:2222,PASS,0
+Go,ding-ssh/internal/sshx,TestHostKeyVerifier,PASS,0
+Go,ding-ssh/internal/sshx,TestHostKeyVerifierFailsClosed,PASS,0
+Go,ding-ssh/internal/sshx,TestHostKeyVerifierHashedAndRevoked,PASS,0
+Go,ding-ssh/internal/sshx,TestExplicitTrustRefusesChangedKey,PASS,10.0
+Go,ding-ssh/internal/sshx,TestJumpServerDirectorySyncIsolation,PASS,0
+Go,ding-ssh/internal/sshx,TestParsePromptUbuntuColored,PASS,0
+Go,ding-ssh/internal/sshx,TestParsePromptCentOSBracket,PASS,0
+Go,ding-ssh/internal/sshx,TestParsePromptAfterCdEcho,PASS,0
+Go,ding-ssh/internal/sshx,TestParseCdFallbackWhenPromptUnknown,PASS,0
+Go,ding-ssh/internal/sshx,TestParseCdEchoOnPromptLine,PASS,0
+Go,ding-ssh/internal/sshx,TestParseCdEchoQuoted,PASS,0
+Go,ding-ssh/internal/sshx,TestParseCdEchoRelative,PASS,0
+Go,ding-ssh/internal/sshx,TestExpandPathRelativeJoinsLastDir,PASS,0
+Go,ding-ssh/internal/sshx,TestParseOSC3008ShellOnly,PASS,0
+Go,ding-ssh/internal/sshx,TestParseOSC7LastMatchWins,PASS,0
+Go,ding-ssh/internal/sshx,TestParseOSC7EmptyHost,PASS,0
+Go,ding-ssh/internal/sshx,TestStaleOSC7DoesNotHidePrompt,PASS,0
+Go,ding-ssh/internal/sshx,TestParsePromptTildeHome,PASS,0
+Go,ding-ssh/internal/sshx,TestParsePromptTildeWithBEL,PASS,0
+Go,ding-ssh/internal/sshx,TestParsePromptAfterBackspaceEdit,PASS,0
+Go,ding-ssh/internal/sshx,TestResolveJumpChain,PASS,0
+Go,ding-ssh/internal/sshx,TestDirSyncConsumesRelativeCdEchoOnce,PASS,0
+Go,ding-ssh/internal/sshx,TestDirSyncRelativeCdAppliedOnce,PASS,0
+Go,ding-ssh/internal/sshx,TestDirSyncCdEchoSplitAcrossChunks,PASS,0
+Go,ding-ssh/internal/sshx,TestDirSyncMultipleCdLinesInOneChunk,PASS,0
+Go,ding-ssh/internal/sshx,TestDirSyncIgnoresCdDashAndDot,PASS,0
+Go,ding-ssh/internal/sshx,TestDirSyncPromptPriorityAndDedup,PASS,0
+Go,ding-ssh/internal/sshx,TestDirSyncBareCdLineConsumedOnce,PASS,0
+Go,ding-ssh/internal/sshx,TestDirSyncSkipsMissingCdTarget,PASS,0
+Go,ding-ssh/internal/sshx,TestDirSyncVerifiesAllCdTargets,PASS,0
+Go,ding-ssh/internal/sshx,TestDirSyncFallsBackWhenVerifyUnavailable,PASS,0
+Go,ding-ssh/internal/sshx,TestDirSyncWorkerProcessesQueue,PASS,100.0
+Go,ding-ssh/internal/sshx,TestRemoteDirExists,PASS,0
+Go,ding-ssh/internal/sshx,TestDirSyncDisablesVerifyWhenSftpViewDiffers,PASS,0
+Go,ding-ssh/internal/sshx,TestRemoteDirExistsSkipsDuringCooldown,PASS,0
+Go,ding-ssh/internal/sshx,TestDirSyncBareCdGoesHome,PASS,0
+Go,ding-ssh/internal/sshx,TestBlockedTerminalWriteAllowsKeepAliveUpdate,PASS,0
+Go,ding-ssh/internal/sshx,TestRemoveRemoteSymlinkDoesNotRemoveTarget,PASS,0
+Go,ding-ssh/internal/sshx,TestRemoteReplacementPublishesStagedFileAndPreservesOriginalBeforeCommit,PASS,0
+Go,ding-ssh/internal/sshx,TestLocalReplacementKeepsOriginalUntilCommit,PASS,0
+Go,ding-ssh/internal/sshx,TestSFTPCacheIsScopedBySession,PASS,0
+Go,ding-ssh/internal/sshx,TestSFTPCacheInvalidationRejectsInFlightRefresh,PASS,0
+Go,ding-ssh/internal/sshx,TestSFTPCacheGlobalInvalidationRejectsInitialRead,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRequiresSubmittedCommandAndEnabledServer/not-armed,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRequiresSubmittedCommandAndEnabledServer/disabled,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRequiresSubmittedCommandAndEnabledServer/jump-server,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRequiresSubmittedCommandAndEnabledServer/complex-command,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRequiresSubmittedCommandAndEnabledServer/automation,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRequiresSubmittedCommandAndEnabledServer,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantMatchesSplitColoredAndChinesePrompts,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantDoesNotUseCompletedHistoricalPrompts,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantPasswordOnlyOnceAndManualRetry,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRejectsInvalidatedTokens/cancel,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRejectsInvalidatedTokens/typing,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRejectsInvalidatedTokens/interrupt,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRejectsInvalidatedTokens/new-output,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRejectsInvalidatedTokens/expired,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRejectsInvalidatedTokens/closed,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRejectsInvalidatedTokens/reconnecting,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantRejectsInvalidatedTokens,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantNeverUsesKeyPhraseOrOtherAccountPassword,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantSessionIsolationAndConcurrentSubmit,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantDisablesForNestedDestinationsAndMultilinePaste,PASS,0
+Go,ding-ssh/internal/sshx,TestSudoAssistantControlCharactersAndWriteErrorsDoNotExposeSecrets,PASS,0
+Go,ding-ssh/internal/sshx,TestStartSysInfoCollectorGatedBySetting/未注入设置读取器时默认开启,PASS,0
+Go,ding-ssh/internal/sshx,TestStartSysInfoCollectorGatedBySetting/关闭时不采集且会话不存在也不报错,PASS,0
+Go,ding-ssh/internal/sshx,TestStartSysInfoCollectorGatedBySetting/开启但会话不存在时返回会话不存在,PASS,0
+Go,ding-ssh/internal/sshx,TestStartSysInfoCollectorGatedBySetting/StopAllSysInfoCollectors_空表安全,PASS,0
+Go,ding-ssh/internal/sshx,TestStartSysInfoCollectorGatedBySetting,PASS,0
+Go,ding-ssh/internal/updater,TestApplyMacAppBundle,PASS,10.0
+Go,ding-ssh/internal/sshx,TestSysInfoLoopPollsOnlyWhenRealtimeEnabled,PASS,120.0
+Go,ding-ssh/internal/sshx,TestRankNetIfacesPrefersEnsOverVethNoise,PASS,0
+Go,ding-ssh/internal/sshx,TestParseNetRawNoHard16Cap,PASS,0
+Go,ding-ssh/internal/sshx,TestSysInfoRealtimeOverridePerSession,PASS,0
+Go,ding-ssh/internal/sshx,TestRunningCollectorRequestsFreshSnapshot,PASS,0
+Go,ding-ssh/internal/updater,TestInstallElevationPolicy/writable_directory_installs_without_UAC,PASS,10.0
+Go,ding-ssh/internal/updater,TestInstallElevationPolicy/protected_directory_requests_UAC,PASS,10.0
+Go,ding-ssh/internal/updater,TestInstallElevationPolicy/missing_directory_does_not_request_UAC,PASS,0
+Go,ding-ssh/internal/updater,TestInstallElevationPolicy/already_elevated_does_not_loop,PASS,0
+Go,ding-ssh/internal/updater,TestInstallElevationPolicy,PASS,20.0
+Go,ding-ssh/internal/sshx,TestSSHManagerRealInteractiveChannelLifecycle,PASS,20.0
+Go,ding-ssh/internal/updater,TestCancellingElevationPreservesOldVersionAndRestartsFromBroker/install_on_exit,PASS,0
+Go,ding-ssh/internal/updater,TestCancellingElevationPreservesOldVersionAndRestartsFromBroker/install_now,PASS,0
+Go,ding-ssh/internal/updater,TestCancellingElevationPreservesOldVersionAndRestartsFromBroker,PASS,0
+Go,ding-ssh/internal/updater,TestElevationRejectsMissingSourceHash,PASS,0
+Go,ding-ssh/internal/updater,TestInstallRejectsChangedPlan,PASS,0
+Go,ding-ssh/internal/updater,TestInstallRejectsChangedExecutableBeforeReplacingOldVersion,PASS,10.0
+Go,ding-ssh/internal/updater,TestInstallRollsBackFailedReplacement,PASS,10.0
+Go,ding-ssh/internal/updater,TestInstallPreservesExistingBackup,PASS,0
+Go,ding-ssh/internal/updater,TestSuccessfulUpdateRestartsOnlyWhenRequested,PASS,10.0
+Go,ding-ssh/internal/updater,TestGetRejectsHTTPFailure,PASS,0
+Go,ding-ssh/internal/updater,TestCheckRejectsUnknownChannelBeforeNetwork,PASS,0
+Go,ding-ssh/internal/updater,TestDownloadRejectsUnsafeAsset,PASS,0
+Go,ding-ssh/internal/sshx,TestSSHImmediateShellExitDoesNotLeaveSession,PASS,410.0
+Go,ding-ssh/internal/sshx,TestTopFinalFrame,PASS,0
+Go,ding-ssh/internal/sshx,TestTopMissingAndUnits,PASS,0
+Go,ding-ssh/internal/sshx,TestJoinRemote,PASS,0
+Go,ding-ssh/internal/sshx,TestDirBytes,PASS,0
+Go,ding-ssh/internal/sshx,TestCopyFolderChunkAccumulatesAndCancels,PASS,0
+Go,ding-ssh/internal/sshx,TestUploadFolderTreeRecursesIntoServerFS,PASS,0
+Go,ding-ssh/internal/sshx,TestUploadFolderTreeSkipsSymlink,PASS,0
+Go,ding-ssh/internal/sshx,TestUploadFolderTreeCancelled,PASS,0
+Go,ding-ssh/internal/sshx,TestRemoteDirBytes,PASS,0
+Go,ding-ssh/internal/sshx,TestDownloadFolderTreeRecursesFromServerFS,PASS,10.0
+Go,ding-ssh/internal/sshx,TestDownloadFolderTreeCancelled,PASS,0
+Go,ding-ssh/internal/sshx,TestTransferLimiterAcceptsChunksLargerThanBurst,PASS,250.0
+Go,ding-ssh/internal/sshx,TestFolderCopyCountsPartialWritesAndRejectsShortWrites,PASS,0
+Go,ding-ssh/internal/sshx,TestTransferLimiterSmallRatesHaveNonzeroBurst,PASS,0
+Go,ding-ssh/internal/sshx,TestTransferLimiterConcurrentReconfiguration,PASS,0
+Go,ding-ssh/internal/sshx,TestTransferPoolResizePreservesActiveWorkers,PASS,0
+Go,ding-ssh/internal/sshx,TestThrottledCopyRoundTripAndCancellation,PASS,0
+Go,ding-ssh/internal/sshx,TestTransferPoolShrinkWaitsForActiveWorkers,PASS,40.0
+Go,ding-ssh/internal/sshx,TestStreamTransferEmitsProgressDuringCopy,PASS,0
+Go,ding-ssh/internal/sshx,TestSameNameTransfersHaveDistinctIDsAndExactCancellation,PASS,0
+Go,ding-ssh/internal/sshx,TestTransferProgressKeepsOneIDAcrossStartAndFinish,PASS,0
+Go,ding-ssh/internal/sshx,TestCancelledStreamReturnsCancellationWithPartialBytes,PASS,0
+Go,ding-ssh/internal/sshx,TestStreamTransferCountsPartialWritesAndRejectsShortWrites/<nil>,PASS,0
+Go,ding-ssh/internal/sshx,TestStreamTransferCountsPartialWritesAndRejectsShortWrites/io:_read/write_on_closed_pipe,PASS,0
+Go,ding-ssh/internal/sshx,TestStreamTransferCountsPartialWritesAndRejectsShortWrites,PASS,0
+Go,ding-ssh/internal/sshx,TestRealJumpChainAndCleanup,PASS,40.0
+Go,ding-ssh/internal/sshx,TestUnknownHostPreventsPasswordAuthentication,PASS,0
+Go,ding-ssh/internal/sshx,TestHostTrustApprovalAndReplacement,PASS,10.0
+Go,ding-ssh/internal/sshx,TestRevokedKeyCannotCreateApprovalChallenge,PASS,0
+Go,ding-ssh/internal/sshx,TestReadOnlyKeyRotationPinsAppWithoutEditingSource,PASS,10.0
+Go,ding-ssh/internal/sshx,TestLocalTunnelListenScope,PASS,30.0
+Go,ding-ssh/internal/sshx,TestReverseDynamicTunnel,PASS,10.0
+Go,ding-ssh/internal/sshx,TestUpdateTunnelAppliesConfigAndKeepsID,PASS,0
+Go,ding-ssh/internal/sshx,TestUpdateTunnelRejectsInvalidInput,PASS,0
+Go,ding-ssh/internal/sshx,TestNormalizeTunnelConfigDefaults,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoCleanupRunsIndependentlyFirst,PASS,2250.0
+Go,ding-ssh/internal/store,TestDingpackEncryptedRoundTripAndRejection,PASS,1920.0
+Go,ding-ssh/internal/store,TestDingpackImportValidatesVersionAndServerLimit/version-999-servers-0,PASS,490.0
+Go,ding-ssh/internal/store,TestDingpackImportValidatesVersionAndServerLimit/version-1-servers-501,PASS,980.0
+Go,ding-ssh/internal/store,TestDingpackImportValidatesVersionAndServerLimit,PASS,1470.0
+Go,ding-ssh/internal/store,TestReencryptAllSecretsIsAtomicOnCredentialFailure,PASS,30.0
+Go,ding-ssh/internal/store,TestJSONGroupStoreAddCreatesAncestors,PASS,0
+Go,ding-ssh/internal/store,TestJSONGroupStoreRenamePrefix,PASS,0
+Go,ding-ssh/internal/store,TestJSONGroupStoreRemove,PASS,0
+Go,ding-ssh/internal/store,TestJSONGroupStoreRemoveKeepChildren,PASS,0
+Go,ding-ssh/internal/store,TestJSONGroupStoreListNormalizes,PASS,0
+Go,ding-ssh/internal/store,TestNormalizeGroupPathValid,PASS,0
+Go,ding-ssh/internal/store,TestNormalizeGroupPathNFC,PASS,0
+Go,ding-ssh/internal/store,TestNormalizeGroupPathInvalid,PASS,0
+Go,ding-ssh/internal/store,TestNormalizeGroupPathBounds,PASS,0
+Go,ding-ssh/internal/store,TestNormalizeLegacyGroupPath,PASS,0
+Go,ding-ssh/internal/store,TestNormalizeLegacyGroupPathInvalid,PASS,0
+Go,ding-ssh/internal/store,TestNormalizeGroupLeaf,PASS,0
+Go,ding-ssh/internal/store,TestGroupPathHelpers,PASS,0
+Go,ding-ssh/internal/store,TestCanonicalGroupPath,PASS,0
+Go,ding-ssh/internal/store,TestResolveGroupRename,PASS,0
+Go,ding-ssh/internal/store,TestSQLiteGroupTreeStoreListAdd,PASS,0
+Go,ding-ssh/internal/store,TestSQLiteGroupTreeStoreRenameCascade,PASS,0
+Go,ding-ssh/internal/store,TestSQLiteGroupTreeStoreRenameConflictKeepsData,PASS,10.0
+Go,ding-ssh/internal/store,TestSQLiteGroupTreeStoreRenameValidation,PASS,0
+Go,ding-ssh/internal/store,TestSQLiteGroupTreeStoreRemoveRecursive,PASS,0
+Go,ding-ssh/internal/store,TestSQLiteGroupTreeStoreRemoveKeepChildrenRoot,PASS,0
+Go,ding-ssh/internal/store,TestSQLiteGroupTreeStoreRemoveKeepChildrenNested,PASS,0
+Go,ding-ssh/internal/store,TestSQLiteGroupTreeStoreRemoveKeepChildrenConflict,PASS,10.0
+Go,ding-ssh/internal/store,TestSQLiteGroupTreeStoreRemoveKeepChildrenDetectsImplicitGroups,PASS,10.0
+Go,ding-ssh/internal/store,TestSQLiteGroupTreeStoreRemoveKeepChildrenCanReuseDeletedParentPath,PASS,10.0
+Go,ding-ssh/internal/store,TestSQLiteStoreCanonicalizesServerGroupBeforeRename,PASS,20.0
+Go,ding-ssh/internal/store,TestNormalizeLegacyGroupPaths,PASS,10.0
+Go,ding-ssh/internal/store,TestNormalizeLegacyGroupPathsNoChange,PASS,10.0
+Go,ding-ssh/internal/store,TestCheckGroupLiftConflict,PASS,0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreTabBarPlacementDefault,PASS,0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreTabBarPlacementRoundTrip,PASS,0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreRightClickActionDefault,PASS,0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreRightClickActionRoundTrip,PASS,0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreNavSectionOrderDefault,PASS,0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreNavSectionOrderRoundTrip,PASS,0
+Go,ding-ssh/internal/store,TestSQLiteSettingsStoreNavSectionOrder,PASS,10.0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreRightClickActionKeepsExplicitValue,PASS,0
+Go,ding-ssh/internal/store,TestSQLiteSettingsStoreRightClickAction,PASS,20.0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreTabBarPlacementKeepsExplicitTop,PASS,0
+Go,ding-ssh/internal/store,TestSQLiteSettingsStoreTabBarPlacement,PASS,50.0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreLogDefaults,PASS,0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreLogLevelFallback,PASS,10.0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreLogTraceTabsRoundTrip,PASS,0
+Go,ding-ssh/internal/store,TestSQLiteSettingsStoreLogSettings,PASS,30.0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreDebugCapabilityDefaults,PASS,0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreDebugCapabilityLegacyDefault,PASS,0
+Go,ding-ssh/internal/store,TestJSONSettingsStoreDebugCapabilityRoundTrip,PASS,0
+Go,ding-ssh/internal/store,TestSQLiteSettingsStoreDebugCapabilities,PASS,10.0
+Go,ding-ssh/internal/store,TestDebugSettingsSudoCredentialNormalization,PASS,0
+Go,ding-ssh/internal/store,TestSettingsStoreAutoLoginLastServer,PASS,10.0
+Go,ding-ssh/internal/store,TestSettingsStoreSysInfoCollectEnabled,PASS,10.0
+Go,ding-ssh/internal/store,TestSettingsTerminalColorModeDefaultStaysAuto,PASS,90.0
+Go,ding-ssh/internal/store,TestBehaviorSettingsDefaultsAndRoundTrip/json,PASS,0
+Go,ding-ssh/internal/store,TestBehaviorSettingsDefaultsAndRoundTrip/sqlite,PASS,10.0
+Go,ding-ssh/internal/store,TestBehaviorSettingsDefaultsAndRoundTrip,PASS,10.0
+Go,ding-ssh/internal/store,TestSSHOptionsSQLiteMigrationRoundTrip,PASS,10.0
+Go,ding-ssh/internal/debugsrv,TestSudoCleanupFailureReportsResidualPath,PASS,2260.0
+Go,ding-ssh/internal/debugsrv,TestSudoCleanupHostErrorIsReported,PASS,2260.0
+Go,ding-ssh/internal/debugsrv,TestSudoCleanupOnlyRemovesTempFile,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoCleanupOnlyIsIdempotent,PASS,0
+Go,ding-ssh/internal/debugsrv,"TestSudoCleanupOnlyRejectsArbitraryPaths/""/etc/passwd""",PASS,30.0
+Go,ding-ssh/internal/debugsrv,"TestSudoCleanupOnlyRejectsArbitraryPaths/""/tmp/.ding-sudo-XYZ""",PASS,0
+Go,ding-ssh/internal/debugsrv,"TestSudoCleanupOnlyRejectsArbitraryPaths/""relative/path""",PASS,0
+Go,ding-ssh/internal/debugsrv,"TestSudoCleanupOnlyRejectsArbitraryPaths/""/tmp/../tmp/.ding-sudo-abcdef012345""",PASS,0
+Go,ding-ssh/internal/debugsrv,"TestSudoCleanupOnlyRejectsArbitraryPaths/""/tmp/.ding-sudo-abcdef01234""",PASS,0
+Go,ding-ssh/internal/debugsrv,"TestSudoCleanupOnlyRejectsArbitraryPaths/""/tmp/.ding-sudo-abcdef0123456""",PASS,0
+Go,ding-ssh/internal/debugsrv,"TestSudoCleanupOnlyRejectsArbitraryPaths/""/tmp/.ding-sudo-ABCDEF012345""",PASS,0
+Go,ding-ssh/internal/debugsrv,"TestSudoCleanupOnlyRejectsArbitraryPaths/""/tmp/.ding-sudo-abcdef0123456/x""",PASS,0
+Go,ding-ssh/internal/debugsrv,"TestSudoCleanupOnlyRejectsArbitraryPaths/""""",PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoCleanupOnlyRejectsArbitraryPaths,PASS,40.0
+Go,ding-ssh/internal/debugsrv,TestSudoCleanupOnlyRequiresAllowlist,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoCleanupOnlyRequiresCapsAndConfirm,PASS,0
+Go,ding-ssh/internal/debugsrv,TestSudoCleanupOnlyIgnoresTerminalSlot,PASS,0
+Go,ding-ssh/internal/debugsrv,TestIsSudoTempPathStrict,PASS,0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunExpectIgnoresCommandEcho,PASS,300.0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunExpectMatchesRealOutputAfterEcho,PASS,0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunExpectIgnoresPartialEcho,PASS,300.0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunExpectStillMatchesWithoutEcho,PASS,0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunExitMarkerIgnoresEcho,PASS,0
+Go,ding-ssh/internal/debugsrv,TestTerminalExpectDoesNotFilterEcho,PASS,50.0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunIdleWaitsForRealOutput,PASS,1510.0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunIdleMsParameter,PASS,90.0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunEchoSkipLongCommand40Cols,PASS,300.0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunEchoSkipLongCommand200Cols,PASS,300.0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunEchoSkipMultilineCommand,PASS,300.0
+Go,ding-ssh/internal/debugsrv,TestTerminalRunEchoSkipChineseCommand,PASS,300.0
+Go,ding-ssh/internal/debugsrv,TestTerminalEchoEndCandidates,PASS,0
+Go,ding-ssh/internal/debugsrv,TestToolEntryRegistryConsistency,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIScaleCalcAndCrop/dpr1.25-带标题栏,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIScaleCalcAndCrop/界面缩放120%,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIScaleCalcAndCrop/比例与dpr不一致,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIScaleCalcAndCrop/超出范围裁剪,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIScaleCalcAndCrop/完全越界,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIScaleCalcAndCrop/WebView2-outer等于inner-用截图反推,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIScaleCalcAndCrop/反推不合理时退回0,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIScaleCalcAndCrop,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUICropImage,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIResampleNearest,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIPixelDiff,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUISnapshotNameAndPaths,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIDiffEndToEnd,PASS,10.0
+Go,ding-ssh/internal/debugsrv,TestUIStyleDiffPropertyLevel,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIToolCapsRegistered,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIToolsListedInMCP,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIAssertChecks/全部通过,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIAssertChecks/文本不符,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIAssertChecks/可见性不符,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIAssertChecks/包含失败,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIAssertChecks/矩形越界,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIAssertChecks/样式不符,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIAssertChecks/样式大小写与空白不敏感,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIAssertChecks/存在性相反,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIAssertChecks/没有条件,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIAssertChecks,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIAssertDispatch,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIClipAndSizeLimit,PASS,30.0
+Go,ding-ssh/internal/debugsrv,TestUIConsoleFilter,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIQueryAndTreeBounded,PASS,10.0
+Go,ding-ssh/internal/debugsrv,TestUILayoutOverlaps,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIWriteValidation,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIReadArgsValidation,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIHTTPRoutes,PASS,10.0
+Go,ding-ssh/internal/debugsrv,TestUIResourcesAndNotifications,PASS,0
+Go,ding-ssh/internal/debugsrv,TestUIWatcherStopsWhenFrontendUnsupported,PASS,1550.0
+Go,ding-ssh/internal/debugsrv,TestManualUIProbe,PASS,20.0
+Frontend,frontend/src/commands.test.ts,command navigation IA keeps the original top-level views and does not add overview/transfers routes,PASS,8.949
+Frontend,frontend/src/i18n.test.ts,application translations defaults to Chinese and switches all translation calls reactively,PASS,3.913
+Frontend,frontend/src/i18n.test.ts,application translations interpolates values without translating user content,PASS,0.914
+Frontend,frontend/src/i18n.test.ts,application translations keeps placeholder sets identical across the entire catalog,PASS,126.384
+Frontend,frontend/src/i18n.test.ts,application translations localizes vault sentinel errors while preserving technical details,PASS,0.514
+Frontend,frontend/src/i18n.test.ts,application translations synchronizes native dialog language before the app starts,PASS,0.687
+Frontend,frontend/src/i18n.test.ts,switches languages in place without reloading the window,PASS,3.667
+Frontend,frontend/src/completion/fzf.test.ts,fuzzy matching rejects non-subsequences and rewards contiguous matches,PASS,3.373
+Frontend,frontend/src/completion/fzf.test.ts,fuzzy matching sorts hits and respects the requested limit,PASS,1.871
+Frontend,frontend/src/composables/useMenuPlacement.test.ts,fitMenuPlacement 空间足够时保持点击位置,PASS,3.866
+Frontend,frontend/src/composables/useMenuPlacement.test.ts,fitMenuPlacement 靠窗口底部时整体上移，菜单完整可见,PASS,1.193
+Frontend,frontend/src/composables/useMenuPlacement.test.ts,fitMenuPlacement 靠窗口右侧时贴右，不超出视口,PASS,0.692
+Frontend,frontend/src/composables/useMenuPlacement.test.ts,fitMenuPlacement 菜单比视口还高时贴顶并限高滚动,PASS,0.787
+Frontend,frontend/src/composables/useMenuPlacement.test.ts,fitMenuPlacement 子菜单右侧放不下时翻到锚点左侧,PASS,0.576
+Frontend,frontend/src/composables/useMenuPlacement.test.ts,fitMenuPlacement flipX:false 时右侧放不下只贴边，不翻到锚点左侧,PASS,0.487
+Frontend,frontend/src/composables/useMenuPlacement.test.ts,fitMenuPlacement 子菜单下方放不下时翻到锚点上方,PASS,71.487
+Frontend,frontend/src/composables/useMenuPlacement.test.ts,fitMenuPlacement 锚点上方也放不下时退回贴底（仍完整可见）,PASS,0.316
+Frontend,frontend/src/composables/useSudoAssistant.test.ts,sudo assistant submits once after one second without requesting a password from the backend,PASS,5.68
+Frontend,frontend/src/composables/useSudoAssistant.test.ts,"sudo assistant cancels on dismissal, terminal typing, inactive tabs, expiry and teardown",PASS,4.123
+Frontend,frontend/src/composables/useSudoAssistant.test.ts,sudo assistant keeps manual terminal input out of history mode after cancelling the popup,PASS,1.491
+Frontend,frontend/src/composables/useSudoAssistant.test.ts,"sudo assistant requires manual input on retries, missing passwords and private-key login",PASS,2.149
+Frontend,frontend/src/composables/useSudoAssistant.test.ts,sudo assistant switches to manual entry and stops the countdown,PASS,1.07
+Frontend,frontend/src/composables/useSudoAssistant.test.ts,sudo assistant preserves a newer retry prompt when the earlier submission resolves,PASS,0.422
+Frontend,frontend/src/composables/useSudoAssistant.test.ts,sudo assistant ignores delayed duplicate/out-of-order backend events,PASS,0.222
+Frontend,frontend/src/composables/useSudoAssistant.test.ts,sudo assistant offers manual entry after credential lookup fails without retrying automatically,PASS,0.555
+Frontend,frontend/src/composables/useTerminalCompletion.sudo.test.ts,sudo command tracking before remote echo catches up returns the full submitted command even when the screen is several characters behind,PASS,2.821
+Frontend,frontend/src/composables/useTunnelManagement.test.ts,rejects invalid local port 0 without contacting the backend,PASS,114.502
+Frontend,frontend/src/composables/useTunnelManagement.test.ts,rejects invalid local port 65536 without contacting the backend,PASS,13.214
+Frontend,frontend/src/composables/useTunnelManagement.test.ts,rejects invalid local port 1.5 without contacting the backend,PASS,26.581
+Frontend,frontend/src/composables/useTunnelManagement.test.ts,retains the form after save failure and permits a successful retry,PASS,15.057
+Frontend,frontend/src/composables/useTunnelManagement.test.ts,deduplicates pending actions and allows retry after failure,PASS,3.767
+Frontend,frontend/src/composables/useTunnelManagement.test.ts,preserves edited configuration and restarts a previously running tunnel after replacement,PASS,2.462
+Frontend,frontend/src/composables/useTunnelManagement.test.ts,updates only matching tunnel status and removes the event subscription on unmount,PASS,3.015
+Frontend,frontend/src/composables/useTunnelManagement.test.ts,surfaces clipboard failures without showing a false copied state,PASS,5.277
+Frontend,frontend/src/composables/useWorkspaceLayout.test.ts,"restores widths, persists only after dragging and resets to defaults",PASS,72.76
+Frontend,frontend/src/composables/useWorkspaceLayout.test.ts,rejects invalid stored widths and synchronizes collapsed navigation and zoom,PASS,6.521
+Frontend,frontend/src/composables/useWorkspaceLayout.test.ts,shrinks panels in constrained windows and restores the preferred width when space returns,PASS,2.701
+Frontend,frontend/src/components/ServerDialog.test.ts,server dialog keeps sudo autofill opt-in per server and restores the saved setting,PASS,602.311
+Frontend,frontend/src/components/ServerDialog.test.ts,"server dialog never offers the ""all"" sentinel as a group option",PASS,264.738
+Frontend,frontend/src/components/ServerDialog.test.ts,"server dialog collapses jump host, host key alias and known_hosts into advanced settings",PASS,35.429
+Frontend,frontend/src/components/ServerDialog.test.ts,server dialog auto-expands advanced settings when the server already uses them,PASS,142.521
+Frontend,frontend/src/components/ServerStatusBar.test.ts,toggles between single snapshot and live refresh from one button,PASS,124.382
+Frontend,frontend/src/components/SftpPanel.flow.test.ts,SFTP flow lists the remote directory and navigates into a folder with terminal sync,PASS,542.428
+Frontend,frontend/src/components/SftpPanel.flow.test.ts,offers directory actions on blank space and refresh on entries,PASS,338.495
+Frontend,frontend/src/components/SftpPanel.flow.test.ts,recovers from a failed listing through the visible retry action,PASS,36.515
+Frontend,frontend/src/components/SftpPanel.flow.test.ts,does not sync directory navigation to the terminal when synchronization is disabled,PASS,34.478
+Frontend,frontend/src/components/SftpPanel.flow.test.ts,separates same-name tasks and preserves partial bytes on cancellation,PASS,361.695
+Frontend,frontend/src/components/SftpPanel.flow.test.ts,records cancellation even when the final progress event has not arrived,PASS,49.388
+Frontend,frontend/src/components/SftpPanel.flow.test.ts,renders a single root slash and clearly styled file actions,PASS,187.493
+Frontend,frontend/src/components/SftpPanel.flow.test.ts,separates directory navigation from actions and shows the complete path on hover,PASS,70.746
+Frontend,frontend/src/components/SysInfoPanel.test.ts,"运行状态面板 requests a fresh snapshot every time the panel opens, even without realtime",PASS,310.349
+Frontend,frontend/src/components/SysInfoPanel.test.ts,运行状态面板 persists custom card order and keeps readable process headers,PASS,281.489
+Frontend,frontend/src/components/TunnelPage.flow.test.ts,tunnel business flow creates a local tunnel with loopback listening,PASS,407.349
+Frontend,frontend/src/components/TunnelPage.flow.test.ts,tunnel business flow creates a local tunnel with specific listening,PASS,251.388
+Frontend,frontend/src/components/TunnelPage.flow.test.ts,tunnel business flow creates a local tunnel with all-ipv4 listening,PASS,95.843
+Frontend,frontend/src/debug/bridge.test.ts,workspace MCP bridge distinguishes Unicode text from raw base64 input,PASS,22.183
+Frontend,frontend/src/debug/bridge.test.ts,workspace MCP bridge activates only existing tabs,PASS,6.636
+Frontend,frontend/src/debug/bridge.test.ts,workspace MCP bridge shows and hides panels without changing tabs,PASS,1.557
+Frontend,frontend/src/debug/bridge.test.ts,workspace MCP bridge splits and restores existing tabs without replacing sessions,PASS,1.457
+Frontend,frontend/src/layouts/AppSidebar.test.ts,"sidebar hover preview opens only after dwell and closes after leaving, without changing pinned state",PASS,209.626
+Frontend,frontend/src/layouts/AppSidebar.test.ts,sidebar hover preview cancels a pending open when pointer leaves the trigger,PASS,16.607
+Frontend,frontend/src/layouts/AppSidebar.test.ts,sidebar hover preview pins the navigation when the expanded preview button is clicked,PASS,110.408
+Frontend,frontend/src/layouts/AppTopBar.test.ts,exposes named actions and reflects the tools toggle state,PASS,148.509
+Frontend,frontend/src/services/closeConfirmation.test.ts,uses the themed application dialog and cancels without closing tabs,PASS,299.696
+Frontend,frontend/src/services/closeConfirmation.test.ts,confirms in English and prevents duplicate dialogs,PASS,223.903
+Frontend,frontend/src/services/closeConfirmation.test.ts,treats Escape as cancellation,PASS,28.382
+Frontend,frontend/src/services/closeConfirmation.test.ts,uses the same themed dialog for application exit and cancels on Escape,PASS,14.747
+Frontend,frontend/src/services/closeConfirmation.test.ts,cycles between cancel and confirm with arrows and Tab,PASS,38.385
+Frontend,frontend/src/services/hostTrust.test.ts,host key change confirmation requires explicit fingerprint verification before replacement,PASS,720.679
+Frontend,frontend/src/services/hostTrust.test.ts,host key change confirmation cannot replace a read-only trust source even when checked,PASS,123.192
+Frontend,frontend/src/services/recent.test.ts,migrates both legacy formats and counts successful logins separately from automatic reconnects,PASS,135.77
+Frontend,frontend/src/services/serverSnapshot.test.ts,recovers from invalid snapshot storage: null,PASS,166.088
+Frontend,frontend/src/services/serverSnapshot.test.ts,recovers from invalid snapshot storage: [],PASS,0.815
+Frontend,frontend/src/services/serverSnapshot.test.ts,recovers from invalid snapshot storage: 1,PASS,0.581
+Frontend,frontend/src/services/serverSnapshot.test.ts,"recovers from invalid snapshot storage: ""bad""",PASS,1.054
+Frontend,frontend/src/services/serverSnapshot.test.ts,recovers from invalid snapshot storage: {broken,PASS,20.38
+Frontend,frontend/src/services/serverSnapshot.test.ts,replaces obsolete host snapshots and preserves the last good sample on collection failure,PASS,2.207
+Frontend,frontend/src/services/ssh.security.test.ts,SSH security UI boundaries does not retry or save trust when confirmation is cancelled,PASS,3.876
+Frontend,frontend/src/services/ssh.security.test.ts,SSH security UI boundaries never offers confirmation for a changed key,PASS,1.019
+Frontend,frontend/src/services/ssh.security.test.ts,SSH security UI boundaries background connections bypass prompts and retain backend checks,PASS,0.874
+Frontend,frontend/src/services/ssh.security.test.ts,SSH security UI boundaries keeps requested key phrases out of the saved node and clears transient parameters,PASS,4.046
+Frontend,frontend/src/services/sysinfo.test.ts,"shared sysinfo subscriptions keeps the status bar subscribed after the panel closes, including recovery",PASS,1.622
+Frontend,frontend/src/services/updates.storage.test.ts,keeps startup and settings usable when local storage is unavailable,PASS,324.823
+Frontend,frontend/src/services/updates.test.ts,enables startup checks by default,PASS,3.428
+Frontend,frontend/src/services/updates.test.ts,keeps up-to-date manual results in About,PASS,1.277
+Frontend,frontend/src/services/updates.test.ts,suppresses dismissed automatic reminders while allowing manual checks,PASS,2.389
+Frontend,frontend/src/services/updates.test.ts,persists channel selection and clears stale prompts,PASS,1.482
+Frontend,frontend/src/theme/apply.test.ts,root theme application writes semantic variables and material attributes to <html>,PASS,162.965
+Frontend,frontend/src/theme/apply.test.ts,root theme application removes stale variables when the next theme omits them,PASS,131.366
+Frontend,frontend/src/theme/apply.test.ts,root theme application clears all managed attributes,PASS,131.375
+Frontend,frontend/src/theme/apply.test.ts,startup cache round-trips the last computed theme,PASS,10.218
+Frontend,frontend/src/theme/apply.test.ts,startup cache ignores corrupt or mismatched payloads,PASS,1.83
+Frontend,frontend/src/theme/custom-fonts.test.ts,rejects renamed non-font files and truncated files,PASS,1.716
+Frontend,frontend/src/theme/custom-fonts.test.ts,recognizes supported font signatures,PASS,0.332
+Frontend,frontend/src/theme/custom-fonts.test.ts,formats persisted font data sizes including large fonts,PASS,0.209
+Frontend,frontend/src/theme/engine.test.ts,theme engine repairs stale terminal foreground against the rendered background without changing readable colors,PASS,1.369
+Frontend,frontend/src/theme/engine.test.ts,theme engine recognizes old generated terminal backgrounds and preserves independent choices,PASS,153.072
+Frontend,frontend/src/theme/engine.test.ts,theme engine gives the dark sidebar a clearer brightness hierarchy,PASS,3.818
+Frontend,frontend/src/theme/engine.test.ts,theme engine exposes translucent surfaces only when a native backdrop exists,PASS,17.742
+Frontend,frontend/src/theme/engine.test.ts,theme engine derives semantic brand variables without legacy aliases,PASS,2.961
+Frontend,frontend/src/theme/engine.test.ts,theme engine uses deterministic font stacks and leaves text contrast to the active tone,PASS,5.148
+Frontend,frontend/src/theme/engine.test.ts,theme engine keeps light glass luminous and derives interactive colors from the seed,PASS,14.517
+Frontend,frontend/src/theme/engine.test.ts,theme engine keeps glass cards translucent and restores solid surfaces when disabled,PASS,18.251
+Frontend,frontend/src/theme/engine.test.ts,theme engine preserves colored opaque surfaces when glass is disabled,PASS,3.113
+Frontend,frontend/src/theme/engine.test.ts,theme engine resolves explicit tone without consulting system preferences,PASS,0.593
+Frontend,frontend/src/theme/engine.test.ts,theme engine creates distinct sidebar and main surfaces for both tones,PASS,9.393
+Frontend,frontend/src/theme/engine.test.ts,theme engine coordinates terminal surface and accent with the app tone,PASS,12.872
+Frontend,frontend/src/theme/engine.test.ts,theme engine keeps an independent terminal scheme byte-for-byte when follow mode is off,PASS,12.348
+Frontend,frontend/src/theme/engine.test.ts,theme engine follows the workspace background while preserving terminal colors,PASS,4.992
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #87CEEB dark: readable neutral text across surfaces,PASS,18.787
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #87CEEB light: readable neutral text across surfaces,PASS,9.148
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #72B69B dark: readable neutral text across surfaces,PASS,16.866
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #72B69B light: readable neutral text across surfaces,PASS,10.477
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #A78BFA dark: readable neutral text across surfaces,PASS,1.773
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #A78BFA light: readable neutral text across surfaces,PASS,7.239
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #FACC15 dark: readable neutral text across surfaces,PASS,4.566
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #FACC15 light: readable neutral text across surfaces,PASS,1.886
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #EF4444 dark: readable neutral text across surfaces,PASS,47.001
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #EF4444 light: readable neutral text across surfaces,PASS,10.91
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #F8FAFC dark: readable neutral text across surfaces,PASS,4.956
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #F8FAFC light: readable neutral text across surfaces,PASS,8.67
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #111827 dark: readable neutral text across surfaces,PASS,6.51
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #111827 light: readable neutral text across surfaces,PASS,5.133
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #000000 dark: readable neutral text across surfaces,PASS,11.591
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #000000 light: readable neutral text across surfaces,PASS,31.113
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #ffffff dark: readable neutral text across surfaces,PASS,3.073
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #ffffff light: readable neutral text across surfaces,PASS,22.448
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #808080 dark: readable neutral text across surfaces,PASS,5.067
+Frontend,frontend/src/theme/engine.test.ts,dynamic palette accessibility #808080 light: readable neutral text across surfaces,PASS,2.501
+Frontend,frontend/src/theme/material.test.ts,material color engine is deterministic for identical input,PASS,109.865
+Frontend,frontend/src/theme/material.test.ts,material color engine normalizes seeds and rejects malformed values safely,PASS,0.464
+Frontend,frontend/src/theme/material.test.ts,material color engine derives all semantic regions from every acceptance seed,PASS,241.337
+Frontend,frontend/src/theme/material.test.ts,"material color engine keeps body, secondary and muted text at WCAG AA over every surface",PASS,161.066
+Frontend,frontend/src/theme/material.test.ts,"material color engine keeps accent, focus ring and strong borders perceivable",PASS,87.062
+Frontend,frontend/src/theme/material.test.ts,material color engine keeps status colors readable on both surfaces and tinted badges,PASS,89.975
+Frontend,frontend/src/theme/material.test.ts,material color engine keeps semantic status hues independent from the chosen seed,PASS,96.586
+Frontend,frontend/src/theme/material.test.ts,material color engine does not let red or green seeds erase status distinctions,PASS,47.354
+Frontend,frontend/src/theme/material.test.ts,material color engine keeps large background regions low-chroma even for highly saturated seeds,PASS,108.082
+Frontend,frontend/src/theme/material.test.ts,material color engine separates atmosphere from surface separation,PASS,72.384
+Frontend,frontend/src/theme/material.test.ts,material color engine keeps the reported sky seed visibly blue at atmosphere 100 without tinting cards,PASS,3.287
+Frontend,frontend/src/theme/material.test.ts,material color engine assigns clearly different colour-expression levels in light mode,PASS,28.856
+Frontend,frontend/src/theme/material.test.ts,material color engine keeps the dark tint hierarchy and neutral foundation in OKLCH,PASS,32.1
+Frontend,frontend/src/theme/material.test.ts,material color engine keeps the dark neutral foundation spacious and the cards one step brighter,PASS,97.716
+Frontend,frontend/src/theme/material.test.ts,material color engine keeps dark surfaces restrained at atmosphere 100 and coordinates the terminal,PASS,115.98
+Frontend,frontend/src/theme/material.test.ts,material color engine keeps neutral seeds colourless across the dark foundation,PASS,51.522
+Frontend,frontend/src/theme/material.test.ts,material color engine keeps the terminal ink lower-chroma and same-hue than the toolbar and SFTP,PASS,560.202
+Frontend,frontend/src/theme/material.test.ts,"material color engine keeps the terminal strictly below nav, toolbar and SFTP for every hue",PASS,2368.226
+Frontend,frontend/src/theme/material.test.ts,material color engine carries theme warmth into the terminal instead of a fixed cool black,PASS,3.069
+Frontend,frontend/src/theme/material.test.ts,material color engine keeps the dark tint continuous into the terminal at low atmosphere,PASS,136.54
+Frontend,frontend/src/theme/material.test.ts,"material color engine uses a continuous, warm-damped hue weight for dark tint budgets",PASS,1.176
+Frontend,frontend/src/theme/material.test.ts,material color engine offers deterministic solid / subtle / corner dark workspace treatments,PASS,32.184
+Frontend,frontend/src/theme/material.test.ts,material color engine derives subtle same-hue ambient gradients for the nav and workspace,PASS,317.952
+Frontend,frontend/src/theme/material.test.ts,material color engine keeps every text role readable at both ends of every gradient,PASS,459.189
+Frontend,frontend/src/theme/material.test.ts,material color engine keeps configured atmosphere visibly colorful for every acceptance hue,PASS,45.115
+Frontend,frontend/src/theme/material.test.ts,material color engine creates a monotonic four-step hierarchy for both tones,PASS,437.616
+Frontend,frontend/src/theme/material.test.ts,material color engine places cards on the correct side of the workspace in each tone,PASS,259.186
+Frontend,frontend/src/theme/material.test.ts,material color engine keeps pure black/white seeds neutral instead of inventing a hue,PASS,44.271
+Frontend,frontend/src/theme/material.test.ts,material color engine stretches region separation monotonically,PASS,0.199
+Frontend,frontend/src/theme/material.test.ts,material planning uses solid surfaces when no native backdrop is available,PASS,0.186
+Frontend,frontend/src/theme/material.test.ts,material planning produces region-specific alphas for native glass,PASS,0.16
+Frontend,frontend/src/theme/material.test.ts,material planning lets the opacity slider change translucency without changing region identity,PASS,0.098
+Frontend,frontend/src/theme/material.test.ts,material planning emits only opaque base surfaces in Solid mode,PASS,12.829
+Frontend,frontend/src/theme/material.test.ts,material planning covers the six acceptance seeds across both tones and all material modes,PASS,175.404
+Frontend,frontend/src/theme/material.test.ts,material planning composes ambient gradients with the active material alpha,PASS,2.21
+Frontend,frontend/src/theme/material.test.ts,material planning emits opaque terminal and field tokens under every material plan,PASS,2.447
+Frontend,frontend/src/theme/material.test.ts,platform capability detection never assumes a native backdrop in a plain browser,PASS,1.054
+Frontend,frontend/src/theme/migrate.test.ts,dynamic theme migration (schema 4) leaves schema 4 untouched,PASS,1.097
+Frontend,frontend/src/theme/migrate.test.ts,dynamic theme migration (schema 4) maps colorIntensity and glassEnabled without losing the seed,PASS,9.607
+Frontend,frontend/src/theme/migrate.test.ts,dynamic theme migration (schema 4) treats a legacy boolean glass switch as soft glass,PASS,0.163
+Frontend,frontend/src/theme/migrate.test.ts,dynamic theme migration (schema 4) keeps a disabled legacy glass switch solid,PASS,0.34
+Frontend,frontend/src/theme/migrate.test.ts,dynamic theme migration (schema 4) preserves a user-selected material mode,PASS,0.108
+Frontend,frontend/src/theme/migrate.test.ts,appearance normalization clamps ranges and mirrors the legacy intensity field,PASS,0.187
+Frontend,frontend/src/theme/migrate.test.ts,appearance normalization is idempotent,PASS,0.273
+Frontend,frontend/src/theme/migrate.test.ts,appearance normalization rejects unknown material modes,PASS,0.076
+Frontend,frontend/src/theme/remote-fonts.test.ts,reuses a persistent font cache while offline,PASS,26.793
+Frontend,frontend/src/theme/remote-fonts.test.ts,deduplicates downloads and allows retry after a network failure,PASS,5.706
+Frontend,frontend/src/theme/terminal-fonts.test.ts,waits for Chinese and bold faces before the terminal can rebuild its atlas,PASS,4.991
+Frontend,frontend/src/theme/terminal-fonts.test.ts,keeps English and Chinese choices independent and preserves legacy schemes,PASS,0.838
+Frontend,frontend/src/theme/tokens.test.ts,design token single source defines radius and font primitives only in tokens.css,PASS,2.977
+Frontend,frontend/src/theme/tokens.test.ts,design token single source keeps Solid surfaces opaque by forbidding translucent utility backgrounds,PASS,23.616
+Frontend,frontend/src/theme/tokens.test.ts,design token single source exposes the dynamic semantic token set and maps components to it,PASS,1.169
+Frontend,frontend/src/theme/tokens.test.ts,design token single source paints ambient gradients from engine tokens with base-colour fallbacks,PASS,0.724
+Frontend,frontend/src/theme/tokens.test.ts,keeps component corner radii on the shared scale,PASS,9.59
+Frontend,frontend/src/theme/ui-terminal.test.ts,"UI and terminal independence does not write terminal colors when seed, tone or UI preset changes",PASS,91.016
+Frontend,frontend/src/theme/ui-terminal.test.ts,UI and terminal independence controls overlay blur independently of surface opacity and never fogs the terminal,PASS,22.487
+Frontend,frontend/src/theme/ui-terminal.test.ts,UI and terminal independence reacts to shared OS light/dark changes in auto mode,PASS,53.094
+Frontend,frontend/src/theme/ui-terminal.test.ts,UI and terminal independence does not overwrite the bootstrap cache before settings finish loading,PASS,30.397
+Frontend,frontend/src/theme/ui-terminal.test.ts,UI and terminal independence keeps the terminal opaque even when the shell uses clear glass,PASS,2.359
+Frontend,frontend/src/utils/dom.test.ts,getDisplayRect 无缩放时原样返回视口坐标,PASS,456.954
+Frontend,frontend/src/utils/dom.test.ts,getDisplayRect WKWebView：gBCR 是布局坐标，乘 zoom 得到显示坐标,PASS,3.481
+Frontend,frontend/src/utils/dom.test.ts,getDisplayRect WKWebView 小元素：offset 与 gBCR 存在亚像素差异时仍按布局坐标换算,PASS,3.086
+Frontend,frontend/src/utils/dom.test.ts,getDisplayRect Chromium：gBCR 已含 zoom，直接使用,PASS,0.834
+Frontend,frontend/src/utils/dom.test.ts,getDisplayRect 空元素返回零矩形,PASS,0.501
+Frontend,frontend/src/utils/groupTree.test.ts,group path helpers normalizes paths and derives name/parent/depth,PASS,1.825
+Frontend,frontend/src/utils/groupTree.test.ts,group path helpers matches subtrees only on path segments,PASS,0.389
+Frontend,frontend/src/utils/groupTree.test.ts,group path helpers renders relative paths inside a group view,PASS,0.123
+Frontend,frontend/src/utils/groupTree.test.ts,group path helpers retargets a path after renaming an ancestor,PASS,0.266
+Frontend,frontend/src/utils/groupTree.test.ts,"group path helpers validates input with depth, empty segment and control chars",PASS,0.261
+Frontend,frontend/src/utils/groupTree.test.ts,buildGroupTree adds implicit ancestors and counts direct and total servers,PASS,0.403
+Frontend,frontend/src/utils/groupTree.test.ts,buildGroupTree keeps empty explicit groups and ignores ungrouped servers,PASS,1.075
+Frontend,frontend/src/utils/groupTree.test.ts,buildGroupTree collects paths and flattens according to expansion,PASS,0.525
+Frontend,frontend/src/utils/groupTree.test.ts,filterGroupTree keeps matched nodes with their full subtree,PASS,0.867
+Frontend,frontend/src/utils/groupTree.test.ts,filterGroupTree keeps ancestor chain when only a deep child matches,PASS,1.145
+Frontend,frontend/src/utils/groupTree.test.ts,filterGroupTree returns original tree for empty keyword,PASS,0.19
+Frontend,frontend/src/utils/groupTree.test.ts,filterGroupTree returns empty list when nothing matches,PASS,0.205
+Frontend,frontend/src/utils/groupTree.test.ts,expanded ancestors returns ancestors for auto expansion,PASS,0.283
+Frontend,frontend/src/utils/output-color.test.ts,Colorizer immediately forwards an ANSI zsh prompt without a trailing newline,PASS,4.352
+Frontend,frontend/src/utils/output-color.test.ts,Colorizer does not delay a prompt until the next carriage return,PASS,1.105
+Frontend,frontend/src/utils/output-color.test.ts,Colorizer user input echo flushes the default macOS zsh prompt immediately,PASS,0.628
+Frontend,frontend/src/utils/output-color.test.ts,Colorizer user input echo flushes a pending prompt when the user starts typing,PASS,39.158
+Frontend,frontend/src/utils/output-color.test.ts,Colorizer user input echo streams every echoed character immediately instead of buffering until newline,PASS,65.861
+Frontend,frontend/src/utils/output-color.test.ts,Colorizer user input echo resumes semantic coloring after the input line ends,PASS,2.776
+Frontend,frontend/src/utils/selection-copy-guard.test.ts,"suppresses search selections including later refreshes, but preserves mouse selection copying",PASS,4.069
+Frontend,frontend/src/utils/selection-copy-guard.test.ts,keeps failed programmatic selections suppressed until a user gesture,PASS,0.535
+Frontend,frontend/src/utils/terminal-atlas.test.ts,shared terminal atlas reset invalidates the vertex model and redraws every registered terminal,PASS,1.739
+Frontend,frontend/src/utils/terminal-atlas.test.ts,shared terminal atlas reset coalesces multiple atlas changes into one scheduled reset,PASS,1.547
+Frontend,frontend/src/utils/terminal-atlas.test.ts,shared terminal atlas reset stops touching terminals after they are unregistered,PASS,0.281
+Frontend,frontend/src/utils/terminal-input.test.ts,encodes terminal text as UTF-8: plain ASCII\x0d,PASS,3.904
+Frontend,frontend/src/utils/terminal-input.test.ts,encodes terminal text as UTF-8: éü£±,PASS,0.432
+Frontend,frontend/src/utils/terminal-input.test.ts,encodes terminal text as UTF-8: 测试,PASS,0.192
+Frontend,frontend/src/utils/terminal-input.test.ts,encodes terminal text as UTF-8: 🙂,PASS,0.794
+Frontend,frontend/src/utils/terminal-input.test.ts,encodes terminal text as UTF-8: a\x00\x03\x09,PASS,0.253
+Frontend,frontend/src/utils/terminal-input.test.ts,preserves every byte in raw debug/base64 input,PASS,0.238
+Frontend,frontend/src/utils/terminal-input.test.ts,supports large Unicode pastes without exceeding argument limits,PASS,351.182
+Frontend,frontend/src/utils/terminal-popover.test.ts,terminal cursor popover positioning opens below the input cursor instead of centering in the window,PASS,1.271
+Frontend,frontend/src/utils/terminal-popover.test.ts,terminal cursor popover positioning flips above a bottom-row cursor and stays within a narrow split pane,PASS,0.332
+Frontend,frontend/src/utils/terminal-popover.test.ts,"terminal cursor popover positioning accounts for zoom, screen padding and scrollback viewport offsets",PASS,12.435
+Frontend,frontend/src/utils/terminal-search.test.ts,opens from the focused xterm helper textarea on macOS and Windows,PASS,16.908
+Frontend,frontend/src/utils/terminal-search.test.ts,"does not intercept ordinary form fields, composition or shifted shortcuts",PASS,1.575
+Frontend,frontend/src/utils/terminal-search.test.ts,leaves modal dialogs in control of keyboard input,PASS,0.581
+Frontend,frontend/src/utils/xterm-webgl-zoom.test.ts,invalidateWebglGlyphModel clears the renderer vertex model when the private API is available,PASS,4.178
+Frontend,frontend/src/utils/xterm-webgl-zoom.test.ts,invalidateWebglGlyphModel reports failure when the addon has no renderer model API,PASS,0.278
+Frontend,frontend/src/utils/xterm-webgl-zoom.test.ts,invalidateWebglGlyphModel never throws when the private API changes behavior,PASS,0.142
+Frontend,frontend/src/utils/xterm-zoom.test.ts,patchXtermZoomCoords Chromium：gBCR 含 zoom，按实测比例折回布局坐标,PASS,325.998
+Frontend,frontend/src/utils/xterm-zoom.test.ts,patchXtermZoomCoords WebKit：gBCR 是布局坐标、鼠标是显示坐标，按 zoom 折回布局坐标,PASS,62.118
+Frontend,frontend/src/utils/xterm-zoom.test.ts,patchXtermZoomCoords WebKit：zoom 根不在视口原点时按实测原点换算,PASS,59.022
+Frontend,frontend/src/utils/xterm-zoom.test.ts,patchXtermZoomCoords 放大场景（Chromium，zoom > 1）按比例折算,PASS,1.938
+Frontend,frontend/src/utils/xterm-zoom.test.ts,patchXtermZoomCoords WebKit 放大 125%：显示坐标同样按 zoom 折回布局坐标,PASS,23.374
+Frontend,frontend/src/utils/xterm-zoom.test.ts,patchXtermZoomCoords 亚像素舍入（0.9992）仍按 WebKit 布局坐标处理,PASS,2.728
+Frontend,frontend/src/utils/xterm-zoom.test.ts,patchXtermZoomCoords 元素未布局（offset 为 0）时无法判断坐标系，保持原样,PASS,2.763
+Frontend,frontend/src/utils/xterm-zoom.test.ts,patchXtermZoomCoords 缩放为 100% 时原样放行（不创建代理事件）,PASS,7.068
+Frontend,frontend/src/utils/xterm-zoom.test.ts,patchXtermZoomCoords 私有服务缺失时返回空数组且不抛错,PASS,1.118
+Frontend,frontend/src/views/TerminalWorkspace.test.ts,TerminalWorkspace persistence boundary keeps terminal children mounted while the view is hidden,PASS,620.212
+Frontend,frontend/src/stores/sessions.confirmation.test.ts,keeps tabs and active state intact when closing is canceled,PASS,3.542
+Frontend,frontend/src/stores/sessions.confirmation.test.ts,confirms a batch only once and closes only its original targets,PASS,13.513
+Frontend,frontend/src/stores/settings.test.ts,settings defaults keeps semantic terminal colors enabled by default (auto),PASS,18.202
+Frontend,frontend/src/stores/settings.test.ts,settings defaults preserves an explicit off choice,PASS,3.603
+Frontend,frontend/src/stores/settings.test.ts,settings defaults normalizes dynamic theme fields on load,PASS,6.476
+Frontend,frontend/src/stores/settings.test.ts,settings defaults migrates legacy glass into the soft material mode,PASS,1.147
+Frontend,frontend/src/stores/settings.test.ts,persists a changed preference and reloads the saved choice,PASS,1.413
+Frontend,frontend/src/stores/settings.test.ts,propagates save failures so the caller can report them and permits retry,PASS,2.944
+Frontend,frontend/src/stores/settings.test.ts,"startup, close confirmation and motion preferences migrates missing preferences to safe defaults and persists explicit choices",PASS,0.743
+Frontend,frontend/src/stores/settings.test.ts,"startup, close confirmation and motion preferences restores the previous value when native registration or saving fails",PASS,0.642
+Frontend,frontend/src/components/servers/ServerConfigSummary.test.ts,shows full configuration together in the expandable card,PASS,242.051
+Frontend,frontend/src/components/servers/ServerConfigSummary.test.ts,"opens the card when any configuration tag is clicked, and closes on a second click",PASS,58.338
+Frontend,frontend/src/components/servers/ServerConfigSummary.test.ts,"closes when the trigger is clicked again, on outside pointerdown, and via the close button",PASS,6.811
+Frontend,frontend/src/components/servers/ServerConfigSummary.test.ts,restores focus to the trigger after closing the card,PASS,208.379
+Frontend,frontend/src/components/servers/ServerConfigSummary.test.ts,keeps the card inside the scroll panel and flips it above the row near the bottom,PASS,78.407
+Frontend,frontend/src/components/servers/ServerConfigSummary.test.ts,supports Escape and announces refresh prerequisites and failures,PASS,61.115
+Frontend,frontend/src/components/servers/ServerList.flow.test.ts,server business flow renders saved servers and connects through the row action,PASS,306.956
+Frontend,frontend/src/components/servers/ServerList.flow.test.ts,server business flow deletes a server only after the confirmation dialog,PASS,524.875
+Frontend,frontend/src/components/servers/ServerList.flow.test.ts,server business flow opens the edit dialog on request from another page and syncs the open tab,PASS,184.102
+Frontend,frontend/src/components/servers/ServerList.flow.test.ts,server business flow marks at most one group as selected and keeps 未分组 out of the drop-target style when idle,PASS,197.363
+Frontend,frontend/src/components/servers/ServerList.groupTree.test.ts,"nested group tree renders implicit ancestors, expands children and counts servers by subtree",PASS,797.005
+Frontend,frontend/src/components/servers/ServerList.groupTree.test.ts,nested group tree moves a server onto a nested group by drag and drop,PASS,285.033
+Frontend,frontend/src/components/servers/ServerList.groupTree.test.ts,nested group tree creates a nested group from the sidebar editor,PASS,512.991
+Frontend,frontend/src/components/servers/ServerList.groupTree.test.ts,nested group tree opens the tree-shaped group manager,PASS,329.3
+Frontend,frontend/src/components/servers/ServerList.groupTree.test.ts,nested group tree renames and deletes through the group manager,PASS,412.008
+Frontend,frontend/src/components/servers/ServerRow.test.ts,ServerRow accessibility exposes the row action as a real button and keyboard menu shortcut,PASS,1184.079
+Frontend,frontend/src/components/servers/ServerToolbar.test.ts,server toolbar contract publishes stable actions and forwards the search value,PASS,169.23
+Frontend,frontend/src/components/settings/HostTrustSection.test.ts,limits the trust list to ten records and searches host addresses,PASS,155.085
+Frontend,frontend/src/components/settings/ImportExportSection.test.ts,settings import/export contract forwards password values and export action,PASS,135.044
+Frontend,frontend/src/components/settings/ImportExportSection.test.ts,settings import/export contract associates every password input with an explicit label,PASS,7.445
+Frontend,frontend/src/components/settings/SettingsAboutSection.test.ts,refreshes only when enabled and switches off when the settings view is hidden,PASS,345.01
+Frontend,frontend/src/components/settings/SettingsGeneralSection.flow.test.ts,settings save flow uses the shared select style and renders the English settings page,PASS,489.584
+Frontend,frontend/src/components/settings/SettingsGeneralSection.flow.test.ts,settings save flow persists a toggle change through the settings store,PASS,283.328
+Frontend,frontend/src/components/settings/SettingsGeneralSection.flow.test.ts,updates existing option labels when switching languages without remounting,PASS,300.461
+Frontend,frontend/src/components/settings/SettingsSecuritySection.test.ts,shows loading instead of inventing locked and keyring states,PASS,204.903
+Frontend,frontend/src/components/settings/SettingsSecuritySection.test.ts,reports a failed status request and permits retry without showing password forms,PASS,34.064
+Frontend,frontend/src/components/settings/SettingsSecuritySection.test.ts,does not submit duplicate master password changes,PASS,16.612
+Frontend,frontend/src/components/tunnels/TunnelCard.test.ts,tunnel card menus closes open menus when clicking outside of them,PASS,134.519
+Frontend,frontend/src/components/tunnels/TunnelCard.test.ts,tunnel card menus keeps a menu open when the click is inside it,PASS,10.869
+Frontend,frontend/src/components/tunnels/TunnelCard.test.ts,tunnel card menus closes menus with Escape and keeps only one menu open at a time,PASS,23.913
+Frontend,frontend/src/components/terminal/TerminalConnectionOverlay.test.ts,terminal connection overlay offers editing the server from a failed connection,PASS,178.934
+Frontend,frontend/src/components/terminal/TerminalConnectionOverlay.test.ts,routes SSH retry to reconnect and local shell retry to connect,PASS,38.827
+Frontend,frontend/src/components/terminal/TerminalConnectionOverlay.test.ts,supports keyboard reconnect and cancellation of the automatic retry countdown,PASS,71.922
+Frontend,frontend/src/components/terminal/TerminalConnectionOverlay.test.ts,does not expose retry while connecting and removes the overlay once connected,PASS,8.774
+Frontend,frontend/src/components/terminal/TerminalContextMenu.test.ts,"terminal context menu contract exposes copy, paste and visual controls through stable test IDs",PASS,572.407
+Frontend,frontend/src/components/terminal/TerminalContextMenu.test.ts,"terminal context menu contract uses menu semantics, focuses the first item and closes on Escape",PASS,223.302
+Frontend,frontend/src/components/terminal/TerminalSudoPopover.test.ts,terminal sudo popover renders a cursor-anchored non-modal dialog with no saved secret in the DOM,PASS,1042.282
+Frontend,frontend/src/components/terminal/TerminalSudoPopover.test.ts,terminal sudo popover uses a focused password field for retries and ignores IME Enter,PASS,289.961
+Frontend,frontend/src/components/terminal/TerminalSudoPopover.test.ts,terminal sudo popover switches to manual entry when typing during the countdown,PASS,39.643
+Frontend,frontend/src/components/terminal/TerminalSudoPopover.test.ts,terminal sudo popover does not turn Enter on the Cancel button into a password submission,PASS,10.49
+Frontend,frontend/src/components/terminal/TerminalSudoPopover.test.ts,terminal sudo popover localizes the prompt in English,PASS,121.63
+Frontend,frontend/src/components/ui/button/Button.test.ts,"ui.Button exposes a disabled, busy button while loading",PASS,66.308
+Frontend,frontend/src/components/ui/dialog/Dialog.test.ts,"ui.Dialog accessibility moves focus into the dialog, traps Tab and restores focus on close",PASS,1104.078
+Frontend,frontend/src/components/ui/dialog/Dialog.test.ts,ui.Dialog accessibility keeps an explicit-decision dialog open on backdrop and Escape,PASS,24.603
+Frontend,frontend/src/components/ui/dialog/Dialog.test.ts,ui.Dialog accessibility prefers the first form control as the initial focus target,PASS,31.665
+Frontend,frontend/src/components/ui/input/Input.test.ts,Input clear action clears through the input event without submitting a form,PASS,242.569
+Frontend,frontend/src/components/ui/input/Input.test.ts,Input clear action hides the action when unavailable,PASS,2.822
+Frontend,frontend/src/components/ui/input/Input.test.ts,Input clear action hides the action when unavailable,PASS,3.307
+Frontend,frontend/src/components/ui/input/Input.test.ts,Input clear action respects input restrictions,PASS,99.649
+Frontend,frontend/src/components/ui/input/Input.test.ts,Input clear action respects input restrictions,PASS,2.279
+Frontend,frontend/src/components/ui/input/Input.test.ts,Input clear action respects input restrictions,PASS,1.495
+Frontend,frontend/src/components/ui/select/SearchSelect.test.ts,"filters by label and keywords, and commits only an existing option",PASS,563.706
+Frontend,frontend/src/components/ui/select/SearchSelect.test.ts,renders the list in an overlay layer and closes it on an outside pointerdown,PASS,72.71
+Live debug API,running macOS Wails app,HTTP rejects missing authentication,PASS,1.0
+Live debug API,running macOS Wails app,HTTP and MCP tool catalog parity,PASS,117.0
+Live debug API,running macOS Wails app,Read tool: app.health,PASS,8.0
+Live debug API,running macOS Wails app,Read tool: app.permissions,PASS,73.0
+Live debug API,running macOS Wails app,Read tool: settings.schema,PASS,46.0
+Live debug API,running macOS Wails app,Read tool: groups.list,PASS,7.0
+Live debug API,running macOS Wails app,Read tool: servers.list,PASS,49.0
+Live debug API,running macOS Wails app,Read tool: credentials.list,PASS,48.0
+Live debug API,running macOS Wails app,Read tool: tunnels.list,PASS,1.0
+Live debug API,running macOS Wails app,Read tool: hostTrust.list,PASS,4.0
+Live debug API,running macOS Wails app,Read tool: app.commands,PASS,5.0
+Live debug API,running macOS Wails app,Read tool: list_logs,PASS,3.0
+Live debug API,running macOS Wails app,Read tool: read_logs,PASS,4.0
+Live debug API,running macOS Wails app,Read tool: recent_events,PASS,2.0
+Live debug API,running macOS Wails app,Read tool: app.recent_calls,PASS,1.0
+Live debug API,running macOS Wails app,Read tool: sftp.transfers,PASS,1.0
+Live debug API,running macOS Wails app,MCP initializes successfully,PASS,2.0
+Live debug API,running macOS Wails app,MCP lists resources,PASS,3.0
+Live debug API,running macOS Wails app,MCP lists resource templates,SKIP,1.0
+Live debug API,running macOS Wails app,Navigate page: home,PASS,17.0
+Live debug API,running macOS Wails app,Navigate page: servers,PASS,148.0
+Live debug API,running macOS Wails app,Navigate page: tunnel,PASS,17.0
+Live debug API,running macOS Wails app,Settings section: general,PASS,55.0
+Live debug API,running macOS Wails app,Settings section: hotkeys,PASS,37.0
+Live debug API,running macOS Wails app,Settings section: connectionInfo,PASS,54.0
+Live debug API,running macOS Wails app,Settings section: theme,PASS,89.0
+Live debug API,running macOS Wails app,Settings section: credentials,PASS,761.0
+Live debug API,running macOS Wails app,Settings section: security,PASS,33.0
+Live debug API,running macOS Wails app,Settings section: debug,PASS,42.0
+Live debug API,running macOS Wails app,Settings section: logs,PASS,26.0
+Live debug API,running macOS Wails app,Settings section: audit,PASS,31.0
+Live debug API,running macOS Wails app,Settings section: migrate,PASS,31.0
+Live debug API,running macOS Wails app,Settings section: about,PASS,35.0
+Live debug API,running macOS Wails app,Real local shell connects,PASS,0.0
+Live debug API,running macOS Wails app,Local shell ASCII command and output,PASS,1202.0
+Live debug API,running macOS Wails app,Local shell Unicode command input,PASS,24.0
+Live debug API,running macOS Wails app,Local shell Chinese command input,PASS,18.0
+Live debug API,running macOS Wails app,Local shell binary/base64 input,PASS,109.0
+Live debug API,running macOS Wails app,Local terminal resize,PASS,2.0
+Live debug API,running macOS Wails app,Local terminal scroll,PASS,3.0
+Live debug API,running macOS Wails app,Split and restore two live terminals,PASS,16.0
+Live debug API,running macOS Wails app,Switch context panel: sftp,PASS,2.0
+Live debug API,running macOS Wails app,Switch context panel: sysinfo,PASS,2.0
+Live debug API,running macOS Wails app,Switch context panel: transfers,PASS,1.0
+Live debug API,running macOS Wails app,Switch context panel: hidden,PASS,2.0
+Live debug API,running macOS Wails app,Disconnect a real local session,PASS,4.0
+Live debug API,running macOS Wails app,Reconnect a real local session and run a command,PASS,1141.0
+Live debug API,running macOS Wails app,Frontend console has no errors,PASS,1.0
+Live debug API,running macOS Wails app,Cleanup only audit-created tabs and PTYs,PASS,92.0
+Live debug API,running macOS Wails app,Original tabs preserved,PASS,0.0

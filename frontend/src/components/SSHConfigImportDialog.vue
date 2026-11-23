@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {PreviewSSHConfig, SelectSSHConfig, ImportSSHConfig} from '../../bindings/ding-ssh/internal/apphost/app'
 import {errorText} from '../i18n'
 
 import {t as $t} from '../i18n'
@@ -17,7 +18,6 @@ const choices = ref<Record<string, string>>({})
 const path = ref('')
 const error = ref('')
 const busy = ref(false)
-const api = () => (window as any).go.main.App
 function conflict(entry: Entry) { return servers.servers.find(s => s.name === entry.node.name || s.importAlias === entry.alias && s.importSource === entry.node.importSource) }
 function diff(entry: Entry) {
  const old = conflict(entry); if (!old) return ''
@@ -28,14 +28,14 @@ function diff(entry: Entry) {
 }
 async function preview() {
  busy.value = true; error.value = ''
- try { entries.value = await api().PreviewSSHConfig(path.value); choices.value = Object.fromEntries(entries.value.map(e => [e.alias, e.warnings.length || conflict(e) ? 'skip' : 'copy'])) }
+ try { entries.value = await PreviewSSHConfig(path.value); choices.value = Object.fromEntries(entries.value.map(e => [e.alias, e.warnings.length || conflict(e) ? 'skip' : 'copy'])) }
  catch (e) { error.value = errorText(e); entries.value = [] }
  finally { busy.value = false }
 }
-async function choose() { try { const selected = await api().SelectSSHConfig(); if (selected) { path.value = selected; await preview() } } catch (e) { error.value = errorText(e) } }
+async function choose() { try { const selected = await SelectSSHConfig(); if (selected) { path.value = selected; await preview() } } catch (e) { error.value = errorText(e) } }
 async function save() {
  busy.value = true
- try { await api().ImportSSHConfig(path.value, entries.value.map(e => ({alias: e.alias, strategy: choices.value[e.alias]}))); await servers.load(); show.value = false }
+ try { await ImportSSHConfig(path.value, entries.value.map(e => ({alias: e.alias, strategy: choices.value[e.alias]}))); await servers.load(); show.value = false }
  catch (e) { error.value = errorText(e) }
  finally { busy.value = false }
 }

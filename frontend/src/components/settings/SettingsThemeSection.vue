@@ -4,6 +4,7 @@ import {t as $t} from '../../i18n'
 import {t} from '../../i18n'
 
 import {computed, onMounted, ref, watch} from 'vue'
+import {getDisplayRect} from '../../utils/dom'
 import Icon from '../Icon.vue'
 import SearchSelect from '../ui/select/SearchSelect.vue'
 import ToggleSwitch from '../ToggleSwitch.vue'
@@ -15,6 +16,7 @@ import {detectCapabilities, hexToRgb, monoFontStack} from '../../theme/engine'
 import {TERMINAL_FONT_SCHEMES, loadTerminalFonts, fontPair, encodeFontPair} from '../../theme/terminal-fonts'
 import {customFontSizes, formatFontSize, customFontChinese, customFonts, importCustomFont, restoreCustomFonts, removeCustomFont} from '../../theme/custom-fonts'
 import {remoteFontProgress, remoteFontStatus} from '../../theme/remote-fonts'
+import {BUNDLED_FONT_FAMILIES, isRemoteFont} from '../../theme/font-catalog'
 
 const fontInput = ref<HTMLInputElement | null>(null)
 const importError = ref('')
@@ -82,7 +84,12 @@ const englishFont = computed({get: () => fontPair(fontsForm.terminalFont)[0], se
 const chineseFont = computed({get: () => fontPair(fontsForm.terminalFont)[1], set: value => { fontsForm.terminalFont = encodeFontPair(englishFont.value, value) }})
 const fontOptions = computed(() => [...new Set(['Geist Mono', 'JetBrains Mono', 'Fira Code', 'Maple Mono NF CN', 'Sarasa Mono SC', 'Noto Sans SC', 'system', ...customFonts.value])])
 const chineseFontOptions = computed(() => fontOptions.value.filter(font => ['Maple Mono NF CN', 'Sarasa Mono SC', 'Noto Sans SC', 'system'].includes(font) || customFontChinese.value[font]))
-function fontLabel(font: string) { return font === 'system' ? t("系统默认") : font.replace('DingCustom-', '').replace(/-[a-f0-9]{12}$/, '') }
+function fontLabel(font: string) {
+  if (font === 'system') return t("系统默认")
+  const label = font.replace('DingCustom-', '').replace(/-[a-f0-9]{12}$/, '')
+  if ((BUNDLED_FONT_FAMILIES as readonly string[]).includes(font)) return label + t("（内置）")
+  return isRemoteFont(font) ? label + t("（按需下载）") : label
+}
 async function deleteFont(font: string) {
   try {
     await removeCustomFont(font)
@@ -93,17 +100,25 @@ async function deleteFont(font: string) {
 const systemPlatform = navigator.platform || t("未知系统")
 const systemLanguage = navigator.language
 const systemCores = navigator.hardwareConcurrency
+const selectedRemoteFonts = computed(() => fontPair(fontsForm.terminalFont).filter(isRemoteFont))
+const fontStates = computed(() => Object.entries(remoteFontStatus)
+  .filter(([key]) => selectedRemoteFonts.value.some(font => key === `${font}:400` || key === `${font}:700`))
+  .map(([, state]) => state))
+const fontDownloadFailed = computed(() => fontStates.value.includes('error'))
 const fontDownloadMessage = computed(() => {
-  const states = Object.entries(remoteFontStatus).filter(([key]) => fontPair(fontsForm.terminalFont).some(f => key.startsWith(`${f}:`))).map(([, state]) => state)
-  if (states.includes('error')) return t("字体下载失败，暂用回退字体；重新选择此方案可重试。")
-  if (states.includes('loading')) {
-    const entries = Object.entries(remoteFontProgress).filter(([key]) => fontPair(fontsForm.terminalFont).some(f => key.startsWith(`${f}:`)))
+  if (!selectedRemoteFonts.value.length) return t("当前字体可离线使用，无需下载。")
+  if (fontStates.value.includes('loading')) {
+    const entries = Object.entries(remoteFontProgress).filter(([key]) => selectedRemoteFonts.value.some(font => key === `${font}:400` || key === `${font}:700`))
     const done = entries.reduce((sum, [, p]) => sum + p.done, 0)
     const total = entries.reduce((sum, [, p]) => sum + p.total, 0)
     return t("正在加载字体资源 {0}/{1}，期间使用回退字体…", [done, total])
   }
-  return states.length ? t("字体已就绪，已缓存的资源可离线复用。") : t("首次使用在线下载字体，之后复用本地缓存。")
+  if (fontDownloadFailed.value) return t("字体下载失败，暂用内置字体；可点击重试。")
+  return fontStates.value.length ? t("字体已就绪；下次优先使用本地缓存。") : t("首次使用在线下载字体，之后复用本地缓存。")
 })
+function retryFonts() {
+  void loadTerminalFonts(fontsForm.terminalFont, fontsForm.terminalFontSize, 400).catch(() => { /* The status above reports retry failures. */ })
+}
 watch(() => [fontsForm.terminalFont, fontsForm.terminalFontSize] as const, ([name, size]) => {
   void loadTerminalFonts(name, size, 400).catch(() => { /* CSS fallback keeps the preview readable. */ })
 }, {immediate: true})
@@ -134,8 +149,10 @@ function hsvToHex(h: number, s: number, v: number) {
   return `#${rgb.map((n) => Math.round((n + m) * 255).toString(16).padStart(2, '0')).join('')}`.toUpperCase()
 }
 function updateFromPointer(event: PointerEvent) {
-  const rect = picker.value?.getBoundingClientRect()
-  if (!rect) return
+  // 指针 clientX/Y 是显示坐标；picker 在缩放后的 app-shell 内，gBCR 在 WKWebView 下是布局坐标。
+  // 用 getDisplayRect 统一到显示坐标，避免 uiScale≠100% 时取色点偏移。
+  const rect = getDisplayRect(picker.value)
+  if (!rect.width || !rect.height) return
   const s = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
   const v = 1 - Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height))
   void setSeedColor(hsvToHex(hsv.value.h, s, v))
@@ -234,7 +251,7 @@ function chooseColor(color: string) {
             </div>
             <label>{{ $t('字号') }} <span class="size-control"><input v-model.number="fontsForm.terminalFontSize" type="number" min="10" max="32" :aria-label="$t('终端字号')" /><span>px</span></span></label>
           </div>
-          <p class="font-status" role="status">{{ fontDownloadMessage }}</p>
+          <p class="font-status" role="status">{{ fontDownloadMessage }} <Button v-if="fontDownloadFailed" variant="ghost" size="sm" :disabled="fontStates.includes('loading')" @click="retryFonts">{{ $t('重试下载') }}</Button></p>
           <div class="font-library">
             <div class="library-heading"><div><h5>{{ $t('我的字体') }}</h5><small>{{ $t('TTF · OTF · WOFF · WOFF2 · 不限文件大小') }}</small></div><Button variant="ghost" size="sm" :disabled="importing" @click="fontInput?.click()">{{ importing ? t('正在导入…') : t('导入字体') }}</Button></div>
             <input ref="fontInput" hidden type="file" accept=".ttf,.otf,.woff,.woff2" @change="importFont" />

@@ -1,0 +1,111 @@
+version: '3'
+
+vars:
+  BIN_DIR: '{{.BIN_DIR | default "build/bin"}}'
+  TARGET_OS: '{{.GOOS | default OS}}'
+  TARGET_ARCH: '{{.GOARCH | default (.ARCH | default ARCH)}}'
+  BUILD_CHANNEL: '{{.BUILD_CHANNEL | default "main"}}'
+  LINUX_TOOLKIT: '{{.LINUX_TOOLKIT | default "gtk3"}}'
+  TAGS: '{{if ne .DEV "true"}}production{{if and (eq .TARGET_OS "linux") (eq .LINUX_TOOLKIT "gtk3")}},{{end}}{{end}}{{if and (eq .TARGET_OS "linux") (eq .LINUX_TOOLKIT "gtk3")}}gtk3{{end}}'
+  EXE: '{{.BIN_DIR}}/ding-ssh{{if eq .TARGET_OS "windows"}}.exe{{end}}'
+
+tasks:
+  bindings:
+    cmds:
+      - mkdir -p frontend/dist
+      - touch frontend/dist/.gitkeep
+      - wails3 generate bindings -ts -d frontend/bindings
+    env:
+      GOFLAGS: '{{if and (eq OS "linux") (eq .LINUX_TOOLKIT "gtk3")}}-tags=gtk3{{end}}'
+
+  frontend:
+    cmds:
+      - npm --prefix frontend ci
+      - task: bindings
+      - npm --prefix frontend run build
+
+  build:
+    cmds:
+      - task: frontend
+        vars: {LINUX_TOOLKIT: '{{.LINUX_TOOLKIT}}'}
+      - task: compile
+        vars: {LINUX_TOOLKIT: '{{.LINUX_TOOLKIT}}'}
+      - task: bundle:macos
+
+  build:linux-gtk3:
+    desc: Build Linux binary using GTK3 / WebKitGTK 4.1
+    cmds:
+      - task: build
+        vars:
+          TARGET_OS: linux
+          LINUX_TOOLKIT: gtk3
+
+  build:linux-gtk4:
+    desc: Build Linux binary using GTK4 / WebKitGTK 6
+    cmds:
+      - task: build
+        vars:
+          TARGET_OS: linux
+          LINUX_TOOLKIT: gtk4
+
+  compile:
+    internal: true
+    env:
+      GOOS: '{{.TARGET_OS}}'
+      GOARCH: '{{.TARGET_ARCH}}'
+      CGO_ENABLED: '{{if eq .TARGET_OS "windows"}}0{{else}}1{{end}}'
+      MACOSX_DEPLOYMENT_TARGET: '12.0'
+      CGO_CFLAGS: '{{if eq .TARGET_OS "darwin"}}-O2 -g -mmacosx-version-min=12.0{{else}}-O2 -g{{end}}'
+      CGO_LDFLAGS: '{{if eq .TARGET_OS "darwin"}}-O2 -g -mmacosx-version-min=12.0{{else}}-O2 -g{{end}}'
+    cmds:
+      - mkdir -p "{{.BIN_DIR}}"
+      - defer: 'rm -f "ding_windows_{{.TARGET_ARCH}}.syso"'
+      - >-
+        {{if eq .TARGET_OS "windows"}}wails3 generate syso -arch {{.TARGET_ARCH}} -icon build/windows/icon.ico -manifest build/windows/wails.exe.manifest -info build/windows/info.json -out ding_windows_{{.TARGET_ARCH}}.syso{{else}}true{{end}}
+      - >-
+        go build {{if .TAGS}}-tags "{{.TAGS}}"{{end}} -trimpath
+        -ldflags "-X ding-ssh/internal/updater.BuildChannel={{.BUILD_CHANNEL}}{{if .BUILD_COMMIT}} -X ding-ssh/internal/updater.BuildCommit={{.BUILD_COMMIT}}{{end}}{{if and (eq .TARGET_OS "windows") (ne .DEV "true")}} -H windowsgui{{end}}"
+        -o "{{.EXE}}" .
+
+  bundle:macos:
+    internal: true
+    platforms: [darwin]
+    cmds:
+      - |
+        {{if eq .TARGET_OS "darwin"}}
+        set -e
+        mkdir -p "{{.BIN_DIR}}/ding-ssh.app/Contents/MacOS" "{{.BIN_DIR}}/ding-ssh.app/Contents/Resources"
+        cp "{{.EXE}}" "{{.BIN_DIR}}/ding-ssh.app/Contents/MacOS/ding-ssh"
+        cp build/darwin/Info.plist "{{.BIN_DIR}}/ding-ssh.app/Contents/Info.plist"
+        wails3 generate icons -input build/appicon.png -macfilename "{{.BIN_DIR}}/ding-ssh.app/Contents/Resources/iconfile.icns" -windowsfilename "{{.BIN_DIR}}/icon.ico"
+        codesign --force --sign - "{{.BIN_DIR}}/ding-ssh.app"
+        {{end}}
+
+  package:
+    cmds:
+      - task: build
+      - task: installer:windows
+
+  installer:windows:
+    platforms: [windows]
+    dir: build/windows/installer
+    cmds:
+      - mkdir -p tmp
+      - wails3 generate webview2bootstrapper -dir tmp
+      - makensis -DARG_WAILS_AMD64_BINARY=../../bin/ding-ssh.exe -DINFO_PRODUCTVERSION={{.PRODUCT_VERSION | default "1.2.1"}} project.nsi
+
+  dev:build:
+    cmds:
+      - task: bindings
+      - task: compile
+        vars: {DEV: 'true'}
+      - task: bundle:macos
+
+  common:dev:frontend:
+    dir: frontend
+    cmds:
+      - npm run dev -- --host 127.0.0.1 --port {{.WAILS_VITE_PORT | default "9245"}} --strictPort
+
+  run:
+    cmds:
+      - '{{if eq .TARGET_OS "darwin"}}{{.BIN_DIR}}/ding-ssh.app/Contents/MacOS/ding-ssh{{else}}{{.EXE}}{{end}}'

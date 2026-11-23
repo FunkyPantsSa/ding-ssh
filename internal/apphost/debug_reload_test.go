@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"ding-ssh/internal/appdir"
 	"ding-ssh/internal/debugsrv"
 	"ding-ssh/internal/models"
 	"ding-ssh/internal/sshx"
@@ -32,6 +33,7 @@ import (
 // 「就地生效」与「重启服务」两种行为。
 func newReloadTestApp(t *testing.T) *App {
 	t.Helper()
+	t.Setenv(appdir.EnvDevConfigDir, t.TempDir())
 	js, err := store.NewJSONSettingsStore(filepath.Join(t.TempDir(), "settings.json"))
 	if err != nil {
 		t.Fatalf("创建设置存储失败: %v", err)
@@ -49,6 +51,7 @@ func newReloadTestApp(t *testing.T) *App {
 	}
 
 	a := NewApp(DebugBoot{Enabled: true, Port: 0, Token: "test-token-m9", CapTerminalInput: true})
+	a.debugDialog = func(approvalDialogOptions) (string, error) { return "批准", nil }
 	a.settings = js
 	// SaveSettings 会调用 manager.SetKeepAliveEnabled，不能是 nil。
 	a.manager = sshx.NewManager(func(string, any) {})

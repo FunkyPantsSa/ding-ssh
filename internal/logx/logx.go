@@ -12,6 +12,9 @@
 // 不受总开关与文件开关影响，便于在关闭常规日志时单独抓取调用记录。
 //
 // 级别过滤由 SetLevel 控制，默认 info（Debugf 在 info 级别下不输出）。
+//
+// 高频路径（终端输出、传输分块、状态轮询）用 Sampler + DebugSampled 等限流，
+// 避免逐块日志刷屏；需要拼装昂贵参数时先用 DebugEnabled 等辅助函数预判。
 package logx
 
 import (
@@ -19,7 +22,9 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // level 日志级别，数值越大越严重。
@@ -152,6 +157,147 @@ func outputActive() bool {
 // levelEnabled 判断某级别是否达到当前最低输出级别。
 func levelEnabled(lv level) bool {
 	return lv >= level(currentLevel.Load())
+}
+
+// DebugEnabled 报告 DEBUG 级日志当前是否真正会输出（任一通道开启且级别 <= debug）。
+//
+// 调用方在拼装「昂贵参数」前应先判断，避免为了写不出去的日志做序列化/遍历/格式化：
+//
+//	if logx.DebugEnabled() {
+//	    logx.Debugf("[store] 加载服务器: count=%d payload=%s", len(nodes), summarize(nodes))
+//	}
+//
+// 注意：logx.Debugf 等函数自身仍会做一次判定，因此廉价参数直接写日志即可，
+// 不需要额外包 if。
+func DebugEnabled() bool {
+	return outputActive() && levelEnabled(lvDebug)
+}
+
+// InfoEnabled 报告 INFO 级日志当前是否真正会输出。
+func InfoEnabled() bool {
+	return outputActive() && levelEnabled(lvInfo)
+}
+
+// WarnEnabled 报告 WARN 级日志当前是否真正会输出。
+func WarnEnabled() bool {
+	return outputActive() && levelEnabled(lvWarn)
+}
+
+// ErrorEnabled 报告 ERROR 级日志当前是否真正会输出。
+// 它与「任一输出通道开启」等价，单独提供是为了让调用方语义统一。
+func ErrorEnabled() bool {
+	return outputActive() && levelEnabled(lvError)
+}
+
+// Sampler 高频日志采样器，用于终端输出、传输分块、状态轮询等「每次都可能触发」的路径。
+//
+// 判定规则（首次调用必定放行，保证异常开始时的第一条日志一定可见）：
+//   - every > 0 且距首次之后已累计 every 次调用时放行（即第 1、1+every、1+2*every… 次）；
+//   - interval > 0 且距上次放行已超过 interval 时放行；
+//   - 两个参数都 <= 0 时每次都放行（低频路径/测试可用）。
+//
+// 采样器只做计数与限流，不缓存日志内容；调用方仍应先判 DebugEnabled 等，
+// 让采样配额只在「日志真的会输出」时消耗（否则关日志期间会把配额跑光）。
+//
+// 典型用法：
+//
+//	var chunkLog = logx.NewSampler(64, 2*time.Second)
+//
+//	for chunk := range chunks {
+//	    logx.DebugSampled(chunkLog, "[sshx] 终端输出分块: session=%s bytes=%d", id, len(chunk))
+//	}
+type Sampler struct {
+	every    uint64
+	interval time.Duration
+
+	mu   sync.Mutex
+	n    uint64
+	last time.Time
+}
+
+// NewSampler 创建采样器：every 为「每多少次放行一次」（0 表示按次数不限制），
+// interval 为「两次放行之间的最小间隔」（0 表示按时间不限制）。
+func NewSampler(every uint64, interval time.Duration) *Sampler {
+	return &Sampler{every: every, interval: interval}
+}
+
+// Allow 返回本次是否放行。nil 采样器视为每次都放行，便于调用方少写判空。
+func (s *Sampler) Allow() bool {
+	if s == nil {
+		return true
+	}
+	if s.every == 0 && s.interval <= 0 {
+		return true
+	}
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.n++
+	if s.n == 1 {
+		s.last = now
+		return true
+	}
+	if s.every > 0 && (s.n-1)%s.every == 0 {
+		s.last = now
+		return true
+	}
+	if s.interval > 0 && (s.last.IsZero() || now.Sub(s.last) >= s.interval) {
+		s.last = now
+		return true
+	}
+	return false
+}
+
+// Reset 清空采样计数，使下一次 Allow 必定放行（例如会话重连后重新开始采样）。
+func (s *Sampler) Reset() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.n = 0
+	s.last = time.Time{}
+}
+
+// logSampled 是采样日志的统一入口：先判级别/通道，再消费采样配额，最后输出。
+// 顺序很重要：日志关闭时不能消耗配额，否则「打开日志后要等 N 次才出第一条」很难排查。
+func logSampled(lv level, s *Sampler, format string, args ...interface{}) {
+	if !outputActive() || !levelEnabled(lv) {
+		return
+	}
+	if !s.Allow() {
+		return
+	}
+	prefix := "[DEBUG] "
+	switch lv {
+	case lvInfo:
+		prefix = "[INFO] "
+	case lvWarn:
+		prefix = "[WARN] "
+	case lvError:
+		prefix = "[ERROR] "
+	}
+	logf(lv, prefix, format, args...)
+}
+
+// DebugSampled 先按采样器限流再输出 DEBUG 日志（见 Sampler 的判定规则）。
+func DebugSampled(s *Sampler, format string, args ...interface{}) {
+	logSampled(lvDebug, s, format, args...)
+}
+
+// InfoSampled 先按采样器限流再输出 INFO 日志。
+func InfoSampled(s *Sampler, format string, args ...interface{}) {
+	logSampled(lvInfo, s, format, args...)
+}
+
+// WarnSampled 先按采样器限流再输出 WARN 日志。
+func WarnSampled(s *Sampler, format string, args ...interface{}) {
+	logSampled(lvWarn, s, format, args...)
+}
+
+// ErrorSampled 先按采样器限流再输出 ERROR 日志（用于会持续失败的循环，避免刷屏）。
+func ErrorSampled(s *Sampler, format string, args ...interface{}) {
+	logSampled(lvError, s, format, args...)
 }
 
 // logf 统一输出入口：先判通道与级别，再一次性写出（控制台 + 文件）。

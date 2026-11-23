@@ -27,7 +27,7 @@ func TestManualLiveProbe(t *testing.T) {
 	audit := NewAuditLog()
 	s := New(Options{
 		Addr: "127.0.0.1:0", Token: "probe-token", Handler: &fakeHandler{}, Hub: NewHub(),
-		Gate: gate, Audits: audit, Confirms: NewConfirmManager(DefaultConfirmTTL), Executor: &stubExecutor{},
+		Gate: gate, Audits: audit, Confirms: NewConfirmManager(DefaultConfirmTTL), Executor: &stubExecutor{}, Approver: approveTestOperation,
 		Logf: func(string, ...any) {},
 	})
 	addr, err := s.Start()

@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"ding-ssh/internal/logx"
 	"ding-ssh/internal/models"
 )
 
@@ -87,6 +89,7 @@ func words(line string) ([]string, error) {
 		started = true
 	}
 	if quote != 0 || escaped {
+		logx.Debugf("[sshconfig] 解析配置词法失败: quote=%q escaped=%v", quote, escaped)
 		return nil, fmt.Errorf("%s", i18n.T("配置引号或转义不完整"))
 	}
 	flush()
@@ -94,7 +97,9 @@ func words(line string) ([]string, error) {
 }
 
 func Parse(path string) ([]Preview, error) {
+	start := time.Now()
 	path = expand(path)
+	logx.Infof("[sshconfig] 开始解析 SSH 配置: path=%q", path)
 	directives := []directive{}
 	aliases := []string{}
 	known := map[string]bool{}
@@ -103,6 +108,7 @@ func Parse(path string) ([]Preview, error) {
 	var read func(string, []string, int) ([]string, error)
 	read = func(file string, patterns []string, depth int) ([]string, error) {
 		if depth > 16 {
+			logx.Warnf("[sshconfig] Include 嵌套过深，中止解析: file=%q depth=%d", file, depth)
 			return patterns, fmt.Errorf("%s", i18n.T("Include 深度超过 16"))
 		}
 		abs, err := filepath.Abs(file)
@@ -114,24 +120,29 @@ func Parse(path string) ([]Preview, error) {
 			return patterns, err
 		}
 		if stack[canonical] {
+			logx.Warnf("[sshconfig] 检测到 Include 循环引用: file=%q", file)
 			return patterns, fmt.Errorf(i18n.T("Include 循环引用：%s"), file)
 		}
 		stack[canonical] = true
 		defer delete(stack, canonical)
 		f, err := os.Open(abs)
 		if err != nil {
+			logx.Warnf("[sshconfig] 打开配置文件失败: path=%q err=%v", abs, err)
 			return patterns, err
 		}
 		defer f.Close()
+		logx.Debugf("[sshconfig] 读取配置文件: path=%q depth=%d patterns=%d", canonical, depth, len(patterns))
 		scanner := bufio.NewScanner(f)
 		scanner.Buffer(make([]byte, 4096), 1024*1024)
 		for scanner.Scan() {
 			count++
 			if count > 100000 {
+				logx.Warnf("[sshconfig] 配置文件行数超限，中止解析: path=%q lines=%d", file, count)
 				return patterns, fmt.Errorf("%s", i18n.T("配置文件过大"))
 			}
 			fields, err := words(scanner.Text())
 			if err != nil {
+				logx.Warnf("[sshconfig] 解析配置行失败: path=%q line=%d err=%v", file, count, err)
 				return patterns, fmt.Errorf("%s: %w", file, err)
 			}
 			if len(fields) == 0 {
@@ -140,6 +151,7 @@ func Parse(path string) ([]Preview, error) {
 			key := strings.ToLower(fields[0])
 			values := fields[1:]
 			if len(values) == 0 {
+				logx.Warnf("[sshconfig] 配置项缺少取值: path=%q line=%d key=%q", file, count, fields[0])
 				return patterns, fmt.Errorf(i18n.T("%s 缺少配置值"), fields[0])
 			}
 			if key == "include" {
@@ -154,8 +166,14 @@ func Parse(path string) ([]Preview, error) {
 					}
 					matches, err := filepath.Glob(pattern)
 					if err != nil {
+						logx.Warnf("[sshconfig] Include 通配符非法: pattern=%q err=%v", pattern, err)
 						return patterns, err
 					}
+					if len(matches) == 0 {
+						logx.Debugf("[sshconfig] Include 未匹配任何文件: pattern=%q", pattern)
+						continue
+					}
+					logx.Debugf("[sshconfig] Include 匹配到配置文件: pattern=%q matches=%d", pattern, len(matches))
 					for _, match := range matches {
 						patterns, err = read(match, patterns, depth+1)
 						if err != nil {
@@ -173,10 +191,12 @@ func Parse(path string) ([]Preview, error) {
 						aliases = append(aliases, alias)
 					}
 				}
+				logx.Debugf("[sshconfig] 解析到 Host 段: path=%q aliases=%d", file, len(values))
 				continue
 			}
 			// Match changes scope in ways this importer cannot safely evaluate.
 			if key == "match" {
+				logx.Warnf("[sshconfig] 配置包含不支持的 Match 段，中止解析: path=%q line=%d", file, count)
 				return patterns, fmt.Errorf("%s", i18n.T("不支持 Match，无法安全生成配置快照"))
 			}
 			directives = append(directives, directive{append([]string{}, patterns...), key, values})
@@ -184,8 +204,11 @@ func Parse(path string) ([]Preview, error) {
 		return patterns, scanner.Err()
 	}
 	if _, err := read(path, []string{"*"}, 0); err != nil {
+		logx.Errorf("[sshconfig] SSH 配置解析失败: path=%q err=%v", path, err)
 		return nil, err
 	}
+	logx.Debugf("[sshconfig] SSH 配置文件读取完成: path=%q lines=%d aliases=%d directives=%d elapsed=%s",
+		path, count, len(aliases), len(directives), time.Since(start))
 	defaultUser := os.Getenv("USER")
 	if current, err := user.Current(); err == nil {
 		defaultUser = current.Username
@@ -254,6 +277,8 @@ func Parse(path string) ([]Preview, error) {
 		if jump != "" && jump != "none" {
 			jumps = strings.Split(jump, ",")
 		}
+		logx.Debugf("[sshconfig] 解析主机: alias=%s host=%s user=%s port=%d auth=%s jumps=%d",
+			alias, node.Host, node.User, node.Port, node.AuthType, len(jumps))
 		if strings.Contains(node.Host, "%") || strings.Contains(node.IdentityAgent, "%") {
 			warnings = append(warnings, i18n.T("包含不支持的配置 token"))
 		}
@@ -271,6 +296,23 @@ func Parse(path string) ([]Preview, error) {
 			}
 		}
 	}
+	// 每个存在告警的主机记一条 WARN（导入后功能降级），告警明细用 DEBUG。
+	totalWarnings := 0
+	for i := range results {
+		if len(results[i].Warnings) == 0 {
+			continue
+		}
+		logx.Warnf("[sshconfig] 主机配置存在告警: alias=%s warnings=%d", results[i].Alias, len(results[i].Warnings))
+		for _, warning := range results[i].Warnings {
+			logx.Debugf("[sshconfig] 配置告警详情: alias=%s warning=%q", results[i].Alias, warning)
+		}
+		totalWarnings += len(results[i].Warnings)
+	}
+	if len(results) == 0 {
+		logx.Warnf("[sshconfig] 未解析到可导入的 Host 别名: path=%q lines=%d", path, count)
+	}
+	logx.Infof("[sshconfig] SSH 配置解析完成: path=%q aliases=%d directives=%d warnings=%d elapsed=%s",
+		path, len(results), len(directives), totalWarnings, time.Since(start))
 	return results, nil
 }
 

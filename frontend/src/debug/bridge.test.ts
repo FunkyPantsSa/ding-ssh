@@ -4,14 +4,15 @@ import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 
 const bridge = vi.hoisted(() => ({handler: undefined as undefined | ((p: unknown) => Promise<void>), reply: vi.fn()}))
-vi.mock('../../wailsjs/runtime/runtime', async importOriginal => ({
-  ...await importOriginal<typeof import('../../wailsjs/runtime/runtime')>(),
+vi.mock('../services/desktop', async importOriginal => ({
+  ...await importOriginal<typeof import('../services/desktop')>(),
   EventsOn: vi.fn((name: string, fn: (p: unknown) => Promise<void>) => {if (name === 'debug:request') bridge.handler = fn; return () => {}}),
 }))
-vi.mock('../../wailsjs/go/main/App', async importOriginal => ({
-  ...await importOriginal<typeof import('../../wailsjs/go/main/App')>(), DebugReply: bridge.reply,
+vi.mock('../../bindings/ding-ssh/internal/apphost/app', async importOriginal => ({
+  ...await importOriginal<typeof import('../../bindings/ding-ssh/internal/apphost/app')>(), DebugReply: bridge.reply,
 }))
 import {installDebugBridge} from './bridge'
+import {registerDebugTerminal, unregisterDebugTerminal, type DebugTerminalEntry} from './registry'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -23,6 +24,18 @@ async function call(op: string, args: Record<string, unknown>) {
   return JSON.parse(bridge.reply.mock.calls.at(-1)![1])
 }
 describe('workspace MCP bridge', () => {
+  it('distinguishes Unicode text from raw base64 input', async () => {
+    const write = vi.fn()
+    const entry = {clientId: 'audit-input', write} as unknown as DebugTerminalEntry
+    registerDebugTerminal(entry)
+    try {
+      expect((await call('terminal.input', {id: entry.clientId, data: 'é中文'})).ok).toBe(true)
+      expect(write).toHaveBeenLastCalledWith('é中文', false)
+      expect((await call('terminal.input', {id: entry.clientId, base64: btoa('\xff\x00')})).ok).toBe(true)
+      expect(write).toHaveBeenLastCalledWith('\xff\x00', true)
+      expect((await call('terminal.input', {id: entry.clientId, base64: 'invalid%'})).ok).toBe(false)
+    } finally { unregisterDebugTerminal(entry.clientId, entry) }
+  })
   it('activates only existing tabs', async () => {
     const sessions = useSessionsStore()
     const a = sessions.openLocalTab(), b = sessions.openLocalTab()

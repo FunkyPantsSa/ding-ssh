@@ -24,6 +24,10 @@ type localSSH struct {
 }
 
 func startLocalSSH(t *testing.T, password string, forward bool, handleRequests ...func(*ssh.ServerConn, <-chan *ssh.Request)) *localSSH {
+	return startLocalSSHChannels(t, password, forward, nil, handleRequests...)
+}
+
+func startLocalSSHChannels(t *testing.T, password string, forward bool, handleSession func(ssh.NewChannel), handleRequests ...func(*ssh.ServerConn, <-chan *ssh.Request)) *localSSH {
 	t.Helper()
 	_, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -69,6 +73,10 @@ func startLocalSSH(t *testing.T, password string, forward bool, handleRequests .
 					go handleRequests[0](sshConn, reqs)
 				}
 				for request := range chans {
+					if request.ChannelType() == "session" && handleSession != nil {
+						go handleSession(request)
+						continue
+					}
 					if request.ChannelType() != "direct-tcpip" || !forward {
 						request.Reject(ssh.Prohibited, "forward denied")
 						continue

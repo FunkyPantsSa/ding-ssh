@@ -1,5 +1,7 @@
 package debugsrv
 
+import "ding-ssh/internal/logx"
+
 // UI 观测 / 实验域的能力位注册。
 //
 // 为什么单独一个文件：地基（caps.go）明确规定「三方并行开发不许改内置表 toolCaps」，
@@ -23,11 +25,15 @@ func init() {
 
 // registerUIToolCaps 登记全部 ui.* 工具的能力位（幂等，测试可重复调用）。
 func registerUIToolCaps() {
+	reads, writes := 0, 0
 	for _, name := range uiToolNames {
 		if uiWriteTools[name] {
 			RegisterToolCap(name, CapUIWrite)
+			writes++
 			continue
 		}
-		RegisterToolCap(name, CapRead)
+		RegisterToolCap(name, CapUIInspect)
+		reads++
 	}
+	logx.Infof("[debugsrv/ui] 注册 UI 工具能力位: total=%d read=%d write=%d", len(uiToolNames), reads, writes)
 }

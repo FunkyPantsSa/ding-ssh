@@ -1,12 +1,24 @@
 package sshx
 
 import (
+	"bytes"
 	"net/url"
 	"path"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"ding-ssh/internal/logx"
+)
+
+// 目录解析在每个终端输出块上都会执行，命中日志必须采样限流：
+// prompt 命中极其频繁（每块输出都可能命中同一提示符），单独一个采样器；
+// OSC 7 / OSC 3008 / cd 回显用一个采样器即可。
+var (
+	promptMatchLog = logx.NewSampler(0, 2*time.Second)
+	oscMatchLog    = logx.NewSampler(0, 2*time.Second)
 )
 
 // ParseDirFromOutput 从终端输出中提取当前工作目录。
@@ -29,9 +41,9 @@ var osc3008ShellPattern = regexp.MustCompile(`\x1b\]3008;[^\x07\x1b]*type=shell[
 // 2. user@host:/path$     （Debian/Ubuntu）
 // 3. 行首绝对路径 /$
 var promptPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`\[[^@\]]+@[^\]]+\s+(\S+)\]\s*[#%$]\s*$`),          // [user@host /path]$
-	regexp.MustCompile(`[^\s@]+@[^\s:]+:(\S+)\s*[#%$]\s*$`),                // user@host:/path$
-	regexp.MustCompile(`(?:^|[\s])(/[^\s]*)\s*[#%$]\s*$`),                 // ... /path$
+	regexp.MustCompile(`\[[^@\]]+@[^\]]+\s+(\S+)\]\s*[#%$]\s*$`), // [user@host /path]$
+	regexp.MustCompile(`[^\s@]+@[^\s:]+:(\S+)\s*[#%$]\s*$`),      // user@host:/path$
+	regexp.MustCompile(`(?:^|[\s])(/[^\s]*)\s*[#%$]\s*$`),        // ... /path$
 }
 
 // cdLinePattern 独立成行的 cd 回显（脚本输出 / 粘贴文本 / 无提示符前缀的回显）：\ncd /path\n。
@@ -42,6 +54,13 @@ var cdLinePattern = regexp.MustCompile(`(?:^|[\n])cd[ \t]+([^\n#;|&]+)\n`)
 // 旧的"行首 cd"锚点（cdLinePattern）匹配不到它，导致 cd /tmp 这类命令一直无法同步。
 // 提示符回显允许相对路径（cd ..、cd subdir），由上层基于 lastDir 补全为绝对路径。
 var cdPromptPattern = regexp.MustCompile(`[#%$][ \t]+cd[ \t]+([^\n#;|&]+)\n`)
+
+// 无参数 cd（回到 $HOME）：交互回显 `…$ cd` 或脚本里独立成行的 `cd`。
+// 返回 "~" 交给上层用已知 home 展开，并和 cd ~ 一样走存在性校验。
+var (
+	bareCdPromptPattern = regexp.MustCompile(`[#%$][ \t]+cd[ \t]*$`)
+	bareCdLinePattern   = regexp.MustCompile(`^cd[ \t]*$`)
+)
 
 // ansiPattern 仅剥离 CSI / OSC / 单字符 ESC，保留换行以便取末行。
 var ansiPattern = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[ -/]*[A-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-B]|[NO])`)
@@ -123,6 +142,7 @@ func ParseOSC7(data []byte) (string, bool) {
 	if p == "" {
 		return "", false
 	}
+	logx.DebugSampled(oscMatchLog, "[sshx] 解析到 OSC 7 目录: path=%s matches=%d", p, len(matches))
 	return p, true
 }
 
@@ -140,6 +160,7 @@ func ParseOSC3008(data []byte) (string, bool) {
 	if p == "" {
 		return "", false
 	}
+	logx.DebugSampled(oscMatchLog, "[sshx] 解析到 OSC 3008 目录: path=%s matches=%d", p, len(matches))
 	return p, true
 }
 
@@ -154,6 +175,7 @@ func ParsePrompt(data []byte) (string, bool) {
 		}
 		p := normalizeRemotePath(m[1])
 		if p != "" {
+			logx.DebugSampled(promptMatchLog, "[sshx] 解析到提示符目录: path=%s", p)
 			return p, true
 		}
 	}
@@ -183,6 +205,7 @@ func ParseCdFromOutput(data []byte) (string, bool) {
 	if m := cdPromptPattern.FindAllStringSubmatch(tail, -1); len(m) > 0 {
 		arg := firstArg(m[len(m)-1][1])
 		if arg != "" {
+			logx.DebugSampled(oscMatchLog, "[sshx] 解析到 cd 回显(提示符): target=%s", arg)
 			return arg, true
 		}
 	}
@@ -195,8 +218,36 @@ func ParseCdFromOutput(data []byte) (string, bool) {
 	return "", false
 }
 
-// ParseDirFromOutput 综合解析终端输出中的目录变更。
+// parseCdLine 从一条已完整到达的输出行（不含行尾换行）中提取 cd 回显的目标。
+// 与 ParseCdFromOutput 只看"数据片段里最后一次匹配"不同，它处理的是单行，由调用方保证
+// 每条行只送达一次：终端历史里的 cd 回显因此不会被反复解析。相对参数原样返回，
+// 由上层基于"执行该命令前的目录"补全为绝对路径；无参数 cd 返回 "~"（远端 home）。
+func parseCdLine(line []byte) (string, bool) {
+	if !bytes.Contains(line, []byte("cd")) {
+		return "", false
+	}
+	text := stripANSI(string(append(append([]byte(nil), line...), '\n')))
+	if m := cdPromptPattern.FindStringSubmatch(text); m != nil {
+		if arg := firstArg(m[1]); arg != "" {
+			return arg, true
+		}
+	}
+	lineText := strings.TrimRight(text, "\n")
+	if bareCdPromptPattern.MatchString(lineText) || bareCdLinePattern.MatchString(lineText) {
+		return "~", true
+	}
+	if m := cdLinePattern.FindStringSubmatch(text); m != nil {
+		if p := normalizeRemotePath(firstArg(m[1])); p != "" {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// ParseDirFromOutput 综合解析一整个数据片段中的目录变更。
 // source 为 prompt / cd / osc7 / osc3008，便于日志排查。
+// 注意：它会重复命中片段内历史上的 cd 回显，只适合一次性解析完整文本；
+// 持续读取终端输出时应按行消费（见 Session.resolveDirChange），否则相对 cd 会被反复叠加。
 func ParseDirFromOutput(data []byte) (string, string, bool) {
 	if p, ok := ParsePrompt(data); ok {
 		return p, "prompt", true
@@ -211,17 +262,4 @@ func ParseDirFromOutput(data []byte) (string, string, bool) {
 		return p, "osc3008", true
 	}
 	return "", "", false
-}
-
-func containsNewline(b []byte) bool {
-	return strings.ContainsRune(string(b), '\n') || strings.ContainsRune(string(b), '\r')
-}
-
-func previewTail(data []byte, n int) string {
-	s := stripANSI(tailWindow(data, n*2))
-	s = strings.TrimSpace(s)
-	if len(s) > n {
-		s = s[len(s)-n:]
-	}
-	return strings.ReplaceAll(s, "\n", "\\n")
 }

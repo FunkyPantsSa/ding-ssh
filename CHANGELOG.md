@@ -15,6 +15,153 @@
 
 ---
 
+## [未发布] 2026-11-23 · 补齐项目级 MIT 开源许可证
+
+- 现象：仓库此前未声明正式项目级许可证，中英文 README 提示以「后续补充的 `LICENSE` 为准」，缺乏法律层面的授权明确性。
+- 修法：
+  - 根目录正式补充标准 `LICENSE` 文件（MIT 许可证，版权声明为 FunkyPantsSa）。
+  - 更新 `README.md` 与 `README.en.md`：总览表格与文末声明正式指向 `LICENSE`，并补充 MIT 徽标。
+  - 前端 `frontend/package.json` 显式增加 `"license": "MIT"` 声明。
+- 验证：文件结构与许可证文本完整无误。
+
+---
+
+## [未发布] 2026-11-22 · MCP 控制面：独立审批、客户端授权、任务执行与文件闭环
+
+- 现象：控制面只有一个共享 Bearer token 和一组能力位，`confirm.prepare` 由同一调用方立即拿到可执行 token，无法证明用户批准；终端自动化缺少稳定的独立执行与任务生命周期；文件接口没有条件写入、补丁预览与分片上传下载；权限分类把终端读取、文件读取、连接、界面观测混在一起；工具目录与 README 的工具数量、能力说明长期滞后。
+- 原因：早期实现以「单机可信脚本」为前提，能力位粒度粗、审批入口在被自动化的 WebView 内，且工具主要围绕交互式 PTY 构建，没有为非 PTY 任务、客户端隔离和文件可靠性设计独立的策略执行层。
+- 修法：
+  - **权限与身份**：拆出 19 个能力位（`read`、`terminal.read`、`fs.remote.read`、`ui.inspect`、`session.connect/disconnect`、`credentials.use`、`terminal.input`、`exec.local`、`ui.write`、`automation.trusted`、`config.write`、`secrets.read/write`、`fs.remote.write`、`transfer.cancel`、`sudo.credential`、`lifecycle`、`eval`），新增能力默认关闭；设置页提供观察 / 运维 / 完全信任开发预设，扩权需系统原生批准。
+  - **独立审批**：`confirm.prepare` 同步弹出独立于 WebView 的原生窗口，批准后返回 `operationId`、脱敏摘要和一次性执行凭据；支持批准一次或十分钟内相同调用方、动作、工具 + 完整参数；凭据绑定客户端、工具、动作与参数，120 秒过期，`confirm.status` 可查状态但不回传 token。MCP 不能通过能力、设置或 store patch 扩权。
+  - **客户端授权**：新增每客户端独立 `dsc_` token，限定服务器、会话、读写路径、能力与到期时间（最多 24 小时、最多 32 个、重启失效、可撤销）；受限客户端禁止明文凭据、本机执行、任意 JS 与完全信任界面自动化。
+  - **独立执行**：`exec.start` 使用非 PTY SSH exec，支持 `raw` / `posix`、`cwd/env`、超时、有界输出与幂等键；`jobs.get/wait/output/cancel/list` 提供游标分页与未知结果语义；应用重启后未完成任务标为 `unknown` 且不自动重放。`exec.plan/batch` 支持 1–8 目标冻结计划与 1–4 并发。
+  - **文件闭环**：新增 `sftp.download`、`sftp.upload`、`sftp.patch.preview`、`sftp.patch`；覆盖写使用同目录临时文件与原子替换，支持 `expectedHash`（含 `missing`）与 `append`；宿主校验 canonical 路径、拒绝写入最终符号链接，白名单为空时禁止一切写入。
+  - **运维观测**：新增 `hosts.metrics`、`processes.list`、`tunnels.health`、`services.status/logs`、经批准的 `services.restart`、`sessions.connect/disconnect/reconnect/wait`、`hostTrust.challenges`、`servers.search`。
+  - **协议与资源**：协商 `2024-11-05` / `2025-03-26` / `2025-06-18`，严格校验 JSON-RPC、Content-Type 与参数 schema；新增资源模板与订阅、工具注解、结构化输出；每 MCP 会话只允许一个活动 SSE，最多 128 个会话、30 分钟空闲回收；事件带 `seq` / `after` / `gap`；stdio 代理支持 32 路并发与取消，只重试确定未送达的请求。
+  - **安全与数据**：HTTP 只接受 header token，执行确认只接受 `X-Ding-Confirm-Token`；Host / Origin 校验、并发与请求体上限；持久审计只写固定元数据；诊断包默认只含安全投影；UI 组件树、DOM 文本和控制台只返回安全元信息；UI 快照 64 组 / 64 MiB / 24 小时清理。
+  - **文档**：工具目录当前 124 个工具；新增《MCP 任务与文件接口》《MCP 改造实施与验证记录》《MCP 能力设计评审与演进方案》，并重写中英文 README，移除失效的设计文档链接。
+- 兼容：原有 MCP / HTTP 工具名称与文本结果格式保留（兼容别名继续可用），新增 `structuredContent` 只在 2025-06-18 协商下返回；旧调试配置保留已明确保存的能力，不自动开启新增能力；旧 `/tmp` sudo 临时文件清理路径仍被识别。
+- 边界：普通 SFTP 无法消除远端检查 / 写入竞态，追加写非原子，ACL / xattr 不保证；任意 shell 可绕过文件白名单；取消 SSH channel 不保证远端进程树终止；应用重启不保证任务继续；像素截图仅 Windows；远程接入无 TLS / OAuth，仍应通过 SSH 转发。
+- 验证：`go test ./...`、`go test -race ./internal/... ./cmd/ding-ssh-mcp`、`go vet ./...` 通过；前端 69 个测试文件、333 项测试与 `npm run build` 通过；macOS `wails build` 与 Windows/Linux amd64 后端交叉编译通过；官方 TypeScript MCP SDK 1.32.2 经 HTTP / stdio 完成初始化、完整目录与健康调用；隔离实例安全联调 12 项通过。完整记录见 `docs/MCP改造实施与验证记录.md` 与 `docs/validation/mcp-2026-11-22.json`；原生审批实机点击与跨平台像素截图未验证。
+
+---
+
+## [未发布] 2026-11-20 · 服务器分组支持文件夹式嵌套
+
+- 现象：分组只能平铺，服务器多了只能靠 `生产-华东` 这类命名前缀人工分类；父级重命名/删除要在服务器列表里逐台改，缺少层级视图。
+- 修法：
+  - 数据层采用**路径即身份**：`servers.grp` / `groups.name` 存完整路径（如 `生产环境/华东/杭州`），不新增表或列；`GetGroups` 自动补齐隐式祖先。
+  - 后端新增 `internal/store/grouppath.go`（NFC/空段/深度/控制字符校验、祖先/父级/子孙判断）与 `internal/store/grouptree.go`（SQLite 事务）：`AddGroup` 创建全部祖先、`RenameGroup` 只改最后一段并级联更新子分组与服务器、`RemoveGroup` 支持递归删除或保留子分组上移一级；启动时对旧库非法路径做一次幂等规范化，正常数据零改动。
+  - 前端左栏改为分组树：展开/收起、父组选中含全部子孙、层级细引导线、计数、右键新建子分组/在此新建服务器/重命名/删除、拖服务器到任意层级（悬停折叠父组自动展开）、搜索自动展开命中路径；列表上方新增面包屑与“含子分组 · N 台”chip。
+  - 树形视觉二次收紧：展开箭头移到行尾、计数之前，行首文件夹图标与“全部服务器/未分组”严格对齐；层级缩进 14→12px，去掉左侧箭头占位，长名称获得更多横向空间。
+  - 新建/重命名使用带路径预览的轻量弹窗；分组管理弹窗树化，支持新建子组、行内重命名、删除时选择递归或保留子组；快速连接面板同步树形化；服务器编辑弹窗的分组选项改为读取完整分组列表，并支持 `父组/子组` 直接新建多级路径。
+  - 分组之间拖拽调整层级（`MoveGroup`）列为后续 TODO，本期不实现。
+- 兼容：旧扁平分组原样显示；旧分组名中的 `/` 自动解释为层级；降级到旧版本时路径按扁平名显示，不丢服务器/分组；`.dingpack` v1 与 SSH Config 导入格式不变。
+- 验证：`GOCACHE=.smoke/gocache go test ./internal/...` 全部通过；`go vet ./internal/...`、`go build ./...` 通过；`vue-tsc --noEmit`、`vitest`（57 文件 / 273 用例）、`npm run build`、`wails build` 通过。分组功能不依赖远端 SSH，未额外做真实远端连接冒烟。
+
+---
+
+## [未发布] 2026-11-19 · 全量补全后端日志：debug / info / warn / error 四级覆盖与日志规范
+
+- 现象：应用日志只有约 105 处 `logx` 调用，且集中在 `apphost` / `sshx` / `localterm` 少数文件；`store`、`cryptox`、`updater`、`sshconfig`、`autostart`、`debugsrv` 几乎为零。出问题时只能看到「某一步失败」的结果，看不到操作链条、耗时、降级与重试过程，无法判断服务状态。
+- 原因：历史代码只在偶发失败点随手打日志，没有统一的级别语义、消息格式与高频路径限流；部分高频循环一旦补日志就会刷屏，导致大家默认少打。
+- 修法：
+  - 新增 `docs/logging.md` 日志规范：四级语义、`[tag] 中文动作: key=value` 格式、必记场景清单、敏感信息红线、高频采样与「错误只在边界层记一次」原则。
+  - `internal/logx` 新增 `DebugEnabled/InfoEnabled/WarnEnabled/ErrorEnabled` 预判辅助与 `Sampler`（次数 + 时间双维度限流）及 `DebugSampled/InfoSampled/WarnSampled/ErrorSampled`，日志关闭时不消耗采样配额。
+  - 按包补全日志调用：`apphost` 73→547、`debugsrv` 0→390、`sshx` 28→261、`store` 0→326、`cryptox` 0→116、`updater` 0→99、`localterm` 4→49、`sshconfig` 0→21、`autostart` 0→20、`i18n` 0→6、`main.go` 0→6，`cmd/ding-ssh-mcp` 31→56（stdout 仍只输出 JSON-RPC，日志只走 stderr 并打码 token）；合计约 1893 处（基线约 136 处）。
+  - 统一 `[包/子域]` 前缀与 `key=value` 上下文（session/host/path/count/bytes/elapsed/err 等），覆盖：生命周期与启动自检、连接/鉴权/PTY/心跳/重连、SFTP 与传输、隧道、sysinfo/top 采集、设置与存储迁移、加密保险库、更新检查/下载/安装、SSH 配置导入、主机信任、调试 HTTP/MCP 服务（请求、鉴权、工具调用、审计、确认、UI/SFTP/sudo 工具）、本地终端、开机自启、语言切换。
+  - 高频路径全部采样（终端输入输出、传输分块、事件推送、runtime 状态、目录/代次轮询等），只记长度/计数/百分比；密码、私钥、passphrase、token、终端内容、文件内容、请求/响应正文一律不落日志。
+  - `internal/appdir`（与 `logx` 存在 import cycle）与 `internal/models`（纯数据结构）不引入日志；`internal/logfilter` 是日志管道本身，也不自记。
+  - 修复 `i18n` 语言代码判断：`zh-CN` / `zh-Hans` / `en-US` 等按主子标签识别，启动时不再误报「非预期语言代码」WARN。
+- 验证：`gofmt -l` 干净；`go build ./...`、`go vet ./...` 通过；`go test -count=1 ./...` 全部通过（含 `logx` 新增的级别辅助与采样器用例）；`GOOS=windows` / `GOOS=linux` 交叉构建通过。`wails build` 后在隔离配置目录（`DING_SSH_DEV_CONFIG_DIR`）实际启动冒烟：四级日志同时出现在控制台与 `logs/app-YYYYMMDD.log`，`logs.tail` 的 level 过滤可用，调试 API / MCP（initialize、tools/list 98 个工具、未知工具错误）正常，日志中无 token 明文；修复前冒烟发现的 `zh-CN` 误报 WARN 已复验消失。
+- 说明：日志开关默认仍为关闭、级别默认 info（保持原有行为），详细 debug 日志需在「设置 → 日志」打开控制台/文件日志并把级别切到 debug；debug 级别下调试服务开启时的 `ui.revision` 轮询会持续记录操作级 DEBUG（约 1.5s 一轮），长时间挂机建议用 info 级别。
+
+---
+
+## [未发布] 2026-11-19 · 状态栏增加会话级「单次 / 实时」切换按钮与悬浮说明
+
+- 现象：底部状态栏的 CPU / 内存长时间不变，容易以为采集失效；切换标签或重开运行状态面板时会变一次。
+- 原因：实时刷新默认关闭（设计如此）——每次连接只做一次快照；只有开启实时刷新后才会前台约 3 秒、后台约 10 秒周期采集。此前状态栏没有任何提示，也没有开关，容易误认为是在实时刷新。切换标签/重新绑定会请求一次新快照，所以表现为「切换时才刷新」。
+- 修法：状态栏新增一个「单次 / 实时」切换按钮：按钮文案与脉冲点反映当前模式，点击即切换，切到实时时立即补采一帧；悬停或键盘聚焦显示说明气泡（单次 / 实时各自的刷新节奏 + 上次更新时间），气泡右对齐避免贴边裁切。该切换**只作用于当前会话**：后端新增会话级覆盖 `SetSysInfoRealtime`，不修改全局 `sysInfoRealtimeEnabled`；终端关闭（会话移除）时后端自动清除，下次连接回到全局默认。运行状态面板的「自动刷新」同样改为会话级，并复用同一状态。
+- 验证：新增 Go 测试 `TestSysInfoRealtimeOverridePerSession`（覆盖只影响目标会话、关闭后清除、不污染全局）和 `TestSysInfoLoopPollsOnlyWhenRealtimeEnabled`（关闭时只采一次、开启后按间隔持续采集）；更新 `ServerStatusBar.test.ts` / `SysInfoPanel.test.ts`；80% 实例开两个终端实测：标签 A 切到实时后标签 B 仍为单次，切回 A 仍实时；关闭 A 后新开终端的默认值为单次，且全局设置数据库保持 `false`。`go test ./...`、`vue-tsc`、`vitest`（55 文件 / 255 用例）、`npm run build` 通过。
+
+---
+
+## [未发布] 2026-11-19 · 修复状态栏/下拉弹层在界面缩放下的错位，并统一贴边翻转
+
+- 现象：80% / 125% 等非 100% 缩放下，底部状态栏的网卡 / 磁盘下拉跑到触发器右侧或窗口外；只有一个根分区时点击挂载点像「没反应」（菜单实际被定位到了屏幕外）。设置页等下拉选择器也有同类错位。
+- 原因：这些弹层 Teleport 到 body、以 fixed 定位（显示坐标），但触发器矩形来自 `getElementRect`（布局坐标）或原始 `getBoundingClientRect`（WKWebView 下仍是布局坐标），两套坐标系混用；状态栏菜单还用手写的 bottom 估位，没有统一的翻转/贴边逻辑。
+- 修法：新增 `getDisplayRect()`——按引擎把元素矩形统一到视口显示坐标（Chromium 原样；WKWebView × zoom；用「比例更接近 zoom 还是 1」判定，避免小元素边框/亚像素差异误判）。状态栏磁盘/网卡菜单改用共享 `useMenuPlacement`：按真实尺寸定位、底部自动翻到触发器上方、水平贴边（`flipX:false` 不左右翻）、超高时限高滚动。SearchSelect 下拉、服务器行键盘右键菜单、主题取色器也统一改用显示坐标。
+- 验证：80% 缩放下实测状态栏网卡菜单与触发器左对齐（left 500.17）、底边在触发器上方 4px、完整在视口内，列出全部网卡；单根分区时点击挂载点正常弹出并列出 `/`；设置页下拉与输入框同宽同左。新增 `utils/dom.test.ts` 5 个用例与 `flipX` 用例；`vue-tsc`、`vitest`（54 文件 / 254 用例）、`npm run build` 通过。
+
+---
+
+## [未发布] 2026-11-19 · 重做服务器配置浮层视觉：紧凑卡片、分栏规格、磁盘用量与页脚操作
+
+- 现象：浮层像一个白底深灰边框的方盒子——圆角小、边框重、规格信息挤在左侧、右侧大片留白；磁盘行和百分比像默认控件，更新时间与刷新按钮也散落在正文里。
+- 修法：重排为一张紧凑浮层卡片：标题区加服务器图标与圆形关闭按钮；规格改为两列键值对（系统/架构、CPU/内存）填满宽度；磁盘区增加「本地文件系统 / 已用 · 总量」标题行，每个挂载点用等宽字体、用量、百分比胶囊与圆角进度条（≥85% 琥珀、≥95% 红）；底部用分隔线收口，左侧更新时间与状态、右侧带图标的刷新按钮。材质仍是统一浮层规则（近不透明叠加色 + 可选高斯模糊），并单独放软边框、加深投影；修正了因 `:is()` 选择器特异性导致浮层覆盖样式不生效的问题。
+- 验证：独立实例以真实快照渲染并截图确认版式；`vue-tsc`、`vitest`（53 文件 / 248 用例）、`npm run build` 通过。
+
+---
+
+## [未发布] 2026-11-19 · 修复服务器配置浮层透明发虚、与背后行文字混在一起
+
+- 现象：服务器未连接时点开「服务器配置信息」浮层，面板和文字一起发灰发透，背后服务器行的「配置待采集」等文字透上来与面板内容叠在一起；玻璃材质下最明显。
+- 原因：① `.summary.stale` 用 `opacity:.65` 淡化整个摘要区，浮层作为其后代一起变透明，祖先 `opacity` 还会让 `backdrop-filter` 失效；② 浮层背景用 `--background`（soft/clear 材质下约 83% 不透明），又没接入统一浮层材质、没有高斯模糊，透明度叠加后就「糊在一起」。
+- 修法：stale 只淡化触发标签（`.stale .summary-trigger,.stale .pending`），面板保持不透明；浮层新增 `config-popover` 类并接入 `style.css` 的统一浮层规则——`--surface-overlay-bg` 近不透明叠加色 + `backdrop-filter: blur(var(--glass-overlay-blur)) saturate(135%)` + 强边框/浮层阴影；solid 模式自动退回不透明无模糊，行为与菜单/弹窗一致。
+- 验证：soft 玻璃模式下实测面板 `background: rgba(255,252,255,.92)`、`-webkit-backdrop-filter: blur(18px) saturate(1.35)`、1px 强边框；mock 的 stale 容器中触发标签 `opacity: .65`、面板 `opacity: 1`；截图确认面板内容清晰、背后行文字不再透出。`vue-tsc`、`vitest`（53 文件 / 248 用例）、`npm run build` 通过。
+
+---
+
+## [未发布] 2026-11-19 · 右键菜单按真实尺寸贴边，避免贴底被裁断
+
+- 现象：标签 / 终端 / 服务器 / SFTP 的右键菜单在靠近窗口底部（或右侧）弹出时，下半部分被窗口裁掉，最后几项看不到也点不到；标签右键菜单最明显。
+- 原因：各菜单都用写死的像素值估算高度做贴边保护（标签 160px、服务器 250px、SFTP 320px），而菜单实际高度随条目变化（标签菜单约 250px、终端菜单约 291px）。贴底时只按估算值上移，真实高度更大就会溢出窗口；菜单又是 `Teleport` 到 `body` 的 `fixed` 元素，外层没有可滚动容器兜底。
+- 修法：新增 `frontend/src/composables/useMenuPlacement.ts`，菜单渲染后测量真实宽高再贴边：放得下保持原位；下方放不下整体上移；子菜单优先翻到锚点左侧 / 上方；菜单比视口还高时贴顶并加 `max-height` + 滚动。标签（含分屏子菜单）、终端、服务器、SFTP 四个右键菜单统一接入，各组件不再传用估算高度夹取后的坐标。
+- 验证：独立实例 1280×800 下用 `clientY=798` 打开标签菜单，菜单实际 250px，最终 top=542 / bottom=792（视口 800，边距 8），最后一项「关闭全部标签」完整可见；右下角终端菜单（291px）落在 top=501 / bottom=792；分屏子菜单自动翻到主菜单左侧且完整显示。`vue-tsc`、`vitest`（53 文件 / 248 用例，新增 7 个定位用例）、`npm run build` 通过。
+
+---
+
+## [未发布] 2026-11-19 · 修复界面缩放下终端选区 / 鼠标坐标偏移（WKWebView）
+
+- 现象：界面缩放调到 80%–150% 的非 100% 档位后，终端里拖选文本的选区与鼠标实际位置不一致，80% 时选区明显落到鼠标左侧、且离终端左上角越远偏得越多；macOS 上 `vim` / `tmux` 的鼠标上报同样错位；100% 档位正常。
+- 原因：WKWebView 的坐标系是「混搭」——`getBoundingClientRect()` 返回布局（未缩放）坐标（实测 `rect.width ≈ offsetWidth`），而鼠标 `clientX/Y` 返回显示（已缩放）坐标（实测 80% 时 1px 屏幕位移 = 1px clientX），xterm 的单元格尺寸又按布局坐标计算。旧补丁直接套用「gBCR 与鼠标同为显示坐标」的 Chromium 语义（`rect.left + (clientX - rect.left) / z`），在 WKWebView 上方向和量都不对：80% 时把本应在第 15 列的鼠标算成第 6 列左右。
+- 修法：`frontend/src/utils/xterm-zoom.ts` 改为实测两件事：① zoom 值——逐级读取祖先的 computed `zoom` 相乘（取不到时退回设置值）；② gBCR 是否含 zoom——`rect.width/offsetWidth`、`rect.height/offsetHeight` 比例≈1 判定为 WebKit 的布局坐标，否则为 Chromium 的显示坐标。Chromium 仍按 `rect.left + (clientX - rect.left) / zoom` 折回；WebKit 则按 zoom 根原点把显示坐标折回布局坐标：`origin + (clientX - origin) / zoom`。缩放为 100% 或测不出坐标系时保持原样。
+- 验证：在独立 WKWebView 实例（80%）里先用标记元素确认「布局坐标 (100,150) 实际显示在 (80,120)」，再按显示坐标从第 15 列拖到第 27 列，`getSelectionPosition()` 返回 `start.x=15 / end.x=27`，选中文本 `FGHIJKLMNOPQ` 与缓冲区同一区间逐字符一致。新增 `frontend/src/utils/xterm-zoom.test.ts` 9 个用例（Chromium 80% / 125%、WebKit 折回 80% / 125%、zoom 根不在原点、亚像素舍入、零尺寸兜底、100% 放行、私有服务缺失）；`vitest`、`vue-tsc`、`npm run build` 通过。
+
+---
+
+## [未发布] 2026-11-19 · 修复终端目录同步路径层层叠加（/root/install/install/…）
+
+- 现象：在提示符只显示目录名（如 CentOS 默认 `[root@host install]#`）的服务器上执行相对 `cd`（`cd install`、`cd ..`）后，日志持续刷出 `目录同步: path=/root/install/install/install/...`，SFTP 面板被带到不存在的超长路径。
+- 原因：`pump` 每读到一块输出就把整个滚动缓冲交给 `ParseDirFromOutput` 重新解析，历史 `cd` 回显会随每次按键 / 每行输出被反复命中；相对参数又以刚被这条回显更新过的 `lastDir` 为基准拼接，于是每解析一次多叠一层，去重永远不生效。提示符只显示目录名时会被 `normalizeRemotePath` 判为非绝对路径而丢弃，无法兜底。
+- 修法一（流式消费）：`cd` 回显只在本次新补齐的完整行里匹配，每行最多解析一次（跨 Read 的残行用 carry 续接）；相对参数按命令执行前的目录解析，同一块里多条 `cd` 依次推进基准。提示符 / OSC 7 / OSC 3008 仍按绝对路径匹配并保持原有优先级。
+- 修法二（失败命令不上报）：新增每会话一个串行目录同步协程，解析结果入队处理，终端输出读取不会因 SFTP 请求阻塞；`cd` 上报前用 SFTP `Stat` 校验目标存在且确实是目录，目录不存在 / 是文件时只记调试日志、不改 `lastDir`，因此后续相对 `cd` 的基准仍然正确。校验不可用（SFTP 被禁用、超时 800ms）时退回旧行为直接上报；超时后 30 秒内跳过校验，避免反复起协程；重连 / 关闭时丢弃旧连接的遗留任务。
+- 修法三（视图不一致不误杀）：若目标"不存在"且当前目录在 SFTP 视角也 `Stat` 不到（如 SFTP 被 chroot、与 Shell 命名空间不同），判定校验不可信并停用校验、照常上报，避免把正常 `cd` 全部吞掉。
+- 变更（无参数 cd）：`cd` 不带参数（回到 `$HOME`）时，提示符同行回显与脚本里独立成行的 `cd` 都会解析为远端 home（`~`），与 `cd ~` 一样走存在性校验；此前后两类回显都不匹配，在只显示目录名的提示符下会漏同步。
+- 验证：`go test ./...`、`go test -race ./internal/sshx` 通过；新增 15 个回归用例（逐字符投喂不再叠加、相对 `cd ..` 只生效一次、跨块拆行、单块多条 `cd`、`cd -` / `cd .`、提示符去重、脚本裸 `cd` 行、失败 `cd` 不上报且不污染基准、绝对路径 `cd` 同样校验、校验不可用时回退、串行队列处理与停止、真实 SFTP `Stat` 的目录/文件/不存在判定、SFTP 与 Shell 视图不一致时停用校验、校验冷却期不再请求远端、无参数 cd 回 home）。
+
+---
+
+## [未发布] 2026-11-19 · 服务器配置浮层支持任意摘要触发、跟随滚动并回报刷新结果
+
+- 变更：系统、核数、内存、磁盘四个摘要标签都可以打开配置浮层（此前只有磁盘标签可点），再次点击任一标签或点击浮层外关闭。
+- 变更：浮层由 `position: fixed` 改为锚定服务器行的 `position: absolute`，上下滚动服务器列表时随行移动；下方空间不足时自动翻到行上方，并按列表可视区域限制高度，避免被滚动容器裁掉。
+- 变更：点击「刷新配置」后按钮临时禁用；收到新快照后状态从「已请求刷新」变为「刷新完成」，采集报错或超时则显示「刷新失败」/「刷新超时，请稍后重试」。
+- 修复：展开浮层的行提升堆叠层级，避免浮层被后续行遮挡。
+- 验证：`vue-tsc --noEmit`、`vitest run` 通过（51 个测试文件、232 项测试）；新增任意标签触发、滚动容器内定位/向上展开、刷新完成与失败用例。
+
+---
+
+## [未发布] 2026-11-18 · 修复服务器配置信息浮层无法关闭
+
+- 现象：点击服务器行里的「配置信息」后浮层一直显示，再点触发按钮也关不掉，浮层里也没有关闭入口。
+- 原因：浮层显示由 `.disk:hover`、`.disk:focus-within` 与 `.pinned` 三处 CSS 共同控制。点击按钮后焦点留在按钮上，`focus-within` 让浮层始终可见，`pinned` 取反也无法隐藏；同时缺少关闭按钮和点击浮层外部关闭的逻辑。
+- 修法：浮层只由点击状态控制；再次点击触发按钮、点击浮层外、点击新增的关闭按钮或按 Esc 都会关闭，关闭后焦点回到触发按钮。Esc 只在焦点位于浮层或触发按钮时处理，避免抢走终端里的 Esc。
+- 验证：`vue-tsc --noEmit`、`vitest run` 通过（51 个测试文件、230 项测试）；新增点击切换、点击外部、关闭按钮和焦点回归用例。
+
+---
+
 ## [未发布] 2026-11-12 · 系统信息采集共享与连接日志自动滚底
 
 - 系统信息采集器改为会话级共享：关闭系统看板只取消本组件的事件监听，不再停止状态栏等其它消费者的采集，避免看板一关状态栏就停止刷新。

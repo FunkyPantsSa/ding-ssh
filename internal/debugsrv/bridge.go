@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"ding-ssh/internal/logx"
 )
 
 // BridgeRequestEvent 后端 → 前端的请求事件名。
@@ -32,6 +34,7 @@ type bridgeReply struct {
 
 // NewBridge 创建前端桥。emit 通常是 wailsruntime.EventsEmit 的封装。
 func NewBridge(emit func(event string, payload any)) *Bridge {
+	logx.Debugf("[debugsrv/bridge] 创建前端桥: timeout=%s", 10*time.Second)
 	return &Bridge{
 		emit:    emit,
 		timeout: 10 * time.Second,
@@ -42,6 +45,7 @@ func NewBridge(emit func(event string, payload any)) *Bridge {
 // SetTimeout 调整等待前端回包的超时时间。
 func (b *Bridge) SetTimeout(d time.Duration) {
 	if d > 0 {
+		logx.Debugf("[debugsrv/bridge] 调整前端桥超时: from=%s to=%s", b.timeout, d)
 		b.timeout = d
 	}
 }
@@ -49,6 +53,7 @@ func (b *Bridge) SetTimeout(d time.Duration) {
 // Call 请求前端执行 op，返回前端给的 JSON 结果。
 func (b *Bridge) Call(ctx context.Context, op string, args any) (json.RawMessage, error) {
 	if b.emit == nil {
+		logx.Warnf("[debugsrv/bridge] 前端桥未初始化，无法投递请求: op=%s", op)
 		return nil, errors.New("前端桥未初始化")
 	}
 	id := fmt.Sprintf("dbg-%d-%d", time.Now().UnixNano(), atomic.AddUint64(&b.seq, 1))
@@ -65,18 +70,28 @@ func (b *Bridge) Call(ctx context.Context, op string, args any) (json.RawMessage
 
 	payload, err := json.Marshal(map[string]any{"id": id, "op": op, "args": args})
 	if err != nil {
+		logx.Warnf("[debugsrv/bridge] 序列化前端请求失败: op=%s id=%s err=%v", op, id, err)
 		return nil, fmt.Errorf("序列化前端请求失败: %w", err)
 	}
+	logx.Debugf("[debugsrv/bridge] 投递前端请求: op=%s id=%s bytes=%d", op, id, len(payload))
 	b.emit(BridgeRequestEvent, json.RawMessage(payload))
 
+	start := time.Now()
 	timer := time.NewTimer(b.timeout)
 	defer timer.Stop()
 	select {
 	case rep := <-ch:
+		if rep.err != nil {
+			logx.Debugf("[debugsrv/bridge] 前端请求失败: op=%s elapsed=%s err=%v", op, time.Since(start), rep.err)
+			return rep.payload, rep.err
+		}
+		logx.Debugf("[debugsrv/bridge] 前端请求完成: op=%s elapsed=%s bytes=%d", op, time.Since(start), len(rep.payload))
 		return rep.payload, rep.err
 	case <-timer.C:
+		logx.Warnf("[debugsrv/bridge] 前端响应超时: op=%s timeout=%s elapsed=%s", op, b.timeout, time.Since(start))
 		return nil, fmt.Errorf("前端响应超时（op=%s）: %w", op, context.DeadlineExceeded)
 	case <-ctx.Done():
+		logx.Debugf("[debugsrv/bridge] 前端请求被取消: op=%s elapsed=%s err=%v", op, time.Since(start), ctx.Err())
 		return nil, ctx.Err()
 	}
 }
@@ -100,6 +115,8 @@ func (b *Bridge) Reply(id string, payload string) {
 	ch := b.pending[id]
 	b.mu.Unlock()
 	if ch == nil {
+		// 迟到的回包（请求已超时 / 已取消）：只留痕迹，不影响任何调用方。
+		logx.Debugf("[debugsrv/bridge] 收到未知请求的前端回包，已丢弃: id=%s bytes=%d", id, len(payload))
 		return
 	}
 	var envelope struct {
@@ -108,6 +125,7 @@ func (b *Bridge) Reply(id string, payload string) {
 		Error string          `json:"error"`
 	}
 	if err := json.Unmarshal([]byte(payload), &envelope); err != nil {
+		logx.Warnf("[debugsrv/bridge] 前端回包不是合法 JSON: id=%s bytes=%d err=%v", id, len(payload), err)
 		ch <- bridgeReply{err: fmt.Errorf("前端回包不是合法 JSON: %w", err)}
 		return
 	}
@@ -116,8 +134,10 @@ func (b *Bridge) Reply(id string, payload string) {
 		if msg == "" {
 			msg = "前端执行失败"
 		}
+		logx.Warnf("[debugsrv/bridge] 前端执行失败: id=%s reason=%s", id, msg)
 		ch <- bridgeReply{err: errors.New(msg)}
 		return
 	}
+	logx.Debugf("[debugsrv/bridge] 前端回包成功: id=%s bytes=%d", id, len(envelope.Data))
 	ch <- bridgeReply{payload: envelope.Data}
 }

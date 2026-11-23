@@ -1,0 +1,324 @@
+{
+  "date": "2026-11-21",
+  "timezone": "Asia/Shanghai",
+  "baselineCommit": "1510b92",
+  "go": {
+    "topLevelPassed": 421,
+    "passedRecordsIncludingParentsAndSubtests": 503,
+    "failed": 0,
+    "skipped": 0,
+    "manualProbeFlagsEnabled": true,
+    "race": "PASS",
+    "vet": "PASS"
+  },
+  "frontend": {
+    "files": 64,
+    "passed": 306,
+    "failed": 0,
+    "typecheckAndBuild": "PASS"
+  },
+  "live": {
+    "PASS": 49,
+    "SKIP": 1
+  },
+  "liveCases": [
+    {
+      "name": "HTTP rejects missing authentication",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "HTTP and MCP tool catalog parity",
+      "status": "PASS",
+      "seconds": 0.117
+    },
+    {
+      "name": "Read tool: app.health",
+      "status": "PASS",
+      "seconds": 0.008
+    },
+    {
+      "name": "Read tool: app.permissions",
+      "status": "PASS",
+      "seconds": 0.073
+    },
+    {
+      "name": "Read tool: settings.schema",
+      "status": "PASS",
+      "seconds": 0.046
+    },
+    {
+      "name": "Read tool: groups.list",
+      "status": "PASS",
+      "seconds": 0.007
+    },
+    {
+      "name": "Read tool: servers.list",
+      "status": "PASS",
+      "seconds": 0.049
+    },
+    {
+      "name": "Read tool: credentials.list",
+      "status": "PASS",
+      "seconds": 0.048
+    },
+    {
+      "name": "Read tool: tunnels.list",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "Read tool: hostTrust.list",
+      "status": "PASS",
+      "seconds": 0.004
+    },
+    {
+      "name": "Read tool: app.commands",
+      "status": "PASS",
+      "seconds": 0.005
+    },
+    {
+      "name": "Read tool: list_logs",
+      "status": "PASS",
+      "seconds": 0.003
+    },
+    {
+      "name": "Read tool: read_logs",
+      "status": "PASS",
+      "seconds": 0.004
+    },
+    {
+      "name": "Read tool: recent_events",
+      "status": "PASS",
+      "seconds": 0.002
+    },
+    {
+      "name": "Read tool: app.recent_calls",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "Read tool: sftp.transfers",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "MCP initializes successfully",
+      "status": "PASS",
+      "seconds": 0.002
+    },
+    {
+      "name": "MCP lists resources",
+      "status": "PASS",
+      "seconds": 0.003
+    },
+    {
+      "name": "MCP lists resource templates",
+      "status": "SKIP",
+      "seconds": 0.001
+    },
+    {
+      "name": "Navigate page: home",
+      "status": "PASS",
+      "seconds": 0.017
+    },
+    {
+      "name": "Navigate page: servers",
+      "status": "PASS",
+      "seconds": 0.148
+    },
+    {
+      "name": "Navigate page: tunnel",
+      "status": "PASS",
+      "seconds": 0.017
+    },
+    {
+      "name": "Settings section: general",
+      "status": "PASS",
+      "seconds": 0.055
+    },
+    {
+      "name": "Settings section: hotkeys",
+      "status": "PASS",
+      "seconds": 0.037
+    },
+    {
+      "name": "Settings section: connectionInfo",
+      "status": "PASS",
+      "seconds": 0.054
+    },
+    {
+      "name": "Settings section: theme",
+      "status": "PASS",
+      "seconds": 0.089
+    },
+    {
+      "name": "Settings section: credentials",
+      "status": "PASS",
+      "seconds": 0.761
+    },
+    {
+      "name": "Settings section: security",
+      "status": "PASS",
+      "seconds": 0.033
+    },
+    {
+      "name": "Settings section: debug",
+      "status": "PASS",
+      "seconds": 0.042
+    },
+    {
+      "name": "Settings section: logs",
+      "status": "PASS",
+      "seconds": 0.026
+    },
+    {
+      "name": "Settings section: audit",
+      "status": "PASS",
+      "seconds": 0.031
+    },
+    {
+      "name": "Settings section: migrate",
+      "status": "PASS",
+      "seconds": 0.031
+    },
+    {
+      "name": "Settings section: about",
+      "status": "PASS",
+      "seconds": 0.035
+    },
+    {
+      "name": "Real local shell connects",
+      "status": "PASS",
+      "seconds": 0.0
+    },
+    {
+      "name": "Local shell ASCII command and output",
+      "status": "PASS",
+      "seconds": 1.202
+    },
+    {
+      "name": "Local shell Unicode command input",
+      "status": "PASS",
+      "seconds": 0.024
+    },
+    {
+      "name": "Local shell Chinese command input",
+      "status": "PASS",
+      "seconds": 0.018
+    },
+    {
+      "name": "Local shell binary/base64 input",
+      "status": "PASS",
+      "seconds": 0.109
+    },
+    {
+      "name": "Local terminal resize",
+      "status": "PASS",
+      "seconds": 0.002
+    },
+    {
+      "name": "Local terminal scroll",
+      "status": "PASS",
+      "seconds": 0.003
+    },
+    {
+      "name": "Split and restore two live terminals",
+      "status": "PASS",
+      "seconds": 0.016
+    },
+    {
+      "name": "Switch context panel: sftp",
+      "status": "PASS",
+      "seconds": 0.002
+    },
+    {
+      "name": "Switch context panel: sysinfo",
+      "status": "PASS",
+      "seconds": 0.002
+    },
+    {
+      "name": "Switch context panel: transfers",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "Switch context panel: hidden",
+      "status": "PASS",
+      "seconds": 0.002
+    },
+    {
+      "name": "Disconnect a real local session",
+      "status": "PASS",
+      "seconds": 0.004
+    },
+    {
+      "name": "Reconnect a real local session and run a command",
+      "status": "PASS",
+      "seconds": 1.141
+    },
+    {
+      "name": "Frontend console has no errors",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "Cleanup only audit-created tabs and PTYs",
+      "status": "PASS",
+      "seconds": 0.092
+    },
+    {
+      "name": "Original tabs preserved",
+      "status": "PASS",
+      "seconds": 0.0
+    }
+  ],
+  "coverage": {
+    "scope": "internal packages with TestGoFiles; excludes main, cmd, logfilter and models",
+    "weightedStatementPercent": 53.2,
+    "packages": {
+      "ding-ssh/internal/appdir": 85.7,
+      "ding-ssh/internal/apphost": 16.4,
+      "ding-ssh/internal/autostart": 39.4,
+      "ding-ssh/internal/cryptox": 55.7,
+      "ding-ssh/internal/debugsrv": 71.8,
+      "ding-ssh/internal/i18n": 91.3,
+      "ding-ssh/internal/localterm": 74.8,
+      "ding-ssh/internal/logx": 84.8,
+      "ding-ssh/internal/sshconfig": 80.3,
+      "ding-ssh/internal/sshx": 60.3,
+      "ding-ssh/internal/store": 53.4,
+      "ding-ssh/internal/updater": 22.3
+    }
+  },
+  "nativeBuild": {
+    "darwin-arm64": "PASS"
+  },
+  "crossCompilationOnly": {
+    "windows-amd64": "PASS",
+    "linux-amd64": "PASS"
+  },
+  "resourceGate": {
+    "status": "FAIL",
+    "command": "bash scripts/verify-ui2.sh",
+    "fontFaceCount": 114,
+    "fontFaceLimit": 32,
+    "fontFiles": 222,
+    "fontFileLimit": 32,
+    "fontBytes": 6110464,
+    "distDiskBytes": 10240000,
+    "distDiskLimit": 2621440,
+    "cssBytes": 263454,
+    "cssGzipBytes": 77575,
+    "indexJSBytes": 762918,
+    "indexJSGzipBytes": 249905,
+    "thresholdsModified": false
+  },
+  "limitations": [
+    "Real Windows/Linux desktop runtime not executed",
+    "Remote SSH/SFTP/tunnels use generated local fixtures, not external production hosts",
+    "Real privileged updater installation and real OS keychain transitions not performed",
+    "Abrupt power loss between vault metadata file and SQLite transaction not simulated",
+    "Existing resource-size gate remains failed; functional regression success does not imply all quality gates pass"
+  ]
+}

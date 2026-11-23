@@ -6,7 +6,7 @@ import type {TunnelInfo} from '../types'
 const mocks = vi.hoisted(() => ({list:vi.fn(), start:vi.fn(), update:vi.fn(), restart:vi.fn(), stop:vi.fn(), remove:vi.fn(), off:vi.fn(), subscribe:vi.fn(), copy:vi.fn()}))
 vi.mock('../stores/servers', () => ({useServersStore: () => ({servers:[{id:'s1',name:'server'}]})}))
 vi.mock('../services/ssh', () => ({onTunnelStatus:mocks.subscribe, sshService:{listTunnels:mocks.list,startTunnel:mocks.start,updateTunnel:mocks.update,restartTunnel:mocks.restart,stopTunnel:mocks.stop,removeTunnel:mocks.remove}}))
-vi.mock('../../wailsjs/runtime/runtime', () => ({ClipboardSetText:mocks.copy}))
+vi.mock('../services/desktop', () => ({ClipboardSetText:mocks.copy}))
 let wrappers: ReturnType<typeof mount>[] = []
 beforeEach(() => {vi.resetAllMocks();mocks.list.mockResolvedValue([]);mocks.subscribe.mockReturnValue(mocks.off)})
 afterEach(() => {wrappers.forEach(w => w.unmount());wrappers=[]})

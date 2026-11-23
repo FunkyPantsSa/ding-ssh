@@ -2,71 +2,120 @@ package main
 
 import (
 	"embed"
-	goruntime "runtime"
+	"os"
+	"runtime"
+	"time"
 
 	"ding-ssh/internal/apphost"
-	"ding-ssh/internal/logfilter"
+	"ding-ssh/internal/logx"
 	"ding-ssh/internal/updater"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/options/mac"
-	"github.com/wailsapp/wails/v2/pkg/options/windows"
+	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
+	"github.com/wailsapp/wails/v3/pkg/services/dock"
+	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// App 是绑定给 Wails 的根包门面。实现位于 internal/apphost，
-// 这里仅保留嵌入以维持前端稳定的 wailsjs/go/main/App 命名空间。
-type App struct {
-	*apphost.App
-}
-
 func main() {
+	logx.Debugf("[main] 进程启动: goos=%s goarch=%s", runtime.GOOS, runtime.GOARCH)
 	if updater.Helper() {
+		logx.Debugf("[main] 以更新器辅助进程模式运行，不启动主窗口")
 		return
 	}
-	// 调试模式配置要在 wails.Run 之前读取：WebView2 的远程调试端口必须在启动时确定。
-	boot := apphost.ReadDebugBoot()
-	app := &App{App: apphost.NewApp(boot)}
 
-	opt := &options.App{
-		Title:     "ding-ssh",
-		Frameless: goruntime.GOOS == "windows",
-		Width:     1280,
-		Height:    800,
-		MinWidth:  900,
-		MinHeight: 600,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
+	host := apphost.NewApp(apphost.ReadDebugBoot())
+	notifyService := notifications.New()
+	dockService := dock.New()
+
+	sessionSvc := apphost.NewSessionService(host)
+	sftpSvc := apphost.NewSFTPService(host)
+	tunnelSvc := apphost.NewTunnelService(host)
+	settingsSvc := apphost.NewSettingsService(host)
+	debugSvc := apphost.NewDebugService(host)
+	updateSvc := apphost.NewUpdateService(host)
+
+	var window *application.WebviewWindow
+
+	desktop := application.New(application.Options{
+		Name:             "ding-ssh",
+		Description:      "Local-first SSH workstation",
+		Assets:           application.AssetOptions{Handler: application.BundledAssetFileServer(assets)},
+		Mac:              application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: false},
+		ShouldQuit:       func() bool { return apphost.ShouldQuit(host) },
+		Services: []application.Service{
+			application.NewService(host),
+			application.NewService(notifyService),
+			application.NewService(dockService),
+			application.NewService(sessionSvc),
+			application.NewService(sftpSvc),
+			application.NewService(tunnelSvc),
+			application.NewService(settingsSvc),
+			application.NewService(debugSvc),
+			application.NewService(updateSvc),
 		},
-		BackgroundColour: &options.RGBA{R: 15, G: 23, B: 42, A: 0},
-		Mac: &mac.Options{
-			// Keep the themed content behind the native controls without the extra
-			// toolbar height added by HiddenInset; this matches the 28px web titlebar.
-			TitleBar:             mac.TitleBarHidden(),
-			WebviewIsTransparent: true,
-			WindowIsTranslucent:  true,
+		FileAssociations: []string{".dingpack"},
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: "com.funkypantssa.ding-ssh",
+			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
+				logx.Infof("[main] 收到第二实例启动通知: args=%v dir=%s", data.Args, data.WorkingDir)
+				if window != nil {
+					window.Show()
+					window.Focus()
+				}
+				if len(data.Args) > 1 {
+					host.HandleExternalLaunch(data.Args[1:])
+				}
+			},
 		},
-		Windows: &windows.Options{WebviewIsTransparent: true, WindowIsTranslucent: true, BackdropType: windows.Acrylic},
-		DragAndDrop: &options.DragAndDrop{
-			EnableFileDrop: true,
+	})
+
+	windowOptions := application.WebviewWindowOptions{
+		Name:               "main",
+		Title:              "ding-ssh",
+		Width:              1280,
+		Height:             800,
+		MinWidth:           900,
+		MinHeight:          600,
+		Frameless:          runtime.GOOS == "windows",
+		URL:                "/",
+		EnableFileDrop:     true,
+		UseApplicationMenu: true,
+		BackgroundColour:   application.NewRGB(15, 23, 42),
+		Mac: application.MacWindow{
+			TitleBar: application.MacTitleBarHidden,
+			Backdrop: application.MacBackdropTranslucent,
 		},
-		Logger:        logfilter.New(),
-		OnStartup:     app.Startup,
-		OnShutdown:    app.Shutdown,
-		OnBeforeClose: app.BeforeClose,
-		Bind: []interface{}{
-			app,
+		Windows: application.WindowsWindow{
+			BackdropType: application.Acrylic,
 		},
 	}
-	apphost.ApplyDebugBrowserArgs(opt, boot)
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		windowOptions.BackgroundType = application.BackgroundTypeTranslucent
+	}
+	window = desktop.Window.NewWithOptions(windowOptions)
+	apphost.ConfigureDesktop(host, desktop, window, notifyService, dockService)
+	window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
+		ctx := event.Context()
+		if target := ctx.DropTargetDetails(); target != nil && target.ElementID != "" {
+			window.EmitEvent("sftp:files-dropped", map[string]any{
+				"target": target.ElementID,
+				"paths":  ctx.DroppedFiles(),
+			})
+		}
+	})
 
-	err := wails.Run(opt)
+	if len(os.Args) > 1 {
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			host.HandleExternalLaunch(os.Args[1:])
+		}()
+	}
 
-	if err != nil {
+	if err := desktop.Run(); err != nil {
+		logx.Errorf("[main] Wails 运行失败: err=%v", err)
 		println("Error:", err.Error())
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"ding-ssh/internal/logx"
 	"ding-ssh/internal/models"
 )
 
@@ -24,15 +25,19 @@ func TestConnectivity(host string, port int) models.ServerTestResult {
 	start := time.Now()
 	conn, err := net.DialTimeout("tcp", addr, TestTimeout)
 	if err != nil {
+		reason := testDialError(err)
+		logx.Warnf("[sshx] 连通性测试失败: addr=%s elapsed=%s reason=%s err=%v", addr, time.Since(start), reason, err)
 		return models.ServerTestResult{
 			LatencyMS: -1,
 			Reachable: false,
-			Error:     testDialError(err),
+			Error:     reason,
 		}
 	}
 	_ = conn.Close()
+	latency := time.Since(start).Milliseconds()
+	logx.Infof("[sshx] 连通性测试通过: addr=%s latency=%dms elapsed=%s", addr, latency, time.Since(start))
 	return models.ServerTestResult{
-		LatencyMS: time.Since(start).Milliseconds(),
+		LatencyMS: latency,
 		Reachable: true,
 	}
 }
@@ -42,15 +47,22 @@ func TestConnectivity(host string, port int) models.ServerTestResult {
 // 成功时 Reachable=true、LatencyMS 为登录耗时；失败时 Reachable=false、Error 为失败原因。
 func TestServerLogin(node models.ServerNode) models.ServerTestResult {
 	res := models.ServerTestResult{NodeID: node.ID}
+	logx.Debugf("[sshx] 开始 SSH 登录测试: server=%s host=%s:%d user=%s auth=%s jumps=%d",
+		node.Name, node.Host, node.Port, node.User, node.AuthType, len(node.JumpServerIDs))
 	start := time.Now()
 	client, err := dialNode(node, noopProgress)
 	if err != nil {
+		reason := connectError(err).Error()
+		logx.Warnf("[sshx] SSH 登录测试失败: server=%s host=%s:%d user=%s elapsed=%s reason=%s",
+			node.Name, node.Host, node.Port, node.User, time.Since(start), reason)
 		res.LatencyMS = -1
-		res.Error = connectError(err).Error()
+		res.Error = reason
 		return res
 	}
 	res.LatencyMS = time.Since(start).Milliseconds()
 	res.Reachable = true
+	logx.Infof("[sshx] SSH 登录测试通过: server=%s host=%s:%d user=%s latency=%dms",
+		node.Name, node.Host, node.Port, node.User, res.LatencyMS)
 	_ = client.Close()
 	return res
 }

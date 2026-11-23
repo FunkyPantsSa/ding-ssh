@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import {GetAgentIdentities} from '../../bindings/ding-ssh/internal/apphost/app'
 import {errorText} from '../i18n'
 
 import {t as $t} from '../i18n'
@@ -10,11 +11,13 @@ import Icon from './Icon.vue'
 import {sshService} from '../services/ssh'
 import {useCredentialsStore} from '../stores/credentials'
 import {useServersStore} from '../stores/servers'
+import {useGroupsStore} from '../stores/groups'
+import {normalizeGroupPath, validateGroupNameInput} from '../utils/groupTree'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import type {Credential, ServerNode} from '../types'
 import SearchSelect from './ui/select/SearchSelect.vue'
-import {Button, Dialog, Field, Input, Textarea} from './ui'
+import {Button, Dialog, Field, Input, Switch, Textarea} from './ui'
 
 /**
  * editing：编辑对象（null = 新建）。
@@ -24,6 +27,7 @@ const props = defineProps<{editing: ServerNode | null; defaultGroup?: string}>()
 const show = defineModel<boolean>({required: true})
 
 const servers = useServersStore()
+const groupStore = useGroupsStore()
 const credentials = useCredentialsStore()
 const sessions = useSessionsStore()
 const ui = useUIStore()
@@ -34,7 +38,7 @@ const testMsg = ref('')
 const testOk = ref(false)
 const agentIdentities = ref<Array<{keyType: string; fingerprint: string}>>([])
 async function inspectAgent() {
- try { agentIdentities.value = await (window as any).go.main.App.GetAgentIdentities({...form}); errorMsg.value = '' }
+ try { agentIdentities.value = await GetAgentIdentities({...form}); errorMsg.value = '' }
  catch (e) { errorMsg.value = errorText(e) }
 }
 const keySource = ref<'file' | 'content'>('file')
@@ -42,13 +46,21 @@ const selectedCred = ref('')
 /** 当前选中的凭证 id：用于「私钥内容不展示、保存时按 id 取回」的间接引用。 */
 const credentialsUsed = ref('')
 
-const groups = computed(() => {
-  const set = new Set(servers.servers.map((s) => s.group.trim()).filter(Boolean))
-  // 左栏选中的分组可能还没有任何服务器（手动建的空分组），也要出现在可选项里。
-  // 'all' 是「全部服务器」的哨兵值，不是真实分组，不能出现在下拉选项里。
-  const current = (props.defaultGroup ?? '').trim()
+const groupOptions = computed(() => {
+  const set = new Set<string>()
+  for (const group of groupStore.list) {
+    const path = normalizeGroupPath(group)
+    if (path) set.add(path)
+  }
+  for (const server of servers.servers) {
+    const path = normalizeGroupPath(server.group)
+    if (path) set.add(path)
+  }
+  // 左栏选中的分组可能还没有任何服务器（手动建的空分组/隐式父级），也要出现在可选项里。
+  // 'all' 是旧版「全部服务器」的哨兵值，不是真实分组，不能出现在下拉选项里。
+  const current = normalizeGroupPath(props.defaultGroup ?? '')
   if (current && current !== 'all') set.add(current)
-  return [...set].sort((a, b) => a.localeCompare(b))
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', {numeric: true}))
 })
 
 /** select = 从已有分组选择；create = 手动输入新建分组名 */
@@ -90,7 +102,7 @@ function syncGroupFromForm(group: string) {
     newGroupName.value = ''
     return
   }
-  if (groups.value.includes(g)) {
+  if (groupOptions.value.includes(g)) {
     groupMode.value = 'select'
     selectedGroup.value = g
     newGroupName.value = ''
@@ -148,6 +160,7 @@ watch(
       port: editing?.port ?? 22,
       user: editing?.user ?? 'root',
       authType: editing?.authType ?? 'password',
+      sudoAutoFill: editing?.sudoAutoFill ?? false,
       identityFiles: [...(editing?.identityFiles ?? [])],
       identityAgent: editing?.identityAgent ?? '',
       identitiesOnly: editing?.identitiesOnly ?? false,
@@ -212,6 +225,15 @@ function buildPayload(requireName: boolean): ServerNode | null {
   if (!form.user.trim()) {
     errorMsg.value = t("请填写用户名")
     return null
+  }
+  const groupPath = normalizeGroupPath(form.group)
+  if (groupPath) {
+    const groupError = validateGroupNameInput(groupPath, groupMode.value === 'create' ? 6 : 8)
+    if (groupError) {
+      errorMsg.value = groupError
+      return null
+    }
+    form.group = groupPath
   }
   const node: ServerNode = {...form}
   if (form.authType === 'password' && !form.password) {
@@ -416,7 +438,7 @@ onMounted(() => {
           v-model="selectedGroup"
           class="mt-1"
           :aria-label="$t('服务器分组')"
-          :options="[{value: '', label: t('未分组')}, ...groups.map(g => ({value: g, label: g}))]"
+          :options="[{value: '', label: t('未分组')}, ...groupOptions.map(g => ({value: g, label: g}))]"
         />
         <Input
           v-else
@@ -569,6 +591,14 @@ onMounted(() => {
         <Field :label="$t('私钥口令（可选）')" html-for="server-key-passphrase">
           <Input id="server-key-passphrase" v-model="form.password" type="password" :placeholder="$t('加密私钥的 passphrase')" autocomplete="current-password" />
         </Field>
+      </div>
+
+      <div class="flex items-start justify-between gap-4 rounded-md border border-[var(--border)] p-3">
+        <div class="space-y-1">
+          <label for="server-sudo-autofill" class="field-label">{{ t('sudo 自动填写密码') }}</label>
+          <p class="text-[12px] text-mist">{{ t('检测到 sudo -i / sudo -s 的密码提示时，在终端光标处弹框并自动提交一次登录密码。保存后重新连接生效。') }}</p>
+        </div>
+        <Switch id="server-sudo-autofill" v-model="form.sudoAutoFill" :label="t('sudo 自动填写密码')" :disabled="form.jumpServerMode" />
       </div>
 
       <p v-if="errorMsg" class="text-xs text-rose-400 break-all" role="alert">{{ errorMsg }}</p>

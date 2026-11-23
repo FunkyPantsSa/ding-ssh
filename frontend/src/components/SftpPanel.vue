@@ -10,9 +10,10 @@ import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './Icon.vue'
 import {onSftpTransfer, onSftpDirUpdated, sshService} from '../services/ssh'
 import {useSessionsStore} from '../stores/sessions'
+import {useMenuPlacement} from '../composables/useMenuPlacement'
 import {useSettingsStore} from '../stores/settings'
 import {useTransfersStore} from '../stores/transfers'
-import {OnFileDrop, OnFileDropOff} from '../../wailsjs/runtime/runtime'
+import {EventsOn} from '../services/desktop'
 import type {SFTPEntry, SessionTab, TransferRecord} from '../types'
 import {Button, Input} from './ui'
 
@@ -59,6 +60,8 @@ function uploadMenuKey(event: KeyboardEvent) {
   } else if (event.key === 'Tab') uploadMenuOpen.value = false
 }
 const menu = ref<{x: number; y: number; entry: SFTPEntry | null} | null>(null)
+// 文件右键菜单：打开后按真实高度定位，贴底时上移，避免操作项被窗口裁掉
+const {menuEl: fileMenuEl, menuStyle: fileMenuStyle, place: placeFileMenu} = useMenuPlacement()
 const renaming = ref<{path: string; name: string} | null>(null)
 const renameInput = ref('')
 const confirmDeletePath = ref('')
@@ -187,11 +190,8 @@ function refresh() {
 // ---- 右键菜单 ----
 function openMenu(e: MouseEvent, entry: SFTPEntry | null = null) {
   selected.value = entry?.path || ''
-  menu.value = {
-    x: Math.max(0, Math.min(e.clientX, window.innerWidth - 200)),
-    y: Math.max(0, Math.min(e.clientY, window.innerHeight - 320)),
-    entry,
-  }
+  menu.value = {x: e.clientX, y: e.clientY, entry}
+  void placeFileMenu(e.clientX, e.clientY)
 }
 
 async function copyMenuPath(entry = false) {
@@ -511,9 +511,11 @@ async function uploadFolder() {
   )
 }
 
-// 拖拽上传：Wails OnFileDrop 回调拿到本地路径数组，逐个上传到当前目录。
+// 拖拽上传：Wails 文件拖放事件拿到本地路径数组，逐个上传到当前目录。
 // 路径是文件夹时走递归上传（保留文件夹名），是文件时沿用原来的单文件上传。
 const dragOver = ref(false)
+const dropTarget = computed(() => 'sftp-drop-' + props.tab.clientId)
+let disposeFileDrop: (() => void) | undefined
 
 async function uploadPaths(localPaths: string[]) {
   if (!canWrite()) return
@@ -599,11 +601,11 @@ onMounted(() => {
   window.addEventListener('click', closeMenu)
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('scroll', closeMenu, true)
-  // 注册 Wails 文件拖放：仅在 SFTP 面板（带 --wails-drop-target 标识）内松开时上传
-  OnFileDrop((_x, _y, paths) => {
+  disposeFileDrop = EventsOn('sftp:files-dropped', ({target, paths}: {target: string; paths: string[]}) => {
+    if (target !== dropTarget.value) return
     dragOver.value = false
-    if (paths?.length) void uploadPaths(paths)
-  }, true)
+    if (paths.length) void uploadPaths(paths)
+  })
 })
 
 watch(
@@ -638,7 +640,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('click', closeMenu)
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('scroll', closeMenu, true)
-  OnFileDropOff()
+  disposeFileDrop?.()
 })
 </script>
 
@@ -724,8 +726,9 @@ onBeforeUnmount(() => {
     </div>
 
     <div
-      class="flex-1 overflow-y-auto px-2 py-1.5 relative transition-colors"
-      style="--wails-drop-target: drop"
+      class="group flex-1 overflow-y-auto px-2 py-1.5 relative transition-colors [&.file-drop-target-active]:bg-[var(--primary-weak)]"
+      data-file-drop-target
+      :id="dropTarget"
       :class="dragOver ? 'bg-[var(--primary-weak)]' : ''"
       data-testid="sftp-file-list"
       @contextmenu.prevent="openMenu($event)"
@@ -734,7 +737,7 @@ onBeforeUnmount(() => {
       @dragleave.prevent="dragOver = false"
       @drop.prevent="dragOver = false"
     >
-      <div v-if="dragOver" class="absolute inset-2 rounded-[10px] border-2 border-dashed border-[var(--primary-hover)] bg-[var(--primary-glow-soft)] grid place-items-center pointer-events-none z-10">
+      <div :class="dragOver ? 'grid' : 'hidden group-[.file-drop-target-active]:grid'" class="absolute inset-2 rounded-[10px] border-2 border-dashed border-[var(--primary-hover)] bg-[var(--primary-glow-soft)] place-items-center pointer-events-none z-10">
         <p class="text-xs text-[var(--primary-hover)]">{{ $t('松开以上传到当前目录') }}</p>
       </div>
       <p v-if="props.tab.node.jumpServerMode" class="px-2 py-2 text-xs text-mist">JumpServer 模式：请逐级进入资产、账号的文件目录；终端目录不会与此处同步。</p>
@@ -814,10 +817,11 @@ onBeforeUnmount(() => {
     <Teleport to="body">
       <div
         v-if="menu"
+        ref="fileMenuEl"
         class="menu-pop neo fixed z-50"
         data-ui="context-menu"
         @keydown.esc="closeMenu"
-        :style="{left: menu.x + 'px', top: menu.y + 'px'}"
+        :style="fileMenuStyle"
         @contextmenu.prevent
         @click.stop
       >

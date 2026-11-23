@@ -5,10 +5,12 @@ import {t} from '../i18n'
 
 import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {OpenTerminalWindow, OpenSFTPWindow} from '../../bindings/ding-ssh/internal/apphost/app'
 import Icon from './Icon.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import {getElementRect} from '../utils/dom'
+import {useMenuPlacement} from '../composables/useMenuPlacement'
 
 import type {SessionTab, SplitDirection} from '../types'
 
@@ -106,6 +108,8 @@ function activateSplitGroup() {
 }
 
 const tabMenu = ref<{x: number; y: number; clientId: string} | null>(null)
+const {menuEl: tabMenuEl, menuStyle: tabMenuStyle, place: placeTabMenu} = useMenuPlacement()
+const {menuEl: splitMenuEl, menuStyle: splitMenuStyle, place: placeSplitMenu} = useMenuPlacement()
 const splitSubmenu = ref(false)
 const splitCloseTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const draggingId = ref('')
@@ -139,8 +143,20 @@ function activate(clientId: string) {
 
 function openTabMenu(e: MouseEvent, clientId: string) {
   e.preventDefault()
-  tabMenu.value = {x: Math.min(e.clientX, window.innerWidth - 160), y: Math.min(e.clientY, window.innerHeight - 160), clientId}
+  tabMenu.value = {x: e.clientX, y: e.clientY, clientId}
   splitSubmenu.value = false
+  // 渲染后按真实高度/宽度贴边或上移，避免贴底时被窗口裁掉
+  void placeTabMenu(e.clientX, e.clientY)
+}
+
+/** 展开分屏子菜单：贴主菜单右侧，放不下时翻到左侧/上方。 */
+function openSplitSubmenu(e: MouseEvent) {
+  cancelSplitClose()
+  splitSubmenu.value = true
+  const row = e.currentTarget as HTMLElement | null
+  if (!row) return
+  const anchor = row.getBoundingClientRect()
+  void placeSplitMenu(anchor.right + 4, anchor.top, {anchor})
 }
 
 function closeTabMenu() {
@@ -172,7 +188,7 @@ function duplicateTab(clientId: string) {
     closeTabMenu()
     return
   }
-  if (tab.kind === 'local') sessions.openLocalTab(tab.serverName)
+  if (tab.kind === 'local') sessions.openLocalTab()
   else sessions.openTab(tab.node)
   closeTabMenu()
 }
@@ -213,16 +229,22 @@ function closeAll() {
   closeTabMenu()
 }
 
-const submenuStyle = computed(() => {
-  if (!tabMenu.value) return {}
-  // 子菜单出现在主菜单右侧
-  return {left: (tabMenu.value.x + 160) + 'px', top: tabMenu.value.y + 'px'}
-})
-
 /** 右键菜单当前对应的标签（用于文案/禁用态判断）。 */
 const tabMenuTab = computed<SessionTab | undefined>(() =>
   tabMenu.value ? sessions.tabs.find((t) => t.clientId === tabMenu.value!.clientId) : undefined,
 )
+
+function openDetachedTerminal(tab?: SessionTab) {
+  if (!tab || !tab.sessionId) return
+  closeTabMenu()
+  void OpenTerminalWindow(tab.sessionId, tab.serverName || tab.node?.name || 'Terminal')
+}
+
+function openDetachedSFTP(tab?: SessionTab) {
+  if (!tab || !tab.sessionId) return
+  closeTabMenu()
+  void OpenSFTPWindow(tab.sessionId, (tab.serverName || tab.node?.name || 'SFTP') + ' - SFTP')
+}
 
 function clearDragState() {
   draggingId.value = ''
@@ -422,9 +444,10 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="tabMenu"
+      ref="tabMenuEl"
       class="menu-pop neo fixed"
       data-ui="context-menu"
-      :style="{left: tabMenu.x + 'px', top: tabMenu.y + 'px'}"
+      :style="tabMenuStyle"
       @contextmenu.prevent
       @click.stop
     >
@@ -441,7 +464,7 @@ onBeforeUnmount(() => {
       </button>
       <div class="divider-h my-1"></div>
       <!-- 分屏子菜单 -->
-      <div class="relative" @mouseenter="cancelSplitClose(); splitSubmenu = true" @mouseleave="scheduleSplitClose">
+      <div class="relative" @mouseenter="openSplitSubmenu" @mouseleave="scheduleSplitClose">
         <button class="!flex items-center gap-1.5 justify-between w-full">
           <span class="flex items-center gap-1.5">
             <Icon name="columns" :size="13" />{{ $t('分屏') }}</span>
@@ -449,9 +472,10 @@ onBeforeUnmount(() => {
         </button>
         <div
           v-if="splitSubmenu"
+          ref="splitMenuEl"
           class="menu-pop neo fixed split-submenu"
           data-ui="context-menu"
-          :style="submenuStyle"
+          :style="splitMenuStyle"
           @mouseenter="cancelSplitClose()"
           @mouseleave="scheduleSplitClose"
         >
@@ -461,6 +485,15 @@ onBeforeUnmount(() => {
           <button @click="splitTab(tabMenu.clientId, 'down')">{{ $t('分屏到下方') }}</button>
         </div>
       </div>
+      <div class="divider-h my-1"></div>
+      <button v-if="tabMenuTab?.sessionId" class="!flex items-center gap-1.5" @click="openDetachedTerminal(tabMenuTab)">
+        <Icon name="terminal" :size="13" />
+        {{ $t('独立窗口终端') }}
+      </button>
+      <button v-if="tabMenuTab?.sessionId && tabMenuTab?.kind !== 'local'" class="!flex items-center gap-1.5" @click="openDetachedSFTP(tabMenuTab)">
+        <Icon name="folder" :size="13" />
+        {{ $t('独立窗口 SFTP') }}
+      </button>
       <div class="divider-h my-1"></div>
       <button @click="sessions.activateTab(tabMenu.clientId); closeTabMenu()">{{ $t('切换到此标签') }}</button>
       <button @click="close(tabMenu.clientId); closeTabMenu()">{{ $t('关闭标签') }}</button>

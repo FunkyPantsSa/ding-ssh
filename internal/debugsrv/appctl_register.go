@@ -31,6 +31,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"ding-ssh/internal/logx"
 )
 
 func init() {
@@ -105,6 +107,7 @@ func registerAppctlCaps() {
 		RegisterToolCap(name, CapRead)
 	}
 
+	RegisterToolCap(OpServersTest, CapConnect, CapCredentialUse)
 	registerWrite(OpGroupsCreate, CapConfigWrite, OpGroupsCreate)
 	registerWrite(OpGroupsRename, CapConfigWrite, OpGroupsRename)
 	registerWrite(OpGroupsDelete, CapConfigWrite, OpGroupsDelete)
@@ -145,6 +148,11 @@ func registerAppctlCaps() {
 
 	// ---- 生命周期：lifecycle + 两段式确认 ----
 	registerWrite(OpAppQuit, CapLifecycle, "app.quit")
+
+	// 注册发生在 init() 期（日志默认 info 级、不输出 DEBUG），这条只在排查
+	// 「工具没出现在 tools/list」时才需要打开 debug 级别查看。
+	logx.Debugf("[debugsrv/appctl] 控制面工具注册完成: tools=%d writes=%d",
+		len(appctlToolNames), len(appctlOps))
 }
 
 // registerWrite 登记一个「需要能力位 + 两段式确认」的写工具。
@@ -274,6 +282,10 @@ func appctlToolEntries() []mcpTool {
 		{Name: OpServersList, Description: "列出已保存的服务器（默认脱敏：password / keyContent 被清空，redactedFields 标出被清空的字段）。" + secretWarn,
 			InputSchema: obj(map[string]any{
 				"includeSecrets": boolProp("true 表示返回明文密钥（默认 false）"),
+				"query":          strProp("名称/地址/用户/分组的大小写不敏感子串"),
+				"group":          strProp("精确分组路径"),
+				"offset":         intProp("从 0 起的偏移"),
+				"limit":          intProp("每页 1–500，默认 500"),
 			}),
 			// M9 结构化输出：形状见 handleAppctlOp 的 OpServersList / OpServersGet / settings.schema。
 			OutputSchema: outputObj(map[string]any{

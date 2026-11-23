@@ -5,6 +5,7 @@ import App from './App.vue'
 import {installDebugBridge} from './debug/bridge'
 import {installDebugUI} from './debug/ui'
 import {monitorFrontendRuntime} from './utils/runtime-status'
+import 'virtual:ding-bundled-fonts.css'
 import './style.css'
 
 const app = createApp(App)
