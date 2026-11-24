@@ -99,7 +99,7 @@ tasks:
     cmds:
       - mkdir -p tmp
       - wails3 generate webview2bootstrapper -dir tmp
-      - makensis '-DARG_WAILS_AMD64_BINARY=..\..\bin\ding-ssh.exe' "-DINFO_PRODUCTVERSION={{.PRODUCT_VERSION | default \"1.2.1\"}}" project.nsi
+      - makensis '-DARG_WAILS_AMD64_BINARY=..\..\bin\ding-ssh.exe' '-DINFO_PRODUCTVERSION={{.PRODUCT_VERSION | default "1.2.1"}}' project.nsi
 
   dev:build:
     cmds:
