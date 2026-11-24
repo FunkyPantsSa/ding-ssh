@@ -19,28 +19,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Cache APT packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.apt-cache
-          key: apt-cache-ubuntu-24.04-gtk3
-          restore-keys: |
-            apt-cache-ubuntu-24.04-gtk3
-      - name: Linux WebKitGTK
-        run: |
-          sudo rm -f /etc/apt/apt.conf.d/docker-clean
-          echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' | sudo tee /etc/apt/apt.conf.d/10keep-cache
-          mkdir -p ~/.apt-cache
-          if ls ~/.apt-cache/*.deb 1> /dev/null 2>&1; then
-            sudo cp -n ~/.apt-cache/*.deb /var/cache/apt/archives/
-          fi
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev
-          if ls /var/cache/apt/archives/*.deb 1> /dev/null 2>&1; then
-            cp -n /var/cache/apt/archives/*.deb ~/.apt-cache/ 2>/dev/null || true
-          fi
       - name: Test
-        run: go test -tags gtk3 ./internal/... ./cmd/...
+        run: go test ./internal/... ./cmd/...
 
   frontend:
     name: Frontend typecheck
@@ -137,7 +117,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo rm -f /etc/apt/apt.conf.d/docker-clean
-          echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' | sudo tee /etc/apt/apt.conf.d/10keep-cache
+          sudo tee /etc/apt/apt.conf.d/99custom-optimizations << 'EOF'
+          Acquire::ForceIPv4 "true";
+          Acquire::http::Timeout "10";
+          Acquire::Retries "3";
+          Acquire::http::Pipeline-Depth "5";
+          Binary::apt::APT::Keep-Downloaded-Packages "true";
+          EOF
           mkdir -p ~/.apt-cache
           if ls ~/.apt-cache/*.deb 1> /dev/null 2>&1; then
             sudo cp -n ~/.apt-cache/*.deb /var/cache/apt/archives/
