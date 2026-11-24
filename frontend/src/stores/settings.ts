@@ -1,7 +1,7 @@
 import {defineStore} from 'pinia'
 import {DEFAULT_COMPLETION_NAV_HOTKEY} from '../completion/hotkey'
 import {settingsService} from '../services/settings'
-import {paletteToTheme, defaultPreset} from '../theme/presets'
+import {paletteToTheme, defaultPreset, presetById, resolveActiveTerminalPalette} from '../theme/presets'
 import {DEFAULT_TERMINAL_FONT} from '../theme/font-catalog'
 import {migrateUiSettings, normalizeAppearance, UI_SCHEMA, UI2_MIGRATION_BACKUP_KEY, THEME_V4_MIGRATION_BACKUP_KEY} from '../theme/migrate'
 import type {DebugSettings, Fonts, LogLevel, NavSectionOrder, RightClickAction, TabBarPlacement, TerminalColorMode, Theme, UIAppearance} from '../types'
@@ -11,21 +11,21 @@ export function defaultTheme(): Theme {
   return paletteToTheme(defaultPreset().dark)
 }
 
-// 默认 UI 外观（天空蓝 + 深色 + 实色）。颜色由种子动态派生，不再是固定灰阶。
+// 默认 UI 外观（Arc 丝绒玫瑰 + 深色 + 毛玻璃）。颜色由种子动态派生。
 export function defaultAppearance(): UIAppearance {
   return {
     terminalBackgroundMode: 'follow',
     atmosphere: 75,
     surfaceSeparation: 65,
-    materialMode: 'solid',
-    glassEnabled: false,
+    materialMode: 'clear',
+    glassEnabled: true,
     mode: 'preset',
-    presetId: 'sky',
+    presetId: 'arc-velvet',
     baseTone: 'dark',
-    primary: '#71B5D2',
-    secondary: '#71B5D2',
+    primary: '#f19bc0',
+    secondary: '#a78bfa',
     uiText: '#fafafa',
-    glassOpacity: 85,
+    glassOpacity: 78,
     glassBlur: 24,
   }
 }
@@ -144,6 +144,22 @@ export const useSettingsStore = defineStore('settings', {
           loadedAppearance.materialMode ??
           (loadedAppearance.glassEnabled ? 'soft' : defaultAppearance().materialMode),
       })
+      const loadedTone = this.appearance.baseTone === 'auto'
+        ? (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+        : this.appearance.baseTone
+      if (this.appearance.presetId && this.appearance.mode === 'preset') {
+        const p = presetById(this.appearance.presetId)
+        if (p) {
+          if (loadedTone === 'light') {
+            this.theme = paletteToTheme(p.light)
+          } else if (loadedTone === 'dark') {
+            this.theme = paletteToTheme(p.dark)
+          }
+        }
+      } else if (this.appearance.terminalBackgroundMode === 'follow') {
+        const pal = resolveActiveTerminalPalette(this.appearance, loadedTone)
+        this.theme = paletteToTheme(pal)
+      }
       this.fonts = {...defaultFonts(), ...(settings.fonts ?? {})}
       this.autoStart = settings.autoStart ?? false
       this.confirmCloseTab = settings.confirmCloseTab ?? true

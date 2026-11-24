@@ -60,7 +60,8 @@ import {remoteFontStatus} from '../theme/remote-fonts'
 import {systemTone} from '../composables/useSystemTone'
 import {ClipboardGetText} from '../services/desktop'
 import {LogClient, SetLogTrace} from '../../bindings/ding-ssh/internal/apphost/app'
-import {terminalAccentColor, resolveTerminalForeground, resolveTerminalSurface, effectiveBrand, monoFontStack, readableOn, rgba} from '../theme/engine'
+import {effectiveBrand, monoFontStack, readableOn, rgba, resolveTerminalForeground, resolveTerminalSurface, terminalAccentColor} from '../theme/engine'
+import {presetById, resolveActiveTerminalPalette} from '../theme/presets'
 import {recordRecentServer} from '../services/recent'
 import type {SessionTab} from '../types'
 
@@ -221,22 +222,32 @@ const bgImageStyle = computed(() => {
 })
 
 const followsAppTheme = computed(
-  () => !settings.theme.bgImage && settings.appearance.terminalBackgroundMode !== 'independent',
+  () => !settings.theme.bgImage && (
+    settings.appearance.terminalBackgroundMode !== 'independent' ||
+    (settings.appearance.presetId?.startsWith('arc-') ?? false)
+  ),
 )
 const appTone = computed(() => settings.appearance.baseTone === 'auto' ? systemTone.value : settings.appearance.baseTone)
 const terminalTone = computed(() => appTone.value)
 const terminalBackground = computed(() => {
-  const seed = effectiveBrand(settings.appearance).primary
-  // Follow mode derives a coordinated ink surface; independent mode returns
-  // the scheme background unchanged. ANSI colors are never touched here.
-  return resolveTerminalSurface(
-    followsAppTheme.value,
-    settings.theme.background,
-    seed,
-    terminalTone.value,
-    settings.appearance.atmosphere ?? settings.appearance.colorIntensity ?? 75,
-    settings.appearance.surfaceSeparation ?? 65,
-  )
+  const isLight = terminalTone.value === 'light'
+  
+  if (followsAppTheme.value) {
+    const pal = resolveActiveTerminalPalette(settings.appearance, terminalTone.value)
+    return pal.background
+  }
+
+  // Independent mode guard:
+  // If independent theme background is dark (readableOn === '#ffffff') while the app is in light mode,
+  // prevent a pitch-black void by falling back to the preset's light background.
+  const p = presetById(settings.appearance.presetId)
+  if (isLight && readableOn(settings.theme.background) === '#ffffff') {
+    return p ? p.light.background : '#fdf7fa'
+  }
+  if (!isLight && readableOn(settings.theme.background) === '#18181b') {
+    return p ? p.dark.background : '#120e16'
+  }
+  return settings.theme.background
 })
 const terminalAccent = computed(() =>
   terminalAccentColor(
@@ -275,30 +286,39 @@ function applyTheme() {
   // terminal translucent. Glass material never lowers terminal opacity.
   term.options.allowTransparency = !!t.bgImage
   const follow = followsAppTheme.value
-  const cursor = follow ? terminalAccent.value : t.cursor
-  const selectionBackground = follow ? rgba(terminalAccent.value, 0.28) : t.selection
+  const isLight = terminalTone.value === 'light'
+  const p = presetById(settings.appearance.presetId)
+  const pal = follow ? resolveActiveTerminalPalette(settings.appearance, terminalTone.value) : (p ? (isLight ? p.light : p.dark) : null)
+
+  const cursor = pal ? pal.cursor : (follow ? terminalAccent.value : t.cursor)
+  const selectionBackground = pal ? pal.selection : (follow ? rgba(terminalAccent.value, 0.28) : t.selection)
+  const foreground = pal ? pal.foreground : resolveTerminalForeground(follow, t.foreground, background)
+
+  const ansi = pal ? pal.ansi : [t.black, t.red, t.green, t.yellow, t.blue, t.magenta, t.cyan, t.white]
+  const bright = pal ? pal.bright : [t.brightBlack, t.brightRed, t.brightGreen, t.brightYellow, t.brightBlue, t.brightMagenta, t.brightCyan, t.brightWhite]
+
   term.options.theme = {
     background,
-    foreground: resolveTerminalForeground(follow, t.foreground, terminalBackground.value),
+    foreground,
     cursor,
     cursorAccent: readableOn(cursor),
     selectionBackground,
-    black: t.black,
-    red: t.red,
-    green: t.green,
-    yellow: t.yellow,
-    blue: t.blue,
-    magenta: t.magenta,
-    cyan: t.cyan,
-    white: t.white,
-    brightBlack: t.brightBlack,
-    brightRed: t.brightRed,
-    brightGreen: t.brightGreen,
-    brightYellow: t.brightYellow,
-    brightBlue: t.brightBlue,
-    brightMagenta: t.brightMagenta,
-    brightCyan: t.brightCyan,
-    brightWhite: t.brightWhite,
+    black: ansi[0],
+    red: ansi[1],
+    green: ansi[2],
+    yellow: ansi[3],
+    blue: ansi[4],
+    magenta: ansi[5],
+    cyan: ansi[6],
+    white: ansi[7],
+    brightBlack: bright[0],
+    brightRed: bright[1],
+    brightGreen: bright[2],
+    brightYellow: bright[3],
+    brightBlue: bright[4],
+    brightMagenta: bright[5],
+    brightCyan: bright[6],
+    brightWhite: bright[7],
   }
   term.refresh(0, term.rows - 1)
 }
@@ -1224,7 +1244,7 @@ onMounted(() => {
 })
 
 watch(
-  () => [settings.theme, terminalBackground.value, followsAppTheme.value, terminalAccent.value],
+  () => [settings.theme, terminalBackground.value, followsAppTheme.value, terminalAccent.value, terminalTone.value],
   () => {
     // Update xterm options only. The Terminal instance, SSH session, scroll
     // position, input buffer and viewport size are never recreated here.

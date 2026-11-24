@@ -183,6 +183,8 @@ export interface ThemeMeta {
   fallback: MaterialFallback
   nativeBackdrop: boolean
   platform: ThemePlatform
+  /** Arc Space preset id (e.g. "arc-velvet") — written to html[data-preset] */
+  presetId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +207,57 @@ export function normalizeSeed(seed: string | undefined): string {
   if (/^[0-9a-f]{6}[0-9a-f]{2}$/i.test(value)) value = value.slice(0, 6)
   if (!/^[0-9a-f]{6}$/i.test(value)) return DEFAULT_SEED
   return `#${value.toLowerCase()}`
+}
+
+/**
+ * Automatically derives a harmonious Arc-style secondary accent color
+ * from a primary seed color.
+ *
+ * Arc spaces pair primary hues with an analogous / complementary fluid partner:
+ *  - Rose / Pink  -> Lavender / Violet
+ *  - Orange / Warm -> Coral / Rose
+ *  - Green / Mint  -> Teal / Aqua
+ *  - Sky / Cyan / Slate -> Indigo / Periwinkle / Lilac
+ *  - Monochrome    -> Calm balanced gray
+ */
+export function deriveHarmonizedSecondary(seedHex: string): string {
+  const seed = normalizeSeed(seedHex)
+  const source = Hct.fromInt(argbFromHex(seed))
+  if (source.chroma < NEUTRAL_SEED_CHROMA || source.tone <= 0.5 || source.tone >= 99.5) {
+    const nextTone = source.tone > 50 ? clamp(source.tone - 20, 20, 80) : clamp(source.tone + 20, 20, 80)
+    return hexFromArgb(Hct.from(0, 0, nextTone).toInt())
+  }
+  let hueDelta = 35
+  if (source.hue >= 330 || source.hue < 20) {
+    hueDelta = -55 // Rose / Crimson -> Violet / Lavender (like Arc Velvet)
+  } else if (source.hue >= 20 && source.hue <= 90) {
+    hueDelta = -35 // Orange / Yellow -> Rose / Coral (like Arc Sunset)
+  } else if (source.hue > 90 && source.hue <= 180) {
+    hueDelta = 30  // Green / Mint -> Teal / Aqua (like Arc Sage)
+  } else if (source.hue > 180 && source.hue <= 270) {
+    hueDelta = 40  // Sky / Slate -> Indigo / Periwinkle (like Arc Ocean)
+  } else {
+    hueDelta = 40  // Violet / Purple -> Rose / Magenta
+  }
+  const targetHue = (source.hue + hueDelta + 360) % 360
+  const targetChroma = clamp(source.chroma * 0.95, 26, 65)
+  const targetTone = clamp(source.tone, 55, 80)
+  return hexFromArgb(Hct.from(targetHue, targetChroma, targetTone).toInt())
+}
+
+/**
+ * Derives the base canvas color for the Arc ambient backdrop.
+ * In light mode: airy, softly tinted paper surface.
+ * In dark mode: deep, velvety canvas surface.
+ */
+export function arcBaseBackground(hue: number, chroma: number, light: boolean, atmosphere = 75): string {
+  if (chroma < NEUTRAL_SEED_CHROMA) {
+    return light ? '#fafafa' : '#121214'
+  }
+  const atmoFactor = clamp(atmosphere / 100, 0.25, 1)
+  const targetChroma = Math.min(chroma * 0.35, light ? 16 : 10) * atmoFactor
+  const targetTone = light ? clamp(96 - atmoFactor * 2.5, 92, 97) : clamp(7 + atmoFactor * 2, 6, 12)
+  return hexFromArgb(Hct.from(hue, targetChroma, targetTone).toInt())
 }
 
 export interface Rgb {
@@ -1091,25 +1144,25 @@ export function detectCapabilities(): ThemeCapabilities {
 }
 
 const SOFT_ALPHA = {
-  sidebarPrimary: 0.86,
-  sidebarSecondary: 0.9,
-  workspace: 0.88,
-  surface: 0.94,
-  surfaceRaised: 0.96,
-  surfaceOverlay: 0.98,
-  toolbar: 0.92,
-  field: 0.985,
+  sidebarPrimary: 0.65,
+  sidebarSecondary: 0.70,
+  workspace: 0.68,
+  surface: 0.78,
+  surfaceRaised: 0.82,
+  surfaceOverlay: 0.88,
+  toolbar: 0.72,
+  field: 0.90,
 } as const
 
 const CLEAR_ALPHA = {
-  sidebarPrimary: 0.72,
-  sidebarSecondary: 0.78,
-  workspace: 0.74,
-  surface: 0.88,
-  surfaceRaised: 0.91,
-  surfaceOverlay: 0.95,
-  toolbar: 0.82,
-  field: 0.97,
+  sidebarPrimary: 0.46,
+  sidebarSecondary: 0.52,
+  workspace: 0.48,
+  surface: 0.62,
+  surfaceRaised: 0.66,
+  surfaceOverlay: 0.76,
+  toolbar: 0.56,
+  field: 0.82,
 } as const
 
 export function planMaterial(options: MaterialPlanOptions): MaterialPlan {
@@ -1157,16 +1210,16 @@ export function planMaterial(options: MaterialPlanOptions): MaterialPlan {
     nativeBackdrop,
     platform,
     alpha: {
-      sidebarPrimary: alpha(base.sidebarPrimary, 0.6),
-      sidebarSecondary: alpha(base.sidebarSecondary, 0.62),
-      workspace: alpha(base.workspace, 0.62),
-      surface: alpha(base.surface, 0.78),
-      surfaceRaised: alpha(base.surfaceRaised, 0.8),
-      surfaceOverlay: alpha(base.surfaceOverlay, 0.86),
-      toolbar: alpha(base.toolbar, 0.68),
-      field: alpha(base.field, 0.9),
+      sidebarPrimary: alpha(base.sidebarPrimary, 0.32),
+      sidebarSecondary: alpha(base.sidebarSecondary, 0.36),
+      workspace: alpha(base.workspace, 0.36),
+      surface: alpha(base.surface, 0.45),
+      surfaceRaised: alpha(base.surfaceRaised, 0.50),
+      surfaceOverlay: alpha(base.surfaceOverlay, 0.60),
+      toolbar: alpha(base.toolbar, 0.42),
+      field: alpha(base.field, 0.68),
     },
-    shellBlurPx: 0,
+    shellBlurPx: clamp(options.blurPx ?? 24, 0, 60),
     overlayBlurPx: clamp(options.blurPx ?? 24, 0, 60),
     surfaceOpacity,
   }
@@ -1209,9 +1262,9 @@ export function rolesToCssVars(roles: ColorRoles, plan: MaterialPlan): Record<st
   const field = surface(roles.fieldBg, alpha.field)
   const appBg = plan.mode === 'solid' ? roles.appBg : 'transparent'
 
-  // Light keeps the existing opaque ramp. Dark uses a neutral base plus a very
-  // low-alpha light overlay; the base is composed as the final background
-  // layer so Solid stays opaque and Glass keeps its own region alpha.
+  // Unified theme gradient for sidebar primary navigation across all material modes.
+  // In solid mode, stops are fully opaque (#xxxxxx). In glass modes, stops use rgba(..., alpha.sidebarPrimary).
+  // This guarantees identical color transitions and harmony between solid, soft, and clear glass.
   let sidebarPrimaryGradient: string
   let sidebarPrimaryStart: string
   let sidebarPrimaryEnd: string
@@ -1219,30 +1272,47 @@ export function rolesToCssVars(roles: ColorRoles, plan: MaterialPlan): Record<st
   let workspaceStart: string
   let workspaceEnd: string
 
+  const atmo = clamp((roles.atmosphere ?? 75) / 100, 0.2, 1)
+
+  let navTop: string
+  let navMid: string
+  let navBottom: string
+
+  if (roles.seedChroma < NEUTRAL_SEED_CHROMA) {
+    if (light) {
+      navTop = '#f8fafc'
+      navMid = '#f1f5f9'
+      navBottom = '#e2e8f0'
+    } else {
+      navTop = '#22252a'
+      navMid = '#1a1d22'
+      navBottom = '#141619'
+    }
+  } else {
+    const primaryPalette = paletteForHueChroma(roles.seedHue, Math.max(roles.seedChroma, 35))
+    const secondarySource = Hct.fromInt(argbFromHex(roles.secondarySeed || roles.seed))
+    const secondaryPalette = paletteForHueChroma(secondarySource.hue, Math.max(secondarySource.chroma, 30))
+
+    if (light) {
+      navTop = toneHex(primaryPalette, Math.round(clamp(82 - atmo * 4, 76, 86)))
+      navMid = toneHex(primaryPalette, Math.round(clamp(88 - atmo * 3, 84, 91)))
+      navBottom = toneHex(secondaryPalette, Math.round(clamp(93 - atmo * 2, 90, 96)))
+    } else {
+      navTop = toneHex(primaryPalette, Math.round(clamp(22 + atmo * 3, 18, 28)))
+      navMid = toneHex(primaryPalette, Math.round(clamp(16 + atmo * 2, 13, 19)))
+      navBottom = toneHex(secondaryPalette, Math.round(clamp(11 + atmo * 2, 9, 14)))
+    }
+  }
+
+  sidebarPrimaryGradient = `linear-gradient(180deg, ${surface(navTop, alpha.sidebarPrimary)} 0%, ${surface(navMid, alpha.sidebarPrimary)} 50%, ${surface(navBottom, alpha.sidebarPrimary)} 100%)`
+  sidebarPrimaryStart = surface(navTop, alpha.sidebarPrimary)
+  sidebarPrimaryEnd = surface(navBottom, alpha.sidebarPrimary)
+
   if (light) {
-    sidebarPrimaryGradient = gradientLayer(roles.gradients.sidebarPrimary, alpha.sidebarPrimary)
-    sidebarPrimaryStart = gradientEdge(roles.gradients.sidebarPrimary, alpha.sidebarPrimary, 'start')
-    sidebarPrimaryEnd = gradientEdge(roles.gradients.sidebarPrimary, alpha.sidebarPrimary, 'end')
     workspaceGradient = gradientLayer(roles.gradients.workspace, alpha.workspace)
     workspaceStart = gradientEdge(roles.gradients.workspace, alpha.workspace, 'start')
     workspaceEnd = gradientEdge(roles.gradients.workspace, alpha.workspace, 'end')
   } else {
-    const navBase = surface(roles.sidebarPrimaryBg, alpha.sidebarPrimary)
-    const navOklch = hexToOklch(roles.sidebarPrimaryBg)
-    const navLight = oklchToHex({
-      l: clamp(navOklch.l + 0.01, 0, 1),
-      c: navOklch.c,
-      h: navOklch.h,
-    })
-    const navDark = oklchToHex({
-      l: clamp(navOklch.l - 0.008, 0, 1),
-      c: navOklch.c,
-      h: navOklch.h,
-    })
-    sidebarPrimaryGradient = `linear-gradient(180deg, ${surface(navLight, 0.1)} 0%, transparent 55%, ${surface(navDark, 0.08)} 100%), ${navBase}`
-    sidebarPrimaryStart = surface(navLight, alpha.sidebarPrimary)
-    sidebarPrimaryEnd = surface(navDark, alpha.sidebarPrimary)
-
     const workspaceBase = surface(roles.workspaceBg, alpha.workspace)
     workspaceStart = workspaceBase
     workspaceEnd = workspaceBase
@@ -1263,9 +1333,41 @@ export function rolesToCssVars(roles: ColorRoles, plan: MaterialPlan): Record<st
     }
   }
 
+  const arcBase = arcBaseBackground(roles.seedHue, roles.seedChroma, light, roles.atmosphere)
+
+  // Use luminous tones of primary and secondary for radiant Arc color atmosphere
+  let primaryGlow: string
+  let secondaryGlow: string
+  if (roles.seedChroma < NEUTRAL_SEED_CHROMA) {
+    primaryGlow = light ? '#e2e8f0' : '#27272a'
+    secondaryGlow = light ? '#cbd5e1' : '#1e1e24'
+  } else {
+    const primaryPalette = paletteForHueChroma(roles.seedHue, Math.max(roles.seedChroma, 35))
+    primaryGlow = toneHex(primaryPalette, light ? 68 : 65)
+    const secondarySource = Hct.fromInt(argbFromHex(roles.secondarySeed || roles.seed))
+    const secondaryPalette = paletteForHueChroma(secondarySource.hue, Math.max(secondarySource.chroma, 30))
+    secondaryGlow = toneHex(secondaryPalette, light ? 70 : 60)
+  }
+
+  const lightGlow1 = rgba(primaryGlow, clamp(0.36 + 0.22 * atmo, 0.25, 0.60))
+  const lightGlow2 = rgba(secondaryGlow, clamp(0.30 + 0.20 * atmo, 0.20, 0.52))
+  const lightGlow3 = rgba(primaryGlow, clamp(0.18 + 0.12 * atmo, 0.10, 0.32))
+
+  const darkGlow1 = rgba(primaryGlow, clamp(0.26 + 0.18 * atmo, 0.16, 0.46))
+  const darkGlow2 = rgba(secondaryGlow, clamp(0.20 + 0.15 * atmo, 0.12, 0.36))
+
+  const shellBase = plan.mode === 'solid' ? arcBase : rgba(arcBase, clamp(0.18 + 0.12 * atmo, 0.10, 0.32))
+  const arcAmbientGradient = light
+    ? `radial-gradient(ellipse 75% 65% at 5% 10%, ${lightGlow1} 0%, transparent 55%), radial-gradient(ellipse 75% 65% at 95% 90%, ${lightGlow2} 0%, transparent 60%), radial-gradient(circle at 50% 50%, ${lightGlow3} 0%, transparent 50%), ${shellBase}`
+    : `radial-gradient(ellipse 65% 55% at 5% 15%, ${darkGlow1} 0%, transparent 55%), radial-gradient(ellipse 70% 60% at 95% 85%, ${darkGlow2} 0%, transparent 60%), ${shellBase}`
+
+  const arcAmbientBg = light
+    ? `radial-gradient(ellipse 75% 65% at 5% 10%, ${lightGlow1} 0%, transparent 55%), radial-gradient(ellipse 75% 65% at 95% 90%, ${lightGlow2} 0%, transparent 60%), radial-gradient(circle at 50% 50%, ${lightGlow3} 0%, transparent 50%), ${shellBase}`
+    : `radial-gradient(circle at 10% 20%, ${darkGlow1} 0%, transparent 40%), radial-gradient(circle at 90% 80%, ${darkGlow2} 0%, transparent 45%), ${shellBase}`
+
   return {
     // Semantic surface roles.
-    '--app-bg': appBg,
+    '--app-bg': plan.mode === 'solid' ? arcBase : 'transparent',
     '--sidebar-primary-bg': sidebarPrimary,
     '--sidebar-secondary-bg': sidebarSecondary,
     '--workspace-bg': workspace,
@@ -1332,6 +1434,16 @@ export function rolesToCssVars(roles: ColorRoles, plan: MaterialPlan): Record<st
     '--glass-overlay-blur': `${plan.overlayBlurPx}px`,
     '--glass-opacity': `${Math.round(alpha.workspace * 100)}%`,
     '--glass-tint': rgba(roles.sidebarPrimaryBg, 0.2),
+
+    // Arc color system & Ambient glow roles
+    '--arc-ambient-gradient': arcAmbientGradient,
+    '--arc-ambient-bg': arcAmbientBg,
+    '--arc-active-tab-gradient': `linear-gradient(135deg, ${rgba(primaryGlow, 0.28)}, ${rgba(secondaryGlow, 0.14)})`,
+    '--arc-active-tab-border': rgba(primaryGlow, 0.45),
+    '--glass-border': light ? '1px solid rgba(0, 0, 0, 0.08)' : '1px solid rgba(255, 255, 255, 0.09)',
+    '--glass-border-subtle': light ? '1px solid rgba(0, 0, 0, 0.04)' : '1px solid rgba(255, 255, 255, 0.05)',
+    '--glass-border-strong': light ? '1px solid rgba(0, 0, 0, 0.14)' : '1px solid rgba(255, 255, 255, 0.18)',
+    '--glass-highlight': light ? 'none' : 'inset 0 1px 0 rgba(255, 255, 255, 0.12)',
 
     // ---------- Compatibility layer (old token names) ----------
     '--background': workspace,
@@ -1452,6 +1564,14 @@ export const MANAGED_ROOT_VARS = [
   '--glass-overlay-blur',
   '--glass-opacity',
   '--glass-tint',
+  '--arc-ambient-gradient',
+  '--arc-ambient-bg',
+  '--arc-active-tab-gradient',
+  '--arc-active-tab-border',
+  '--glass-border',
+  '--glass-border-subtle',
+  '--glass-border-strong',
+  '--glass-highlight',
   '--background',
   '--surface-1',
   '--surface-2',

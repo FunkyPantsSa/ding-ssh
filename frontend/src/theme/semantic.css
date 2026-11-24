@@ -69,10 +69,18 @@
   --terminal-bg: #272727;
 
   /* Material descriptors */
-  --glass-shell-blur: 0px;
-  --glass-overlay-blur: 0px;
-  --glass-opacity: 100%;
+  --glass-shell-blur: 24px;
+  --glass-overlay-blur: 28px;
+  --glass-opacity: 85%;
   --glass-tint: rgb(120 210 247 / 20%);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.08);
+  --glass-border-subtle: 1px solid rgba(255, 255, 255, 0.05);
+  --glass-border-strong: 1px solid rgba(255, 255, 255, 0.16);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --arc-ambient-gradient: radial-gradient(circle at 10% 20%, var(--primary-glow, rgba(120, 210, 247, 0.22)) 0%, transparent 40%), radial-gradient(circle at 90% 80%, var(--secondary-glow, rgba(167, 139, 250, 0.18)) 0%, transparent 45%), var(--app-bg, #111116);
+  --arc-ambient-bg: var(--arc-ambient-gradient);
+  --arc-active-tab-gradient: linear-gradient(135deg, var(--primary-glow, rgba(120, 210, 247, 0.28)), var(--secondary-glow, rgba(167, 139, 250, 0.15)));
+  --arc-active-tab-border: var(--primary-border, rgba(120, 210, 247, 0.45));
 
   /* Legacy interaction values used directly by older component rules. */
   --hover: #393939;
@@ -139,10 +147,18 @@
 
   --terminal-bg: #f8fbfd;
 
-  --glass-shell-blur: 0px;
-  --glass-overlay-blur: 0px;
-  --glass-opacity: 100%;
+  --glass-shell-blur: 24px;
+  --glass-overlay-blur: 28px;
+  --glass-opacity: 88%;
   --glass-tint: rgb(23 107 133 / 18%);
+  --glass-border: 1px solid rgba(0, 0, 0, 0.08);
+  --glass-border-subtle: 1px solid rgba(0, 0, 0, 0.04);
+  --glass-border-strong: 1px solid rgba(0, 0, 0, 0.14);
+  --glass-highlight: none;
+  --arc-ambient-gradient: radial-gradient(ellipse 75% 65% at 5% 10%, var(--primary-glow, rgba(120, 180, 240, 0.32)) 0%, transparent 55%), radial-gradient(ellipse 75% 65% at 95% 90%, var(--secondary-glow, rgba(160, 150, 240, 0.26)) 0%, transparent 60%), var(--app-bg, #f4f6f8);
+  --arc-ambient-bg: var(--arc-ambient-gradient);
+  --arc-active-tab-gradient: linear-gradient(135deg, var(--primary-glow, rgba(120, 180, 240, 0.35)), var(--secondary-glow, rgba(160, 150, 240, 0.20)));
+  --arc-active-tab-border: var(--primary-border, rgba(120, 180, 240, 0.40));
 
   --hover: #e4edf2;
   --hover-strong: #dae5ec;

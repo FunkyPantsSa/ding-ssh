@@ -3,15 +3,16 @@ import {t as $t} from '../../i18n'
 
 import {t} from '../../i18n'
 
-import {computed, onMounted, ref, watch} from 'vue'
+import {computed, nextTick, onMounted, ref, watch} from 'vue'
 import {getDisplayRect} from '../../utils/dom'
 import Icon from '../Icon.vue'
 import SearchSelect from '../ui/select/SearchSelect.vue'
-import ToggleSwitch from '../ToggleSwitch.vue'
 import {Button, Input, Dialog} from '../ui'
 import {MATERIAL_OPTIONS, TONE_OPTIONS, useSettingsAppearance} from '../../composables/useSettingsAppearance'
+import {systemTone} from '../../composables/useSystemTone'
+import type {UIAppearance} from '../../types'
 import {useSettingsStore} from '../../stores/settings'
-import {PRESETS, paletteToTheme} from '../../theme/presets'
+import {PRESETS, paletteToTheme, resolveActiveTerminalPalette} from '../../theme/presets'
 import {detectCapabilities, hexToRgb, monoFontStack} from '../../theme/engine'
 import {TERMINAL_FONT_SCHEMES, loadTerminalFonts, fontPair, encodeFontPair} from '../../theme/terminal-fonts'
 import {customFontSizes, formatFontSize, customFontChinese, customFonts, importCustomFont, restoreCustomFonts, removeCustomFont} from '../../theme/custom-fonts'
@@ -41,19 +42,22 @@ const settings = useSettingsStore()
 const saving = ref(false)
 const picker = ref<HTMLElement | null>(null)
 const dragging = ref(false)
-const {themeForm, appearanceForm, fontsForm, syncForms, setTone, setSeedColor, selectPreset, setMaterialMode, setAtmosphere, setSeparation, resetAppearance} = useSettingsAppearance(settings, saving)
+const {themeForm, appearanceForm, fontsForm, currentTone, syncForms, setTone, setSeedColor, selectPreset, setMaterialMode, setAtmosphere, setSeparation, resetAppearance} = useSettingsAppearance(settings, saving)
 const materialCapabilities = detectCapabilities()
 const materialFallback = computed(() => (appearanceForm.materialMode ?? 'solid') !== 'solid' && !materialCapabilities.nativeBackdrop)
 const currentMaterial = computed(() => appearanceForm.materialMode ?? (appearanceForm.glassEnabled ? 'soft' : 'solid'))
-const terminalPresetOptions = PRESETS.flatMap(preset => [
-  {value: preset.id + ':dark', label: preset.name + t(" · 深色"), keywords: preset.id + ' dark'},
-  {value: preset.id + ':light', label: preset.name + t(" · 浅色"), keywords: preset.id + ' light'},
-])
-function chooseTerminal(value: string) {
-  const [id, tone] = value.split(':')
-  const preset = PRESETS.find(p => p.id === id)
-  if (preset) Object.assign(themeForm, paletteToTheme(tone === 'light' ? preset.light : preset.dark))
+async function handleToneChange(key: UIAppearance['baseTone']) {
+  await setTone(key)
+  const tone = key === 'auto' ? (systemTone.value === 'light' ? 'light' : 'dark') : key
+  const pal = resolveActiveTerminalPalette(appearanceForm, tone)
+  Object.assign(themeForm, paletteToTheme(pal))
 }
+
+watch(currentTone, (newTone) => {
+  const pal = resolveActiveTerminalPalette(appearanceForm, newTone)
+  Object.assign(themeForm, paletteToTheme(pal))
+})
+
 const PRESET_COLORS = [
   {get name() { return t("黑白") }, color: '#A3A3A3'},
   {get name() { return t("暖灰") }, color: '#E8E4DF'}, {get name() { return t("玫瑰粉") }, color: '#F19BC0'},
@@ -166,6 +170,9 @@ function chooseColor(color: string) {
   if (color === '#A3A3A3') void selectPreset('monochrome')
   else void setSeedColor(color)
 }
+function clearColor() {
+  void setSeedColor('#71B5D2')
+}
 </script>
 
 <template>
@@ -177,7 +184,7 @@ function chooseColor(color: string) {
     <div class="theme-layout">
       <section class="theme-editor">
         <div class="tone-switch" :aria-label="$t('界面明暗模式')">
-          <button v-for="opt in TONE_OPTIONS" :key="opt.key" type="button" :class="{active: appearanceForm.baseTone === opt.key}" :aria-label="opt.label" :aria-pressed="appearanceForm.baseTone === opt.key" @click="setTone(opt.key)">
+          <button v-for="opt in TONE_OPTIONS" :key="opt.key" type="button" :class="{active: appearanceForm.baseTone === opt.key}" :aria-label="opt.label" :aria-pressed="appearanceForm.baseTone === opt.key" @click="handleToneChange(opt.key)">
             <Icon :name="opt.key === 'auto' ? 'sparkles' : opt.key === 'light' ? 'sun' : 'moon'" :size="18" />
           </button>
         </div>
@@ -201,7 +208,10 @@ function chooseColor(color: string) {
               <span :id="`preset-color-name-${index}`" class="preset-color-name" role="tooltip">{{ preset.name }}</span>
             </span>
           </div>
-          <label class="hex-field"><span>HEX</span><Input v-model="appearanceForm.primary" :aria-label="$t('主题颜色 HEX')" @change="chooseColor(appearanceForm.primary)" /></label>
+          <div class="hex-field-group">
+            <label class="hex-field"><span>HEX</span><Input v-model="appearanceForm.primary" :clearable="false" :aria-label="$t('主题颜色 HEX')" @change="chooseColor(appearanceForm.primary)" /></label>
+            <button type="button" class="hex-clear-btn" :aria-label="$t('重置为默认颜色')" @click="clearColor">{{ $t('重置') }}</button>
+          </div>
         </div>
         <div class="slider-list">
           <label><span><strong>{{ $t('主题氛围强度') }}</strong><output>{{ appearanceForm.atmosphere ?? appearanceForm.colorIntensity ?? 75 }}%</output></span><input :value="appearanceForm.atmosphere ?? appearanceForm.colorIntensity ?? 75" @input="setAtmosphere(Number(($event.target as HTMLInputElement).value))" type="range" min="0" max="100" :aria-label="$t('主题氛围强度')" /></label>
@@ -216,12 +226,6 @@ function chooseColor(color: string) {
           <label><span><strong>{{ $t('浮层模糊') }}</strong><output>{{ appearanceForm.glassBlur }}px</output></span><input v-model.number="appearanceForm.glassBlur" :disabled="currentMaterial === 'solid'" type="range" min="0" max="60" :aria-label="$t('浮层模糊')" /></label>
           <p class="glass-help">{{ $t('氛围强度控制大面积背景偏离中性的程度；层级差异控制导航、工作区与卡片的区别。桌面模糊由系统原生材质提供，前端不会重复模拟全窗口模糊。') }}</p>
           <p v-if="materialFallback" class="glass-help material-fallback" role="status">{{ $t('当前平台未提供系统背景模糊，已自动回退为实色表面。') }}</p>
-          <label><span><strong>{{ $t('终端跟随应用主题') }}</strong></span><ToggleSwitch :model-value="appearanceForm.terminalBackgroundMode !== 'independent'" @update:model-value="appearanceForm.terminalBackgroundMode = $event ? 'follow' : 'independent'" /></label>
-          <p class="glass-help">{{ $t('开启后终端背景、光标与选区跟随应用主题的明暗与种子色；ANSI 16 色和独立配色方案保持原样。关闭后完整使用终端方案自身的背景、光标与选区。') }}</p>
-          <div class="terminal-preset-field">
-            <label for="terminal-preset"><strong>{{ $t('终端配色方案') }}</strong></label>
-            <SearchSelect id="terminal-preset" model-value="" :placeholder="$t('选择配色方案')" :options="terminalPresetOptions" @update:model-value="chooseTerminal" />
-          </div>
         </div>
       </section>
       <aside class="theme-preview">
@@ -283,6 +287,10 @@ function chooseColor(color: string) {
 </template>
 
 <style scoped>
+.hex-field-group{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.hex-clear-btn{height:30px;padding:0 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius-control);background:var(--hover);color:var(--foreground-secondary);cursor:pointer;transition:all var(--dur)}
+.hex-clear-btn:hover{background:var(--hover-strong);color:var(--foreground)}
+
 .preset-color-item{position:relative;display:inline-flex}.preset-color-name{position:absolute;z-index:10;bottom:calc(100% + 9px);left:50%;transform:translate(-50%,3px);padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius-small);background:var(--surface-2);color:var(--foreground);box-shadow:var(--shadow-pop);white-space:nowrap;font-size:11px;line-height:1.4;pointer-events:none;opacity:0;visibility:hidden;transition:opacity 100ms,transform 100ms,visibility 0s 100ms}.preset-color-item:hover .preset-color-name,.preset-color-item:focus-within .preset-color-name{opacity:1;visibility:visible;transform:translate(-50%,0);transition-delay:100ms}
 
 .color-spectrum{margin-top:18px;padding-top:16px;border-top:1px solid var(--border-subtle)}.spectrum-heading{display:flex;justify-content:space-between;gap:12px;font-size:12px}.spectrum-heading span{color:var(--muted-foreground);font-size:11px}.color-spectrum .hue-control,.spectrum-control{display:flex;align-items:center;gap:12px;margin-top:16px;font-size:12px;color:var(--foreground-secondary)}.color-spectrum label>span{flex:0 1 8rem;min-width:0;overflow-wrap:anywhere}.color-spectrum input{flex:1;min-width:0;appearance:none;height:12px;border:1px solid var(--border-subtle);border-radius:var(--radius-pill);cursor:pointer}.color-spectrum output{width:36px;text-align:right;font-size:11px;color:var(--muted-foreground);font-variant-numeric:tabular-nums}.color-spectrum .grayscale-range{background:linear-gradient(90deg,#000,#fff)}.color-spectrum input::-webkit-slider-thumb{appearance:none;width:18px;height:18px;background:var(--foreground);border:3px solid var(--surface-2);border-radius:50%;box-shadow:0 0 0 1px var(--border-strong)}.color-spectrum input::-moz-range-thumb{width:12px;height:12px;background:var(--foreground);border:3px solid var(--surface-2);border-radius:50%}.spectrum-help{margin:14px 0 0;font-size:11px;line-height:1.6;color:var(--muted-foreground)}
@@ -294,7 +302,11 @@ function chooseColor(color: string) {
 .section-heading{margin:26px 0 16px}.section-heading h4{font-size:18px;margin:7px 0}.section-heading p,.preview-caption{font-size:12px;color:var(--muted-foreground);margin:6px 0}.font-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:16px;align-items:start}.font-editor,.font-preview{padding:22px;border:1px solid var(--border-subtle);border-radius:var(--radius-card);background:var(--surface-raised-bg);min-width:0}.font-fields{display:grid;gap:20px}.font-select-field,.font-fields label{display:grid;gap:8px;font-size:12px;font-weight:500}.size-control input{padding:9px 10px;background:var(--field-bg);color:var(--foreground);border:1px solid var(--border);border-radius:var(--radius-control);font:inherit}.font-fields small,.library-heading small{font-size:11px;color:var(--muted-foreground);font-weight:400}.size-control{display:flex;align-items:center;gap:8px}.size-control input{width:80px}.font-status{font-size:11px;line-height:1.6;color:var(--muted-foreground);margin:18px 0}.font-library{border-top:1px solid var(--border-subtle);padding-top:18px}.library-heading{display:flex;justify-content:space-between;gap:12px;align-items:center}.library-heading h5{font-size:12px;margin:0 0 5px}.empty-fonts,.font-library p{font-size:11px;color:var(--muted-foreground);line-height:1.6}.font-library-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--border-subtle);font-size:12px}.font-library-row span{overflow-wrap:anywhere;min-width:0}.font-library-row button{color:var(--status-error);font-size:11px;flex-shrink:0}.mini-terminal{border:1px solid var(--border-subtle);border-radius:var(--radius-window);overflow:hidden;margin-top:18px}.terminal-titlebar{display:flex;gap:14px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border-subtle);font-size:10px;background:var(--surface-raised-bg)}.window-dots{color:var(--muted-foreground);letter-spacing:2px}.terminal-content{padding:18px 14px;line-height:1.8;overflow-x:auto;white-space:nowrap;min-height:295px}.system-banner{margin:12px 0 5px;font-weight:700}.terminal-divider{opacity:.35;margin:7px 0}.terminal-prompt{margin-top:12px}.terminal-cursor{display:inline-block;background:currentColor;width:7px;height:1em;vertical-align:middle;opacity:.65}.preview-caption{margin-top:12px}@media(max-width:900px){.font-layout{grid-template-columns:1fr}}
 
 .terminal-preset-field{display:grid;gap:8px}.terminal-font-controls{margin:20px 0;padding:22px;background:var(--surface-bg);border:1px solid var(--border-subtle);border-radius:var(--radius-card)}.terminal-font-controls h4{margin:0 0 18px;font-size:14px}.terminal-font-controls label{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;font-size:12px}.terminal-font-controls select,.terminal-font-controls input{background:var(--field-bg);color:var(--foreground);border:1px solid var(--border);padding:6px;border-radius:var(--radius-control)}.terminal-font-controls input{width:70px}.terminal-font-controls p{margin:8px 0;overflow-wrap:anywhere}.theme-page{max-width:1040px;padding-bottom:28px}.theme-header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:24px}.theme-kicker{font:600 10px/1 var(--font-mono);letter-spacing:.16em;color:var(--muted-foreground)}.theme-header h3{margin:8px 0 5px;font-size:24px;line-height:1.1;letter-spacing:-.035em}.theme-header p{margin:0;color:var(--foreground-secondary);font-size:13px}.save-state{display:flex;align-items:center;gap:7px;color:var(--muted-foreground);font-size:11px}.save-state>span{width:6px;height:6px;border-radius:50%;background:var(--success)}.save-state>span.saving{background:var(--warning);animation:pulse 1s infinite}
-.theme-layout{display:grid;grid-template-columns:minmax(420px,1.15fr) minmax(300px,.85fr);gap:16px}.theme-editor,.theme-preview{border:1px solid var(--border-subtle);border-radius:var(--radius-card);background:var(--surface-raised-bg);box-shadow:none}.theme-editor{padding:22px}.tone-switch{display:flex;justify-content:center;gap:5px;margin-bottom:18px}.tone-switch button{width:38px;height:34px;display:grid;place-items:center;border-radius:var(--radius-control);color:var(--muted-foreground);transition:background var(--dur),color var(--dur),transform var(--dur)}.tone-switch button:hover{color:var(--foreground);background:var(--hover)}.tone-switch button.active{color:var(--primary-hover);background:var(--primary-weak);box-shadow:inset 0 0 0 1px var(--primary-border)}
+.theme-layout{display:grid;grid-template-columns:minmax(420px,1.15fr) minmax(300px,.85fr);gap:16px}.theme-editor,.theme-preview{border:1px solid var(--border-subtle);border-radius:var(--radius-card);background:var(--surface-raised-bg);box-shadow:none}.theme-editor{padding:22px}
+:root[data-glass="on"] .theme-editor,
+:root[data-glass="on"] .theme-preview,
+html[data-glass="on"] .theme-editor,
+html[data-glass="on"] .theme-preview{backdrop-filter:blur(var(--glass-overlay-blur, 20px)) saturate(160%);-webkit-backdrop-filter:blur(var(--glass-overlay-blur, 20px)) saturate(160%)}.tone-switch{display:flex;justify-content:center;gap:5px;margin-bottom:18px}.tone-switch button{width:38px;height:34px;display:grid;place-items:center;border-radius:var(--radius-control);color:var(--muted-foreground);transition:background var(--dur),color var(--dur),transform var(--dur)}.tone-switch button:hover{color:var(--foreground);background:var(--hover)}.tone-switch button.active{color:var(--primary-hover);background:var(--primary-weak);box-shadow:inset 0 0 0 1px var(--primary-border)}
 .color-field{position:relative;height:300px;border-radius:var(--radius-card);overflow:hidden;cursor:crosshair;touch-action:none;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 7%)}.field-white,.field-black{position:absolute;inset:0;pointer-events:none}.field-white{background:linear-gradient(90deg,#fff,transparent)}.field-black{background:linear-gradient(0deg,#000000,transparent)}.color-marker{position:absolute;width:32px;height:32px;border:4px solid white;border-radius:50%;box-shadow:0 2px 10px rgb(0 0 0 / 35%);transform:translate(-50%,-50%);pointer-events:none}.color-marker span{display:block;width:100%;height:100%;border-radius:50%}
 .hue-control,.native-color{display:flex;align-items:center;gap:16px;margin-top:16px;font-size:12px;color:var(--foreground-secondary)}.hue-control input{flex:1;appearance:none;height:12px;border-radius:var(--radius-pill);background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}.native-color input{width:54px;height:32px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-control);background:transparent}.color-meta{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:18px 0 22px}.preset-row{display:flex;gap:9px;flex-wrap:wrap}.preset-dot{width:27px;height:27px;border-radius:50%;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 8%);transition:transform var(--dur),box-shadow var(--dur)}.preset-dot:hover{transform:scale(1.08)}.preset-dot.active{box-shadow:0 0 0 2px var(--surface-2),0 0 0 4px var(--foreground)}.hex-field{display:flex;align-items:center;gap:7px;flex-shrink:0}.hex-field>span{font:600 9px var(--font-mono);color:var(--muted-foreground)}.hex-field :deep(input){width:88px;height:30px;font:11px var(--font-mono);text-transform:uppercase}
 .glass-help{margin:0;color:var(--muted-foreground);font-size:12px}.slider-list .glass-toggle input{appearance:auto;width:18px;height:18px}.slider-list{display:grid;gap:22px}.slider-list label>span{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}.slider-list strong{font-size:12.5px;font-weight:500}.slider-list output{font:12px var(--font-mono);color:var(--muted-foreground)}.slider-list input{width:100%;height:5px;appearance:none;border-radius:var(--radius-pill);background:var(--hover-strong);accent-color:var(--primary)}.slider-list input::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border:3px solid var(--surface-2);border-radius:50%;background:var(--primary);box-shadow:0 0 0 1px var(--primary-border),0 2px 6px rgb(0 0 0 / 20%)}

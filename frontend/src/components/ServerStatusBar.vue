@@ -286,8 +286,8 @@ function fmtMbps(v: number): string {
             <Icon name="chevron-down" :size="10" />
           </button>
           <button v-if="selectedNet?.ip" type="button" class="statusbar-pick" :title="$t('点击复制 IP 地址')" @click="copyText(selectedNet.ip).catch(() => {})">{{ selectedNet.ip }}</button>
-          <span class="text-signal">↓{{ fmtMbps(selectedNet?.rxMbps ?? 0) }}Mb/s</span>
-          <span class="text-copper">↑{{ fmtMbps(selectedNet?.txMbps ?? 0) }}Mb/s</span>
+          <span class="text-signal statusbar-net-speed">↓{{ fmtMbps(selectedNet?.rxMbps ?? 0) }}Mb/s</span>
+          <span class="text-copper statusbar-net-speed">↑{{ fmtMbps(selectedNet?.txMbps ?? 0) }}Mb/s</span>
         </template>
         <strong v-else>—</strong>
       </div>
@@ -305,10 +305,21 @@ function fmtMbps(v: number): string {
       </Tooltip>
       <div class="flex-1"></div>
       <span v-if="snap?.error" class="text-warn truncate max-w-[14rem]" :title="snap.error">{{ snap.error }}</span>
+      <div class="statusbar-terminal-info flex items-center gap-1.5 text-[11px] font-mono text-[var(--text-secondary)] shrink-0 whitespace-nowrap">
+        <span>UTF-8</span>
+        <span class="opacity-50">·</span>
+        <span>xterm-256color</span>
+        <span class="opacity-50">·</span>
+        <span>WebGL</span>
+      </div>
     </template>
     <template v-else>
       <span v-if="settings.sysInfoCollectEnabled">{{ $t('连接服务器后显示 CPU / 内存 / 磁盘 / 网卡状态') }}</span>
       <span v-else class="text-warn">{{ $t('「登录后自动采集」已关闭：登录服务器不执行任何采集命令') }}</span>
+      <div class="flex-1"></div>
+      <div class="statusbar-terminal-info flex items-center gap-1.5 text-[11px] font-mono text-[var(--text-secondary)] shrink-0 whitespace-nowrap">
+        <span>UTF-8 · xterm-256color · WebGL</span>
+      </div>
     </template>
   </footer>
 
@@ -379,5 +390,29 @@ function fmtMbps(v: number): string {
 }
 .statusbar-pick:hover {
   background: var(--hover-strong);
+}
+
+:deep(.metric),
+.metric strong,
+.statusbar-net-speed {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+:deep(.metric strong) {
+  display: inline-block;
+  min-width: 3.2ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.statusbar-net-speed {
+  display: inline-block;
+  min-width: 8.5ch;
+  font-variant-numeric: tabular-nums;
+}
+.statusbar-terminal-info {
+  letter-spacing: 0.02em;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 </style>

@@ -647,9 +647,9 @@ onBeforeUnmount(() => {
 <template>
   <div class="tool sftp-panel" data-ui="context-panel">
     <div class="tool-head tool-head-light">
-      <div class="seg tool-tabs">
-        <button class="active">SFTP</button>
-        <button @click="sessions.showRightPanel('sysinfo')">{{ $t('运行状态') }}</button>
+      <div class="flex items-center gap-1.5 font-medium text-xs text-[var(--foreground)]">
+        <Icon name="folder" :size="13" class="text-[var(--primary)]" />
+        <span>{{ $t('SFTP 文件管理') }}</span>
       </div>
       <Button
         variant="ghost"
@@ -858,7 +858,7 @@ onBeforeUnmount(() => {
 .sftp-actions :deep(.sftp-upload-primary:hover){background:color-mix(in srgb,#6897b4 8%,var(--surface-2))}
 .sftp-actions :deep(.sftp-create-folder){color:var(--foreground-secondary);border-color:transparent;background:transparent;font-size:13px}
 .sftp-actions :deep(.sftp-create-folder:hover){background:color-mix(in srgb,#6897b4 8%,var(--surface-2));color:var(--foreground-secondary)}
-.sftp-entry-selected{background:color-mix(in srgb,#6897b4 16%,var(--surface-2))}
+.sftp-entry-selected{background:var(--arc-active-tab-gradient, var(--interactive-active-bg));border-radius:var(--radius-control, 10px);color:var(--text-primary)}
 .sftp-upload-group{position:relative}
 .sftp-upload-menu{position:absolute;left:0;top:calc(100% + 4px);z-index:45;min-width:152px}
 </style>

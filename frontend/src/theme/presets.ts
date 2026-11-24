@@ -1,7 +1,9 @@
 import {t} from '../i18n'
+import {Hct, argbFromHex, hexFromArgb} from '@material/material-color-utilities'
+import {deriveHarmonizedSecondary, normalizeSeed, rgba} from './material'
 // 预设主题库：精选配色，每套含 UI 主/辅色与深/浅两套终端色板。
 // 终端色板用于映射 ANSI 16 色，让 ls / vim / 提示符等程序输出跟随主题。
-import type {Theme} from '../types'
+import type {Theme, UIAppearance} from '../types'
 
 export interface TerminalPalette {
   background: string
@@ -25,6 +27,74 @@ export interface ThemePreset {
 }
 
 export const PRESETS: ThemePreset[] = [
+  {
+    id: 'arc-velvet',
+    get name() { return t("Arc 丝绒玫瑰") },
+    get desc() { return t("Arc · 柔粉玫瑰与流光紫") },
+    primary: '#F19BC0',
+    secondary: '#A78BFA',
+    dark: {
+      background: '#120e16', foreground: '#fafafa', cursor: '#f472b6', selection: 'rgba(241, 155, 192, 0.32)',
+      ansi: ['#09090b', '#f43f5e', '#34d399', '#fbbf24', '#818cf8', '#c084fc', '#38bdf8', '#fafafa'],
+      bright: ['#52525b', '#fb7185', '#6ee7b7', '#fde047', '#a5b4fc', '#e879f9', '#7dd3fc', '#ffffff'],
+    },
+    light: {
+      background: '#fdf7fa', foreground: '#1f131a', cursor: '#db2777', selection: 'rgba(219, 39, 119, 0.22)',
+      ansi: ['#1f131a', '#e11d48', '#059669', '#d97706', '#6366f1', '#9333ea', '#0284c7', '#f4f4f5'],
+      bright: ['#71717a', '#f43f5e', '#10b981', '#f59e0b', '#818cf8', '#c084fc', '#38bdf8', '#ffffff'],
+    },
+  },
+  {
+    id: 'arc-ocean',
+    get name() { return t("Arc 海雾苍蓝") },
+    get desc() { return t("Arc · 苍穹水蓝与冰川天青") },
+    primary: '#71B5D2',
+    secondary: '#38BDF8',
+    dark: {
+      background: '#0c1219', foreground: '#fafafa', cursor: '#38bdf8', selection: 'rgba(113, 181, 210, 0.32)',
+      ansi: ['#09090b', '#ef4444', '#22c55e', '#f59e0b', '#38bdf8', '#a855f7', '#06b6d4', '#fafafa'],
+      bright: ['#52525b', '#f87171', '#4ade80', '#fbbf24', '#7dd3fc', '#c084fc', '#22d3ee', '#ffffff'],
+    },
+    light: {
+      background: '#f4f8fb', foreground: '#0c1a24', cursor: '#0284c7', selection: 'rgba(2, 132, 199, 0.22)',
+      ansi: ['#0c1a24', '#dc2626', '#16a34a', '#d97706', '#0284c7', '#9333ea', '#0891b2', '#f4f4f5'],
+      bright: ['#71717a', '#ef4444', '#22c55e', '#f59e0b', '#38bdf8', '#a855f7', '#06b6d4', '#ffffff'],
+    },
+  },
+  {
+    id: 'arc-sage',
+    get name() { return t("Arc 赛博薄荷") },
+    get desc() { return t("Arc · 翡翠薄荷与浅叶绿") },
+    primary: '#34D399',
+    secondary: '#6EE7B7',
+    dark: {
+      background: '#0c1512', foreground: '#fafafa', cursor: '#34d399', selection: 'rgba(52, 211, 153, 0.32)',
+      ansi: ['#09090b', '#ef4444', '#34d399', '#fbbf24', '#38bdf8', '#a855f7', '#2dd4bf', '#fafafa'],
+      bright: ['#52525b', '#f87171', '#6ee7b7', '#fde047', '#7dd3fc', '#c084fc', '#5eead4', '#ffffff'],
+    },
+    light: {
+      background: '#f4faf7', foreground: '#0b1c15', cursor: '#059669', selection: 'rgba(5, 150, 105, 0.22)',
+      ansi: ['#0b1c15', '#dc2626', '#059669', '#d97706', '#2563eb', '#9333ea', '#0d9488', '#f4f4f5'],
+      bright: ['#71717a', '#ef4444', '#10b981', '#f59e0b', '#60a5fa', '#a855f7', '#2dd4bf', '#ffffff'],
+    },
+  },
+  {
+    id: 'arc-sunset',
+    get name() { return t("Arc 落日暖阳") },
+    get desc() { return t("Arc · 暮色暖橙与落日绯红") },
+    primary: '#FB923C',
+    secondary: '#F43F5E',
+    dark: {
+      background: '#150f0e', foreground: '#fafafa', cursor: '#fb923c', selection: 'rgba(251, 146, 60, 0.32)',
+      ansi: ['#09090b', '#f43f5e', '#22c55e', '#fb923c', '#60a5fa', '#e879f9', '#38bdf8', '#fafafa'],
+      bright: ['#52525b', '#fb7185', '#4ade80', '#fdba74', '#93c5fd', '#f0abfc', '#7dd3fc', '#ffffff'],
+    },
+    light: {
+      background: '#fdf8f6', foreground: '#24130c', cursor: '#ea580c', selection: 'rgba(234, 88, 12, 0.22)',
+      ansi: ['#24130c', '#e11d48', '#16a34a', '#ea580c', '#2563eb', '#9333ea', '#0284c7', '#f4f4f5'],
+      bright: ['#71717a', '#f43f5e', '#22c55e', '#f97316', '#60a5fa', '#c084fc', '#38bdf8', '#ffffff'],
+    },
+  },
   {
     id: 'sky',
     get name() { return t("天空蓝") },
@@ -279,4 +349,74 @@ export function paletteToTheme(p: TerminalPalette): Theme {
     brightCyan,
     brightWhite,
   }
+}
+
+/**
+ * 自动根据主辅色与明暗生成 Arc 级别的终端配色板（包含背景、前景色、光标、高亮选区与 ANSI 16 色）。
+ * 浅色模式生成清新通透、对比度极佳的纸质感底色；深色模式生成深邃如丝绒的暗调底色。
+ */
+export function generateArcTerminalPalette(
+  primaryHex: string,
+  secondaryHex: string,
+  tone: 'light' | 'dark',
+): TerminalPalette {
+  const seed = normalizeSeed(primaryHex)
+  const source = Hct.fromInt(argbFromHex(seed))
+  const isNeutral = source.chroma < 2.5 || source.tone <= 0.5 || source.tone >= 99.5
+  const isLight = tone === 'light'
+
+  if (isNeutral) {
+    const mono = PRESETS.find((p) => p.id === 'monochrome') ?? PRESETS[0]
+    return isLight ? mono.light : mono.dark
+  }
+
+  const bgHct = isLight
+    ? Hct.from(source.hue, Math.min(source.chroma * 0.12, 6), 97.5)
+    : Hct.from(source.hue, Math.min(source.chroma * 0.12, 5), 7)
+  const background = hexFromArgb(bgHct.toInt())
+
+  const fgHct = isLight
+    ? Hct.from(source.hue, Math.min(source.chroma * 0.15, 8), 12)
+    : Hct.from(0, 0, 98)
+  const foreground = hexFromArgb(fgHct.toInt())
+
+  const cursor = isLight
+    ? hexFromArgb(Hct.from(source.hue, Math.max(35, source.chroma), 42).toInt())
+    : hexFromArgb(Hct.from(source.hue, Math.max(35, source.chroma), 78).toInt())
+  const selection = rgba(primaryHex, isLight ? 0.22 : 0.32)
+
+  const ansi: [string, string, string, string, string, string, string, string] = isLight
+    ? [foreground, '#dc2626', '#16a34a', '#d97706', '#2563eb', '#9333ea', '#0891b2', '#f4f4f5']
+    : ['#09090b', '#ef4444', '#22c55e', '#f59e0b', '#38bdf8', '#a855f7', '#06b6d4', '#fafafa']
+
+  const bright: [string, string, string, string, string, string, string, string] = isLight
+    ? ['#71717a', '#ef4444', '#22c55e', '#f59e0b', '#3b82f6', '#a855f7', '#06b6d4', '#ffffff']
+    : ['#52525b', '#f87171', '#4ade80', '#fbbf24', '#7dd3fc', '#c084fc', '#22d3ee', '#ffffff']
+
+  return {
+    background,
+    foreground,
+    cursor,
+    selection,
+    ansi,
+    bright,
+  }
+}
+
+/**
+ * 获取当前外观设置对应的活动终端色板。预设使用精修预设色板；自定义颜色实时自动派生 Arc 级配色。
+ */
+export function resolveActiveTerminalPalette(
+  appearance: UIAppearance,
+  tone: 'light' | 'dark',
+): TerminalPalette {
+  if (appearance.mode === 'preset' && appearance.presetId) {
+    const p = presetById(appearance.presetId)
+    if (p) return tone === 'light' ? p.light : p.dark
+  }
+  const primary = normalizeSeed(appearance.primary || defaultPreset().primary)
+  const secondary = appearance.secondary && appearance.secondary !== appearance.primary
+    ? normalizeSeed(appearance.secondary)
+    : deriveHarmonizedSecondary(primary)
+  return generateArcTerminalPalette(primary, secondary, tone)
 }

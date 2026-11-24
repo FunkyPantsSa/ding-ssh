@@ -578,7 +578,7 @@ describe('material planning', () => {
     expect(soft.alpha.sidebarPrimary).toBeLessThan(1)
     expect(soft.alpha.workspace).toBeLessThan(soft.alpha.surface)
     expect(soft.alpha.field).toBeGreaterThan(soft.alpha.surface)
-    expect(soft.shellBlurPx).toBe(0)
+    expect(soft.shellBlurPx).toBe(24)
     expect(soft.overlayBlurPx).toBe(24)
     expect(clear.alpha.workspace).toBeLessThan(soft.alpha.workspace)
     expect(clear.alpha.surface).toBeLessThan(soft.alpha.surface)

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import {t} from '../i18n'
 
-import {onMounted} from 'vue'
+import {onMounted, ref, watch, nextTick} from 'vue'
 import {storeToRefs} from 'pinia'
 import {useUIStore, type SettingsSection} from '../stores/ui'
 import SettingsNavigation from './settings/SettingsNavigation.vue'
@@ -19,6 +19,7 @@ import SettingsAboutSection from './settings/SettingsAboutSection.vue'
 import {useSettingsStore} from '../stores/settings'
 
 const settings = useSettingsStore()
+const contentRef = ref<HTMLElement | null>(null)
 
 // 一级菜单：通用 / 快捷键 / 连接说明 / 外观 / 凭证 / 安全 / 调试 / 日志 / AI 记录 / 导入导出 / 关于
 const menuItems = [
@@ -36,6 +37,14 @@ const menuItems = [
 ] as const
 const {settingsSection: section, view} = storeToRefs(useUIStore())
 
+watch(section, () => {
+  nextTick(() => {
+    if (contentRef.value) {
+      contentRef.value.scrollTop = 0
+    }
+  })
+})
+
 onMounted(() => {
   if (!settings.loaded) void settings.load()
 })
@@ -46,7 +55,7 @@ onMounted(() => {
     <div class="settings-workspace flex flex-1 min-w-0 min-h-0">
       <SettingsNavigation :items="menuItems" :model-value="section" @update:model-value="section = $event as SettingsSection" />
 
-      <div class="settings-content flex-1 min-w-0 overflow-y-auto px-6 py-6" :data-ui="`settings-section-${section}`" :data-section="section">
+      <div ref="contentRef" class="settings-content flex-1 min-w-0 overflow-y-auto px-6 py-6" :data-ui="`settings-section-${section}`" :data-section="section">
         <SettingsGeneralSection v-if="section === 'general'" />
         <HotkeysSection v-else-if="section === 'hotkeys'" />
         <div v-else-if="section === 'connectionInfo'" class="max-w-3xl fade-rise">
@@ -70,6 +79,8 @@ onMounted(() => {
 .settings-workspace{overflow:hidden;border-radius:var(--radius-layout);background:transparent}
 .settings-content{border-radius:var(--radius-layout);background:transparent}
 :deep(.set-nav){background:var(--sidebar-secondary-bg)}
+:root[data-glass="on"] :deep(.set-nav),
+html[data-glass="on"] :deep(.set-nav){background:transparent}
 :deep([data-section-content] > .neo){border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:none;background:var(--surface-bg)}
 :deep([data-section-content] > :not(:first-child)){margin-top:var(--space-4)}
 @media(max-width:760px){.settings-content{padding:var(--space-4)}.settings-shell :deep(.set-nav){width:156px;padding:var(--space-2)}}

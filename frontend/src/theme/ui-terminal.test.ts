@@ -50,9 +50,9 @@ describe('UI and terminal independence', () => {
     expect(parseFloat(a['--glass-opacity']!)).toBeLessThan(100)
     expect(a['--glass-overlay-blur']).toBe('0px')
     expect(b['--glass-overlay-blur']).toBe('45px')
-    // The shell itself never gets a simulated desktop blur.
+    // The shell blur matches the blur setting.
     expect(a['--glass-shell-blur']).toBe('0px')
-    expect(b['--glass-shell-blur']).toBe('0px')
+    expect(b['--glass-shell-blur']).toBe('45px')
     expect(a['--terminal-bg']).toMatch(/^#[0-9a-f]{6}$/)
   })
 

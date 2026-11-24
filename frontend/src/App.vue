@@ -183,6 +183,7 @@ onMounted(() => {
     }),
   ]
 })
+
 onBeforeUnmount(() => {
   appEventDisposers.forEach(d => d())
   appEventDisposers = []
@@ -549,6 +550,17 @@ async function doUnlock() {
   }
 }
 
+function handleTogglePanel(panel: 'sftp' | 'sysinfo' | 'transfers') {
+  if (!sessions.sftpVisible) {
+    sessions.sftpVisible = true
+    sessions.rightPanel = panel
+  } else if (sessions.rightPanel === panel) {
+    sessions.sftpVisible = false
+  } else {
+    sessions.rightPanel = panel
+  }
+}
+
 onBeforeUnmount(() => {
   window.matchMedia?.('(prefers-color-scheme: light)').removeEventListener?.('change', onSchemeChange)
 })
@@ -558,7 +570,16 @@ onBeforeUnmount(() => {
   <UpdatePanel />
   <div class="app-shell" :class="{'smooth-animations': settings.smoothAnimations, 'platform-macos': isMacOS, 'platform-windows': isWindows}" :style="{zoom: (settings.uiScale || 100) / 100}" data-ui="app" :data-view="ui.view">
     <div v-if="isMacOS || isWindows" class="window-drag-region" @dblclick="WindowToggleMaximise">
-      <div v-if="isWindows" class="window-controls"><button :aria-label="$t('最小化')" @dblclick.stop @click="WindowMinimise">−</button><button :aria-label="$t('最大化或还原')" @dblclick.stop @click="WindowToggleMaximise">□</button><button :aria-label="$t('关闭窗口')" @dblclick.stop @click="WindowClose">×</button></div>
+      <div class="window-drag-title flex items-center gap-2">
+        <span class="text-[11px] font-mono tracking-wide opacity-50">ding-ssh · fluid glass workspace</span>
+      </div>
+      <div class="window-drag-status flex items-center gap-3">
+        <div v-if="onlineCount > 0" class="flex items-center gap-1.5 text-[11px] text-[var(--muted-foreground)]">
+          <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>已连接 {{ onlineCount }} 台节点</span>
+        </div>
+        <div v-if="isWindows" class="window-controls"><button :aria-label="$t('最小化')" @dblclick.stop @click="WindowMinimise">−</button><button :aria-label="$t('最大化或还原')" @dblclick.stop @click="WindowToggleMaximise">□</button><button :aria-label="$t('关闭窗口')" @dblclick.stop @click="WindowClose">×</button></div>
+      </div>
     </div>
 
     <!-- 独立终端窗口模式 -->
@@ -605,7 +626,22 @@ onBeforeUnmount(() => {
       </template>
 
       <template #topbar>
-        <AppTopBar :title="pageTitle" :subtitle="pageSub" :nav-collapsed="navCollapsed" :workspace="ui.view === 'workspace'" :servers="ui.view === 'servers'" :online-count="onlineCount" :context-visible="sessions.sftpVisible" @expand-nav="navCollapsed = false" @command="openCmd" @toggle-context="sessions.sftpVisible = !sessions.sftpVisible" @new-server="ui.requestNewServer" />
+        <AppTopBar
+          :title="pageTitle"
+          :subtitle="pageSub"
+          :nav-collapsed="navCollapsed"
+          :workspace="ui.view === 'workspace'"
+          :servers="ui.view === 'servers'"
+          :online-count="onlineCount"
+          :context-visible="sessions.sftpVisible"
+          :tab="sessions.activeTab"
+          :right-panel="sessions.rightPanel"
+          @expand-nav="navCollapsed = false"
+          @command="openCmd"
+          @toggle-context="handleTogglePanel('sftp')"
+          @toggle-panel="handleTogglePanel"
+          @new-server="ui.requestNewServer"
+        />
       </template>
 
       <div class="flex-1 min-h-0 flex">

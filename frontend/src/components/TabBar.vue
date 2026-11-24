@@ -29,14 +29,14 @@ interface TabDropState {
 
 const statusDot: Record<string, string> = {
   connecting: 'bg-[var(--warning)]',
-  connected: 'bg-[var(--primary-hover)]',
+  connected: 'bg-emerald-400',
   closed: 'bg-[var(--muted-foreground)]',
   error: 'bg-[var(--destructive)]',
 }
 // 侧栏折叠态：状态点改为首字母着色，颜色语义与状态点一致
 const statusInk: Record<string, string> = {
   connecting: 'text-[var(--warning)]',
-  connected: 'text-[var(--primary-hover)]',
+  connected: 'text-emerald-400',
   closed: 'text-[var(--muted-foreground)]',
   error: 'text-[var(--destructive)]',
 }
@@ -381,9 +381,9 @@ onBeforeUnmount(() => {
     <div class="flex-1" @dragover.prevent @drop.prevent="onTabBarDrop"></div>
   </div>
 
-  <!-- 左侧导航纵向标签列表 -->
+  <!-- 左侧导航纵向标签列表 (Arc 风格会话树) -->
   <div v-else class="side-tabs" data-ui="tabbar">
-    <div class="nav-label side-tabs-label">{{ $t('标签页') }} <span v-if="sessions.tabs.length" class="nav-count">{{ sessions.tabs.length }}</span>
+    <div class="nav-label side-tabs-label">{{ $t('会话 (Spaces)') }} <span v-if="sessions.tabs.length" class="nav-count">{{ sessions.tabs.length }}</span>
     </div>
     <template v-for="item in tabItems" :key="item.key">
       <button
@@ -408,12 +408,12 @@ onBeforeUnmount(() => {
         @drop.prevent="onTabDrop($event, item.tab.clientId)"
       >
         <span class="nav-ico side-dot">
-          <span class="w-2 h-2 rounded-full" :class="statusDot[item.tab.status] ?? 'bg-[var(--muted-foreground)]'"></span>
+          <span class="w-1.5 h-1.5 rounded-full" :class="statusDot[item.tab.status] ?? 'bg-[var(--muted-foreground)]'"></span>
         </span>
         <span class="side-initial" :class="statusInk[item.tab.status] ?? 'text-[var(--muted-foreground)]'">
           {{ item.tab.serverName.slice(0, 1) }}
         </span>
-        <span class="nav-text">{{ item.tab.serverName }}</span>
+        <span class="nav-text truncate">{{ item.tab.serverName }}</span>
         <span class="tab-close" :title="$t('关闭')" @click.stop="close(item.tab.clientId)">
           <Icon name="close" :size="10" />
         </span>
@@ -432,12 +432,20 @@ onBeforeUnmount(() => {
         @dragend="clearDragState"
       >
         <Icon name="columns" :size="15" extra-class="nav-ico text-signal" />
-        <span class="nav-text">{{ item.title }}</span>
+        <span class="nav-text truncate">{{ item.title }}</span>
         <span class="tab-close" :title="$t('关闭分屏组')" @click.stop="sessions.closeSplitGroup()">
           <Icon name="close" :size="10" />
         </span>
       </button>
     </template>
+    <button
+      class="side-tab-new"
+      @click="ui.showWorkspace(); ui.openTerminalSidebar()"
+      :title="$t('新建会话…')"
+    >
+      <Icon name="plus" :size="12" extra-class="opacity-60" />
+      <span class="text-[11px] opacity-75 font-medium">{{ $t('新建会话…') }}</span>
+    </button>
     <div class="side-tabs-fill" @dragover.prevent @drop.prevent="onTabBarDrop"></div>
   </div>
 

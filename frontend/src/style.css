@@ -39,11 +39,12 @@ html, body, #app {
   height: 100%;
   margin: 0;
   overflow: hidden;
+  background: transparent !important;
 }
-html { background: var(--app-bg, transparent); }
+html { background: transparent !important; }
 body {
   font-family: var(--font-sans);
-  background: transparent;
+  background: transparent !important;
   color: var(--foreground);
   font-size: 13px;
   line-height: 1.5;
@@ -67,7 +68,71 @@ img, svg { display: block; max-width: 100%; }
 :focus:not(:focus-visible) { outline: none; }
 
 /* ============================================================
-   应用外壳
+   Arc Ambient Dual-Tone Glow Backdrops
+   Default fallbacks before dynamic color engine computes values.
+   Real ambient gradients are derived dynamically in material.ts.
+   ============================================================ */
+:root {
+  --arc-ambient-bg: radial-gradient(circle at 10% 20%, var(--primary-glow, rgba(120, 210, 247, 0.22)) 0%, transparent 40%),
+                    radial-gradient(circle at 90% 80%, var(--secondary-glow, rgba(167, 139, 250, 0.18)) 0%, transparent 45%),
+                    rgba(17, 17, 22, 0.65);
+}
+html[data-tone="light"] {
+  --arc-ambient-bg: radial-gradient(circle at 10% 15%, var(--primary-glow, rgba(244, 114, 182, 0.35)) 0%, transparent 50%),
+                    radial-gradient(circle at 90% 85%, var(--secondary-glow, rgba(167, 139, 250, 0.28)) 0%, transparent 55%),
+                    rgba(255, 250, 252, 0.55);
+}
+html[data-tone="dark"][data-preset="arc-velvet"],
+html:not([data-tone="light"])[data-preset="arc-velvet"] {
+  --arc-ambient-bg: radial-gradient(circle at 10% 20%, rgba(241, 155, 192, 0.22) 0%, transparent 40%),
+                    radial-gradient(circle at 90% 80%, rgba(167, 139, 250, 0.18) 0%, transparent 45%),
+                    rgba(17, 17, 22, 0.65) !important;
+}
+html[data-tone="light"][data-preset="arc-velvet"] {
+  --arc-ambient-bg: radial-gradient(circle at 10% 15%, rgba(244, 114, 182, 0.40) 0%, transparent 50%),
+                    radial-gradient(circle at 90% 85%, rgba(167, 139, 250, 0.32) 0%, transparent 55%),
+                    radial-gradient(circle at 50% 40%, rgba(253, 164, 175, 0.20) 0%, transparent 60%),
+                    rgba(253, 242, 247, 0.55) !important;
+}
+html[data-tone="dark"][data-preset="arc-ocean"],
+html:not([data-tone="light"])[data-preset="arc-ocean"] {
+  --arc-ambient-bg: radial-gradient(circle at 10% 20%, rgba(113, 181, 210, 0.25) 0%, transparent 40%),
+                    radial-gradient(circle at 90% 80%, rgba(56, 189, 248, 0.2) 0%, transparent 45%),
+                    rgba(12, 18, 25, 0.65) !important;
+}
+html[data-tone="light"][data-preset="arc-ocean"] {
+  --arc-ambient-bg: radial-gradient(circle at 10% 15%, rgba(56, 189, 248, 0.40) 0%, transparent 50%),
+                    radial-gradient(circle at 90% 85%, rgba(129, 140, 248, 0.32) 0%, transparent 55%),
+                    radial-gradient(circle at 50% 40%, rgba(186, 230, 253, 0.25) 0%, transparent 60%),
+                    rgba(240, 248, 253, 0.55) !important;
+}
+html[data-tone="dark"][data-preset="arc-sage"],
+html:not([data-tone="light"])[data-preset="arc-sage"] {
+  --arc-ambient-bg: radial-gradient(circle at 10% 20%, rgba(52, 211, 153, 0.22) 0%, transparent 40%),
+                    radial-gradient(circle at 90% 80%, rgba(110, 231, 183, 0.16) 0%, transparent 45%),
+                    rgba(12, 21, 18, 0.65) !important;
+}
+html[data-tone="light"][data-preset="arc-sage"] {
+  --arc-ambient-bg: radial-gradient(circle at 10% 15%, rgba(52, 211, 153, 0.38) 0%, transparent 50%),
+                    radial-gradient(circle at 90% 85%, rgba(45, 212, 191, 0.30) 0%, transparent 55%),
+                    radial-gradient(circle at 50% 40%, rgba(167, 243, 208, 0.22) 0%, transparent 60%),
+                    rgba(240, 251, 246, 0.55) !important;
+}
+html[data-tone="dark"][data-preset="arc-sunset"],
+html:not([data-tone="light"])[data-preset="arc-sunset"] {
+  --arc-ambient-bg: radial-gradient(circle at 10% 20%, rgba(251, 146, 60, 0.22) 0%, transparent 40%),
+                    radial-gradient(circle at 90% 80%, rgba(244, 63, 94, 0.18) 0%, transparent 45%),
+                    rgba(21, 15, 14, 0.65) !important;
+}
+html[data-tone="light"][data-preset="arc-sunset"] {
+  --arc-ambient-bg: radial-gradient(circle at 10% 15%, rgba(251, 146, 60, 0.40) 0%, transparent 50%),
+                    radial-gradient(circle at 90% 85%, rgba(244, 63, 94, 0.32) 0%, transparent 55%),
+                    radial-gradient(circle at 50% 40%, rgba(254, 215, 170, 0.25) 0%, transparent 60%),
+                    rgba(253, 245, 240, 0.55) !important;
+}
+
+/* ============================================================
+   应用外壳 (Arc 悬浮架构)
    ============================================================ */
 .app-shell {
   position: relative;
@@ -75,49 +140,67 @@ img, svg { display: block; max-width: 100%; }
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-window);
-  /* Solid mode paints an opaque root; glass mode resolves this token to
-     transparent so the native backdrop remains visible. */
-  background: var(--app-bg, transparent);
+  background: var(--arc-ambient-bg, var(--arc-ambient-gradient, transparent));
   overflow: hidden;
 }
-.app-shell.platform-macos,.app-shell.platform-windows { padding-top: 28px; }
+.app-shell.platform-windows { padding-top: 0; }
 .window-drag-region {
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 28px;
-  background: var(--sidebar-primary-bg, var(--surface-1));
-  box-shadow: inset 0 -1px 0 var(--border-subtle);
+  height: 32px;
+  min-height: 32px;
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  background: transparent;
+  box-shadow: none;
   -webkit-app-region: drag;
   --wails-draggable: drag;
-  /* Keep native window dragging and controls accessible above modal overlays. */
   z-index: 10000;
+  flex-shrink: 0;
+  user-select: none;
 }
-/* 顶栏一条极细的品牌色高光线，替代原先的噪点 + 网格纹理 */
+.platform-macos .window-drag-region {
+  display: flex !important;
+  padding-left: 78px;
+}
+.platform-macos .nav {
+  padding-top: 0 !important;
+}
+.topbar, .nav-brand {
+  --wails-draggable: no-drag;
+  -webkit-app-region: no-drag;
+}
+.topbar button, .topbar input, .topbar .searchbtn, .topbar .chip, .nav-brand button {
+  --wails-draggable: no-drag;
+  -webkit-app-region: no-drag;
+}
 .app-shell::before {
   content: "";
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 1px;
-  background: linear-gradient(90deg, var(--primary), transparent 42%);
-  opacity: 0.5;
+  background: radial-gradient(circle at 50% 0%, var(--primary), transparent 60%);
+  opacity: 0.6;
   pointer-events: none;
   z-index: 5;
 }
 
-/* ---------- 主壳网格：导航 + 内容 ---------- */
-.shell {
-  flex: 1;
+/* ---------- 主壳网格：导航 + 悬浮工作台 ---------- */
+.app-layout, .shell {
+  height: calc(100% - 32px) !important;
   min-height: 0;
-  display: grid;
-  grid-template-columns: var(--nav-w) minmax(0, 1fr);
-  transition: grid-template-columns var(--dur-slow) var(--ease);
-  /* 宽度分隔条（WidthResizer）按 var(--nav-w) 绝对定位，需要本层做定位祖先 */
+  display: grid !important;
+  grid-template-columns: var(--nav-w) minmax(0, 1fr) !important;
+  gap: 6px !important;
+  padding: 0 6px 6px 6px !important;
   position: relative;
+  background: transparent !important;
+  transition: grid-template-columns var(--dur-slow) var(--ease);
 }
-.shell.nav-collapsed { grid-template-columns: var(--nav-w-collapsed) minmax(0, 1fr); }
-/* 拖动分隔条时关掉折叠动画：否则网格列宽会带缓动，跟手延迟明显 */
+.app-layout.layout-nav-collapsed, .shell.nav-collapsed {
+  grid-template-columns: var(--nav-w-collapsed) minmax(0, 1fr) !important;
+}
 .shell.resizing { transition: none; }
-/* 拖动侧栏宽度期间全局保持列宽光标：终端（xterm）等元素自带 cursor，会把分隔条的手型盖掉 */
 body.col-resizing,
 body.col-resizing * { cursor: col-resize !important; }
 .shell-main {
@@ -128,33 +211,51 @@ body.col-resizing * { cursor: col-resize !important; }
 }
 
 /* ============================================================
-   左侧导航
+   左侧导航岛 (Floating Nav Island)
    ============================================================ */
 .nav {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  /* Tier 1: the only large region that carries a visible ambient ramp.
-     The token includes the material alpha, so Solid / Glass share one path. */
-  background: var(--sidebar-primary-gradient, var(--sidebar-primary-bg, var(--surface-1)));
-  backdrop-filter: blur(var(--glass-shell-blur, 0px)) saturate(120%);
-  -webkit-backdrop-filter: blur(var(--glass-shell-blur, 0px)) saturate(120%);
-  border: 0;
-  border-right: 1px solid var(--border-subtle);
-  border-radius: var(--radius-layout);
-  box-shadow: none;
+  backdrop-filter: blur(var(--glass-shell-blur, 24px)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-shell-blur, 24px)) saturate(140%);
+  border-radius: 10px !important;
   overflow: hidden;
-  /* 高于快速连接面板（.qconn z 50）：面板开合滑动时从导航右边界下方划出/划入，
-     而不是盖着导航从屏幕最左边划过。其余浮层（右键菜单 80 / 弹窗 100 / 提示 200）仍在其上。 */
   z-index: 60;
 }
+html[data-tone="dark"] .nav,
+html:not([data-tone="light"]) .nav {
+  background: var(--sidebar-primary-gradient, var(--sidebar-primary-bg, rgba(22, 24, 29, 0.75)));
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(var(--glass-shell-blur, 24px)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-shell-blur, 24px)) saturate(140%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.20) !important;
+}
+html[data-tone="light"] .nav {
+  background: var(--sidebar-primary-gradient, var(--sidebar-primary-bg, rgba(255, 255, 255, 0.72)));
+  border: 1px solid rgba(0, 0, 0, 0.07) !important;
+  backdrop-filter: blur(var(--glass-shell-blur, 24px)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-shell-blur, 24px)) saturate(160%);
+  box-shadow: 0 6px 20px -4px rgba(0, 0, 0, 0.05) !important;
+}
+html[data-glass="on"][data-tone="light"] .nav {
+  background: var(--sidebar-primary-gradient, rgba(255, 255, 255, 0.65)) !important;
+  border: 1px solid rgba(0, 0, 0, 0.07) !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.05) !important;
+}
+html[data-glass="on"][data-tone="dark"] .nav,
+html[data-glass="on"]:not([data-tone="light"]) .nav {
+  background: var(--sidebar-primary-gradient, rgba(20, 20, 26, 0.65)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.30) !important;
+}
 .nav-brand {
-  height: var(--topbar-h);
+  height: 42px;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  box-shadow: inset 0 -1px 0 var(--line);
+  border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
 .nav-mark {
@@ -266,14 +367,60 @@ body.col-resizing * { cursor: col-resize !important; }
 .side-tabs {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 3px;
 }
 .side-tabs-label {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 10px 8px 4px;
 }
-.side-tabs-fill { flex: 1 1 auto; min-height: 24px; }
+.side-tabs-fill { flex: 1 1 auto; min-height: 16px; }
+.side-tab {
+  border: 1px solid transparent;
+  transition: all var(--dur-base) var(--ease);
+}
+.side-tab:hover {
+  background: var(--interactive-hover-bg);
+  color: var(--text-primary);
+}
+.side-tab.active {
+  background: var(--arc-active-tab-gradient, var(--interactive-active-bg)) !important;
+  border-color: var(--arc-active-tab-border, var(--accent-border)) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+html[data-tone="light"] .side-tab.active {
+  background: var(--arc-active-tab-gradient, var(--interactive-active-bg)) !important;
+  border-color: var(--arc-active-tab-border, var(--accent-border)) !important;
+  color: var(--text-primary) !important;
+  font-weight: 600 !important;
+  box-shadow: 0 4px 12px -2px var(--primary-glow, rgba(0, 0, 0, 0.08)), inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+html[data-tone="light"] .nav-label {
+  color: #71717a !important;
+  font-weight: 600 !important;
+}
+.side-tab-new {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  margin-top: 4px;
+  border-radius: var(--radius-control, 10px);
+  border: 1px dashed var(--glass-border-strong);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: all var(--dur-base) var(--ease);
+}
+.side-tab-new:hover {
+  background: var(--interactive-hover-bg);
+  border-color: var(--arc-active-tab-border, var(--accent-border));
+  color: var(--text-primary);
+}
 .side-tab .side-dot {
   width: 15px;
   height: 15px;
@@ -284,35 +431,41 @@ body.col-resizing * { cursor: col-resize !important; }
 .side-initial { display: none; }
 .side-tab .tab-close {
   width: 16px; height: 16px;
-  border-radius: 3px;
+  border-radius: 4px;
   display: grid; place-items: center;
   opacity: 0;
   color: var(--muted-foreground);
-  transition: opacity var(--dur), background var(--dur), color var(--dur);
+  transition: all var(--dur) var(--ease);
 }
 .side-tab:hover .tab-close,
 .side-tab.active .tab-close { opacity: 1; }
-.side-tab .tab-close:hover { background: var(--hover-strong); color: var(--foreground); }
+.side-tab .tab-close:hover { background: rgba(255, 255, 255, 0.15); color: var(--foreground); }
 .side-tab.dragging { opacity: 0.5; }
 .side-tab.drop-before { box-shadow: inset 0 2px 0 var(--primary-hover); }
 .side-tab.drop-after { box-shadow: inset 0 -2px 0 var(--primary-hover); }
 .nav-collapsed .side-tab .side-dot,
-.nav-collapsed .side-tab .tab-close { display: none; }
+.nav-collapsed .side-tab .tab-close,
+.nav-collapsed .side-tab-new { display: none; }
 .nav-collapsed .side-initial { display: block; font-size: 12px; font-weight: 600; }
 
 /* ============================================================
    顶栏
    ============================================================ */
 .topbar {
-  height: var(--topbar-h);
+  height: 38px !important;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 12px 0 14px;
-  border-radius: var(--radius-layout);
-  background: var(--toolbar-bg, var(--surface-1));
-  box-shadow: inset 0 -1px 0 var(--border-subtle);
+  border-radius: 0 !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+  box-shadow: none !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
   flex-shrink: 0;
+}
+html[data-tone="light"] .topbar {
+  background: rgba(0, 0, 0, 0.02) !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
 }
 .topbar h1 {
   font-size: 13.5px;
@@ -339,22 +492,65 @@ body.col-resizing * { cursor: col-resize !important; }
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 30px;
+  height: 28px;
   width: 100%;
   padding: 0 8px 0 10px;
-  border-radius: var(--radius-sm);
-  background: var(--field-bg);
-  box-shadow: inset 0 0 0 1px var(--field-border);
+  border-radius: var(--radius-control, 10px);
+  background: var(--interactive-hover-bg);
+  border: var(--glass-border-subtle);
   color: var(--muted-foreground);
-  font-size: 12.5px;
-  transition: background var(--dur), box-shadow var(--dur), color var(--dur);
+  font-size: 12px;
+  transition: all var(--dur-base) var(--ease);
 }
 .searchbtn:hover {
   color: var(--foreground);
-  background: var(--hover);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
+  background: var(--interactive-active-bg);
+  border-color: var(--glass-border);
 }
 .searchbtn .grow { flex: 1; text-align: left; }
+
+.topbar-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: var(--radius-control, 8px);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--interactive-hover-bg, rgba(255, 255, 255, 0.04));
+  border: var(--glass-border-subtle);
+  transition: all var(--dur-base) var(--ease);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.topbar-chip-btn:hover {
+  background: var(--interactive-active-bg, rgba(255, 255, 255, 0.08));
+  color: var(--text-primary);
+  border-color: var(--glass-border);
+}
+.topbar-chip-btn.active {
+  background: var(--arc-active-tab-gradient, var(--interactive-active-bg));
+  border-color: var(--arc-active-tab-border, var(--accent-border));
+  color: var(--text-primary);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
+}
+html[data-tone="light"] .topbar-chip-btn {
+  background: rgba(0, 0, 0, 0.035);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: var(--text-secondary);
+}
+html[data-tone="light"] .topbar-chip-btn:hover {
+  background: rgba(0, 0, 0, 0.065);
+  color: var(--text-primary);
+}
+html[data-tone="light"] .topbar-chip-btn.active {
+  background: var(--arc-active-tab-gradient, var(--interactive-active-bg));
+  border-color: var(--arc-active-tab-border, var(--accent-border));
+  color: var(--text-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
 
 /* ============================================================
    页面骨架
@@ -561,13 +757,13 @@ body.col-resizing * { cursor: col-resize !important; }
   align-items: center;
   gap: 6px;
   height: 24px;
-  padding: 0 9px;
-  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  border-radius: var(--radius-pill, 9999px);
   font-size: 11.5px;
   font-weight: 500;
   color: var(--foreground-secondary);
-  background: var(--field-bg);
-  box-shadow: inset 0 0 0 1px var(--line);
+  background: var(--interactive-hover-bg);
+  border: var(--glass-border-subtle);
   white-space: nowrap;
 }
 .chip .dot {
@@ -736,10 +932,10 @@ body.col-resizing * { cursor: col-resize !important; }
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
+  border: var(--glass-border-subtle);
+  border-radius: var(--radius-card, 14px);
   background: var(--sidebar-secondary-bg);
-  box-shadow: 0 14px 36px rgb(0 0 0 / 6%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 6%);
 }
 .side-group-item {
   display: flex;
@@ -747,16 +943,16 @@ body.col-resizing * { cursor: col-resize !important; }
   gap: 8px;
   height: 30px;
   padding: 0 8px;
-  border-radius: var(--radius-sm);
-  font-size: 12.5px;
+  border-radius: var(--radius-control, 10px);
+  font-size: 12px;
   color: var(--foreground-secondary);
-  transition: color var(--dur), background var(--dur);
+  transition: all var(--dur-base) var(--ease);
 }
 .side-group-item:hover { background: var(--interactive-hover-bg); color: var(--text-primary); }
 .side-group-item.active {
   color: var(--text-primary);
-  background: var(--interactive-active-bg);
-  box-shadow: inset 0 0 0 1px var(--accent-border);
+  background: var(--arc-active-tab-gradient, var(--interactive-active-bg));
+  box-shadow: inset 0 0 0 1px var(--arc-active-tab-border, var(--accent-border));
 }
 .side-group-item.active .count { color: var(--accent-bg); }
 .side-group-item .count {
@@ -765,7 +961,7 @@ body.col-resizing * { cursor: col-resize !important; }
   height: 17px;
   display: grid;
   place-items: center;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-small, 6px);
   font-size: 10.5px;
   font-family: var(--font-mono);
   color: var(--muted-foreground);
@@ -773,10 +969,10 @@ body.col-resizing * { cursor: col-resize !important; }
 }
 .server-list-panel {
   container: server-list / inline-size;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
+  border: var(--glass-border-subtle);
+  border-radius: var(--radius-card, 14px);
   background: var(--surface-bg);
-  box-shadow: 0 14px 36px rgb(0 0 0 / 6%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 6%);
 }
 /* 列表行：密集、发丝分隔 */
 .server-row {
@@ -786,23 +982,18 @@ body.col-resizing * { cursor: col-resize !important; }
   gap: 12px;
   min-height: 48px;
   padding: 6px 12px;
+  margin: 2px 4px;
+  border-radius: var(--radius-control, 10px);
   cursor: pointer;
-  transition: background var(--dur);
+  transition: all var(--dur-base) var(--ease);
 }
 /* 展开配置浮层的行要盖住后面的行，浮层才能完整覆盖相邻行。 */
 .server-row:has(.pinned) { z-index: 2; }
-/* Edge rows share the panel's inner radius, including their active inset border. */
-.server-list-panel > .server-row:first-child {
-  border-start-start-radius: max(0px, calc(var(--radius-card) - 1px));
-  border-start-end-radius: max(0px, calc(var(--radius-card) - 1px));
-}
-.server-list-panel > .server-row:last-child {
-  border-end-start-radius: max(0px, calc(var(--radius-card) - 1px));
-  border-end-end-radius: max(0px, calc(var(--radius-card) - 1px));
-}
-.server-row + .server-row { box-shadow: inset 0 1px 0 var(--line); }
 .server-row:hover { background: var(--interactive-hover-bg); }
-.server-row.active { background: var(--interactive-active-bg); box-shadow: inset 0 0 0 1px var(--accent-border); }
+.server-row.active {
+  background: var(--arc-active-tab-gradient, var(--interactive-active-bg));
+  box-shadow: inset 0 0 0 1px var(--arc-active-tab-border, var(--accent-border));
+}
 .server-row .latency {
   display: inline-flex;
   align-items: center;
@@ -863,30 +1054,44 @@ body.col-resizing * { cursor: col-resize !important; }
   box-shadow: inset 0 -1px 0 var(--line);
   flex-shrink: 0;
 }
-.tab {
-  position: relative;
+.tabs {
+  height: 100%;
   display: flex;
   align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 4px;
+}
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-  height: 100%;
+  height: 28px;
   padding: 0 10px;
-  font-size: 12.5px;
+  border-radius: var(--radius-control, 10px);
+  font-size: 12px;
   color: var(--muted-foreground);
   white-space: nowrap;
   max-width: 190px;
   user-select: none;
   cursor: grab;
-  transition: color var(--dur), background var(--dur);
+  transition: all var(--dur-base) var(--ease);
+  border: var(--glass-border-subtle);
+  background: rgba(255, 255, 255, 0.03);
 }
-.tab:hover { color: var(--foreground); background: var(--hover); }
-.tab.active { color: var(--foreground); }
-.tab.active::after {
-  content: "";
-  position: absolute;
-  left: 6px; right: 6px; bottom: 0;
-  height: 2px;
-  background: var(--primary-hover);
+.tab:hover {
+  color: var(--foreground);
+  background: var(--interactive-hover-bg);
+  border-color: var(--glass-border);
 }
+.tab.active {
+  color: var(--foreground);
+  background: var(--arc-active-tab-gradient, var(--interactive-active-bg));
+  box-shadow: inset 0 0 0 1px var(--arc-active-tab-border, var(--accent-border)), 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.tab.active::after { display: none; }
 .tab.dragging { opacity: 0.5; }
 .tab.drop-before { box-shadow: inset 2px 0 0 var(--primary-hover); }
 .tab.drop-after { box-shadow: inset -2px 0 0 var(--primary-hover); }
@@ -894,19 +1099,29 @@ body.col-resizing * { cursor: col-resize !important; }
 .tab.split-tab { max-width: 230px; }
 .tab .tab-close {
   width: 16px; height: 16px;
-  border-radius: 3px;
+  border-radius: 4px;
   display: grid; place-items: center;
   opacity: 0;
   color: var(--muted-foreground);
-  transition: opacity var(--dur), background var(--dur), color var(--dur);
+  transition: all var(--dur-base) var(--ease);
 }
 .tab:hover .tab-close { opacity: 1; }
 .tab.active .tab-close { opacity: 1; }
-.tab .tab-close:hover { background: var(--hover-strong); color: var(--foreground); }
+.tab .tab-close:hover { background: rgba(255, 255, 255, 0.15); color: var(--foreground); }
 
 /* ============================================================
    右侧工具面板
    ============================================================ */
+@keyframes drawerSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
 .tool {
   width: var(--tool-w);
   display: flex;
@@ -920,6 +1135,7 @@ body.col-resizing * { cursor: col-resize !important; }
   /* 宽度可拖动（最窄 260px）：兜底裁剪，避免内部不换行的工具条把内容溢出到终端上。
      面板内的右键菜单是 Teleport 到 body 的，不受这里裁剪影响。 */
   overflow: hidden;
+  animation: drawerSlideIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .tool-head {
   height: 40px;
@@ -943,13 +1159,15 @@ body.col-resizing * { cursor: col-resize !important; }
   border-radius: var(--radius-layout);
   font-family: var(--font-mono);
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
   color: var(--text-muted);
   background: var(--toolbar-bg, var(--surface-1));
   box-shadow: inset 0 1px 0 var(--border-subtle);
   flex-shrink: 0;
 }
-.metric { display: flex; align-items: center; gap: 6px; }
-.metric strong { color: var(--foreground); font-weight: 500; }
+.metric { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+.metric strong { color: var(--foreground); font-weight: 500; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; min-width: 3.2ch; text-align: right; }
 .metric .bar {
   width: 40px; height: 3px;
   border-radius: 2px;
@@ -1251,12 +1469,12 @@ body.col-resizing * { cursor: col-resize !important; }
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-  background: var(--surface-overlay-bg);
-  box-shadow: var(--shadow-side-panel), inset 0 1px rgb(255 255 255 / 5%);
-  backdrop-filter: blur(var(--glass-overlay-blur, 0px));
-  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 0px));
+  border-radius: var(--radius-card, 16px);
+  border: var(--glass-border);
+  background: rgba(22, 22, 28, 0.85);
+  backdrop-filter: blur(var(--glass-overlay-blur, 28px)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 28px)) saturate(160%);
+  box-shadow: var(--shadow-floating);
   /* 面板内部重绘不外溢：开合位移时模糊阴影与列表内容不会牵连整屏 */
   contain: paint;
   overflow: hidden;
@@ -1267,14 +1485,21 @@ body.col-resizing * { cursor: col-resize !important; }
   align-items: center;
   gap: 8px;
   min-height: 44px;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  border-radius: var(--radius-control, 10px);
   cursor: pointer;
   text-align: left;
-  transition: background var(--dur);
+  transition: all var(--dur) var(--ease);
+  border: 1px solid transparent;
 }
-.qconn-item:hover { background: var(--interactive-hover-bg); }
-.qconn-item.active { background: var(--interactive-active-bg); box-shadow: inset 0 0 0 1px var(--accent-border); }
+.qconn-item:hover {
+  background: var(--interactive-hover-bg, rgba(255, 255, 255, 0.08));
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.qconn-item.active {
+  background: var(--arc-active-tab-gradient, var(--interactive-active-bg));
+  box-shadow: inset 0 0 0 1px var(--arc-active-tab-border, var(--accent-border));
+}
 
 /* ============================================================
    终端
@@ -1331,16 +1556,20 @@ body.col-resizing * { cursor: col-resize !important; }
 .brand-name { font-size: 16px; font-weight: 600; letter-spacing: -0.02em; color: var(--foreground); }
 .brand-name span { color: var(--primary-hover); }
 
-/* ---------- 滚动条 ---------- */
-::-webkit-scrollbar { width: 8px; height: 8px; }
+/* ---------- 滚动条 (Arc 微质感极简滚动条) ---------- */
+::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-thumb {
-  background: var(--line-strong);
-  border-radius: 4px;
-  border: 2px solid transparent;
-  background-clip: content-box;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 9999px;
 }
-::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
 ::-webkit-scrollbar-track { background: transparent; }
+html[data-tone="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.16);
+}
+html[data-tone="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
 
@@ -1402,7 +1631,7 @@ body.col-resizing * { cursor: col-resize !important; }
       near-opaque.
    5. Fallback: unsupported platforms receive solid tokens automatically.
    ============================================================ */
-.topbar,.status-bar{background:var(--toolbar-bg)}
+.topbar,.status-bar{background:transparent}
 /* Tier 2: one wide, low-strength diagonal ramp for the whole workspace.
    Cards, fields, dialogs and the terminal sit on their own solid tokens. */
 .app-layout-main{background:var(--workspace-gradient,var(--workspace-bg))}
@@ -1411,11 +1640,89 @@ body.col-resizing * { cursor: col-resize !important; }
 .server-list-panel{background:var(--surface-bg)}
 .panel,.neo,.neo-flat{background:var(--surface-bg)}
 
-/* Shell regions rely on the native backdrop + their own tint. Applying another
-   compositor blur here would blur the already-blurred desktop twice. */
-.nav,.topbar,.status-bar,.app-layout-main,.server-sidebar,.server-list-panel,.tool,.home-panel{
-  backdrop-filter:none;
-  -webkit-backdrop-filter:none;
+html[data-glass="on"] .app-layout-main{background:transparent}
+html[data-glass="on"] .app-layout-main:has(.workspace-home){background:transparent}
+
+html[data-glass="on"] :is(.nav, .app-layout-content){
+  backdrop-filter: blur(var(--glass-shell-blur, 24px)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-shell-blur, 24px)) saturate(160%);
+}
+html[data-glass="on"] :is(.home-panel, .server-sidebar, .server-list-panel, .tool, .set-nav, .neo, .set-block, .page-card, .theme-editor, .theme-preview){
+  background: rgba(255, 255, 255, 0.055);
+  backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
+  border: var(--glass-border-subtle);
+  border-radius: var(--radius-card, 14px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+html[data-tone="light"][data-glass="on"] :is(.home-panel, .server-sidebar, .server-list-panel, .tool, .set-nav, .neo, .set-block, .page-card, .theme-editor, .theme-preview){
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+}
+.app-layout-content {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 10px !important;
+  position: relative;
+}
+html[data-tone="dark"] .app-layout-content,
+html:not([data-tone="light"]) .app-layout-content {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 10px !important;
+  background: var(--surface-bg, rgba(18, 18, 22, 0.72));
+  backdrop-filter: blur(var(--glass-shell-blur, 16px)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-shell-blur, 16px)) saturate(140%);
+  box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.35) !important;
+}
+html[data-tone="light"] .app-layout-content {
+  background: var(--surface-bg, rgba(255, 255, 255, 0.72));
+  border: 1px solid rgba(0, 0, 0, 0.07) !important;
+  border-radius: 10px !important;
+  backdrop-filter: blur(var(--glass-shell-blur, 20px)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--glass-shell-blur, 20px)) saturate(150%);
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.06), 0 2px 8px -2px rgba(0, 0, 0, 0.04) !important;
+}
+html[data-glass="on"][data-tone="dark"] .app-layout-content,
+html[data-glass="on"]:not([data-tone="light"]) .app-layout-content {
+  background: var(--surface-bg, rgba(18, 18, 22, 0.65));
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.35) !important;
+}
+html[data-glass="on"][data-tone="light"] .app-layout-content {
+  background: var(--surface-bg, rgba(255, 255, 255, 0.65));
+  border: 1px solid rgba(0, 0, 0, 0.07) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.06), 0 2px 8px -2px rgba(0, 0, 0, 0.04) !important;
+}
+.status-bar {
+  height: 26px !important;
+  border-radius: 0 !important;
+}
+html[data-tone="dark"] .status-bar,
+html:not([data-tone="light"]) .status-bar {
+  background: rgba(0, 0, 0, 0.20) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+html[data-tone="light"] .status-bar {
+  background: rgba(0, 0, 0, 0.03) !important;
+  border-top: 1px solid rgba(0, 0, 0, 0.06) !important;
+}
+.terminal-bg {
+  background: transparent !important;
+  padding: 4px;
+}
+.terminal-slot {
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .window-controls{position:absolute;right:0;top:0;bottom:0;width:max-content;display:flex;justify-content:flex-end;height:100%;margin-left:auto;--wails-draggable:no-drag}
@@ -1430,11 +1737,17 @@ body.col-resizing * { cursor: col-resize !important; }
 /* Floating surfaces may blur app content behind them (never the desktop).
    Their own tint token is near-opaque so text stays readable over any page. */
 :root body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover){
-  background:var(--surface-overlay-bg);
-  backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);
-  -webkit-backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);
-  border-color:var(--border-strong);
-  box-shadow:var(--shadow-pop);
+  background: rgba(22, 22, 28, 0.85);
+  backdrop-filter: blur(var(--glass-overlay-blur, 28px)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 28px)) saturate(160%);
+  border: var(--glass-border);
+  border-radius: var(--radius-card, 16px);
+  box-shadow: var(--shadow-floating);
+}
+html[data-tone="light"] body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover){
+  background: rgba(255, 255, 255, 0.90);
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.12);
 }
 /* Config popover: same overlay material as menus, but a softer edge, deeper lift and
    a faint vertical sheen so the card reads as a deliberate floating surface. */

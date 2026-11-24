@@ -2,12 +2,12 @@ import {t} from '../i18n'
 import {computed, reactive, watch, type Ref} from 'vue'
 import {sshService} from '../services/ssh'
 import {defaultAppearance, defaultFonts, defaultTheme, useSettingsStore} from '../stores/settings'
-import {defaultPreset, paletteToTheme, presetById, PRESETS} from '../theme/presets'
+import {defaultPreset, paletteToTheme, presetById, resolveActiveTerminalPalette, generateArcTerminalPalette, PRESETS} from '../theme/presets'
 import {normalizeSeed} from '../theme/engine'
 import {systemTone} from './useSystemTone'
 import {TERMINAL_FONT_SCHEMES} from '../theme/terminal-fonts'
 import type {Fonts, MaterialMode, Theme, UIAppearance} from '../types'
-import {clamp} from '../theme/material'
+import {clamp, deriveHarmonizedSecondary} from '../theme/material'
 
 export const UI_FONT_OPTIONS = ['Geist Sans', 'system'] as const
 export const TERMINAL_FONT_OPTIONS = [...TERMINAL_FONT_SCHEMES.map(scheme => scheme.value), 'Geist Mono', 'JetBrains Mono', 'Fira Code', 'system'] as const
@@ -52,18 +52,35 @@ export function useSettingsAppearance(settings: ReturnType<typeof useSettingsSto
     const preset = presetById(id) ?? defaultPreset()
     appearanceForm.primary = preset.primary
     appearanceForm.secondary = preset.secondary
+    if (appearanceForm.terminalBackgroundMode === 'follow') {
+      const resolved = currentTone.value === 'light' ? 'light' : 'dark'
+      Object.assign(themeForm, paletteToTheme(resolved === 'light' ? preset.light : preset.dark))
+    }
     syncing = false; await persistLook()
   }
   async function setTone(tone: UIAppearance['baseTone']) {
-    syncing = true; appearanceForm.baseTone = tone
-    syncing = false; await persistLook()
+    syncing = true
+    appearanceForm.baseTone = tone
+    const resolved = tone === 'auto' ? systemTone.value : tone
+    if (appearanceForm.terminalBackgroundMode === 'follow') {
+      const pal = resolveActiveTerminalPalette(appearanceForm, resolved)
+      Object.assign(themeForm, paletteToTheme(pal))
+    }
+    syncing = false
+    await persistLook()
   }
   async function setSeedColor(color: string) {
     syncing = true
     const seed = normalizeSeed(color)
     appearanceForm.mode = 'custom'
+    appearanceForm.presetId = 'custom'
     appearanceForm.primary = seed
-    appearanceForm.secondary = seed
+    appearanceForm.secondary = deriveHarmonizedSecondary(seed)
+    if (appearanceForm.terminalBackgroundMode === 'follow') {
+      const resolved = currentTone.value === 'light' ? 'light' : 'dark'
+      const pal = generateArcTerminalPalette(seed, appearanceForm.secondary, resolved)
+      Object.assign(themeForm, paletteToTheme(pal))
+    }
     syncing = false
     await persistLook()
   }

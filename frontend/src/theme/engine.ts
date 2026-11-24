@@ -15,6 +15,7 @@ import {
   composite,
   contrastRatio,
   deriveColorRoles,
+  deriveHarmonizedSecondary,
   detectCapabilities,
   detectPlatform,
   hexToRgb,
@@ -39,7 +40,7 @@ import {defaultPreset, presetById} from './presets'
 import {terminalFontFamilies} from './terminal-fonts'
 
 export type Tone = ThemeTone
-export {clamp, composite, contrastRatio, detectCapabilities, detectPlatform, hexToRgb, normalizeSeed, relativeLuminance, rgba}
+export {clamp, composite, contrastRatio, deriveHarmonizedSecondary, detectCapabilities, detectPlatform, hexToRgb, normalizeSeed, relativeLuminance, rgba}
 export type {ColorRoles, MaterialMode, MaterialPlan, ThemeCapabilities, ThemeMeta, ThemePlatform}
 export {MANAGED_ROOT_VARS}
 
@@ -215,10 +216,11 @@ export function effectiveBrand(appearance: UIAppearance): {primary: string; seco
     const preset = presetById(appearance.presetId) ?? defaultPreset()
     return {primary: preset.primary, secondary: preset.secondary}
   }
-  return {
-    primary: normalizeSeed(appearance.primary || defaultPreset().primary),
-    secondary: normalizeSeed(appearance.secondary || appearance.primary || defaultPreset().primary),
-  }
+  const primary = normalizeSeed(appearance.primary || defaultPreset().primary)
+  const secondary = appearance.secondary && appearance.secondary !== appearance.primary
+    ? normalizeSeed(appearance.secondary)
+    : deriveHarmonizedSecondary(primary)
+  return {primary, secondary}
 }
 
 // ---- Tone resolution -------------------------------------------------------
@@ -318,6 +320,7 @@ export function computeTheme(
     fallback: plan.fallback,
     nativeBackdrop: plan.nativeBackdrop,
     platform: plan.platform,
+    presetId: appearance.presetId,
   }
   return {vars, meta, roles, plan}
 }
@@ -357,6 +360,12 @@ export function applyRootTheme(tone: Tone, vars: Record<string, string>, meta?: 
   root.setAttribute('data-material-fallback', meta?.fallback ?? 'none')
   root.setAttribute('data-native-backdrop', meta?.nativeBackdrop ? 'on' : 'off')
   root.setAttribute('data-theme-platform', meta?.platform ?? detectPlatform())
+  // Arc Space preset: drives the ambient colour-glow CSS rules
+  if (meta?.presetId) {
+    root.setAttribute('data-preset', meta.presetId)
+  } else {
+    root.removeAttribute('data-preset')
+  }
   root.style.colorScheme = tone
   for (const key of [...MANAGED_ROOT_VARS, ...EXTRA_MANAGED_VARS]) {
     root.style.removeProperty(key)
@@ -377,6 +386,7 @@ export function clearRootTheme(): void {
     'data-material-fallback',
     'data-native-backdrop',
     'data-theme-platform',
+    'data-preset',
   ]) {
     root.removeAttribute(attr)
   }

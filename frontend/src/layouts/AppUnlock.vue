@@ -21,7 +21,7 @@ const emit = defineEmits<{submit: []}>()
           </div>
           <div>
             <div class="brand-name">ding<span>-ssh</span></div>
-            <div class="text-[10.5px] tracking-[0.16em] uppercase text-mist mt-1">Grid Desk</div>
+            <div class="text-[10.5px] tracking-[0.16em] uppercase text-mist mt-1">fluid glass workspace</div>
           </div>
         </div>
         <h1 class="text-[30px] font-semibold tracking-[-0.03em] leading-[1.15] text-[var(--foreground)]">{{ $t('解锁工作台') }}</h1>

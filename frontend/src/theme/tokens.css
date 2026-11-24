@@ -44,6 +44,7 @@
 
   /* Radius roles: use by visual hierarchy, not by component size. */
   --radius-window: 12px;
+  --radius-canvas: 18px;
   --radius-layout: 0px;
   --radius-card: 16px;
   --radius-nav-active: 10px;
@@ -56,6 +57,14 @@
   --radius-md: var(--radius-control);
   --radius-lg: var(--radius-window);
   --radius-xl: var(--radius-card);
+
+  /* Glassmorphism & Depth tokens */
+  --glass-blur-sm: 12px;
+  --glass-blur-md: 24px;
+  --glass-blur-lg: 32px;
+  --glass-saturate: 160%;
+  --shadow-canvas: 0 16px 40px -8px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --shadow-floating: 0 20px 48px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
 
   /* Type scale. */
   --text-2xs: 11px;
@@ -85,9 +94,9 @@
   --nav-w-expanded: 216px;
   --nav-w-collapsed: 56px;
   --nav-w: var(--nav-w-expanded);
-  --topbar-h: 48px;
-  --tab-h: 38px;
-  --status-h: 30px;
+  --topbar-h: 38px;
+  --tab-h: 36px;
+  --status-h: 28px;
   --qconn-w: 288px;
   --tool-w: 340px;
   --ui-zoom: 1;

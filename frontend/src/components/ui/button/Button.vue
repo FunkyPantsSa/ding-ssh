@@ -29,7 +29,9 @@ const classes = computed(() => cn('ui-button', `ui-button-${props.variant}`, `ui
 .ui-button-secondary{background:var(--surface-2);color:var(--foreground)}
 .ui-button-ghost{background:transparent;color:var(--foreground-secondary);border-color:transparent}
 .ui-button-danger{background:var(--destructive);color:var(--destructive-foreground);border-color:transparent}
-.ui-button-ghost:hover:not(:disabled),.ui-button-secondary:hover:not(:disabled){background:var(--button-ghost-hover)}
+.ui-button-ghost:hover:not(:disabled){background:var(--button-ghost-hover);border-color:transparent;outline:none}
+.ui-button-secondary:hover:not(:disabled){background:var(--button-ghost-hover)}
+.ui-button:focus:not(:focus-visible){outline:none}
 .ui-button-icon{width:32px;padding:0}
 .ui-button-sm{height:28px;font-size:var(--text-xs)}
 .ui-button-spinner{flex-shrink:0;width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:ui-button-spin .7s linear infinite}

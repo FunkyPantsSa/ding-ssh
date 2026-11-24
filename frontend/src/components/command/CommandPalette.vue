@@ -129,5 +129,110 @@ watch(open, async (value) => {
 </template>
 
 <style scoped>
-.command-palette{width:min(600px,100%);padding:0;overflow:hidden}.command-search{height:48px;display:flex;align-items:center;gap:10px;padding:0 12px;box-shadow:inset 0 -1px 0 var(--border)}.command-search input{flex:1;min-width:0;height:100%;border:0;background:transparent;outline:0}.command-list{max-height:420px;overflow:auto;padding:6px}.command-group+.command-group{margin-top:5px}.command-group header{height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;color:var(--muted-foreground);font-size:var(--text-2xs);font-weight:600;letter-spacing:.1em;text-transform:uppercase}.command-group header button{font-size:var(--text-2xs);color:var(--primary)}.command-group>button{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;width:100%;gap:12px;padding:8px 10px;border-radius:var(--radius-sm);font-size:var(--text-sm);text-align:left;color:var(--foreground-secondary);transition:background var(--duration-fast),color var(--duration-fast)}.command-group>button:hover,.command-group>button.active{background:var(--hover-strong);color:var(--foreground)}.command-group strong{display:block;font-weight:500}.command-group small{display:block;margin-top:2px;font-size:var(--text-2xs);color:var(--muted-foreground)}.command-more{padding:7px 10px;margin:0;color:var(--muted-foreground);font-size:var(--text-2xs)}.command-empty{display:grid;gap:5px;padding:34px 12px;text-align:center;color:var(--muted-foreground);font-size:var(--text-xs)}.command-empty strong{color:var(--foreground-secondary);font-size:var(--text-sm)}
+.command-palette {
+  width: min(620px, 92vw);
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--radius-card, 16px);
+  border: var(--glass-border);
+  background: rgba(20, 20, 26, 0.85);
+  backdrop-filter: blur(var(--glass-overlay-blur, 32px)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 32px)) saturate(180%);
+  box-shadow: var(--shadow-floating);
+}
+.command-search {
+  height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.command-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  outline: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.command-list {
+  max-height: 420px;
+  overflow: auto;
+  padding: 8px;
+}
+.command-group + .command-group {
+  margin-top: 6px;
+}
+.command-group header {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.command-group header button {
+  font-size: 10px;
+  color: var(--primary);
+}
+.command-group > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  width: 100%;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: var(--radius-control, 10px);
+  font-size: 13px;
+  text-align: left;
+  color: var(--foreground-secondary);
+  border: 1px solid transparent;
+  transition: all var(--dur) var(--ease);
+}
+.command-group > button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--foreground);
+}
+.command-group > button.active {
+  background: var(--arc-active-tab-gradient, rgba(255, 255, 255, 0.12));
+  color: var(--text-primary);
+  border-color: var(--arc-active-tab-border, rgba(255, 255, 255, 0.2));
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+.command-group strong {
+  display: block;
+  font-weight: 500;
+}
+.command-group small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.command-more {
+  padding: 7px 10px;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.command-empty {
+  display: grid;
+  gap: 6px;
+  padding: 36px 12px;
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.command-empty strong {
+  color: var(--foreground-secondary);
+  font-size: 13px;
+}
 </style>

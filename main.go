@@ -83,7 +83,7 @@ func main() {
 		URL:                "/",
 		EnableFileDrop:     true,
 		UseApplicationMenu: true,
-		BackgroundColour:   application.NewRGB(15, 23, 42),
+		BackgroundColour:   application.NewRGBA(0, 0, 0, 0),
 		Mac: application.MacWindow{
 			TitleBar: application.MacTitleBarHidden,
 			Backdrop: application.MacBackdropTranslucent,

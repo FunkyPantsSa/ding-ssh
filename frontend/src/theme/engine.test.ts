@@ -64,7 +64,7 @@ describe('theme engine', () => {
     expect(glass['--theme-bg-sidebar']).toContain('rgba(')
     // The terminal stays opaque even when shell glass is enabled.
     expect(glass['--terminal-bg']).toMatch(/^#[0-9a-f]{6}$/)
-    expect(glass['--glass-shell-blur']).toBe('0px')
+    expect(glass['--glass-shell-blur']).toBe('24px')
 
     const unsupported = computeUiCssVars(appearance, FONTS, 'dark', PLAIN)
     expect(unsupported['--theme-bg-sidebar']).toMatch(/^#[0-9a-f]{6}$/)

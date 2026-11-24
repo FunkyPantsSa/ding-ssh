@@ -150,17 +150,6 @@ function onBrandClick() {
             <Icon name="tunnel" :size="15" extra-class="nav-ico" />
             <span class="nav-text">{{ $t('隧道') }}</span>
           </button>
-          <button
-            class="nav-item"
-            data-ui="nav-item-settings"
-            :class="ui.view === 'settings' ? 'active' : ''"
-            :aria-current="ui.view === 'settings' ? 'page' : undefined"
-            :title="$t('设置')"
-            @click="ui.showSettings()"
-          >
-            <Icon name="settings" :size="15" extra-class="nav-ico" />
-            <span class="nav-text">{{ $t('设置') }}</span>
-          </button>
         </template>
 
         <template v-else-if="sec === 'sessions'">
@@ -185,17 +174,60 @@ function onBrandClick() {
       </section>
     </nav>
 
-    <div class="nav-foot">
-      <button class="nav-item" data-ui="nav-item-command" :title="$t('命令面板 ⌘K')" @click="ui.openCommandPalette()">
-        <Icon name="search" :size="15" extra-class="nav-ico" />
-        <span class="nav-text">{{ $t('命令面板') }}</span>
+    <div v-if="!visuallyCollapsed" class="nav-foot-capsule">
+      <button class="nav-foot-link" :class="ui.view === 'settings' ? 'active' : ''" @click="ui.showSettings()" :title="$t('设置')">
+        <Icon name="settings" :size="13" />
+        <span>{{ $t('设置') }}</span>
+      </button>
+    </div>
+
+    <div v-if="visuallyCollapsed" class="nav-foot">
+      <button
+        class="nav-item"
+        data-ui="nav-item-settings"
+        :class="ui.view === 'settings' ? 'active' : ''"
+        :aria-current="ui.view === 'settings' ? 'page' : undefined"
+        :title="$t('设置')"
+        @click="ui.showSettings()"
+      >
+        <Icon name="settings" :size="15" extra-class="nav-ico" />
+        <span class="nav-text">{{ $t('设置') }}</span>
       </button>
     </div>
   </aside>
 </template>
 
 <style scoped>
-
+.nav-foot-capsule {
+  box-sizing: border-box;
+  height: 26px !important;
+  min-height: 26px;
+  padding: 0 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+html[data-tone="dark"] .nav-foot-capsule,
+html:not([data-tone="light"]) .nav-foot-capsule {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.nav-foot-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  transition: color var(--dur-base) var(--ease);
+  cursor: pointer;
+}
+.nav-foot-link:hover,
+.nav-foot-link.active {
+  color: var(--primary);
+  font-weight: 500;
+}
 .nav-preview{position:absolute;inset:0 auto 0 0;width:var(--nav-expanded-w,216px);max-width:calc(100% - 48px);z-index:60;box-shadow:var(--shadow-pop);animation:sidebar-preview-in 160ms var(--ease-out)}
 @keyframes sidebar-preview-in{from{opacity:.7;transform:translateX(-6px)}to{opacity:1;transform:translateX(0)}}
 @media(prefers-reduced-motion:reduce){.nav-preview{animation:none}}
