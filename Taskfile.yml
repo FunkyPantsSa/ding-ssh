@@ -8,6 +8,7 @@ vars:
   LINUX_TOOLKIT: '{{.LINUX_TOOLKIT | default "gtk3"}}'
   TAGS: '{{if ne .DEV "true"}}production{{if and (eq .TARGET_OS "linux") (eq .LINUX_TOOLKIT "gtk3")}},{{end}}{{end}}{{if and (eq .TARGET_OS "linux") (eq .LINUX_TOOLKIT "gtk3")}}gtk3{{end}}'
   EXE: '{{.BIN_DIR}}/ding-ssh{{if eq .TARGET_OS "windows"}}.exe{{end}}'
+  SKIP_FRONTEND: '{{.SKIP_FRONTEND | default "false"}}'
 
 tasks:
   bindings:
@@ -19,6 +20,8 @@ tasks:
       GOFLAGS: '{{if and (eq OS "linux") (eq .LINUX_TOOLKIT "gtk3")}}-tags=gtk3{{end}}'
 
   frontend:
+    status:
+      - test "{{.SKIP_FRONTEND}}" = "true" -o "$SKIP_FRONTEND" = "true"
     cmds:
       - npm --prefix frontend ci
       - task: bindings
@@ -27,7 +30,7 @@ tasks:
   build:
     cmds:
       - task: frontend
-        vars: {LINUX_TOOLKIT: '{{.LINUX_TOOLKIT}}'}
+        vars: {LINUX_TOOLKIT: '{{.LINUX_TOOLKIT}}', SKIP_FRONTEND: '{{.SKIP_FRONTEND}}'}
       - task: compile
         vars: {LINUX_TOOLKIT: '{{.LINUX_TOOLKIT}}'}
       - task: bundle:macos
@@ -39,6 +42,7 @@ tasks:
         vars:
           TARGET_OS: linux
           LINUX_TOOLKIT: gtk3
+          SKIP_FRONTEND: '{{.SKIP_FRONTEND}}'
 
   build:linux-gtk4:
     desc: Build Linux binary using GTK4 / WebKitGTK 6
@@ -47,6 +51,7 @@ tasks:
         vars:
           TARGET_OS: linux
           LINUX_TOOLKIT: gtk4
+          SKIP_FRONTEND: '{{.SKIP_FRONTEND}}'
 
   compile:
     internal: true
@@ -91,6 +96,7 @@ tasks:
   package:
     cmds:
       - task: build
+        vars: {SKIP_FRONTEND: '{{.SKIP_FRONTEND}}'}
       - task: installer:windows
 
   installer:windows:
