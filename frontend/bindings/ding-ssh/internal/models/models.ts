@@ -802,9 +802,14 @@ export class Settings {
     "lastOpenServers": string[];
 
     /**
-     * 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 top）
+     * 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 side）
      */
     "tabBarPlacement": string;
+
+    /**
+     * 设置按钮位置：sidebar 左侧导航栏（默认）| bottom 左下方底栏
+     */
+    "settingsPlacement": string;
 
     /**
      * 终端鼠标右键行为：menu 打开选项栏（默认）| paste 直接粘贴
@@ -913,6 +918,9 @@ export class Settings {
         if (!("tabBarPlacement" in $$source)) {
             this["tabBarPlacement"] = "";
         }
+        if (!("settingsPlacement" in $$source)) {
+            this["settingsPlacement"] = "";
+        }
         if (!("rightClickAction" in $$source)) {
             this["rightClickAction"] = "";
         }
@@ -935,7 +943,7 @@ export class Settings {
         const $$createField20_0 = $$createType3;
         const $$createField21_0 = $$createType4;
         const $$createField28_0 = $$createType0;
-        const $$createField32_0 = $$createType5;
+        const $$createField33_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("logTraceTabs" in $$parsedSource) {
             $$parsedSource["logTraceTabs"] = $$createField9_0($$parsedSource["logTraceTabs"]);
@@ -953,7 +961,7 @@ export class Settings {
             $$parsedSource["lastOpenServers"] = $$createField28_0($$parsedSource["lastOpenServers"]);
         }
         if ("debug" in $$parsedSource) {
-            $$parsedSource["debug"] = $$createField32_0($$parsedSource["debug"]);
+            $$parsedSource["debug"] = $$createField33_0($$parsedSource["debug"]);
         }
         return new Settings($$parsedSource as Partial<Settings>);
     }

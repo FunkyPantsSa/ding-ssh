@@ -1,11 +1,17 @@
 import {mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {reactive} from 'vue'
+const mockSettings = reactive({tabBarPlacement: 'top', settingsPlacement: 'sidebar', navSectionOrder: 'nav,sessions,tabs'})
 vi.mock('@/stores/servers', () => ({useServersStore: () => ({servers: []})}))
 vi.mock('@/stores/sessions', () => ({useSessionsStore: () => ({tabs: []})}))
-vi.mock('@/stores/settings', () => ({useSettingsStore: () => ({tabBarPlacement: 'top', navSectionOrder: 'nav,sessions,tabs'})}))
-vi.mock('@/stores/ui', () => ({useUIStore: () => ({view: 'home'})}))
+vi.mock('@/stores/settings', () => ({useSettingsStore: () => mockSettings}))
+const mockUI = {view: 'home', showSettings: vi.fn(), requestNewServer: vi.fn()}
+vi.mock('@/stores/ui', () => ({useUIStore: () => mockUI}))
 import AppSidebar from './AppSidebar.vue'
-afterEach(() => {vi.useRealTimers()})
+afterEach(() => {
+  vi.useRealTimers()
+  mockSettings.settingsPlacement = 'sidebar'
+})
 function sidebar() {
  return mount(AppSidebar, {props: {collapsed: true, onlineCount: 0}, global: {stubs: {Icon: true, TabBar: true}}})
 }
@@ -29,5 +35,22 @@ describe('sidebar hover preview', () => {
   await view.get('.nav-mark').trigger('pointerenter'); await vi.advanceTimersByTimeAsync(500)
   await view.get('[aria-label="固定展开导航"]').trigger('click')
   expect(view.emitted('update:collapsed')).toEqual([[false]]); view.unmount()
+ })
+ it('renders settings in the sidebar by default and switches to bottom when configured', async () => {
+  const expanded = mount(AppSidebar, {props: {collapsed: false, onlineCount: 0}, global: {stubs: {Icon: true, TabBar: true}}})
+  expect(expanded.find('.nav-body [data-ui="nav-item-settings"]').exists()).toBe(true)
+  expect(expanded.find('.nav-foot-capsule').exists()).toBe(false)
+  mockSettings.settingsPlacement = 'bottom'
+  await expanded.vm.$nextTick()
+  expect(expanded.find('.nav-body [data-ui="nav-item-settings"]').exists()).toBe(false)
+  expect(expanded.find('.nav-foot-capsule [data-ui="nav-item-settings-bottom"]').exists()).toBe(true)
+  expanded.unmount()
+ })
+ it('triggers new server creation from the sidebar navigation', async () => {
+  mockUI.requestNewServer.mockClear()
+  const expanded = mount(AppSidebar, {props: {collapsed: false, onlineCount: 0}, global: {stubs: {Icon: true, TabBar: true}}})
+  await expanded.get('[data-ui="nav-item-new-server"]').trigger('click')
+  expect(mockUI.requestNewServer).toHaveBeenCalledTimes(1)
+  expanded.unmount()
  })
 })

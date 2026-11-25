@@ -631,7 +631,6 @@ onBeforeUnmount(() => {
           :subtitle="pageSub"
           :nav-collapsed="navCollapsed"
           :workspace="ui.view === 'workspace'"
-          :servers="ui.view === 'servers'"
           :online-count="onlineCount"
           :context-visible="sessions.sftpVisible"
           :tab="sessions.activeTab"
@@ -640,7 +639,6 @@ onBeforeUnmount(() => {
           @command="openCmd"
           @toggle-context="handleTogglePanel('sftp')"
           @toggle-panel="handleTogglePanel"
-          @new-server="ui.requestNewServer"
         />
       </template>
 

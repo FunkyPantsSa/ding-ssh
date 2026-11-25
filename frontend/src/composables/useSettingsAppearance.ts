@@ -47,25 +47,26 @@ export function useSettingsAppearance(settings: ReturnType<typeof useSettingsSto
     try { await settings.applyLook({...appearanceForm}, {...themeForm}, {...fontsForm}) } finally { saving.value = false }
   }
   watch([themeForm, appearanceForm, fontsForm], () => { if (!syncing) void persistLook() }, {deep: true})
+  watch(currentTone, (newTone) => {
+    const pal = resolveActiveTerminalPalette(appearanceForm, newTone)
+    Object.assign(themeForm, paletteToTheme(pal))
+  })
   async function selectPreset(id: string) {
     syncing = true; appearanceForm.mode = 'preset'; appearanceForm.presetId = id
     const preset = presetById(id) ?? defaultPreset()
     appearanceForm.primary = preset.primary
     appearanceForm.secondary = preset.secondary
-    if (appearanceForm.terminalBackgroundMode === 'follow') {
-      const resolved = currentTone.value === 'light' ? 'light' : 'dark'
-      Object.assign(themeForm, paletteToTheme(resolved === 'light' ? preset.light : preset.dark))
-    }
+    const resolved = currentTone.value === 'light' ? 'light' : 'dark'
+    const pal = resolveActiveTerminalPalette(appearanceForm, resolved)
+    Object.assign(themeForm, paletteToTheme(pal))
     syncing = false; await persistLook()
   }
   async function setTone(tone: UIAppearance['baseTone']) {
     syncing = true
     appearanceForm.baseTone = tone
     const resolved = tone === 'auto' ? systemTone.value : tone
-    if (appearanceForm.terminalBackgroundMode === 'follow') {
-      const pal = resolveActiveTerminalPalette(appearanceForm, resolved)
-      Object.assign(themeForm, paletteToTheme(pal))
-    }
+    const pal = resolveActiveTerminalPalette(appearanceForm, resolved)
+    Object.assign(themeForm, paletteToTheme(pal))
     syncing = false
     await persistLook()
   }
@@ -76,11 +77,9 @@ export function useSettingsAppearance(settings: ReturnType<typeof useSettingsSto
     appearanceForm.presetId = 'custom'
     appearanceForm.primary = seed
     appearanceForm.secondary = deriveHarmonizedSecondary(seed)
-    if (appearanceForm.terminalBackgroundMode === 'follow') {
-      const resolved = currentTone.value === 'light' ? 'light' : 'dark'
-      const pal = generateArcTerminalPalette(seed, appearanceForm.secondary, resolved)
-      Object.assign(themeForm, paletteToTheme(pal))
-    }
+    const resolved = currentTone.value === 'light' ? 'light' : 'dark'
+    const pal = resolveActiveTerminalPalette(appearanceForm, resolved)
+    Object.assign(themeForm, paletteToTheme(pal))
     syncing = false
     await persistLook()
   }

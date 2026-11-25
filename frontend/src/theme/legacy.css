@@ -1,0 +1,93 @@
+/* ---------------------------------------------------------------------------
+   Legacy Compatibility Layer
+   
+   These aliases map deprecated tokens to modern semantic roles and scales.
+   This file isolates legacy variables so they do not pollute the core token
+   and semantic system and can be progressively retired.
+   --------------------------------------------------------------------------- */
+
+:root {
+  /* Legacy Surface & Background Aliases */
+  --background: var(--workspace-bg);
+  --surface-1: var(--sidebar-secondary-bg);
+  --surface-2: var(--surface-bg);
+  --surface-3: var(--surface-raised-bg);
+  --surface-4: var(--surface-overlay-bg);
+
+  --theme-bg-main: var(--workspace-bg);
+  --theme-bg-sidebar: var(--sidebar-primary-bg);
+  --theme-bg-toolbar: var(--toolbar-bg);
+  --theme-bg-surface: var(--surface-bg);
+  --theme-glass-opacity: var(--glass-opacity);
+  --theme-glass-blur: var(--glass-overlay-blur);
+  --theme-glass-tint: var(--glass-tint);
+
+  /* Legacy Hairlines & Surface Highlights */
+  --line: var(--border-subtle);
+  --line-strong: var(--border-default);
+  --line-faint: var(--border-subtle);
+  --surface-hi: var(--interactive-hover-bg);
+  --surface-border: var(--border-subtle);
+
+  /* Legacy Typography & Text Colors */
+  --foreground: var(--text-primary);
+  --foreground-secondary: var(--text-secondary);
+  --muted-foreground: var(--text-muted);
+
+  /* Legacy Border & Focus */
+  --border: var(--border-default);
+  --border-focus: var(--focus-ring-color);
+
+  /* Legacy Accent / Primary Aliases */
+  --primary: var(--accent-bg);
+  --primary-foreground: var(--accent-foreground);
+  --primary-hover: var(--accent-hover-bg);
+  --primary-weak: var(--accent-weak-bg);
+  --primary-border: var(--accent-border);
+  --primary-strong-border: var(--accent-strong-border);
+  --primary-glow: color-mix(in srgb, var(--accent-bg) 32%, transparent);
+  --primary-glow-soft: color-mix(in srgb, var(--accent-bg) 15%, transparent);
+  --primary-hover-bg: color-mix(in srgb, var(--accent-bg) 40%, transparent);
+
+  /* Legacy Secondary Palette */
+  --secondary: #c6a06f;
+  --secondary-hover: #dbb68a;
+  --secondary-foreground: #1a1208;
+  --secondary-glow: rgb(198 160 111 / 28%);
+  --secondary-glow-soft: rgb(198 160 111 / 9%);
+  --secondary-weak: rgb(198 160 111 / 12%);
+  --secondary-border: rgb(198 160 111 / 25%);
+  --secondary-hover-bg: rgb(198 160 111 / 40%);
+
+  /* Legacy Status Roles */
+  --success: var(--status-success);
+  --success-border: var(--status-success-border);
+  --warning: var(--status-warning);
+  --destructive: var(--status-error);
+  --destructive-hover: color-mix(in srgb, var(--status-error) 82%, white);
+  --destructive-foreground: #2a0806;
+  --destructive-weak: var(--status-error-bg);
+  --destructive-weak-hover: color-mix(in srgb, var(--status-error) 18%, transparent);
+  --destructive-border: var(--status-error-border);
+  --info: var(--status-info);
+
+  /* Legacy Radius Aliases */
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-control);
+  --radius-lg: var(--radius-window);
+  --radius-xl: var(--radius-card);
+
+  /* Legacy Motion & Timing */
+  --t-fast: var(--duration-fast);
+  --dur: var(--duration-base);
+  --dur-slow: var(--duration-slow);
+  --ease: var(--ease-out);
+
+  /* Legacy Layout Dimensions */
+  --rail-w: 56px;
+  --title-h: 48px;
+
+  /* Legacy Z-Index Hierarchy Mappings */
+  --z-window-bar: var(--z-header);
+  --z-context: var(--z-popover);
+}

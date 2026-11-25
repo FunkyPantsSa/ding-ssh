@@ -36,7 +36,7 @@ import type {
   ThemeTone,
 } from './material'
 import type {Fonts, Theme, UIAppearance} from '../types'
-import {defaultPreset, presetById} from './presets'
+import {defaultPreset, presetById, PRESETS} from './presets'
 import {terminalFontFamilies} from './terminal-fonts'
 
 export type Tone = ThemeTone
@@ -136,6 +136,16 @@ export function terminalSurfaceColor(
   return deriveColorRoles({seed, tone, atmosphere, separation}).terminalBg
 }
 
+/** Opaque terminal text derived from the active theme hue and tone budget. */
+export function terminalForegroundColor(
+  seed: string,
+  tone: ThemeTone,
+  atmosphere = 75,
+  separation = 65,
+): string {
+  return deriveColorRoles({seed, tone, atmosphere, separation}).terminalFg
+}
+
 /** Accent color used to coordinate terminal cursor/selection in follow mode. */
 export function terminalAccentColor(
   seed: string,
@@ -174,19 +184,35 @@ export function resolveTerminalForeground(
   followsAppTheme: boolean,
   schemeForeground: string,
   background: string,
+  seed?: string,
+  tone?: ThemeTone,
+  atmosphere = 75,
+  separation = 65,
 ): string {
+  if (followsAppTheme && seed && tone) {
+    return terminalForegroundColor(seed, tone, atmosphere, separation)
+  }
   return followsAppTheme ? terminalContrastForeground(schemeForeground, background) : schemeForeground
 }
 
-/** Recognize backgrounds written by earlier ding-ssh theme engines. */
+/** Recognize backgrounds written by earlier ding-ssh theme engines or preset libraries. */
 export function isManagedTerminalBackground(background: string, seed: string, tone: ThemeTone): boolean {
+  if (!background) return true
   const value = normalizeSeed(background)
   const other = tone === 'light' ? 'dark' : 'light'
+  const presetBgs = PRESETS ? PRESETS.flatMap((p) => [normalizeSeed(p.light.background), normalizeSeed(p.dark.background)]) : []
   const known = new Set<string>([
     '#fafbfc',
     '#f5f6f7',
+    '#f6f8fa',
     '#eff5ff',
     '#223550',
+    '#11171a',
+    '#14171a',
+    '#272727',
+    '#18181b',
+    '#ffffff',
+    '#000000',
     mix(seed, '#303b4b', 0.65),
     mix(seed, '#263449', 0.85),
     darken(seed, 0.72),
@@ -195,11 +221,12 @@ export function isManagedTerminalBackground(background: string, seed: string, to
     mix(seed, '#ffffff', 0.91),
     terminalSurfaceColor(seed, tone),
     terminalSurfaceColor(seed, other),
+    ...presetBgs,
   ])
-  return known.has(value) || background === '#fafbfc' || background === '#f5f6f7'
+  return known.has(value) || background === '#fafbfc' || background === '#f5f6f7' || background === '#f6f8fa'
 }
 
-/** Keep terminal ANSI colors; only coordinate its opaque background. */
+/** Keep terminal ANSI colors; coordinate its opaque background and derived foreground. */
 export function deriveTerminalTheme(
   base: Theme,
   seed: string,
@@ -207,7 +234,8 @@ export function deriveTerminalTheme(
   atmosphere = 75,
   separation = 65,
 ): Theme {
-  return {...base, background: terminalSurfaceColor(seed, tone, atmosphere, separation)}
+  const roles = deriveColorRoles({seed, tone, atmosphere, separation})
+  return {...base, background: roles.terminalBg, foreground: roles.terminalFg}
 }
 
 /** Current UI seed/secondary (custom mode uses the user's chosen values). */

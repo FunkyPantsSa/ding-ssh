@@ -18,7 +18,7 @@ import {
 import {historyService} from '../../services/history'
 import {sshService} from '../../services/ssh'
 import {useSettingsStore} from '../../stores/settings'
-import type {LocalShellOption, NavSectionOrder, RightClickAction, TabBarPlacement, TerminalColorMode} from '../../types'
+import type {LocalShellOption, NavSectionOrder, RightClickAction, SettingsPlacement, TabBarPlacement, TerminalColorMode} from '../../types'
 
 const settings = useSettingsStore()
 const saving = ref(false)
@@ -27,6 +27,10 @@ const localShellOptions = ref<LocalShellOption[]>([])
 const TAB_PLACEMENT_OPTIONS = [
   {key: 'side', get label() { return t("左侧导航") }},
   {key: 'top', get label() { return t("顶栏") }},
+] as const
+const SETTINGS_PLACEMENT_OPTIONS = [
+  {key: 'sidebar', get label() { return t("侧边栏") }},
+  {key: 'bottom', get label() { return t("左下方") }},
 ] as const
 const RIGHT_CLICK_OPTIONS = [
   {key: 'menu', get label() { return t("打开选项栏") }},
@@ -87,6 +91,7 @@ async function loadLocalShellOptions() {
 const onLocalShellChange = (value?: string | number) => set(() => settings.setLocalShell(String(value)))
 const setUIScale = (v: number) => set(() => settings.setUIScale(v))
 const setTabBarPlacement = (v: TabBarPlacement) => set(() => settings.setTabBarPlacement(v))
+const setSettingsPlacement = (v: SettingsPlacement) => set(() => settings.setSettingsPlacement(v))
 const setRightClickAction = (v: RightClickAction) => set(() => settings.setRightClickAction(v))
 const setNavSectionOrder = (v: NavSectionOrder) => set(() => settings.setNavSectionOrder(v))
 const setTerminalColorMode = (v: TerminalColorMode) => set(() => settings.setTerminalColorMode(v))
@@ -369,6 +374,28 @@ onBeforeUnmount(() => {
             :aria-pressed="settings.tabBarPlacement === opt.key"
             :disabled="saving"
             @click="setTabBarPlacement(opt.key)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="neo">
+      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+        <div class="min-w-0 flex-1 basis-64">
+          <p class="text-sm font-medium text-slate-200">{{ $t('设置按钮位置') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('默认「侧边栏」：设置入口显示在左侧导航栏内；「左下方」：显示在侧边栏底部状态栏区域。') }}</p>
+        </div>
+        <div class="seg shrink-0 max-w-full flex-wrap">
+          <button
+            v-for="opt in SETTINGS_PLACEMENT_OPTIONS"
+            :key="opt.key"
+            type="button"
+            :class="settings.settingsPlacement === opt.key ? 'active' : ''"
+            :aria-pressed="settings.settingsPlacement === opt.key"
+            :disabled="saving"
+            @click="setSettingsPlacement(opt.key)"
           >
             {{ opt.label }}
           </button>

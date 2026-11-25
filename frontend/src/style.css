@@ -3,6 +3,7 @@
 @import "./theme/tokens.css";
 @import "./theme/semantic.css";
 @import "./theme/components.css";
+@import "./theme/legacy.css";
 @import "./theme/tailwind.css";
 @import "./theme/terminal.css";
 
@@ -16,7 +17,7 @@
 
 /* Tailwind 中性色类（text-slate-* / text-white / bg-slate-* 等）统一走语义变量，
    使明暗模式切换时全部组件自动适配。 */
-@theme {
+@theme inline {
   --color-white: var(--foreground);
   --color-slate-50: var(--foreground);
   --color-slate-100: var(--foreground);
@@ -1647,7 +1648,7 @@ html[data-glass="on"] :is(.nav, .app-layout-content){
   backdrop-filter: blur(var(--glass-shell-blur, 24px)) saturate(160%);
   -webkit-backdrop-filter: blur(var(--glass-shell-blur, 24px)) saturate(160%);
 }
-html[data-glass="on"] :is(.home-panel, .server-sidebar, .server-list-panel, .tool, .set-nav, .neo, .set-block, .page-card, .theme-editor, .theme-preview){
+html[data-glass="on"] :is(.home-panel, .server-sidebar, .server-list-panel, .neo, .set-block, .page-card, .theme-editor, .theme-preview){
   background: rgba(255, 255, 255, 0.055);
   backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
   -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
@@ -1655,12 +1656,21 @@ html[data-glass="on"] :is(.home-panel, .server-sidebar, .server-list-panel, .too
   border-radius: var(--radius-card, 14px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
-html[data-tone="light"][data-glass="on"] :is(.home-panel, .server-sidebar, .server-list-panel, .tool, .set-nav, .neo, .set-block, .page-card, .theme-editor, .theme-preview){
+html[data-tone="light"][data-glass="on"] :is(.home-panel, .server-sidebar, .server-list-panel, .neo, .set-block, .page-card, .theme-editor, .theme-preview){
   background: rgba(255, 255, 255, 0.58);
   backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
   -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
   border: 1px solid rgba(0, 0, 0, 0.07);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+}
+html[data-glass="on"] .tool{
+  background: rgba(255, 255, 255, 0.055);
+  backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
+  border-radius: var(--radius-layout);
+}
+html[data-tone="light"][data-glass="on"] .tool{
+  background: rgba(255, 255, 255, 0.58);
 }
 .app-layout-content {
   grid-column: 2;
@@ -1716,12 +1726,7 @@ html[data-tone="light"] .status-bar {
   background: rgba(0, 0, 0, 0.03) !important;
   border-top: 1px solid rgba(0, 0, 0, 0.06) !important;
 }
-.terminal-bg {
-  background: transparent !important;
-  padding: 4px;
-}
 .terminal-slot {
-  border-radius: 8px;
   overflow: hidden;
 }
 
@@ -1736,18 +1741,26 @@ html[data-tone="light"] .status-bar {
 
 /* Floating surfaces may blur app content behind them (never the desktop).
    Their own tint token is near-opaque so text stays readable over any page. */
-:root body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover){
-  background: rgba(22, 22, 28, 0.85);
+:root body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover,.update-panel){
+  background: rgba(22, 22, 28, 0.80);
   backdrop-filter: blur(var(--glass-overlay-blur, 28px)) saturate(160%);
   -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 28px)) saturate(160%);
   border: var(--glass-border);
   border-radius: var(--radius-card, 16px);
   box-shadow: var(--shadow-floating);
 }
-html[data-tone="light"] body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover){
-  background: rgba(255, 255, 255, 0.90);
+html[data-tone="light"] body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover,.update-panel){
+  background: rgba(255, 255, 255, 0.86);
   border: 1px solid rgba(0, 0, 0, 0.10);
   box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.12);
+}
+/* Update panel ensures real Gaussian blur even if glass blur is low, falling back to opaque in solid mode */
+:root body .update-panel{
+  backdrop-filter: blur(max(var(--glass-overlay-blur, 28px), 24px)) saturate(160%);
+  -webkit-backdrop-filter: blur(max(var(--glass-overlay-blur, 28px), 24px)) saturate(160%);
+}
+html[data-material="solid"] body .update-panel{
+  background: var(--surface-overlay-bg);
 }
 /* Config popover: same overlay material as menus, but a softer edge, deeper lift and
    a faint vertical sheen so the card reads as a deliberate floating surface. */
@@ -1761,12 +1774,12 @@ html[data-tone="light"] body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-bac
 .menu-pop button{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* Solid mode and platforms without a native backdrop get no compositor filter. */
-html[data-material="solid"] :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover,.tool,.nav,.topbar,.status-bar,.app-layout-main){
+html[data-material="solid"] :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover,.update-panel,.tool,.nav,.topbar,.status-bar,.app-layout-main){
   backdrop-filter:none;
   -webkit-backdrop-filter:none;
 }
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover){backdrop-filter:none;-webkit-backdrop-filter:none}
+  :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover,.update-panel){backdrop-filter:none;-webkit-backdrop-filter:none}
 }
 
 /* Tool panels share the shell material, including SFTP, history and system info. */

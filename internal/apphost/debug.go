@@ -3014,6 +3014,7 @@ func ctlDefaultSettings() models.Settings {
 		// 登录后自动采集系统指标：默认开启（关闭后登录服务器不再向远端执行采集命令）
 		SysInfoCollectEnabled: true,
 		TabBarPlacement:       "side",
+		SettingsPlacement:     models.SettingsPlacementSidebar,
 		RightClickAction:      models.RightClickMenu,
 		NavSectionOrder:       models.DefaultNavSectionOrder,
 		LogLevel:              models.NormalizeLogLevel(""),
@@ -3033,6 +3034,7 @@ func ctlSettingsFieldMeta() map[string]any {
 	return map[string]any{
 		"logLevel":                 map[string]any{"enum": []any{"debug", "info", "warn", "error"}, "note": "只有 debug 才会记录终端跟踪等细粒度信息"},
 		"tabBarPlacement":          map[string]any{"enum": []any{"top", "side"}, "note": "会话标签页位置：顶栏横向 / 左侧导航纵向"},
+		"settingsPlacement":        map[string]any{"enum": []any{"sidebar", "bottom"}, "note": "设置按钮位置：左侧导航栏 / 左下方底栏"},
 		"rightClickAction":         map[string]any{"enum": []any{"menu", "paste"}, "note": "终端鼠标右键行为"},
 		"navSectionOrder":          map[string]any{"note": "nav / sessions / tabs 三个键的排列，逗号分隔（如 \"nav,sessions,tabs\"）"},
 		"completionNavHotkey":      map[string]any{"note": "补全导航开关键，如 Alt+ArrowDown"},

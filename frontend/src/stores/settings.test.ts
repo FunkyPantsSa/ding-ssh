@@ -119,6 +119,17 @@ it('does not grant new MCP permissions while loading legacy settings', async () 
  expect(store.debug.trustedAutomation).toBe(false)
 })
 
+it('defaults settingsPlacement to sidebar and persists bottom placement', async () => {
+ vi.mocked(settingsService.getSettings).mockResolvedValue({uiSchema: 4} as never)
+ vi.mocked(settingsService.saveSettings).mockResolvedValue(undefined)
+ const store = useSettingsStore()
+ await store.load()
+ expect(store.settingsPlacement).toBe('sidebar')
+ await store.setSettingsPlacement('bottom')
+ expect(store.settingsPlacement).toBe('bottom')
+ expect(settingsService.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({settingsPlacement: 'bottom'}))
+})
+
 it('preserves independently granted credential use and write permissions without exporting secrets', async () => {
  vi.mocked(settingsService.getSettings).mockResolvedValue({uiSchema:4,debug:{capCredentialUse:true,capSecretWrite:true,allowSecrets:false,capTerminalRead:true,auditPersistent:true}} as never)
  const store=useSettingsStore();await store.load();await store.setCopyOnSelect(true)

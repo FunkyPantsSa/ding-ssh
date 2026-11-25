@@ -67,6 +67,25 @@ func TestJSONSettingsStoreTabBarPlacementRoundTrip(t *testing.T) {
 	}
 }
 
+func TestJSONSettingsStoreSettingsPlacementDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	legacy := `{"logEnabled":false,"uiScale":100}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("写入旧配置失败: %v", err)
+	}
+	s, err := NewJSONSettingsStore(path)
+	if err != nil {
+		t.Fatalf("创建设置存储失败: %v", err)
+	}
+	got, err := s.Get()
+	if err != nil {
+		t.Fatalf("读取设置失败: %v", err)
+	}
+	if got.SettingsPlacement != models.SettingsPlacementSidebar {
+		t.Fatalf("旧配置缺省设置按钮位置 = %q，期望 %q", got.SettingsPlacement, models.SettingsPlacementSidebar)
+	}
+}
+
 // 旧配置文件（无 rightClickAction 字段）应回落到默认值「打开选项栏」。
 func TestJSONSettingsStoreRightClickActionDefault(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
@@ -347,6 +366,47 @@ func TestSQLiteSettingsStoreTabBarPlacement(t *testing.T) {
 	}
 	if fallback.TabBarPlacement != "side" {
 		t.Fatalf("非法标签页位置 = %q，期望回落 side", fallback.TabBarPlacement)
+	}
+}
+
+func TestSQLiteSettingsStoreSettingsPlacement(t *testing.T) {
+	db, err := OpenSQLite(filepath.Join(t.TempDir(), "ding-ssh.db"))
+	if err != nil {
+		t.Fatalf("打开数据库失败: %v", err)
+	}
+	defer db.Close()
+
+	s := NewSQLiteSettingsStore(db)
+	settings, err := s.Get()
+	if err != nil {
+		t.Fatalf("读取设置失败: %v", err)
+	}
+	if settings.SettingsPlacement != models.SettingsPlacementSidebar {
+		t.Fatalf("默认设置按钮位置 = %q，期望 %q", settings.SettingsPlacement, models.SettingsPlacementSidebar)
+	}
+
+	settings.SettingsPlacement = models.SettingsPlacementBottom
+	if err := s.Save(settings); err != nil {
+		t.Fatalf("保存设置失败: %v", err)
+	}
+	reloaded, err := s.Get()
+	if err != nil {
+		t.Fatalf("重新读取设置失败: %v", err)
+	}
+	if reloaded.SettingsPlacement != models.SettingsPlacementBottom {
+		t.Fatalf("落库后的设置按钮位置 = %q，期望 %q", reloaded.SettingsPlacement, models.SettingsPlacementBottom)
+	}
+
+	settings.SettingsPlacement = "invalid"
+	if err := s.Save(settings); err != nil {
+		t.Fatalf("保存设置失败: %v", err)
+	}
+	fallback, err := s.Get()
+	if err != nil {
+		t.Fatalf("重新读取设置失败: %v", err)
+	}
+	if fallback.SettingsPlacement != models.SettingsPlacementSidebar {
+		t.Fatalf("非法设置按钮位置 = %q，期望回落 %q", fallback.SettingsPlacement, models.SettingsPlacementSidebar)
 	}
 }
 

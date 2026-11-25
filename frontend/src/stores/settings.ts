@@ -4,7 +4,7 @@ import {settingsService} from '../services/settings'
 import {paletteToTheme, defaultPreset, presetById, resolveActiveTerminalPalette} from '../theme/presets'
 import {DEFAULT_TERMINAL_FONT} from '../theme/font-catalog'
 import {migrateUiSettings, normalizeAppearance, UI_SCHEMA, UI2_MIGRATION_BACKUP_KEY, THEME_V4_MIGRATION_BACKUP_KEY} from '../theme/migrate'
-import type {DebugSettings, Fonts, LogLevel, NavSectionOrder, RightClickAction, TabBarPlacement, TerminalColorMode, Theme, UIAppearance} from '../types'
+import type {DebugSettings, Fonts, LogLevel, NavSectionOrder, RightClickAction, SettingsPlacement, TabBarPlacement, TerminalColorMode, Theme, UIAppearance} from '../types'
 
 // 默认终端主题（与 Go 端 models.DefaultTheme 保持一致，含 ANSI 16 色）。
 export function defaultTheme(): Theme {
@@ -101,6 +101,7 @@ export const useSettingsStore = defineStore('settings', {
     // 上次关闭应用时打开的服务器 ID 列表（由工作区在标签增删时写入）
     lastOpenServers: [] as string[],
     tabBarPlacement: 'side' as TabBarPlacement,
+    settingsPlacement: 'sidebar' as SettingsPlacement,
     rightClickAction: 'menu' as RightClickAction,
     navSectionOrder: 'nav,sessions,tabs' as NavSectionOrder,
     // 终端输出语义着色：默认「语义着色」（off 关 | auto 语义 | vivid 语义 + 强调）
@@ -147,16 +148,7 @@ export const useSettingsStore = defineStore('settings', {
       const loadedTone = this.appearance.baseTone === 'auto'
         ? (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
         : this.appearance.baseTone
-      if (this.appearance.presetId && this.appearance.mode === 'preset') {
-        const p = presetById(this.appearance.presetId)
-        if (p) {
-          if (loadedTone === 'light') {
-            this.theme = paletteToTheme(p.light)
-          } else if (loadedTone === 'dark') {
-            this.theme = paletteToTheme(p.dark)
-          }
-        }
-      } else if (this.appearance.terminalBackgroundMode === 'follow') {
+      if (this.appearance.terminalBackgroundMode !== 'independent' || this.appearance.mode === 'preset') {
         const pal = resolveActiveTerminalPalette(this.appearance, loadedTone)
         this.theme = paletteToTheme(pal)
       }
@@ -175,6 +167,8 @@ export const useSettingsStore = defineStore('settings', {
       this.lastOpenServers = normalizeLastOpenServers(settings.lastOpenServers)
       // 缺省 / 非法值一律回落「左侧导航」（新默认）
       this.tabBarPlacement = settings.tabBarPlacement === 'top' ? 'top' : 'side'
+      // 缺省 / 非法值一律回落「侧边栏」（默认）
+      this.settingsPlacement = settings.settingsPlacement === 'bottom' ? 'bottom' : 'sidebar'
       // 缺省 / 非法值一律回落「打开选项栏」
       this.rightClickAction = settings.rightClickAction === 'paste' ? 'paste' : 'menu'
       // 缺省 / 非法排列一律回落「导航 → 会话 → 标签页」
@@ -279,6 +273,10 @@ export const useSettingsStore = defineStore('settings', {
       this.tabBarPlacement = v === 'top' ? 'top' : 'side'
       await this.save()
     },
+    async setSettingsPlacement(v: SettingsPlacement) {
+      this.settingsPlacement = v === 'bottom' ? 'bottom' : 'sidebar'
+      await this.save()
+    },
     async setRightClickAction(v: RightClickAction) {
       this.rightClickAction = v === 'paste' ? 'paste' : 'menu'
       await this.save()
@@ -339,6 +337,7 @@ export const useSettingsStore = defineStore('settings', {
         autoLoginLastServer: this.autoLoginLastServer,
         lastOpenServers: normalizeLastOpenServers(this.lastOpenServers),
         tabBarPlacement: this.tabBarPlacement,
+        settingsPlacement: this.settingsPlacement,
         rightClickAction: this.rightClickAction,
         navSectionOrder: this.navSectionOrder,
         terminalColorMode: normalizeTerminalColorMode(this.terminalColorMode),

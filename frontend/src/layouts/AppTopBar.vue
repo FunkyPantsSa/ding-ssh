@@ -10,7 +10,6 @@ defineProps<{
   subtitle: string
   navCollapsed: boolean
   workspace: boolean
-  servers: boolean
   onlineCount: number
   contextVisible: boolean
   tab?: SessionTab
@@ -21,7 +20,6 @@ const emit = defineEmits<{
   command: []
   toggleContext: []
   togglePanel: [panel: 'sftp' | 'sysinfo' | 'transfers']
-  newServer: []
 }>()
 </script>
 
@@ -107,9 +105,6 @@ const emit = defineEmits<{
       </button>
 
       <span v-if="workspace && !tab" class="chip"><span class="dot"></span> {{ onlineCount }} {{ $t('会话在线') }}</span>
-      <Button v-if="workspace || servers" variant="ghost" size="sm" :title="$t('新建服务器')" @click="emit('newServer')">
-        <Icon name="plus" :size="14" />{{ $t('新建服务器') }}
-      </Button>
     </div>
   </header>
 </template>

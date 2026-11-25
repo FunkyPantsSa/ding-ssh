@@ -3,3 +3,44 @@
    through terminal text. xterm itself only goes translucent when the user
    explicitly sets a terminal background image. */
 .terminal-bg { background: var(--terminal-bg, #11171a); }
+
+/* Inset canvas terminal container:
+   Four-edge margins reveal the surrounding theme glass shell.
+   Border and shadow are dynamically driven by semantic tokens. */
+[data-ui="terminal"] {
+  margin: 6px 8px 8px 8px;
+  border-radius: var(--radius-control, 8px);
+  overflow: hidden;
+  background: var(--terminal-bg, #11171a);
+  border: var(--terminal-border);
+  box-shadow: var(--terminal-shadow);
+  position: relative;
+  transition: border-color var(--dur, 200ms) var(--ease, ease), box-shadow var(--dur, 200ms) var(--ease, ease), background-color var(--dur, 200ms) var(--ease, ease);
+}
+
+.terminal-theme {
+  border-radius: inherit;
+}
+
+/* Ambient glow overlay in top-left corner (matching theme diffusion), non-blocking for clicks/selection/scroll */
+.terminal-theme::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 20;
+  background: var(--terminal-glow);
+  transition: background var(--dur, 200ms) var(--ease, ease), opacity var(--dur, 200ms) var(--ease, ease);
+}
+
+/* Reduce or disable ambient glow under reduced transparency or solid mode */
+@media (prefers-reduced-transparency: reduce) {
+  .terminal-theme::after {
+    display: none;
+  }
+}
+
+html[data-material="solid"] .terminal-theme::after {
+  opacity: 0.35;
+}

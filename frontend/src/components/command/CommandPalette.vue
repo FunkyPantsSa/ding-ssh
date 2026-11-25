@@ -95,6 +95,18 @@ function keydown(event: KeyboardEvent) {
   if (event.key === 'Enter') { event.preventDefault(); run() }
 }
 
+function scrollToActive() {
+  nextTick(() => {
+    if (!activeId.value) return
+    const el = document.getElementById(`command-${activeId.value}`)
+    el?.scrollIntoView({block: 'nearest', inline: 'nearest'})
+  })
+}
+
+watch(activeId, () => {
+  scrollToActive()
+})
+
 watch(query, (value) => {
   window.clearTimeout(debounceTimer)
   debounceTimer = window.setTimeout(() => { settledQuery.value = value; index.value = 0 }, props.commands.length > 200 ? 80 : 0)
@@ -103,6 +115,7 @@ watch(open, async (value) => {
   if (!value) return
   query.value = ''; settledQuery.value = ''; index.value = 0
   await nextTick(); input.value?.focus()
+  scrollToActive()
 })
 </script>
 

@@ -44,7 +44,7 @@ export function normalizeAppearance(appearance: UIAppearance): UIAppearance {
   const materialMode = legacyMaterialMode(appearance)
   return {
     ...appearance,
-    terminalBackgroundMode: appearance.terminalBackgroundMode === 'independent' ? 'independent' : 'follow',
+    terminalBackgroundMode: 'follow',
     atmosphere,
     // Keep the old field as a mirror so older builds/scripts still read it.
     colorIntensity: atmosphere,

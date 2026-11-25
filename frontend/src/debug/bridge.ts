@@ -193,6 +193,7 @@ async function handle(req: DebugRequest): Promise<unknown> {
           uiScale: settings.uiScale,
           webGLEnabled: settings.webGLEnabled,
           tabBarPlacement: settings.tabBarPlacement,
+          settingsPlacement: settings.settingsPlacement,
           navSectionOrder: settings.navSectionOrder,
           rightClickAction: settings.rightClickAction,
           terminalFontSize: settings.fonts.terminalFontSize,

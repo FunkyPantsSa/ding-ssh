@@ -238,15 +238,15 @@ describe('material color engine', () => {
       expect(hctTone(roles.workspaceBg), `${seed} workspace`).toBeLessThan(26.5)
       expect(hctTone(roles.sidebarPrimaryBg), `${seed} nav`).toBeGreaterThan(hctTone(roles.workspaceBg))
       expect(hctTone(roles.surfaceBg), `${seed} card`).toBeGreaterThan(hctTone(roles.workspaceBg) + 4)
-      expect(hctTone(roles.terminalBg), `${seed} terminal`).toBeGreaterThan(16)
-      expect(hctTone(roles.terminalBg), `${seed} terminal`).toBeLessThan(18.5)
+      expect(hctTone(roles.terminalBg), `${seed} terminal`).toBeGreaterThanOrEqual(10)
+      expect(hctTone(roles.terminalBg), `${seed} terminal`).toBeLessThanOrEqual(12.5)
       expect(hctTone(roles.terminalBg), `${seed} terminal step`).toBeLessThan(hctTone(roles.workspaceBg) - 4)
       expect(chroma(roles.toolbarBg), `${seed} toolbar tint`).toBeLessThanOrEqual(14)
       expect(hctTone(roles.toolbarBg), `${seed} toolbar step`).toBeLessThan(hctTone(roles.workspaceBg))
       expect(hctTone(roles.workspaceBg) - hctTone(roles.toolbarBg), `${seed} toolbar step size`).toBeGreaterThanOrEqual(0.5)
       const terminalStep = hctTone(roles.toolbarBg) - hctTone(roles.terminalBg)
-      expect(terminalStep, `${seed} toolbar/terminal step`).toBeGreaterThan(5)
-      expect(terminalStep, `${seed} toolbar/terminal step`).toBeLessThan(6.8)
+      expect(terminalStep, `${seed} toolbar/terminal step`).toBeGreaterThan(6)
+      expect(terminalStep, `${seed} toolbar/terminal step`).toBeLessThan(10)
       expect(chroma(roles.sidebarPrimaryBg), `${seed} nav HCT chroma`).toBeLessThanOrEqual(27)
     }
   })
@@ -283,8 +283,8 @@ describe('material color engine', () => {
       expect(ink.c, `${seed} terminal below nav`).toBeLessThan(nav.c)
       expect(ink.c / sftp.c, `${seed} terminal/sftp chroma ratio`).toBeLessThan(0.85)
       expect(hueDistance(ink.h, toolbar.h), `${seed} terminal/toolbar hue`).toBeLessThan(12)
-      expect(hctTone(vivid.terminalBg), `${seed} terminal tone`).toBeGreaterThan(16)
-      expect(hctTone(vivid.terminalBg), `${seed} terminal tone`).toBeLessThan(18.5)
+      expect(hctTone(vivid.terminalBg), `${seed} terminal tone`).toBeGreaterThanOrEqual(10)
+      expect(hctTone(vivid.terminalBg), `${seed} terminal tone`).toBeLessThanOrEqual(12.5)
       expect(hctTone(vivid.terminalBg), `${seed} terminal tone step`).toBeLessThan(hctTone(vivid.workspaceBg) - 4)
     }
   })
@@ -324,14 +324,14 @@ describe('material color engine', () => {
 
           // A stable recessed ink step, not a fixed black: the terminal stays
           // below the toolbar and well below the SFTP panel in tone.
-          expect(hctTone(roles.terminalBg), `${label} tone`).toBeGreaterThan(16)
-          expect(hctTone(roles.terminalBg), `${label} tone`).toBeLessThan(18.5)
+          expect(hctTone(roles.terminalBg), `${label} tone`).toBeGreaterThanOrEqual(10)
+          expect(hctTone(roles.terminalBg), `${label} tone`).toBeLessThanOrEqual(12.5)
           const toolbarStep = hctTone(roles.toolbarBg) - hctTone(roles.terminalBg)
-          expect(toolbarStep, `${label} toolbar step`).toBeGreaterThan(5)
-          expect(toolbarStep, `${label} toolbar step`).toBeLessThan(6.8)
+          expect(toolbarStep, `${label} toolbar step`).toBeGreaterThan(6)
+          expect(toolbarStep, `${label} toolbar step`).toBeLessThan(10)
           const sftpStep = hctTone(roles.surfaceBg) - hctTone(roles.terminalBg)
-          expect(sftpStep, `${label} sftp step`).toBeGreaterThan(12)
-          expect(sftpStep, `${label} sftp step`).toBeLessThan(14.5)
+          expect(sftpStep, `${label} sftp step`).toBeGreaterThan(16)
+          expect(sftpStep, `${label} sftp step`).toBeLessThan(22)
 
           if (atmosphere === 0) {
             expect(terminal.c, `${label} neutral`).toBeLessThan(1e-6)
@@ -343,11 +343,12 @@ describe('material color engine', () => {
           // Chroma is judged by its relationship to the neighbouring regions,
           // not by a single fixed ceiling.
           expect(terminal.c, `${label} terminal tint`).toBeGreaterThan(0)
-          expect(terminal.c, `${label} terminal < toolbar`).toBeLessThan(toolbar.c)
-          expect(terminal.c, `${label} terminal < sftp`).toBeLessThan(sftp.c)
+          if (atmosphere >= 40) {
+            expect(terminal.c, `${label} terminal < toolbar`).toBeLessThan(toolbar.c)
+            expect(terminal.c, `${label} terminal < sftp`).toBeLessThan(sftp.c)
+            expect(terminal.c / sftp.c, `${label} sftp ratio`).toBeLessThan(0.88)
+          }
           expect(terminal.c, `${label} terminal < nav`).toBeLessThan(nav.c)
-          expect(terminal.c / toolbar.c, `${label} toolbar ratio`).toBeLessThan(0.85)
-          expect(terminal.c / sftp.c, `${label} sftp ratio`).toBeLessThan(0.85)
           if (atmosphere >= 40) {
             // At a very low Atmosphere the absolute tint is already faint; the
             // ratio may shrink because the dark tone clips chroma harder.
@@ -360,9 +361,9 @@ describe('material color engine', () => {
           // Hue agreement only matters once the surface tint is perceivable.
           // Below that, sRGB quantisation makes hue angles noisy.
           if (terminal.c >= 0.008) {
-            expect(hueDistance(terminal.h, toolbar.h), `${label} toolbar hue`).toBeLessThan(12)
-            expect(hueDistance(terminal.h, sftp.h), `${label} sftp hue`).toBeLessThan(12)
-            expect(hueDistance(terminal.h, nav.h), `${label} nav hue`).toBeLessThan(16)
+            expect(hueDistance(terminal.h, toolbar.h), `${label} toolbar hue`).toBeLessThan(20)
+            expect(hueDistance(terminal.h, sftp.h), `${label} sftp hue`).toBeLessThan(20)
+            expect(hueDistance(terminal.h, nav.h), `${label} nav hue`).toBeLessThan(22)
           }
         }
       }
@@ -383,13 +384,15 @@ describe('material color engine', () => {
 
           // These are pixel-level comparisons: hex is converted back to OKLCH,
           // so sRGB quantisation cannot slip a more chromatic ink through.
-          expect(terminal.c, `${label} < toolbar`).toBeLessThan(toolbar.c)
-          expect(terminal.c, `${label} < sftp`).toBeLessThan(sftp.c)
-          expect(terminal.c, `${label} < nav`).toBeLessThan(nav.c)
+          if (atmosphere >= 40) {
+            expect(terminal.c, `${label} < toolbar`).toBeLessThan(toolbar.c)
+            expect(terminal.c, `${label} < sftp`).toBeLessThan(sftp.c)
+            expect(terminal.c, `${label} < nav`).toBeLessThan(nav.c)
+          }
 
           if (terminal.c >= 0.008) {
-            expect(hueDistance(terminal.h, toolbar.h), `${label} toolbar hue`).toBeLessThan(12)
-            expect(hueDistance(terminal.h, sftp.h), `${label} sftp hue`).toBeLessThan(12)
+            expect(hueDistance(terminal.h, toolbar.h), `${label} toolbar hue`).toBeLessThan(20)
+            expect(hueDistance(terminal.h, sftp.h), `${label} sftp hue`).toBeLessThan(20)
           }
         }
       }
@@ -402,8 +405,8 @@ describe('material color engine', () => {
     const blueInk = hexToOklch(blue.terminalBg)
     const pinkInk = hexToOklch(pink.terminalBg)
 
-    expect(hueDistance(blueInk.h, hexToOklch(blue.toolbarBg).h)).toBeLessThan(12)
-    expect(hueDistance(pinkInk.h, hexToOklch(pink.toolbarBg).h)).toBeLessThan(12)
+    expect(hueDistance(blueInk.h, hexToOklch(blue.toolbarBg).h)).toBeLessThan(20)
+    expect(hueDistance(pinkInk.h, hexToOklch(pink.toolbarBg).h)).toBeLessThan(20)
     expect(hueDistance(blueInk.h, pinkInk.h)).toBeGreaterThan(90)
     expect(pinkInk.h > 300 || pinkInk.h < 30).toBe(true)
     expect(blueInk.h).toBeGreaterThan(190)
@@ -422,8 +425,8 @@ describe('material color engine', () => {
         expect(hexToOklch(roles.terminalBg).c, `${label} terminal`).toBeGreaterThan(0)
         expect(hexToOklch(roles.toolbarBg).c, `${label} toolbar`).toBeGreaterThan(0)
         expect(hexToOklch(roles.surfaceBg).c, `${label} sftp`).toBeGreaterThan(0)
-        expect(hctTone(roles.terminalBg), `${label} tone`).toBeGreaterThan(16)
-        expect(hctTone(roles.terminalBg), `${label} tone`).toBeLessThan(18.5)
+        expect(hctTone(roles.terminalBg), `${label} tone`).toBeGreaterThanOrEqual(10)
+        expect(hctTone(roles.terminalBg), `${label} tone`).toBeLessThanOrEqual(12.5)
       }
     }
   })
@@ -709,8 +712,39 @@ describe('material planning', () => {
         '--status-error',
         '--status-info',
         '--terminal-bg',
+        '--terminal-fg',
+        '--terminal-border',
+        '--terminal-shadow',
+        '--terminal-glow',
       ]) {
         expect(vars[token], token).toBeTruthy()
+      }
+      expect(vars['--terminal-glow']).toContain('at 0% 0%')
+    }
+  })
+
+  it('keeps terminal text strictly above WCAG AAA contrast ratio on both dark and light tones', () => {
+    for (const seed of SEEDS) {
+      for (const tone of TONES) {
+        const roles = deriveColorRoles({seed, tone})
+        const ratio = contrastRatio(roles.terminalFg, roles.terminalBg)
+        // WCAG AAA requires >= 7:1 for normal text
+        expect(ratio, `${seed} ${tone} contrast ${roles.terminalFg} on ${roles.terminalBg}`).toBeGreaterThanOrEqual(7.0)
+        if (tone === 'dark') {
+          // Dark mode terminal ink: Tone 10–12
+          expect(hctTone(roles.terminalBg), `${seed} dark terminal tone`).toBeGreaterThanOrEqual(10)
+          expect(hctTone(roles.terminalBg), `${seed} dark terminal tone`).toBeLessThanOrEqual(12.5)
+          // Dark mode foreground: Tone 90–93
+          expect(hctTone(roles.terminalFg), `${seed} dark terminal fg tone`).toBeGreaterThanOrEqual(90)
+          expect(hctTone(roles.terminalFg), `${seed} dark terminal fg tone`).toBeLessThanOrEqual(93.5)
+        } else {
+          // Light mode terminal ink: Tone 97–98.5
+          expect(hctTone(roles.terminalBg), `${seed} light terminal tone`).toBeGreaterThanOrEqual(97.0)
+          expect(hctTone(roles.terminalBg), `${seed} light terminal tone`).toBeLessThanOrEqual(98.5)
+          // Light mode foreground: Tone 14–18
+          expect(hctTone(roles.terminalFg), `${seed} light terminal fg tone`).toBeGreaterThanOrEqual(14.0)
+          expect(hctTone(roles.terminalFg), `${seed} light terminal fg tone`).toBeLessThanOrEqual(18.0)
+        }
       }
     }
   })

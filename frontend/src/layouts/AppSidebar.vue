@@ -23,6 +23,7 @@ const settings = useSettingsStore()
 const ui = useUIStore()
 
 const sideTabs = computed(() => settings.tabBarPlacement === 'side' && sessions.tabs.length > 0)
+const settingsPlacement = computed(() => settings.settingsPlacement === 'bottom' ? 'bottom' : 'sidebar')
 // 左侧导航区段（导航 / 会话 / 标签页）按用户配置的顺序渲染；「标签页」仅在侧栏模式下存在
 const navSections = computed<NavSectionKey[]>(() => {
   const order = settings.navSectionOrder.split(',').filter(Boolean) as NavSectionKey[]
@@ -150,6 +151,18 @@ function onBrandClick() {
             <Icon name="tunnel" :size="15" extra-class="nav-ico" />
             <span class="nav-text">{{ $t('隧道') }}</span>
           </button>
+          <button
+            v-if="settingsPlacement === 'sidebar'"
+            class="nav-item"
+            data-ui="nav-item-settings"
+            :class="ui.view === 'settings' ? 'active' : ''"
+            :aria-current="ui.view === 'settings' ? 'page' : undefined"
+            :title="$t('设置')"
+            @click="ui.showSettings()"
+          >
+            <Icon name="settings" :size="15" extra-class="nav-ico" />
+            <span class="nav-text">{{ $t('设置') }}</span>
+          </button>
         </template>
 
         <template v-else-if="sec === 'sessions'">
@@ -165,6 +178,15 @@ function onBrandClick() {
             <Icon name="panel-left" :size="15" extra-class="nav-ico" />
             <span class="nav-text">{{ $t('快速连接') }}</span>
           </button>
+          <button
+            class="nav-item"
+            data-ui="nav-item-new-server"
+            :title="$t('新建服务器')"
+            @click="ui.requestNewServer()"
+          >
+            <Icon name="plus" :size="15" extra-class="nav-ico" />
+            <span class="nav-text">{{ $t('新建服务器') }}</span>
+          </button>
         </template>
 
         <!-- 标签页并入左侧导航：纵向列表，与顶部标签栏互斥 -->
@@ -174,14 +196,14 @@ function onBrandClick() {
       </section>
     </nav>
 
-    <div v-if="!visuallyCollapsed" class="nav-foot-capsule">
-      <button class="nav-foot-link" :class="ui.view === 'settings' ? 'active' : ''" @click="ui.showSettings()" :title="$t('设置')">
+    <div v-if="settingsPlacement === 'bottom' && !visuallyCollapsed" class="nav-foot-capsule">
+      <button class="nav-foot-link" data-ui="nav-item-settings-bottom" :class="ui.view === 'settings' ? 'active' : ''" @click="ui.showSettings()" :title="$t('设置')">
         <Icon name="settings" :size="13" />
         <span>{{ $t('设置') }}</span>
       </button>
     </div>
 
-    <div v-if="visuallyCollapsed" class="nav-foot">
+    <div v-if="settingsPlacement === 'bottom' && visuallyCollapsed" class="nav-foot">
       <button
         class="nav-item"
         data-ui="nav-item-settings"

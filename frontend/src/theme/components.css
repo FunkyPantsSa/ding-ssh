@@ -12,17 +12,10 @@
   --secondary-nav-bg: var(--sidebar-secondary-bg);
   --topbar-bg: var(--toolbar-bg);
   --statusbar-bg: var(--toolbar-bg);
-  --workspace-bg: var(--workspace-bg);
+  --app-workspace-bg: var(--workspace-bg);
   --card-bg: var(--surface-bg);
   --card-raised-bg: var(--surface-raised-bg);
   --context-panel-bg: var(--surface-overlay-bg);
   --dialog-bg: var(--surface-overlay-bg);
   --terminal-surface-bg: var(--terminal-bg);
-
-  /* Legacy hairlines used by the shell styles. */
-  --line: var(--border-subtle);
-  --line-strong: var(--border-default);
-  --line-faint: var(--border-subtle);
-  --surface-hi: var(--interactive-hover-bg);
-  --surface-border: var(--border-subtle);
 }

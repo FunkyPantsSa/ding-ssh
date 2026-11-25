@@ -1479,5 +1479,9 @@
   "当前字体可离线使用，无需下载。": "These fonts are available offline. No download is required.",
   "字体下载失败，暂用内置字体；可点击重试。": "Font download failed. Using bundled fonts for now; click to retry.",
   "字体已就绪；下次优先使用本地缓存。": "Fonts are ready. The local cache will be used first next time.",
-  "重试下载": "Retry download"
+  "重试下载": "Retry download",
+  "设置按钮位置": "Settings button position",
+  "侧边栏": "Sidebar",
+  "左下方": "Bottom-left",
+  "默认「侧边栏」：设置入口显示在左侧导航栏内；「左下方」：显示在侧边栏底部状态栏区域。": "Default \"Sidebar\": places Settings inside the left navigation section; \"Bottom-left\": places it in the bottom footer strip."
 }

@@ -1,7 +1,6 @@
 import {computed, onScopeDispose, ref, watch} from 'vue'
 import {
   applyRootTheme,
-  clearRootTheme,
   computeTheme,
   detectCapabilities,
   writeThemeCache,
@@ -45,12 +44,33 @@ export function useTheme(settings: {
   // CSS application is synchronous; persisting a ~5 KB cache on every slider
   // tick would be wasteful. Debounce only the storage write.
   let cacheTimer: ReturnType<typeof setTimeout> | undefined
-  function scheduleCache(nextTone: Tone, theme: ReturnType<typeof computeTheme>) {
+  let pendingCache: {nextTone: Tone; theme: ReturnType<typeof computeTheme>} | undefined
+
+  function flushCache() {
+    if (cacheTimer) {
+      clearTimeout(cacheTimer)
+      cacheTimer = undefined
+    }
+    if (pendingCache) {
+      writeThemeCache(pendingCache.nextTone, pendingCache.theme)
+      pendingCache = undefined
+    }
+  }
+
+  function scheduleCache(nextTone: Tone, theme: ReturnType<typeof computeTheme>, immediate = false) {
+    pendingCache = {nextTone, theme}
+    if (immediate) {
+      flushCache()
+      return
+    }
     if (cacheTimer) clearTimeout(cacheTimer)
     cacheTimer = setTimeout(() => {
-      cacheTimer = undefined
-      writeThemeCache(nextTone, theme)
+      flushCache()
     }, 150)
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', flushCache)
   }
 
   watch(
@@ -64,9 +84,11 @@ export function useTheme(settings: {
   )
 
   onScopeDispose(() => {
-    if (cacheTimer) clearTimeout(cacheTimer)
-    clearRootTheme()
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('beforeunload', flushCache)
+    }
+    flushCache()
   })
 
-  return {tone, cssVars, capabilities, onSchemeChange, refreshCapabilities}
+  return {tone, cssVars, capabilities, onSchemeChange, refreshCapabilities, flushCache}
 }

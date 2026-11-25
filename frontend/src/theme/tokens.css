@@ -22,13 +22,6 @@
   --red-600: #dc2626;
   --red-500: #ef4444;
 
-  --shadow-overlay: 0 8px 24px rgb(0 0 0 / 20%);
-  --chart-compute: #60a5fa;
-  --chart-system: #a78bfa;
-  --chart-io: #fbbf24;
-  --chart-steal: #fb7185;
-  --chart-nice: #2dd4bf;
-  --chart-hardirq: #f97316;
   --chart-softirq: #e879f9;
   --chart-idle: #64748b;
 
@@ -63,8 +56,6 @@
   --glass-blur-md: 24px;
   --glass-blur-lg: 32px;
   --glass-saturate: 160%;
-  --shadow-canvas: 0 16px 40px -8px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  --shadow-floating: 0 20px 48px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
 
   /* Type scale. */
   --text-2xs: 11px;
@@ -100,7 +91,49 @@
   --qconn-w: 288px;
   --tool-w: 340px;
   --ui-zoom: 1;
-  /* Legacy dimension aliases. */
-  --rail-w: 56px;
-  --title-h: 48px;
+
+  /* Unified Z-Index Hierarchy (Ordered Scale) */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-header: 20;
+  --z-sidebar: 30;
+  --z-drawer: 40;
+  --z-dropdown: 50;
+  --z-popover: 60;
+  --z-command: 70;
+  --z-modal: 80;
+  --z-toast: 90;
+  --z-tooltip: 100;
+  --z-max: 9999;
+}
+
+/* System Accessibility: Reduced Motion & Reduced Transparency */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms !important;
+    --duration-base: 0ms !important;
+    --duration-slow: 0ms !important;
+    --dur: 0ms !important;
+    --dur-slow: 0ms !important;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-shell-blur: 0px !important;
+    --glass-overlay-blur: 0px !important;
+    --glass-opacity: 100% !important;
+    --glass-blur-sm: 0px !important;
+    --glass-blur-md: 0px !important;
+    --glass-blur-lg: 0px !important;
+  }
+  :is(.app-shell, .nav, .tool, .workspace, .topbar, .statusbar, .ui-dialog, .menu-pop, .qconn) {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
 }

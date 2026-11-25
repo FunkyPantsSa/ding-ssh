@@ -60,7 +60,7 @@ import {remoteFontStatus} from '../theme/remote-fonts'
 import {systemTone} from '../composables/useSystemTone'
 import {ClipboardGetText} from '../services/desktop'
 import {LogClient, SetLogTrace} from '../../bindings/ding-ssh/internal/apphost/app'
-import {effectiveBrand, monoFontStack, readableOn, rgba, resolveTerminalForeground, resolveTerminalSurface, terminalAccentColor} from '../theme/engine'
+import {effectiveBrand, isManagedTerminalBackground, monoFontStack, readableOn, rgba, resolveTerminalForeground, resolveTerminalSurface, terminalAccentColor, terminalForegroundColor, terminalSurfaceColor} from '../theme/engine'
 import {presetById, resolveActiveTerminalPalette} from '../theme/presets'
 import {recordRecentServer} from '../services/recent'
 import type {SessionTab} from '../types'
@@ -221,33 +221,34 @@ const bgImageStyle = computed(() => {
   }
 })
 
-const followsAppTheme = computed(
-  () => !settings.theme.bgImage && (
-    settings.appearance.terminalBackgroundMode !== 'independent' ||
-    (settings.appearance.presetId?.startsWith('arc-') ?? false)
-  ),
-)
+const followsAppTheme = computed(() => !settings.theme.bgImage)
 const appTone = computed(() => settings.appearance.baseTone === 'auto' ? systemTone.value : settings.appearance.baseTone)
 const terminalTone = computed(() => appTone.value)
 const terminalBackground = computed(() => {
   const isLight = terminalTone.value === 'light'
-  
-  if (followsAppTheme.value) {
-    const pal = resolveActiveTerminalPalette(settings.appearance, terminalTone.value)
-    return pal.background
+  const seed = effectiveBrand(settings.appearance).primary
+  const atmo = settings.appearance.atmosphere ?? settings.appearance.colorIntensity ?? 75
+  const sep = settings.appearance.surfaceSeparation ?? 65
+  const dynamicBg = terminalSurfaceColor(seed, terminalTone.value, atmo, sep)
+
+  if (settings.theme.bgImage) {
+    return settings.theme.background
   }
 
-  // Independent mode guard:
-  // If independent theme background is dark (readableOn === '#ffffff') while the app is in light mode,
-  // prevent a pitch-black void by falling back to the preset's light background.
-  const p = presetById(settings.appearance.presetId)
-  if (isLight && readableOn(settings.theme.background) === '#ffffff') {
-    return p ? p.light.background : '#fdf7fa'
+  // Preserve user custom background if explicitly unmanaged
+  if (!isManagedTerminalBackground(settings.theme.background, seed, terminalTone.value)) {
+    const isDarkBg = readableOn(settings.theme.background) === '#ffffff'
+    // If the unmanaged custom background tone clashes with app mode, protect contrast
+    if (isLight && isDarkBg) {
+      return dynamicBg
+    }
+    if (!isLight && !isDarkBg) {
+      return dynamicBg
+    }
+    return settings.theme.background
   }
-  if (!isLight && readableOn(settings.theme.background) === '#18181b') {
-    return p ? p.dark.background : '#120e16'
-  }
-  return settings.theme.background
+
+  return dynamicBg
 })
 const terminalAccent = computed(() =>
   terminalAccentColor(
@@ -286,13 +287,18 @@ function applyTheme() {
   // terminal translucent. Glass material never lowers terminal opacity.
   term.options.allowTransparency = !!t.bgImage
   const follow = followsAppTheme.value
-  const isLight = terminalTone.value === 'light'
-  const p = presetById(settings.appearance.presetId)
-  const pal = follow ? resolveActiveTerminalPalette(settings.appearance, terminalTone.value) : (p ? (isLight ? p.light : p.dark) : null)
+  const tone = terminalTone.value
+  const isLight = tone === 'light'
+  const seed = effectiveBrand(settings.appearance).primary
+  const atmo = settings.appearance.atmosphere ?? settings.appearance.colorIntensity ?? 75
+  const sep = settings.appearance.surfaceSeparation ?? 65
+  const pal = resolveActiveTerminalPalette(settings.appearance, tone)
 
   const cursor = pal ? pal.cursor : (follow ? terminalAccent.value : t.cursor)
   const selectionBackground = pal ? pal.selection : (follow ? rgba(terminalAccent.value, 0.28) : t.selection)
-  const foreground = pal ? pal.foreground : resolveTerminalForeground(follow, t.foreground, background)
+  const foreground = (!isManagedTerminalBackground(t.background, seed, tone) && !follow)
+    ? resolveTerminalForeground(false, t.foreground, background)
+    : (pal ? pal.foreground : terminalForegroundColor(seed, tone, atmo, sep))
 
   const ansi = pal ? pal.ansi : [t.black, t.red, t.green, t.yellow, t.blue, t.magenta, t.cyan, t.white]
   const bright = pal ? pal.bright : [t.brightBlack, t.brightRed, t.brightGreen, t.brightYellow, t.brightBlue, t.brightMagenta, t.brightCyan, t.brightWhite]
@@ -321,6 +327,8 @@ function applyTheme() {
     brightWhite: bright[7],
   }
   term.refresh(0, term.rows - 1)
+  atlasEntry.invalidateModel()
+  atlasEntry.refresh()
 }
 
 function applyFontSettings() {
@@ -1244,7 +1252,14 @@ onMounted(() => {
 })
 
 watch(
-  () => [settings.theme, terminalBackground.value, followsAppTheme.value, terminalAccent.value, terminalTone.value],
+  () => [
+    settings.theme,
+    settings.appearance,
+    terminalBackground.value,
+    followsAppTheme.value,
+    terminalAccent.value,
+    terminalTone.value,
+  ],
   () => {
     // Update xterm options only. The Terminal instance, SSH session, scroll
     // position, input buffer and viewport size are never recreated here.

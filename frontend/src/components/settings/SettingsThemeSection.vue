@@ -12,7 +12,6 @@ import {MATERIAL_OPTIONS, TONE_OPTIONS, useSettingsAppearance} from '../../compo
 import {systemTone} from '../../composables/useSystemTone'
 import type {UIAppearance} from '../../types'
 import {useSettingsStore} from '../../stores/settings'
-import {PRESETS, paletteToTheme, resolveActiveTerminalPalette} from '../../theme/presets'
 import {detectCapabilities, hexToRgb, monoFontStack} from '../../theme/engine'
 import {TERMINAL_FONT_SCHEMES, loadTerminalFonts, fontPair, encodeFontPair} from '../../theme/terminal-fonts'
 import {customFontSizes, formatFontSize, customFontChinese, customFonts, importCustomFont, restoreCustomFonts, removeCustomFont} from '../../theme/custom-fonts'
@@ -48,15 +47,7 @@ const materialFallback = computed(() => (appearanceForm.materialMode ?? 'solid')
 const currentMaterial = computed(() => appearanceForm.materialMode ?? (appearanceForm.glassEnabled ? 'soft' : 'solid'))
 async function handleToneChange(key: UIAppearance['baseTone']) {
   await setTone(key)
-  const tone = key === 'auto' ? (systemTone.value === 'light' ? 'light' : 'dark') : key
-  const pal = resolveActiveTerminalPalette(appearanceForm, tone)
-  Object.assign(themeForm, paletteToTheme(pal))
 }
-
-watch(currentTone, (newTone) => {
-  const pal = resolveActiveTerminalPalette(appearanceForm, newTone)
-  Object.assign(themeForm, paletteToTheme(pal))
-})
 
 const PRESET_COLORS = [
   {get name() { return t("黑白") }, color: '#A3A3A3'},
