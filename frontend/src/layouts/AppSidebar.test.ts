@@ -1,7 +1,7 @@
 import {mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 import {reactive} from 'vue'
-const mockSettings = reactive({tabBarPlacement: 'top', settingsPlacement: 'sidebar', navSectionOrder: 'nav,sessions,tabs'})
+const mockSettings = reactive({tabBarPlacement: 'top', settingsPlacement: 'bottom', navSectionOrder: 'nav,sessions,tabs'})
 vi.mock('@/stores/servers', () => ({useServersStore: () => ({servers: []})}))
 vi.mock('@/stores/sessions', () => ({useSessionsStore: () => ({tabs: []})}))
 vi.mock('@/stores/settings', () => ({useSettingsStore: () => mockSettings}))
@@ -10,7 +10,7 @@ vi.mock('@/stores/ui', () => ({useUIStore: () => mockUI}))
 import AppSidebar from './AppSidebar.vue'
 afterEach(() => {
   vi.useRealTimers()
-  mockSettings.settingsPlacement = 'sidebar'
+  mockSettings.settingsPlacement = 'bottom'
 })
 function sidebar() {
  return mount(AppSidebar, {props: {collapsed: true, onlineCount: 0}, global: {stubs: {Icon: true, TabBar: true}}})
@@ -36,14 +36,14 @@ describe('sidebar hover preview', () => {
   await view.get('[aria-label="固定展开导航"]').trigger('click')
   expect(view.emitted('update:collapsed')).toEqual([[false]]); view.unmount()
  })
- it('renders settings in the sidebar by default and switches to bottom when configured', async () => {
+ it('keeps settings at the bottom by default and honors an explicit navigation placement', async () => {
   const expanded = mount(AppSidebar, {props: {collapsed: false, onlineCount: 0}, global: {stubs: {Icon: true, TabBar: true}}})
-  expect(expanded.find('.nav-body [data-ui="nav-item-settings"]').exists()).toBe(true)
-  expect(expanded.find('.nav-foot-capsule').exists()).toBe(false)
-  mockSettings.settingsPlacement = 'bottom'
-  await expanded.vm.$nextTick()
   expect(expanded.find('.nav-body [data-ui="nav-item-settings"]').exists()).toBe(false)
   expect(expanded.find('.nav-foot-capsule [data-ui="nav-item-settings-bottom"]').exists()).toBe(true)
+  mockSettings.settingsPlacement = 'sidebar'
+  await expanded.vm.$nextTick()
+  expect(expanded.find('.nav-body [data-ui="nav-item-settings"]').exists()).toBe(true)
+  expect(expanded.find('.nav-foot-capsule').exists()).toBe(false)
   expanded.unmount()
  })
  it('triggers new server creation from the sidebar navigation', async () => {

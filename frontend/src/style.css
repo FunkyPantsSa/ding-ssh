@@ -146,6 +146,7 @@ html[data-tone="light"][data-preset="arc-sunset"] {
 }
 .app-shell.platform-windows { padding-top: 0; }
 .window-drag-region {
+  position: relative;
   height: 32px;
   min-height: 32px;
   display: flex !important;
@@ -160,6 +161,10 @@ html[data-tone="light"][data-preset="arc-sunset"] {
   flex-shrink: 0;
   user-select: none;
 }
+.window-drag-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
+.window-drag-title > span { overflow: hidden; text-overflow: ellipsis; }
+.window-drag-status { flex-shrink: 0; height: 100%; }
+.platform-windows .window-drag-region { padding-right: 0; gap: 12px; }
 .platform-macos .window-drag-region {
   display: flex !important;
   padding-left: 78px;
@@ -283,20 +288,25 @@ html[data-glass="on"]:not([data-tone="light"]) .nav {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: var(--space-3);
+  padding: var(--space-2);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2); /* 区段（导航 / 会话 / 标签页）之间的间距 */
+  gap: 6px;
 }
 /* 左侧导航区段：导航项使用统一的 4px 节奏。 */
 .nav-sec {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: var(--space-1);
   min-height: 0;
 }
+.nav-sec + .nav-sec {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 6px;
+}
 .nav-label {
-  padding: 14px 8px 6px;
+  padding: 8px 8px 4px;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.14em;
@@ -308,8 +318,9 @@ html[data-glass="on"]:not([data-tone="light"]) .nav {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 34px;
+  gap: 8px;
+  height: 32px;
+  flex-shrink: 0;
   padding: 0 8px;
   border-radius: var(--radius-nav-active);
   font-size: 13px;
@@ -341,15 +352,15 @@ html[data-glass="on"]:not([data-tone="light"]) .nav {
   background: var(--hover);
 }
 .nav-foot {
-  height: var(--status-h);
-  padding: 0 var(--space-3);
+  min-height: 44px;
+  padding: 6px var(--space-2);
   box-shadow: inset 0 1px 0 var(--line);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   flex-shrink: 0;
 }
-.nav-foot .nav-item { height: var(--status-h); font-size: 12px; }
+.nav-foot .nav-item { height: 32px; }
 .nav-foot .nav-ico { width: 14px; height: 14px; }
 /* 收起态：仅图标 */
 .nav-collapsed .nav-brand { justify-content: center; padding: 0; }
@@ -374,8 +385,25 @@ html[data-glass="on"]:not([data-tone="light"]) .nav {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 8px 4px;
+  padding: 0 8px;
+  min-height: 26px;
+  letter-spacing: 0;
+  text-transform: none;
 }
+.side-tab-add {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+}
+.side-tab-add:hover { background: var(--interactive-hover-bg); color: var(--foreground); }
+.side-tab-name { display: flex; align-items: baseline; }
+.side-tab-name-prefix { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.side-tab-name-suffix { flex-shrink: 0; }
 .side-tabs-fill { flex: 1 1 auto; min-height: 16px; }
 .side-tab {
   border: 1px solid transparent;
@@ -402,26 +430,6 @@ html[data-tone="light"] .nav-label {
   color: #71717a !important;
   font-weight: 600 !important;
 }
-.side-tab-new {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  margin-top: 4px;
-  border-radius: var(--radius-control, 10px);
-  border: 1px dashed var(--glass-border-strong);
-  color: var(--text-muted);
-  font-size: 11.5px;
-  cursor: pointer;
-  transition: all var(--dur-base) var(--ease);
-}
-.side-tab-new:hover {
-  background: var(--interactive-hover-bg);
-  border-color: var(--arc-active-tab-border, var(--accent-border));
-  color: var(--text-primary);
-}
 .side-tab .side-dot {
   width: 15px;
   height: 15px;
@@ -432,6 +440,7 @@ html[data-tone="light"] .nav-label {
 .side-initial { display: none; }
 .side-tab .tab-close {
   width: 16px; height: 16px;
+  flex-shrink: 0;
   border-radius: 4px;
   display: grid; place-items: center;
   opacity: 0;
@@ -446,7 +455,7 @@ html[data-tone="light"] .nav-label {
 .side-tab.drop-after { box-shadow: inset 0 -2px 0 var(--primary-hover); }
 .nav-collapsed .side-tab .side-dot,
 .nav-collapsed .side-tab .tab-close,
-.nav-collapsed .side-tab-new { display: none; }
+.nav-collapsed .side-tab-add { display: none; }
 .nav-collapsed .side-initial { display: block; font-size: 12px; font-weight: 600; }
 
 /* ============================================================
@@ -1730,8 +1739,8 @@ html[data-tone="light"] .status-bar {
   overflow: hidden;
 }
 
-.window-controls{position:absolute;right:0;top:0;bottom:0;width:max-content;display:flex;justify-content:flex-end;height:100%;margin-left:auto;--wails-draggable:no-drag}
-.window-controls button{width:42px;height:100%;color:var(--text-primary);font-size:16px;--wails-draggable:no-drag}
+.window-controls{position:static;display:flex;align-self:stretch;flex-shrink:0;height:100%;--wails-draggable:no-drag;-webkit-app-region:no-drag}
+.window-controls button{display:grid;place-items:center;width:46px;height:100%;padding:0;flex-shrink:0;color:var(--text-primary);--wails-draggable:no-drag;-webkit-app-region:no-drag}
 .window-controls button:hover{background:var(--interactive-hover-bg)}
 .window-controls button:last-child:hover{background:var(--status-error);color:var(--destructive-foreground)}
 

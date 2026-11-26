@@ -113,6 +113,8 @@
   "工作区": "Workspace",
   "命令执行失败": "Command failed",
   "最小化": "Minimize",
+  "已连接 {0} 台节点": "{0} nodes connected",
+  "默认「左下方」：设置入口固定在侧边栏底部；也可以选择显示在导航列表内。": "By default, Settings stays at the bottom of the sidebar. You can also place it in the navigation list.",
   "最大化或还原": "Maximize or restore",
   "关闭窗口": "Close window",
   "导航栏": "Navigation",

@@ -807,7 +807,7 @@ export class Settings {
     "tabBarPlacement": string;
 
     /**
-     * 设置按钮位置：sidebar 左侧导航栏（默认）| bottom 左下方底栏
+     * 设置按钮位置：sidebar 左侧导航栏 | bottom 左下方底栏（默认）
      */
     "settingsPlacement": string;
 

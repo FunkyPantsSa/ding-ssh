@@ -81,8 +81,8 @@ func TestJSONSettingsStoreSettingsPlacementDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取设置失败: %v", err)
 	}
-	if got.SettingsPlacement != models.SettingsPlacementSidebar {
-		t.Fatalf("旧配置缺省设置按钮位置 = %q，期望 %q", got.SettingsPlacement, models.SettingsPlacementSidebar)
+	if got.SettingsPlacement != models.SettingsPlacementBottom {
+		t.Fatalf("旧配置缺省设置按钮位置 = %q，期望 %q", got.SettingsPlacement, models.SettingsPlacementBottom)
 	}
 }
 
@@ -381,11 +381,11 @@ func TestSQLiteSettingsStoreSettingsPlacement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取设置失败: %v", err)
 	}
-	if settings.SettingsPlacement != models.SettingsPlacementSidebar {
-		t.Fatalf("默认设置按钮位置 = %q，期望 %q", settings.SettingsPlacement, models.SettingsPlacementSidebar)
+	if settings.SettingsPlacement != models.SettingsPlacementBottom {
+		t.Fatalf("默认设置按钮位置 = %q，期望 %q", settings.SettingsPlacement, models.SettingsPlacementBottom)
 	}
 
-	settings.SettingsPlacement = models.SettingsPlacementBottom
+	settings.SettingsPlacement = models.SettingsPlacementSidebar
 	if err := s.Save(settings); err != nil {
 		t.Fatalf("保存设置失败: %v", err)
 	}
@@ -393,8 +393,8 @@ func TestSQLiteSettingsStoreSettingsPlacement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("重新读取设置失败: %v", err)
 	}
-	if reloaded.SettingsPlacement != models.SettingsPlacementBottom {
-		t.Fatalf("落库后的设置按钮位置 = %q，期望 %q", reloaded.SettingsPlacement, models.SettingsPlacementBottom)
+	if reloaded.SettingsPlacement != models.SettingsPlacementSidebar {
+		t.Fatalf("落库后的设置按钮位置 = %q，期望 %q", reloaded.SettingsPlacement, models.SettingsPlacementSidebar)
 	}
 
 	settings.SettingsPlacement = "invalid"
@@ -405,8 +405,8 @@ func TestSQLiteSettingsStoreSettingsPlacement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("重新读取设置失败: %v", err)
 	}
-	if fallback.SettingsPlacement != models.SettingsPlacementSidebar {
-		t.Fatalf("非法设置按钮位置 = %q，期望回落 %q", fallback.SettingsPlacement, models.SettingsPlacementSidebar)
+	if fallback.SettingsPlacement != models.SettingsPlacementBottom {
+		t.Fatalf("非法设置按钮位置 = %q，期望回落 %q", fallback.SettingsPlacement, models.SettingsPlacementBottom)
 	}
 }
 

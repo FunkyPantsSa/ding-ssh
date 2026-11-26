@@ -186,7 +186,7 @@ export interface Settings {
   // 上次关闭应用时仍在打开的服务器 ID 列表（按打开顺序，可重复 = 同一服务器开了多个标签）
   lastOpenServers: string[]
   tabBarPlacement: TabBarPlacement // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 side）
-  settingsPlacement: SettingsPlacement // 设置按钮位置：sidebar 左侧导航栏（默认）| bottom 左下方底栏
+  settingsPlacement: SettingsPlacement // 设置按钮位置：sidebar 左侧导航栏 | bottom 左下方底栏（默认）
   rightClickAction: RightClickAction // 终端鼠标右键行为：menu 打开选项栏（默认）| paste 直接粘贴
   navSectionOrder: NavSectionOrder // 左侧导航区段顺序：nav / sessions / tabs 的排列（默认 "nav,sessions,tabs"）
   terminalColorMode: TerminalColorMode // 终端输出语义着色：off 关 | auto 语义（默认）| vivid 语义 + 数值/路径强调

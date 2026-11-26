@@ -385,7 +385,7 @@ onBeforeUnmount(() => {
       <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
         <div class="min-w-0 flex-1 basis-64">
           <p class="text-sm font-medium text-slate-200">{{ $t('设置按钮位置') }}</p>
-          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('默认「侧边栏」：设置入口显示在左侧导航栏内；「左下方」：显示在侧边栏底部状态栏区域。') }}</p>
+          <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ $t('默认「左下方」：设置入口固定在侧边栏底部；也可以选择显示在导航列表内。') }}</p>
         </div>
         <div class="seg shrink-0 max-w-full flex-wrap">
           <button

@@ -82,7 +82,7 @@
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Cascadia Mono", monospace;
 
   /* Layout (runtime overrides --nav-w / --tool-w / --ui-zoom on <html>). */
-  --nav-w-expanded: 216px;
+  --nav-w-expanded: 188px;
   --nav-w-collapsed: 56px;
   --nav-w: var(--nav-w-expanded);
   --topbar-h: 38px;

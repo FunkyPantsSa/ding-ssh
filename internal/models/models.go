@@ -154,10 +154,10 @@ type Settings struct {
 	AutoLoginLastServer bool          `json:"autoLoginLastServer"`
 	LastOpenServers     []string      `json:"lastOpenServers"`
 	TabBarPlacement     string        `json:"tabBarPlacement"`   // 会话标签页位置：top 顶栏横向 | side 左侧导航纵向（默认 side）
-	SettingsPlacement   string        `json:"settingsPlacement"` // 设置按钮位置：sidebar 左侧导航栏（默认）| bottom 左下方底栏
+	SettingsPlacement   string        `json:"settingsPlacement"` // 设置按钮位置：sidebar 左侧导航栏 | bottom 左下方底栏（默认）
 	RightClickAction    string        `json:"rightClickAction"`  // 终端鼠标右键行为：menu 打开选项栏（默认）| paste 直接粘贴
-	NavSectionOrder     string        `json:"navSectionOrder"`  // 左侧导航区段顺序：nav / sessions / tabs 三键排列（默认 "nav,sessions,tabs"）
-	Debug               DebugSettings `json:"debug"`            // 调试模式（本地控制面，供 AI / 自动化调用）
+	NavSectionOrder     string        `json:"navSectionOrder"`   // 左侧导航区段顺序：nav / sessions / tabs 三键排列（默认 "nav,sessions,tabs"）
+	Debug               DebugSettings `json:"debug"`             // 调试模式（本地控制面，供 AI / 自动化调用）
 }
 
 // DebugSettings 调试模式：应用内置的本地控制面（HTTP + MCP），供 AI / 自动化调用。
@@ -386,12 +386,12 @@ const (
 	SettingsPlacementBottom  = "bottom"
 )
 
-// NormalizeSettingsPlacement 校验设置按钮位置取值，未知/空值一律回落「侧边栏」。
+// NormalizeSettingsPlacement 校验设置按钮位置取值，未知/空值一律回落「左下方」。
 func NormalizeSettingsPlacement(v string) string {
-	if v == SettingsPlacementBottom {
-		return SettingsPlacementBottom
+	if v == SettingsPlacementSidebar {
+		return SettingsPlacementSidebar
 	}
-	return SettingsPlacementSidebar
+	return SettingsPlacementBottom
 }
 
 // 终端鼠标右键行为取值（对应 Settings.RightClickAction）。

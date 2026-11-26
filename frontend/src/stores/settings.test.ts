@@ -95,6 +95,7 @@ describe('startup, close confirmation and motion preferences', () => {
     const store = useSettingsStore()
     await store.load()
     expect(store.autoStart).toBe(false)
+    expect(store.settingsPlacement).toBe('bottom')
     expect(store.confirmCloseTab).toBe(true)
     expect(store.confirmCloseApp).toBe(true)
     expect(store.smoothAnimations).toBe(false)
@@ -119,15 +120,15 @@ it('does not grant new MCP permissions while loading legacy settings', async () 
  expect(store.debug.trustedAutomation).toBe(false)
 })
 
-it('defaults settingsPlacement to sidebar and persists bottom placement', async () => {
+it('defaults settingsPlacement to bottom and persists an explicit sidebar placement', async () => {
  vi.mocked(settingsService.getSettings).mockResolvedValue({uiSchema: 4} as never)
  vi.mocked(settingsService.saveSettings).mockResolvedValue(undefined)
  const store = useSettingsStore()
  await store.load()
- expect(store.settingsPlacement).toBe('sidebar')
- await store.setSettingsPlacement('bottom')
  expect(store.settingsPlacement).toBe('bottom')
- expect(settingsService.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({settingsPlacement: 'bottom'}))
+ await store.setSettingsPlacement('sidebar')
+ expect(store.settingsPlacement).toBe('sidebar')
+ expect(settingsService.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({settingsPlacement: 'sidebar'}))
 })
 
 it('preserves independently granted credential use and write permissions without exporting secrets', async () => {

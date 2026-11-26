@@ -383,8 +383,8 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 		KeepAliveEnabled:     true,
 		// 登录后自动采集系统指标：默认开启（旧库缺键时同样补默认值）
 		SysInfoCollectEnabled: true,
-		TabBarPlacement:       "side", // 默认会话标签页放在左侧导航
-		SettingsPlacement:     models.SettingsPlacementSidebar, // 默认设置按钮放在左侧导航栏
+		TabBarPlacement:       "side",                         // 默认会话标签页放在左侧导航
+		SettingsPlacement:     models.SettingsPlacementBottom, // 默认设置按钮放在侧栏底部
 		RightClickAction:      models.RightClickMenu,
 		NavSectionOrder:       models.DefaultNavSectionOrder,
 		// 保持原有行为：新数据库默认语义着色；已有库缺键同样回落 auto。
@@ -508,10 +508,10 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 			logx.Warnf("[store] 设置项非法，标签页位置回落 side: key=tabBarPlacement value=%q", v)
 		}
 	}
-	// 设置按钮位置：旧库没有该键 → 保持默认「侧边栏」；非法值同样回落默认
+	// 设置按钮位置：旧库没有该键 → 保持默认「左下方」；非法值同样回落默认
 	if v, ok := values["settingsPlacement"]; ok {
 		if v != "" && models.NormalizeSettingsPlacement(v) != v {
-			logx.Warnf("[store] 设置项非法，设置按钮位置回落 sidebar: key=settingsPlacement value=%q", v)
+			logx.Warnf("[store] 设置项非法，设置按钮位置回落 bottom: key=settingsPlacement value=%q", v)
 		}
 		st.SettingsPlacement = models.NormalizeSettingsPlacement(v)
 	}
@@ -636,9 +636,9 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		}
 		st.TabBarPlacement = "side"
 	}
-	// 设置按钮位置：仅接受 sidebar / bottom，其余（含空值）落回默认「侧边栏」
+	// 设置按钮位置：仅接受 sidebar / bottom，其余（含空值）落回默认「左下方」
 	if raw := st.SettingsPlacement; raw != "" && models.NormalizeSettingsPlacement(raw) != raw {
-		logx.Warnf("[store] 保存设置时设置按钮位置非法，回落 sidebar: value=%q", raw)
+		logx.Warnf("[store] 保存设置时设置按钮位置非法，回落 bottom: value=%q", raw)
 	}
 	st.SettingsPlacement = models.NormalizeSettingsPlacement(st.SettingsPlacement)
 	// 右键行为：仅接受 menu / paste，其余（含空值）落回默认「打开选项栏」

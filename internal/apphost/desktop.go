@@ -25,6 +25,14 @@ func ConfigureDesktop(a *App, desktop *application.App, window *application.Webv
 	setupGlobalShortcut(a, desktop, window)
 	setupSystemEvents(a, desktop)
 
+	window.OnWindowEvent(events.Common.WindowFocus, func(event *application.WindowEvent) {
+		window.Flash(false)
+		if runtime.GOOS == "windows" && a.dock != nil {
+			// 连接数量不代表未读消息，清除旧版本留下的任务栏角标。
+			_ = a.dock.RemoveBadge()
+		}
+	})
+
 	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		if a.quitting.Load() {
 			return

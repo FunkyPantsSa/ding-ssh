@@ -79,8 +79,8 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 			KeepAliveEnabled:     true,
 			// 登录后自动采集系统指标：默认开启
 			SysInfoCollectEnabled: true,
-			TabBarPlacement:       "side", // 会话标签页默认放在左侧导航
-			SettingsPlacement:     models.SettingsPlacementSidebar, // 设置按钮默认放在左侧导航栏
+			TabBarPlacement:       "side",                         // 会话标签页默认放在左侧导航
+			SettingsPlacement:     models.SettingsPlacementBottom, // 设置按钮默认放在侧栏底部
 			RightClickAction:      models.RightClickMenu,
 			NavSectionOrder:       models.DefaultNavSectionOrder,
 			// 保持原有行为：新安装也默认语义着色；旧配置缺字段同样回落 auto。
@@ -158,9 +158,9 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 		}
 		settings.TabBarPlacement = "side"
 	}
-	// 设置按钮位置：旧配置没有该字段 → 默认「侧边栏」；非法值同样回落默认
+	// 设置按钮位置：旧配置没有该字段 → 默认「左下方」；非法值同样回落默认
 	if raw := settings.SettingsPlacement; raw != "" && models.NormalizeSettingsPlacement(raw) != raw {
-		logx.Warnf("[store] 设置项非法，设置按钮位置回落 sidebar: key=settingsPlacement value=%q", raw)
+		logx.Warnf("[store] 设置项非法，设置按钮位置回落 bottom: key=settingsPlacement value=%q", raw)
 	}
 	settings.SettingsPlacement = models.NormalizeSettingsPlacement(settings.SettingsPlacement)
 	// 右键行为：旧配置没有该字段 → 默认「打开选项栏」；非法值同样回落默认

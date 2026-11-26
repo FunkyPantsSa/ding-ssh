@@ -31,7 +31,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/wailsapp/wails/v3/pkg/services/dock"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
-	"strconv"
 )
 
 // App 是 Wails 绑定到前端的应用对象。
@@ -43,8 +42,8 @@ type App struct {
 	dock          *dock.DockService
 	closePending  atomic.Bool
 	quitting      atomic.Bool
-	debugDialog  func(approvalDialogOptions) (string, error)
-	updates      updateState
+	debugDialog   func(approvalDialogOptions) (string, error)
+	updates       updateState
 
 	ctx         context.Context
 	manager     *sshx.Manager
@@ -1508,7 +1507,7 @@ func (a *App) RegisterTerminalStream(sessionID string, fn func([]byte)) func() {
 
 // Notify 发送系统原生桌面通知并闪烁窗口。
 func (a *App) Notify(title, body string) error {
-	if a.window != nil {
+	if a.window != nil && !a.window.IsFocused() {
 		a.window.Flash(true)
 	}
 	if a.notifications == nil {
@@ -1644,11 +1643,8 @@ func (a *App) updateBadge() {
 	if a.dock == nil {
 		return
 	}
-	count := len(a.ListSessions())
-	if count > 0 {
-		_ = a.dock.SetBadge(strconv.Itoa(count))
-	} else {
-		_ = a.dock.RemoveBadge()
+	if err := syncSessionBadge(a.dock, runtime.GOOS, a.ListSessions()); err != nil {
+		logx.Debugf("[apphost] 更新应用角标失败: %v", err)
 	}
 }
 

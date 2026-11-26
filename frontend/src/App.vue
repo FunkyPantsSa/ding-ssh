@@ -9,7 +9,7 @@ import {t as $t} from './i18n'
 import {t} from './i18n'
 
 import {confirmAppClose} from './services/closeConfirmation'
-import {EventsOn, WindowToggleMaximise, WindowMinimise, WindowClose} from './services/desktop'
+import {EventsOn} from './services/desktop'
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import Icon from './components/Icon.vue'
 import {useWorkspaceLayout} from './composables/useWorkspaceLayout'
@@ -44,6 +44,7 @@ import SettingsPage from './components/SettingsPage.vue'
 import TunnelPage from './components/TunnelPage.vue'
 import AppTopBar from './layouts/AppTopBar.vue'
 import AppSidebar from './layouts/AppSidebar.vue'
+import AppTitleBar from './layouts/AppTitleBar.vue'
 import AppUnlock from './layouts/AppUnlock.vue'
 import AppLayout from './layouts/AppLayout.vue'
 import TerminalWorkspace from './views/TerminalWorkspace.vue'
@@ -195,7 +196,7 @@ const commandStore = useCommandStore()
 const toast = useToast()
 const isMacOS = navigator.userAgent.includes('Macintosh')
 const isWindows = navigator.userAgent.includes('Windows')
-document.documentElement.style.setProperty('--window-titlebar-h', isMacOS || isWindows ? '28px' : '0px')
+document.documentElement.style.setProperty('--window-titlebar-h', isMacOS || isWindows ? '32px' : '0px')
 
 // 左侧导航折叠状态：同时把导航宽度写到 <html>，供 Teleport 到 body 的浮层
 // （快速连接侧栏、遮罩等）正确定位。
@@ -569,18 +570,7 @@ onBeforeUnmount(() => {
 <template>
   <UpdatePanel />
   <div class="app-shell" :class="{'smooth-animations': settings.smoothAnimations, 'platform-macos': isMacOS, 'platform-windows': isWindows}" :style="{zoom: (settings.uiScale || 100) / 100}" data-ui="app" :data-view="ui.view">
-    <div v-if="isMacOS || isWindows" class="window-drag-region" @dblclick="WindowToggleMaximise">
-      <div class="window-drag-title flex items-center gap-2">
-        <span class="text-[11px] font-mono tracking-wide opacity-50">ding-ssh · fluid glass workspace</span>
-      </div>
-      <div class="window-drag-status flex items-center gap-3">
-        <div v-if="onlineCount > 0" class="flex items-center gap-1.5 text-[11px] text-[var(--muted-foreground)]">
-          <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>已连接 {{ onlineCount }} 台节点</span>
-        </div>
-        <div v-if="isWindows" class="window-controls"><button :aria-label="$t('最小化')" @dblclick.stop @click="WindowMinimise">−</button><button :aria-label="$t('最大化或还原')" @dblclick.stop @click="WindowToggleMaximise">□</button><button :aria-label="$t('关闭窗口')" @dblclick.stop @click="WindowClose">×</button></div>
-      </div>
-    </div>
+    <AppTitleBar v-if="isMacOS || isWindows" :windows="isWindows" :online-count="onlineCount" />
 
     <!-- 独立终端窗口模式 -->
     <div v-if="detachedMode === 'detached-terminal'" class="w-full h-full bg-[#0f172a] overflow-hidden flex flex-col p-1">

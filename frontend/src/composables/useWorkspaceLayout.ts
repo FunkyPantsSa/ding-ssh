@@ -8,7 +8,7 @@ const settings = useSettingsStore()
 // 界面缩放走 .app-shell 的 zoom，鼠标增量需用 unzoom 折算（见 components/WidthResizer.vue）。
 const NAV_WIDTH_KEY = 'ding-ssh:nav-width'
 const TOOL_WIDTH_KEY = 'ding-ssh:tool-width'
-const NAV_W_DEFAULT = 216
+const NAV_W_DEFAULT = 188
 const NAV_W_MIN = 176
 const NAV_W_MAX = 420
 const TOOL_W_DEFAULT = 340
@@ -33,7 +33,10 @@ function clampWidth(v: number, min: number, max: number): number {
   return Math.round(Math.min(Math.max(v, lo), hi))
 }
 
-const navWidth = ref(readStoredWidth(NAV_WIDTH_KEY, NAV_W_DEFAULT, NAV_W_MIN, NAV_W_MAX))
+// The previous default was persisted by double-click reset. Adopt the compact
+// default for that value while keeping other user-resized widths intact.
+const storedNavWidth = readStoredWidth(NAV_WIDTH_KEY, NAV_W_DEFAULT, NAV_W_MIN, NAV_W_MAX)
+const navWidth = ref(storedNavWidth === 216 ? NAV_W_DEFAULT : storedNavWidth)
 const toolWidth = ref(readStoredWidth(TOOL_WIDTH_KEY, TOOL_W_DEFAULT, TOOL_W_MIN, TOOL_W_MAX))
 const resizing = ref(false)
 const shellEl = ref<HTMLElement | {$el: HTMLElement} | null>(null)

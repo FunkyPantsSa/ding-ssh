@@ -23,7 +23,7 @@ const settings = useSettingsStore()
 const ui = useUIStore()
 
 const sideTabs = computed(() => settings.tabBarPlacement === 'side' && sessions.tabs.length > 0)
-const settingsPlacement = computed(() => settings.settingsPlacement === 'bottom' ? 'bottom' : 'sidebar')
+const settingsPlacement = computed(() => settings.settingsPlacement === 'sidebar' ? 'sidebar' : 'bottom')
 // 左侧导航区段（导航 / 会话 / 标签页）按用户配置的顺序渲染；「标签页」仅在侧栏模式下存在
 const navSections = computed<NavSectionKey[]>(() => {
   const order = settings.navSectionOrder.split(',').filter(Boolean) as NavSectionKey[]
@@ -104,9 +104,8 @@ function onBrandClick() {
 
     <!-- 三个区段按「设置 → 左侧导航区段顺序」排列：导航 / 会话 / 标签页 -->
     <nav class="nav-body">
-      <section v-for="sec in navSections" :key="sec" class="nav-sec">
+      <section v-for="sec in navSections" :key="sec" class="nav-sec" :aria-label="sec === 'nav' ? $t('导航') : $t('会话')">
         <template v-if="sec === 'nav'">
-          <div class="nav-label">{{ $t('导航') }}</div>
           <button
             class="nav-item"
             data-ui="nav-item-workspace"
@@ -166,7 +165,6 @@ function onBrandClick() {
         </template>
 
         <template v-else-if="sec === 'sessions'">
-          <div class="nav-label">{{ $t('会话') }}</div>
           <button
             class="nav-item"
             data-ui="nav-item-quick-connect"
@@ -198,7 +196,7 @@ function onBrandClick() {
 
     <div v-if="settingsPlacement === 'bottom' && !visuallyCollapsed" class="nav-foot-capsule">
       <button class="nav-foot-link" data-ui="nav-item-settings-bottom" :class="ui.view === 'settings' ? 'active' : ''" @click="ui.showSettings()" :title="$t('设置')">
-        <Icon name="settings" :size="13" />
+        <Icon name="settings" :size="15" />
         <span>{{ $t('设置') }}</span>
       </button>
     </div>
@@ -222,25 +220,23 @@ function onBrandClick() {
 <style scoped>
 .nav-foot-capsule {
   box-sizing: border-box;
-  height: 26px !important;
-  min-height: 26px;
-  padding: 0 12px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  min-height: 44px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  font-size: 11.5px;
+  font-size: 13px;
   color: var(--text-muted);
   flex-shrink: 0;
-}
-html[data-tone="dark"] .nav-foot-capsule,
-html:not([data-tone="light"]) .nav-foot-capsule {
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 .nav-foot-link {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius-nav-active);
   color: var(--text-muted);
   transition: color var(--dur-base) var(--ease);
   cursor: pointer;
@@ -248,9 +244,9 @@ html:not([data-tone="light"]) .nav-foot-capsule {
 .nav-foot-link:hover,
 .nav-foot-link.active {
   color: var(--primary);
-  font-weight: 500;
+  background: var(--interactive-hover-bg);
 }
-.nav-preview{position:absolute;inset:0 auto 0 0;width:var(--nav-expanded-w,216px);max-width:calc(100% - 48px);z-index:60;box-shadow:var(--shadow-pop);animation:sidebar-preview-in 160ms var(--ease-out)}
+.nav-preview{position:absolute;inset:0 auto 0 0;width:var(--nav-expanded-w,188px);max-width:calc(100% - 48px);z-index:60;box-shadow:var(--shadow-pop);animation:sidebar-preview-in 160ms var(--ease-out)}
 @keyframes sidebar-preview-in{from{opacity:.7;transform:translateX(-6px)}to{opacity:1;transform:translateX(0)}}
 @media(prefers-reduced-motion:reduce){.nav-preview{animation:none}}
 </style>

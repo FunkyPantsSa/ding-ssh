@@ -24,7 +24,7 @@ it('restores widths, persists only after dragging and resets to defaults', async
  expect(localStorage.getItem('ding-ssh:tool-width')).toBe('500')
  layout.resetToolWidth()
  await nextTick()
- expect(layout.effectiveNavW.value).toBe(216)
+ expect(layout.effectiveNavW.value).toBe(188)
  expect(layout.effectiveToolW.value).toBe(340)
  wrapper.unmount()
 })
@@ -32,7 +32,7 @@ it('rejects invalid stored widths and synchronizes collapsed navigation and zoom
  localStorage.setItem('ding-ssh:nav-width','NaN')
  localStorage.setItem('ding-ssh:tool-width','-12')
  const {layout,collapsed,wrapper}=setup()
- expect(layout.effectiveNavW.value).toBe(216)
+ expect(layout.effectiveNavW.value).toBe(188)
  expect(layout.effectiveToolW.value).toBe(340)
  collapsed.value=true
  await nextTick()
@@ -48,5 +48,11 @@ it('shrinks panels in constrained windows and restores the preferred width when 
  layout.shellEl.value = {$el:{clientWidth:1200} as HTMLElement}
  await nextTick()
  expect(layout.effectiveNavW.value).toBe(400)
+ wrapper.unmount()
+})
+it('adopts the compact width for the previous saved default', () => {
+ localStorage.setItem('ding-ssh:nav-width','216')
+ const {layout,wrapper}=setup()
+ expect(layout.effectiveNavW.value).toBe(188)
  wrapper.unmount()
 })

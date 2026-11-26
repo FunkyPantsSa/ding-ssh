@@ -7,6 +7,7 @@ import {copyText as ClipboardSetText} from '../utils/clipboard'
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {OpenTerminalWindow, OpenSFTPWindow} from '../../bindings/ding-ssh/internal/apphost/app'
 import Icon from './Icon.vue'
+import SessionTabLabel from './SessionTabLabel.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 import {getElementRect} from '../utils/dom'
@@ -383,7 +384,17 @@ onBeforeUnmount(() => {
 
   <!-- 左侧导航纵向标签列表 (Arc 风格会话树) -->
   <div v-else class="side-tabs" data-ui="tabbar">
-    <div class="nav-label side-tabs-label">{{ $t('会话 (Spaces)') }} <span v-if="sessions.tabs.length" class="nav-count">{{ sessions.tabs.length }}</span>
+    <div class="nav-label side-tabs-label">
+      <span>{{ $t('会话') }}</span>
+      <span v-if="sessions.tabs.length" class="nav-count">{{ sessions.tabs.length }}</span>
+      <button
+        type="button"
+        class="side-tab-add"
+        data-ui="new-session"
+        :title="$t('新建会话…')"
+        :aria-label="$t('新建会话…')"
+        @click="ui.showWorkspace(); ui.openTerminalSidebar()"
+      ><Icon name="plus" :size="13" /></button>
     </div>
     <template v-for="item in tabItems" :key="item.key">
       <button
@@ -413,7 +424,7 @@ onBeforeUnmount(() => {
         <span class="side-initial" :class="statusInk[item.tab.status] ?? 'text-[var(--muted-foreground)]'">
           {{ item.tab.serverName.slice(0, 1) }}
         </span>
-        <span class="nav-text truncate">{{ item.tab.serverName }}</span>
+        <SessionTabLabel :text="item.tab.serverName" />
         <span class="tab-close" :title="$t('关闭')" @click.stop="close(item.tab.clientId)">
           <Icon name="close" :size="10" />
         </span>
@@ -424,7 +435,7 @@ onBeforeUnmount(() => {
         v-else
         class="nav-item side-tab group"
         :class="[splitActive ? 'active' : '']"
-        :title="$t('拖到列表空白处取消分屏')"
+        :title="item.title + ' · ' + $t('拖到列表空白处取消分屏')"
         @click="activateSplitGroup"
         @contextmenu.prevent
         draggable="true"
@@ -432,20 +443,12 @@ onBeforeUnmount(() => {
         @dragend="clearDragState"
       >
         <Icon name="columns" :size="15" extra-class="nav-ico text-signal" />
-        <span class="nav-text truncate">{{ item.title }}</span>
+        <SessionTabLabel :text="item.title" />
         <span class="tab-close" :title="$t('关闭分屏组')" @click.stop="sessions.closeSplitGroup()">
           <Icon name="close" :size="10" />
         </span>
       </button>
     </template>
-    <button
-      class="side-tab-new"
-      @click="ui.showWorkspace(); ui.openTerminalSidebar()"
-      :title="$t('新建会话…')"
-    >
-      <Icon name="plus" :size="12" extra-class="opacity-60" />
-      <span class="text-[11px] opacity-75 font-medium">{{ $t('新建会话…') }}</span>
-    </button>
     <div class="side-tabs-fill" @dragover.prevent @drop.prevent="onTabBarDrop"></div>
   </div>
 
