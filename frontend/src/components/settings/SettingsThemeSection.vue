@@ -13,9 +13,9 @@ import {systemTone} from '../../composables/useSystemTone'
 import type {UIAppearance} from '../../types'
 import {useSettingsStore} from '../../stores/settings'
 import {detectCapabilities, hexToRgb, monoFontStack, readableOn} from '../../theme/engine'
-import {TERMINAL_FONT_SCHEMES, loadTerminalFonts, fontPair, encodeFontPair} from '../../theme/terminal-fonts'
+import {TERMINAL_FONT_SCHEMES, loadTerminalFonts, fontPair, encodeFontPair, isSameTerminalFont, terminalFontRemoteTargets} from '../../theme/terminal-fonts'
 import {customFontSizes, formatFontSize, customFontChinese, customFonts, importCustomFont, restoreCustomFonts, removeCustomFont} from '../../theme/custom-fonts'
-import {remoteFontProgress, remoteFontStatus} from '../../theme/remote-fonts'
+import {remoteFontKey, remoteFontProgress, remoteFontStatus} from '../../theme/remote-fonts'
 import {BUNDLED_FONT_FAMILIES, isRemoteFont} from '../../theme/font-catalog'
 
 const fontInput = ref<HTMLInputElement | null>(null)
@@ -95,17 +95,20 @@ async function deleteFont(font: string) {
 const systemPlatform = navigator.platform || t("未知系统")
 const systemLanguage = navigator.language
 const systemCores = navigator.hardwareConcurrency
-const selectedRemoteFonts = computed(() => fontPair(fontsForm.terminalFont).filter(isRemoteFont))
-const fontStates = computed(() => Object.entries(remoteFontStatus)
-  .filter(([key]) => selectedRemoteFonts.value.some(font => key === `${font}:400` || key === `${font}:700`))
-  .map(([, state]) => state))
+const selectedRemoteKeys = computed(() => terminalFontRemoteTargets(fontsForm.terminalFont)
+  .flatMap(({family, nonCjkOnly}) => [400, 700].map(weight => remoteFontKey(family, weight, nonCjkOnly))))
+const fontStates = computed(() => selectedRemoteKeys.value
+  .map(key => remoteFontStatus[key])
+  .filter((state): state is 'loading' | 'ready' | 'error' => Boolean(state)))
 const fontDownloadFailed = computed(() => fontStates.value.includes('error'))
 const fontDownloadMessage = computed(() => {
-  if (!selectedRemoteFonts.value.length) return t("当前字体可离线使用，无需下载。")
+  if (!selectedRemoteKeys.value.length) return t("当前字体可离线使用，无需下载。")
   if (fontStates.value.includes('loading')) {
-    const entries = Object.entries(remoteFontProgress).filter(([key]) => selectedRemoteFonts.value.some(font => key === `${font}:400` || key === `${font}:700`))
-    const done = entries.reduce((sum, [, p]) => sum + p.done, 0)
-    const total = entries.reduce((sum, [, p]) => sum + p.total, 0)
+    const entries = selectedRemoteKeys.value
+      .map(key => remoteFontProgress[key])
+      .filter((progress): progress is {done: number; total: number} => Boolean(progress))
+    const done = entries.reduce((sum, p) => sum + p.done, 0)
+    const total = entries.reduce((sum, p) => sum + p.total, 0)
     return t("正在加载字体资源 {0}/{1}，期间使用回退字体…", [done, total])
   }
   if (fontDownloadFailed.value) return t("字体下载失败，暂用内置字体；可点击重试。")
@@ -242,7 +245,7 @@ function clearColor() {
       <div class="section-heading"><span class="theme-kicker">{{ $t('字体排印') }}</span><h4 id="font-title">{{ $t('终端字体') }}</h4><p>{{ $t('分别选择中英文字体，在右侧查看混排效果。') }}</p></div>
       <div class="font-layout">
         <div class="font-editor">
-          <div class="recommended-fonts"><div class="library-heading"><div><h5>{{ $t('默认推荐') }}</h5><small>{{ $t('一键套用中英文字体组合') }}</small></div></div><div class="recommendation-list"><button v-for="scheme in TERMINAL_FONT_SCHEMES" :key="scheme.value" type="button" :class="{active: fontsForm.terminalFont === scheme.value}" :aria-pressed="fontsForm.terminalFont === scheme.value" @click="fontsForm.terminalFont = scheme.value"><strong>{{ scheme.label }}</strong><small>{{ scheme.description }}</small></button></div></div>
+          <div class="recommended-fonts"><div class="library-heading"><div><h5>{{ $t('默认推荐') }}</h5><small>{{ $t('一键套用中英文字体组合') }}</small></div></div><div class="recommendation-list"><button v-for="scheme in TERMINAL_FONT_SCHEMES" :key="scheme.value" type="button" :class="{active: isSameTerminalFont(fontsForm.terminalFont, scheme.value)}" :aria-pressed="isSameTerminalFont(fontsForm.terminalFont, scheme.value)" @click="fontsForm.terminalFont = scheme.value"><strong>{{ scheme.label }}</strong><small>{{ scheme.description }}</small></button></div></div>
           <div class="font-fields">
             <div class="font-select-field">
               <label for="terminal-english-font">{{ $t('英文与数字') }}</label>

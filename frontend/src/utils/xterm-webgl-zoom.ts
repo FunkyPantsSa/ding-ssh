@@ -74,6 +74,15 @@ export function syncWebglCanvas(addon: unknown): boolean {
   }
 }
 
+/** Structured, content-free geometry for MCP probes; private API absence is explicit. */
+export function webglGeometrySnapshot(addon: unknown) {
+  const renderer = rendererOf(addon)
+  const grid = renderer ? gridSize(renderer) : null
+  const canvas = renderer?._canvas
+  return {grid: grid ? {w: grid.width, h: grid.height} : null, bitmap: canvas ? {w: canvas.width, h: canvas.height} : null,
+    matches: grid && canvas ? grid.width === canvas.width && grid.height === canvas.height : null}
+}
+
 /**
  * 给 WebglAddon 打上 CSS zoom 修正补丁。
  *

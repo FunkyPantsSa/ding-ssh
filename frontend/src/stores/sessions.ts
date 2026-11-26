@@ -194,6 +194,13 @@ export const useSessionsStore = defineStore('sessions', {
       this.splitVisible = false
       this.activeId = clientId
     },
+    /** 按后端 sessionId（或兜底 clientId）切换到对应标签页。 */
+    openSessionById(sessionOrClientId: string): boolean {
+      const target = this.tabs.find((t) => t.sessionId === sessionOrClientId || t.clientId === sessionOrClientId)
+      if (!target) return false
+      this.activateTab(target.clientId)
+      return true
+    },
 
     /** 显示分屏布局（点击分屏组标签）：聚焦上次的焦点格。 */
     showSplit() {

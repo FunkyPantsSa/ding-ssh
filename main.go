@@ -1,7 +1,10 @@
 package main
 
 import (
+	"crypto/sha256"
+	"ding-ssh/internal/appdir"
 	"embed"
+	"fmt"
 	"os"
 	"runtime"
 	"time"
@@ -26,7 +29,8 @@ func main() {
 		return
 	}
 
-	host := apphost.NewApp(apphost.ReadDebugBoot())
+	boot := apphost.ReadDebugBoot()
+	host := apphost.NewApp(boot)
 	notifyService := notifications.New()
 	dockService := dock.New()
 
@@ -38,13 +42,18 @@ func main() {
 	updateSvc := apphost.NewUpdateService(host)
 
 	var window *application.WebviewWindow
+	uniqueID := "com.funkypantssa.ding-ssh"
+	if appdir.IsDevOverride() {
+		uniqueID += fmt.Sprintf(".test-%x", sha256.Sum256([]byte(appdir.ConfigDir())))
+	}
 
 	desktop := application.New(application.Options{
-		Name:             "ding-ssh",
-		Description:      "Local-first SSH workstation",
-		Assets:           application.AssetOptions{Handler: application.BundledAssetFileServer(assets)},
-		Mac:              application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: false},
-		ShouldQuit:       func() bool { return apphost.ShouldQuit(host) },
+		Name:        "ding-ssh",
+		Description: "Local-first SSH workstation",
+		Assets:      application.AssetOptions{Handler: application.BundledAssetFileServer(assets)},
+		Mac:         application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: false},
+		Windows:     apphost.DebugWindowsOptions(boot),
+		ShouldQuit:  func() bool { return apphost.ShouldQuit(host) },
 		Services: []application.Service{
 			application.NewService(host),
 			application.NewService(notifyService),
@@ -58,7 +67,7 @@ func main() {
 		},
 		FileAssociations: []string{".dingpack"},
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: "com.funkypantssa.ding-ssh",
+			UniqueID: uniqueID,
 			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
 				logx.Infof("[main] 收到第二实例启动通知: args=%v dir=%s", data.Args, data.WorkingDir)
 				if window != nil {

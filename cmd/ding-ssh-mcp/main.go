@@ -87,16 +87,24 @@ var shutdownOnce sync.Once
 
 // config 解析出来的目标地址与令牌。
 type config struct {
-	url       string // 形如 http://127.0.0.1:8765（不含 /mcp）
-	token     string
-	urlSource string // -v 时说明地址是从哪来的
-	tokSource string
+	url             string // 形如 http://127.0.0.1:8765（不含 /mcp）
+	token           string
+	urlSource       string // -v 时说明地址是从哪来的
+	tokSource       string
+	discovery       *debugInfo
+	expectedBuildID string
 }
 
 // debugInfo 是 %AppData%\ding-ssh\debug.json 的子集（应用写入的调试信息）。
 type debugInfo struct {
-	URL   string `json:"url"`
-	Token string `json:"token"`
+	URL            string `json:"url"`
+	Token          string `json:"token"`
+	PID            int    `json:"pid"`
+	InstanceID     string `json:"instanceId"`
+	ProcessStartID string `json:"processStartId"`
+	BuildID        string `json:"buildId"`
+	Profile        string `json:"profile"`
+	ConfigDir      string `json:"configDir"`
 }
 
 // rpcEnvelope 只取分发需要的字段：id 是否出现决定「请求」还是「通知」。
@@ -106,13 +114,19 @@ type rpcEnvelope struct {
 
 // options 解析后的运行配置。
 type options struct {
-	url      string
-	token    string
-	debugRaw string // -debug-json，空表示用默认路径
-	verbose  bool
-	quiet    bool
-	once     bool
-	help     bool
+	url             string
+	token           string
+	debugRaw        string // -debug-json，空表示用默认路径
+	verbose         bool
+	quiet           bool
+	once            bool
+	help            bool
+	launch          string
+	appPath         string
+	profile         string
+	expectedBuildID string
+	waitReadyMs     int
+	waitReadySet    bool
 }
 
 // logf2 是极小的 stderr 日志器（名字里的 2 只是与 logx 体系区分，这里只用标准库）。
@@ -197,7 +211,9 @@ func run() int {
 	log := &logf2{verbose: opts.verbose && !opts.quiet, quiet: opts.quiet}
 	log.debugf("启动参数：debug-json=%s verbose=%v quiet=%v once=%v", opts.debugRaw, opts.verbose, opts.quiet, opts.once)
 
-	cfg, err := resolveConfig(opts, os.Getenv, false)
+	startupCtx, startupCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer startupCancel()
+	cfg, err := prepareTarget(startupCtx, opts, log, defaultLauncherDeps())
 	if err != nil {
 		log.errorf("解析目标调试服务失败：%v", err)
 		log.infof("提示：请先在应用内打开「设置 → 调试模式 → 启用」，或显式传入 -url/-token。")
@@ -243,9 +259,14 @@ func parseFlags(argv []string, out io.Writer) (options, error) {
 	fs := flag.NewFlagSet(serverName, flag.ContinueOnError)
 	fs.SetOutput(out)
 	fs.Usage = func() { printUsage(out) }
-	fs.StringVar(&opts.url, "url", os.Getenv(envURL), "调试服务地址，如 http://127.0.0.1:8765（默认取环境变量 "+envURL+" 或 debug.json）")
-	fs.StringVar(&opts.token, "token", os.Getenv(envToken), "调试服务 token（默认取环境变量 "+envToken+" 或 debug.json）")
+	fs.StringVar(&opts.url, "url", "", "调试服务地址，如 http://127.0.0.1:8765（默认取环境变量 "+envURL+" 或 debug.json）")
+	fs.StringVar(&opts.token, "token", "", "调试服务 token（默认取环境变量 "+envToken+" 或 debug.json）")
 	fs.StringVar(&opts.debugRaw, "debug-json", "", "debug.json 路径（默认 %AppData%\\ding-ssh\\debug.json）")
+	fs.StringVar(&opts.launch, "launch", "never", "never 或 if-needed；仅显式允许时启动应用")
+	fs.StringVar(&opts.appPath, "app-path", "", "要启动的绝对可执行文件或 macOS .app 路径")
+	fs.StringVar(&opts.profile, "profile", "", "独立验证配置的绝对目录；仅新目录会预置调试权限")
+	fs.StringVar(&opts.expectedBuildID, "expected-build-id", "", "要求附着的后端构建标识")
+	fs.IntVar(&opts.waitReadyMs, "wait-ready-ms", 30000, "等待后端及前端 ready 的总预算（毫秒，100–120000）")
 	fs.BoolVar(&opts.verbose, "v", false, "打印转发细节日志到 stderr（token 一律打码）")
 	fs.BoolVar(&opts.quiet, "quiet", false, "只输出错误日志到 stderr")
 	fs.BoolVar(&opts.once, "once", false, "仅探测地址与 token 是否可用，然后退出（不进入 stdio 桥接）")
@@ -257,6 +278,11 @@ func parseFlags(argv []string, out io.Writer) (options, error) {
 	if opts.help {
 		return opts, flag.ErrHelp
 	}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "wait-ready-ms" {
+			opts.waitReadySet = true
+		}
+	})
 	// 位置参数没有意义：直接报错，避免「参数写错却被静默忽略」。
 	if fs.NArg() > 0 {
 		return opts, fmt.Errorf("不支持的位置参数: %s", strings.Join(fs.Args(), " "))
@@ -264,6 +290,12 @@ func parseFlags(argv []string, out io.Writer) (options, error) {
 	opts.url = strings.TrimSpace(opts.url)
 	opts.token = strings.TrimSpace(opts.token)
 	opts.debugRaw = strings.TrimSpace(opts.debugRaw)
+	opts.appPath = strings.TrimSpace(opts.appPath)
+	opts.profile = strings.TrimSpace(opts.profile)
+	opts.expectedBuildID = strings.TrimSpace(opts.expectedBuildID)
+	if err := validateLauncherOptions(opts); err != nil {
+		return opts, err
+	}
 	return opts, nil
 }
 
@@ -278,6 +310,11 @@ func printUsage(w io.Writer) {
   -url string         调试服务地址，如 http://127.0.0.1:8765（也接受以 /mcp 结尾，会自动去掉）
   -token string       调试服务 token（每次启动应用都会变化）
   -debug-json string  debug.json 路径，默认 %AppData%\ding-ssh\debug.json
+  --launch string     never（默认）或 if-needed；只在显式授权时启动指定应用
+  --app-path string   绝对可执行文件路径，也可为 macOS .app
+  --profile string    独立验证配置的绝对目录；新建时开启本机调试与开发测试能力
+  --wait-ready-ms int 后端与前端就绪总预算，默认 30000（100–120000）
+  --expected-build-id 要求匹配的后端构建标识；不匹配即拒绝附着
   -v                  打印转发细节日志到 stderr（token 一律打码）
   -quiet              只输出错误日志
   -once               仅探测地址与 token 是否可用，然后退出
@@ -299,6 +336,7 @@ func printUsage(w io.Writer) {
 示例：
   ding-ssh-mcp -v
   ding-ssh-mcp -url http://127.0.0.1:8765 -token <token>
+  ding-ssh-mcp --launch=if-needed --app-path /absolute/ding-ssh.app --profile /tmp/ding-ssh-test
   $env:DING_SSH_DEBUG_URL="http://127.0.0.1:8765"; ding-ssh-mcp
 
 MCP 客户端配置（stdio 传输）：
@@ -312,14 +350,11 @@ MCP 客户端配置（stdio 传输）：
 }
 
 // resolveConfig 按 命令行参数 → 环境变量 → debug.json 的优先级解析目标地址与 token。
-// bootstrap 为 true（启动时的自动重读）时跳过命令行参数，只重新读环境变量与 debug.json，
-// 避免覆盖用户显式指定的地址；为 false 时按完整优先级解析。
+// 自动重读仍保留显式参数；独立 profile 永远不继承日常实例的 URL/token 环境变量。
 func resolveConfig(opts options, getenv func(string) string, bootstrap bool) (config, error) {
 	var cfg config
-
-	// 1) 命令行参数。flag 的默认值就是环境变量，因此这里无法区分两者，
-	//    统一标注为 -url/-token；真正来自 debug.json 的情况会在下面另行标注。
-	if !bootstrap {
+	// 1) 显式参数在重连时同样优先，不能因重读发现文件切换到另一实例。
+	if opts.profile == "" {
 		if opts.url != "" {
 			cfg.url, cfg.urlSource = opts.url, "命令行参数 -url 或环境变量 "+envURL
 		}
@@ -329,26 +364,24 @@ func resolveConfig(opts options, getenv func(string) string, bootstrap bool) (co
 	}
 
 	// 2) 环境变量。
-	if cfg.url == "" {
+	if cfg.url == "" && opts.profile == "" {
 		if v := strings.TrimSpace(getenv(envURL)); v != "" {
 			cfg.url, cfg.urlSource = v, "环境变量 "+envURL
 		}
 	}
-	if cfg.token == "" {
+	if cfg.token == "" && opts.profile == "" {
 		if v := strings.TrimSpace(getenv(envToken)); v != "" {
 			cfg.token, cfg.tokSource = v, "环境变量 "+envToken
 		}
 	}
 
 	// 3) debug.json。
-	path := opts.debugRaw
-	if path == "" {
-		path = defaultDebugInfoPath()
-	}
+	path := discoveryPath(opts)
 	if cfg.url == "" || cfg.token == "" {
 		info, err := readDebugInfo(path)
 		switch {
 		case err == nil:
+			cfg.discovery = &info
 			if cfg.url == "" && strings.TrimSpace(info.URL) != "" {
 				cfg.url, cfg.urlSource = strings.TrimSpace(info.URL), "debug.json"
 			}
@@ -360,6 +393,8 @@ func resolveConfig(opts options, getenv func(string) string, bootstrap bool) (co
 		default:
 			return cfg, fmt.Errorf("读取调试信息文件失败（%s）：%v", path, err)
 		}
+	} else if info, err := readDebugInfo(path); err == nil && normalizeBaseURL(info.URL) == normalizeBaseURL(cfg.url) {
+		cfg.discovery = &info
 	}
 
 	var missing []string
@@ -391,9 +426,17 @@ func defaultDebugInfoPath() string {
 // readDebugInfo 解析调试信息文件。
 func readDebugInfo(path string) (debugInfo, error) {
 	var info debugInfo
-	b, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return info, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, (64<<10)+1))
+	if err != nil {
+		return info, err
+	}
+	if len(b) > 64<<10 {
+		return info, errors.New("debug.json 超过 64KiB 上限")
 	}
 	if err := json.Unmarshal(b, &info); err != nil {
 		return info, fmt.Errorf("解析 JSON 失败: %w", err)
@@ -430,6 +473,9 @@ func validateBaseURL(raw string) error {
 
 // newClientMCP 构造桥接器。
 func newClientMCP(cfg config, opts options, log *logf2) *clientMCP {
+	if opts.expectedBuildID == "" {
+		opts.expectedBuildID = cfg.expectedBuildID
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &clientMCP{
 		cfg:     cfg,
@@ -521,6 +567,15 @@ func (c *clientMCP) refreshFromDisk() bool {
 	if err != nil {
 		c.log.debugf("重读调试信息失败（忽略）：%v", err)
 		return false
+	}
+	if strictAttachment(c.opts) {
+		ctx, cancel := context.WithTimeout(c.streamCtx, 3*time.Second)
+		err := validateAttachment(ctx, next, c.opts, defaultLauncherDeps())
+		cancel()
+		if err != nil {
+			c.log.warnf("重读目标尚未通过实例/构建/前端校验，不切换：%v", err)
+			return false
+		}
 	}
 	c.cfgMu.Lock()
 	changed := next.url != c.cfg.url || next.token != c.cfg.token

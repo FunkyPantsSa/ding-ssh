@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url)
 const id = 'virtual:ding-bundled-fonts.css'
 const resolvedId = `\0${id}`
 const sources = [
-  {name: '@fontsource/geist-sans', styles: ['latin-400', 'latin-500', 'latin-600']},
+  {name: '@fontsource/geist-sans', styles: ['latin-400', 'latin-500', 'latin-600', 'latin-700']},
   {name: '@fontsource/geist-mono', styles: ['latin-400', 'latin-500', 'latin-600', 'latin-700']},
   {name: '@fontsource/noto-sans-sc', styles: ['400']},
 ]

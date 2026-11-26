@@ -178,9 +178,9 @@ func mcpTools(s *Server) []mcpTool {
 		list[i].Annotations = map[string]any{"readOnlyHint": readOnly, "destructiveHint": destructive, "idempotentHint": readOnly, "openWorldHint": true}
 		switch list[i].Name {
 		case "screenshot", OpUIScreenshot, OpUIElementShot, OpUISnapshot:
-			supported := runtime.GOOS == "windows"
-			list[i].Meta = map[string]any{"platformSupported": supported, "supportedPlatforms": []string{"windows"}}
-			list[i].Description += "\n窗口截图目前仅支持 Windows。"
+			supported := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+			list[i].Meta = map[string]any{"platformSupported": supported, "supportedPlatforms": []string{"windows", "darwin"}}
+			list[i].Description += "\n截图由宿主提供，当前实现 macOS WKWebView 与 Windows HWND；实际可用性见 app.runtimeCapabilities。"
 			if !supported {
 				list[i].Description += "当前平台不支持该工具。"
 				list[i].Meta["unavailableReason"] = "当前平台尚未实现窗口截图"
@@ -214,6 +214,9 @@ func mcpToolEntries() []mcpTool {
 	// 能力位与确认登记在 sudo.go 的 init 里。
 	list = append(list, sudoToolEntries()...)
 	list = append(list, jobsToolEntries()...)
+	list = append(list, observationToolEntries()...)
+	list = append(list, verifyToolEntries()...)
+	list = append(list, probeToolEntries()...)
 	return list
 }
 
@@ -1380,7 +1383,8 @@ func (s *Server) mcpCallTool(ctx context.Context, name string, args map[string]a
 		return call(OpLogsOptions, raw)
 	case "screenshot":
 		start := time.Now()
-		png, err := captureWindowPNG()
+		frame, err := s.captureFrame(ctx, "main")
+		png := frame.PNG
 		if err != nil {
 			return nil, err
 		}
@@ -1408,6 +1412,19 @@ func (s *Server) mcpCallTool(ctx context.Context, name string, args map[string]a
 			return nil, err
 		}
 		return text(v), nil
+	}
+	if isObservationTool(name) {
+		res, err := s.handleObservation(ctx, name, args)
+		if err != nil {
+			return nil, err
+		}
+		return uiMCPContent(res)
+	}
+	if name == OpVerifyRun || name == OpVerifyGet {
+		return s.handleVerify(ctx, name, args)
+	}
+	if name == OpTargetsProbe {
+		return s.handleProbe(ctx, args)
 	}
 	if isJobsTool(name) {
 		return s.handleJobsTool(ctx, name, args)
@@ -1525,8 +1542,8 @@ func toolCatalogEntry(t mcpTool) map[string]any {
 	entry["platformSupported"] = true
 	switch t.Name {
 	case "screenshot", OpUIScreenshot, OpUIElementShot, OpUISnapshot:
-		entry["platformSupported"] = runtime.GOOS == "windows"
-		if runtime.GOOS != "windows" {
+		entry["platformSupported"] = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+		if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
 			entry["unavailableReason"] = "当前平台尚未实现窗口截图"
 		}
 	}

@@ -12,10 +12,11 @@ import {t} from '../i18n'
 //   2. **不调用任何 save()**：setToken / injectCSS / storePatch 都只改内存态，
 //      刷新即还原（写类工具的描述里已向 AI 声明）。
 //
-// 控制台钩子（installDebugUI）由 main.ts 在挂载后调用一次：它包装 console.*、
+// 控制台钩子（installDebugUI）由 main.ts 在挂载前调用一次：它包装 console.*、
 // window.onerror 与 Vue 的 app.config.errorHandler —— 都是**包裹而不是覆盖**，
 // 保证应用原有的输出与错误处理行为完全不变。
-import {nextTick} from 'vue'
+import {nextTick, type App, type ComponentPublicInstance} from 'vue'
+import {debugComponentTree, debugRevision, handleObservationOp, installObservation, recordDebugError} from './observation'
 import {getActivePinia} from 'pinia'
 import {
   isDesktop,
@@ -225,10 +226,12 @@ function formatArg(v: unknown): string {
   return summarizeValue(v)
 }
 
+let rejectionHookInstalled = false
 /** 安装 console / window.onerror / unhandledrejection 采集（保留原有行为）。 */
 function installConsoleHook(): void {
   const levels = ['log', 'info', 'warn', 'error', 'debug'] as const
   for (const level of levels) {
+    if ((console[level] as typeof console.log & {__dingDebugHook?: boolean}).__dingDebugHook) continue
     const original = console[level].bind(console)
     console[level] = ((...args: unknown[]) => {
       try {
@@ -238,20 +241,26 @@ function installConsoleHook(): void {
       }
       original(...args)
     }) as typeof console.log
+    ;(console[level] as typeof console.log & {__dingDebugHook?: boolean}).__dingDebugHook = true
   }
   const prevOnError = window.onerror
-  window.onerror = (message, source, lineno, colno, error) => {
-    try {
-      const text = error instanceof Error ? `${error.name}: ${error.message}` : String(message)
-      pushConsole('error', [text], source ? `${source}:${lineno ?? 0}:${colno ?? 0}` : 'window.onerror', error instanceof Error ? error.stack : undefined)
-    } catch {
-      /* 同上 */
+  if (!(prevOnError as (OnErrorEventHandler & {__dingDebugHook?: boolean}))?.__dingDebugHook) {
+    window.onerror = (message, source, lineno, colno, error) => {
+      try {
+        const text = error instanceof Error ? `${error.name}: ${error.message}` : String(message)
+        pushConsole('error', [text], source ? `${source}:${lineno ?? 0}:${colno ?? 0}` : 'window.onerror', error instanceof Error ? error.stack : undefined)
+      } catch {
+        /* 同上 */
+      }
+      if (typeof prevOnError === 'function') {
+        return prevOnError.call(window, message, source, lineno, colno, error)
+      }
+      return false
     }
-    if (typeof prevOnError === 'function') {
-      return prevOnError.call(window, message, source, lineno, colno, error)
-    }
-    return false
+    ;(window.onerror as (OnErrorEventHandler & {__dingDebugHook?: boolean})).__dingDebugHook = true
   }
+  if (rejectionHookInstalled) return
+  rejectionHookInstalled = true
   window.addEventListener('unhandledrejection', (ev) => {
     const reason = (ev as PromiseRejectionEvent).reason
     try {
@@ -270,18 +279,23 @@ function vueApp(): {config?: {errorHandler?: unknown; globalProperties?: Record<
   return app as {config?: {errorHandler?: unknown; globalProperties?: Record<string, unknown>}}
 }
 
-/** 包裹 Vue 的 errorHandler（若应用已设置则先调用它，绝不覆盖）。 */
-function installErrorHandler(): void {
-  const app = vueApp()
+/** 包裹 Vue 的 errorHandler，保留原有错误处理器和控制台输出。 */
+const errorHookApps = new WeakSet<object>()
+function installErrorHandler(explicitApp?: App): void {
+  const app = explicitApp ?? vueApp()
   if (!app || !app.config) return
+  if (errorHookApps.has(app)) return
+  errorHookApps.add(app)
   const prev = app.config.errorHandler as ((err: unknown, instance: unknown, info: string) => void) | undefined
   app.config.errorHandler = (err: unknown, instance: unknown, info: string) => {
     try {
       pushConsole('error', [err instanceof Error ? err : errorText(err)], `vue:errorHandler:${info}`, err instanceof Error ? err.stack : undefined)
+      recordDebugError(err, 'vue', info, instance as ComponentPublicInstance | null)
     } catch {
       /* 同上 */
     }
     if (typeof prev === 'function') prev(err, instance, info)
+    else console.error(err)
   }
 }
 
@@ -306,10 +320,11 @@ let revision = 1
 const loadedAt = Date.now()
 const timeOrigin = typeof performance !== 'undefined' && performance.timeOrigin ? performance.timeOrigin : loadedAt
 
-/** 安装 UI 观测域的前端钩子（main.ts 在挂载后调用一次）。 */
-export function installDebugUI(): void {
+/** 安装 UI 观测域的前端钩子（main.ts 显式传入 app，在挂载前调用）。 */
+export function installDebugUI(app?: App): void {
   installConsoleHook()
-  installErrorHandler()
+  installErrorHandler(app)
+  if (app) installObservation(app)
 }
 
 // ---- 页面事实 ----
@@ -555,26 +570,6 @@ function hitOp(args: Args): unknown {
 
 // ---- 组件树 ----
 
-interface VueInstance {
-  uid?: number
-  type?: unknown
-  vnode?: {key?: unknown; el?: unknown}
-  subTree?: unknown
-  props?: Record<string, unknown>
-}
-
-function componentName(instance: VueInstance): string {
-  const type = instance.type as {name?: string; __name?: string; __file?: string} | undefined
-  if (!type) return '(anonymous)'
-  return type.name || type.__name || (type.__file ? type.__file.split(/[\\/]/).pop() || '(anonymous)' : '(anonymous)')
-}
-
-function componentNameFromType(type: unknown): string {
-  if (!type || typeof type !== 'object') return '(anonymous)'
-  const t = type as {name?: string; __name?: string; __file?: string}
-  return t.name || t.__name || (t.__file ? t.__file.split(/[\\/]/).pop() || '(anonymous)' : '(anonymous)')
-}
-
 function isComponentLike(v: unknown): boolean {
   if (!v || typeof v !== 'object') return false
   const o = v as Record<string, unknown>
@@ -602,86 +597,6 @@ function summarizeValue(v: unknown): string {
   if (v instanceof Map) return `[Map(${v.size})]`
   if (v instanceof Set) return `[Set(${v.size})]`
   return `[Object(${Object.keys(v as object).length} keys)]`
-}
-
-function summarizeProps(props: Record<string, unknown> | undefined): Record<string, string> {
-  if (!props || typeof props !== 'object') return {}
-  const out: Record<string, string> = {}
-  const keys = Object.keys(props).slice(0, 12)
-  for (const k of keys) out[k] = summarizeValue(props[k])
-  if (Object.keys(props).length > keys.length) out['…'] = `还有 ${Object.keys(props).length - keys.length} 个 prop 未列出`
-  return out
-}
-
-/** 直接子组件实例（沿 subTree 的 vnode 树找带 component 的节点）。 */
-function childInstances(instance: VueInstance): VueInstance[] {
-  const out: VueInstance[] = []
-  const seen = new Set<unknown>()
-  const push = (vnode: unknown, depth: number): void => {
-    if (!vnode || typeof vnode !== 'object' || depth > 30 || seen.has(vnode)) return
-    seen.add(vnode)
-    const v = vnode as {component?: unknown; children?: unknown}
-    if (v.component) {
-      out.push(v.component as VueInstance)
-      return
-    }
-    const kids = v.children
-    if (Array.isArray(kids)) for (const k of kids) push(k, depth + 1)
-  }
-  push(instance.subTree, 0)
-  return out
-}
-
-function domSummary(el: unknown): {tag: string; id: string; classes: string[]} {
-  if (typeof Element !== 'undefined' && el instanceof Element) return describe(el)
-  return {tag: '', id: '', classes: []}
-}
-
-function treeOp(args: Args): unknown {
-  const app = vueApp() as {_instance?: VueInstance} | null
-  const root = app?._instance
-  if (!root) throw new Error('未找到 Vue 应用实例（#app.__vue_app__._instance 不可用）')
-  const depthMax = clamp(Math.round(num(args.depth, 3)), 1, 6)
-  const limit = clamp(Math.round(num(args.limit, 60)), 1, 200)
-  const filter = str(args.filter).toLowerCase()
-  const nodes: Record<string, unknown>[] = []
-  const visited = new Set<VueInstance>()
-  let truncated = false
-  const walk = (instance: VueInstance, depth: number): void => {
-    if (!instance || visited.has(instance)) return
-    if (nodes.length >= limit) {
-      truncated = true
-      return
-    }
-    visited.add(instance)
-    const name = componentName(instance)
-    const children = childInstances(instance)
-    if (!filter || name.toLowerCase().includes(filter)) {
-      nodes.push({
-        name,
-        key: summarizeValue(instance.vnode?.key ?? null),
-        depth,
-        dom: domSummary(instance.vnode?.el),
-        propsSummary: summarizeProps(instance.props),
-        childCount: children.length,
-        uid: instance.uid ?? null,
-      })
-    }
-    if (depth + 1 > depthMax) {
-      if (children.length) truncated = true
-      return
-    }
-    for (const child of children) walk(child, depth + 1)
-  }
-  walk(root, 0)
-  return {
-    nodes,
-    total: nodes.length,
-    truncated,
-    depth: depthMax,
-    limit,
-    note: 'props 仅返回字段名、类型和规模，不返回任何值正文；childCount 是直接子组件数。',
-  }
 }
 
 // ---- 元素事实（ui.assert 用）----
@@ -1107,12 +1022,7 @@ async function navigateOp(args: Args): Promise<unknown> {
       throw new Error(`设置页没有分区 ${wanted}（可用：${Object.keys(SETTINGS_SECTIONS).join(' / ')}）`)
     }
     const buttons = Array.from(document.querySelectorAll('[data-ui="settings-nav"] [data-section]'))
-    const label = SETTINGS_SECTIONS[wanted]
-    let btn = buttons.find((b) => (b.textContent ?? '').trim() === label) ?? null
-    if (!btn) {
-      const idx = Object.keys(SETTINGS_SECTIONS).indexOf(wanted)
-      btn = buttons[idx] ?? null
-    }
+    const btn = buttons.find((b) => b.getAttribute('data-section') === wanted) ?? null
     if (!btn) throw new Error(`设置页未渲染出分区按钮（data-section 未命中）：当前 view=${ui.view}`)
     const r = btn.getBoundingClientRect()
     clickElement(btn, {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), button: 0, clickCount: 1}, true)
@@ -1499,6 +1409,7 @@ function scrollOp(args: Args): unknown {
 
 /** 处理一个 ui.* op（由 debug/bridge.ts 调用）。 */
 export async function handleUIOp(op: string, args: Args): Promise<unknown> {
+  if (['ui.observe', 'ui.inspect', 'ui.diagnose', 'ui.wait', 'ui.act', 'ui.prepareAct', 'ui.capturePrepare', 'ui.captureRelease', 'ui.diagnostics'].includes(op)) return handleObservationOp(op, args)
   switch (op) {
     // 观测
     case 'ui.layout':
@@ -1512,11 +1423,12 @@ export async function handleUIOp(op: string, args: Args): Promise<unknown> {
     case 'ui.hit':
       return hitOp(args)
     case 'ui.tree':
-      return treeOp(args)
+      return debugComponentTree(args)
     case 'ui.console':
       return {capacity: CONSOLE_CAPACITY, entries: consoleRing.slice()}
     case 'ui.revision':
       return {
+        ...debugRevision(),
         revision,
         loadedAt,
         timeOrigin,

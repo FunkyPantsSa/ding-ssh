@@ -684,12 +684,18 @@ func (s *Session) prefetchHomeAndSync() {
 
 // Info 返回会话摘要信息。
 func (s *Session) Info() models.SessionInfo {
+	s.mu.Lock()
+	status := models.StatusConnected
+	if s.closed || s.closing {
+		status = models.StatusDisconnected
+	}
+	s.mu.Unlock()
 	return models.SessionInfo{
 		SessionID:  s.ID,
 		ServerName: s.server.Name,
 		Host:       s.server.Host,
 		User:       s.server.User,
-		Status:     models.StatusConnected,
+		Status:     status,
 		CreatedAt:  s.createdAt,
 	}
 }

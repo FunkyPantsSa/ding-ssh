@@ -22,9 +22,13 @@ type Bridge struct {
 	emit    func(event string, payload any)
 	timeout time.Duration
 
-	mu      sync.Mutex
-	seq     uint64
-	pending map[string]chan bridgeReply
+	mu          sync.Mutex
+	seq         uint64
+	pending     map[string]chan bridgeReply
+	lastSuccess int64
+	lastFailure int64
+	lastRTTMs   int64
+	failures    uint64
 }
 
 type bridgeReply struct {
@@ -44,10 +48,27 @@ func NewBridge(emit func(event string, payload any)) *Bridge {
 
 // SetTimeout 调整等待前端回包的超时时间。
 func (b *Bridge) SetTimeout(d time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if d > 0 {
 		logx.Debugf("[debugsrv/bridge] 调整前端桥超时: from=%s to=%s", b.timeout, d)
 		b.timeout = d
 	}
+}
+
+// Stats is independent of the WebView, so a blocked JS thread cannot hide
+// missing replies. A past successful reply is never reported as current ready.
+func (b *Bridge) Stats() map[string]any {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	state := "unknown"
+	if b.lastSuccess > 0 {
+		state = "healthy"
+	}
+	if b.lastFailure > b.lastSuccess {
+		state = "degraded"
+	}
+	return map[string]any{"state": state, "pending": len(b.pending), "lastSuccessAt": b.lastSuccess, "lastFailureAt": b.lastFailure, "lastRTTMs": b.lastRTTMs, "failureCount": b.failures}
 }
 
 // Call 请求前端执行 op，返回前端给的 JSON 结果。
@@ -61,7 +82,20 @@ func (b *Bridge) Call(ctx context.Context, op string, args any) (json.RawMessage
 
 	b.mu.Lock()
 	b.pending[id] = ch
+	timeout := b.timeout
 	b.mu.Unlock()
+	// Observation actions can carry an explicit postcondition wait budget up to
+	// 15 seconds. Let a caller-owned context extend the historical 10-second
+	// bridge default, while keeping an absolute cap for callers that forget a
+	// deadline. The context remains the authoritative cancellation signal.
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > timeout {
+			timeout = remaining
+		}
+		if timeout > 30*time.Second {
+			timeout = 30 * time.Second
+		}
+	}
 	defer func() {
 		b.mu.Lock()
 		delete(b.pending, id)
@@ -77,10 +111,19 @@ func (b *Bridge) Call(ctx context.Context, op string, args any) (json.RawMessage
 	b.emit(BridgeRequestEvent, json.RawMessage(payload))
 
 	start := time.Now()
-	timer := time.NewTimer(b.timeout)
+	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
 	case rep := <-ch:
+		b.mu.Lock()
+		b.lastRTTMs = time.Since(start).Milliseconds()
+		if rep.err == nil {
+			b.lastSuccess = time.Now().UnixMilli()
+		} else {
+			b.lastFailure = time.Now().UnixMilli()
+			b.failures++
+		}
+		b.mu.Unlock()
 		if rep.err != nil {
 			logx.Debugf("[debugsrv/bridge] 前端请求失败: op=%s elapsed=%s err=%v", op, time.Since(start), rep.err)
 			return rep.payload, rep.err
@@ -88,7 +131,11 @@ func (b *Bridge) Call(ctx context.Context, op string, args any) (json.RawMessage
 		logx.Debugf("[debugsrv/bridge] 前端请求完成: op=%s elapsed=%s bytes=%d", op, time.Since(start), len(rep.payload))
 		return rep.payload, rep.err
 	case <-timer.C:
-		logx.Warnf("[debugsrv/bridge] 前端响应超时: op=%s timeout=%s elapsed=%s", op, b.timeout, time.Since(start))
+		b.mu.Lock()
+		b.lastFailure = time.Now().UnixMilli()
+		b.failures++
+		b.mu.Unlock()
+		logx.Warnf("[debugsrv/bridge] 前端响应超时: op=%s timeout=%s elapsed=%s", op, timeout, time.Since(start))
 		return nil, fmt.Errorf("前端响应超时（op=%s）: %w", op, context.DeadlineExceeded)
 	case <-ctx.Done():
 		logx.Debugf("[debugsrv/bridge] 前端请求被取消: op=%s elapsed=%s err=%v", op, time.Since(start), ctx.Err())

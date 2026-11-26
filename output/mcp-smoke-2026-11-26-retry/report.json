@@ -1,0 +1,322 @@
+{
+  "capturedAt": "2026-11-26T15:45:06+0800",
+  "environment": "macOS native Wails production build",
+  "instanceId": "087885b7-a886-48dc-aecc-ac224a38dc57",
+  "buildId": "ea437f0017d7c4fa17278749c642935aa862776e0af7197ffd6fa9bde29e8390",
+  "checks": [
+    {
+      "name": "tool catalog",
+      "status": "PASS",
+      "seconds": 0.006,
+      "detail": {
+        "count": 136,
+        "requiredCount": 14
+      }
+    },
+    {
+      "name": "production component registry",
+      "status": "FAIL",
+      "seconds": 0.06,
+      "detail": {
+        "error": "{'count': 71, 'depth': 3, 'limit': 100, 'nodes': [{'childCount': 7, 'depth': 0, 'dom': None, 'name': 'App', 'parentUid': None, 'propsSummary': {}, 'uid': 1}, {'childCount': 0, 'depth': 1, 'dom': None, 'name': 'UpdatePanel', 'parentUid': 1, 'propsSummary': {}, 'uid': 2}, {'childCount': 0, 'depth': 1, 'dom': {'classes': ['window-drag-region'], 'id': '', 'tag': 'header'}, 'name': 'AppTitleBar', 'parentUid': 1, 'propsSummary': {'onlineCount': '[number]', 'windows': '[boolean]'}, 'uid': 3}, {'childCount': 9, 'depth': 1, 'dom': {'classes': ['app-layout', 'shell'], 'id': '', 'tag': 'section'}, 'name': 'AppLayout', 'parentUid': 1, 'propsSummary': {'collapsed': '[boolean]', 'resizing': '[boolean]'}, 'uid': 4}, {'childCount': 8, 'depth': 2, 'dom': {'classes': ['nav'], 'id': '', 'tag': 'aside'}, 'name': 'AppSidebar', 'parentUid': 4, 'propsSummary': {'collapsed': '[boolean]', 'onlineCount': '[number]'}, 'uid': 5}, {'childCount': 1, 'depth': 3, 'dom': {'classes': ['ui-button', 'ui-button-ghost', 'u"
+      }
+    },
+    {
+      "name": "native screenshot and observation",
+      "status": "PASS",
+      "seconds": 0.426,
+      "detail": {
+        "observationId": "obs-a696288d-34a8-4519-b88e-56719c609a87-2",
+        "capture": {
+          "capturedAt": 1795679102865,
+          "consistency": "stable-window",
+          "contentHeight": 800,
+          "contentWidth": 1280,
+          "cssToOutput": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "scaleX": 1,
+            "scaleY": 1
+          },
+          "occlusionPossible": false,
+          "offsetX": 0,
+          "offsetY": 0,
+          "outputPixelSize": {
+            "height": 800,
+            "width": 1280
+          },
+          "pixelHeight": 800,
+          "pixelWidth": 1280,
+          "provider": "wkwebview-snapshot",
+          "redactionMode": "renderer-opacity-and-pixel-mask",
+          "redactions": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "status": "captured",
+          "surface": "webview",
+          "windowId": "main"
+        },
+        "nodes": 35,
+        "health": {
+          "coverage": "partial",
+          "state": "healthy"
+        }
+      }
+    },
+    {
+      "name": "stable node inspection",
+      "status": "PASS",
+      "seconds": 0.014,
+      "detail": {
+        "role": "region",
+        "hasClipping": true
+      }
+    },
+    {
+      "name": "actionability and explicit effect",
+      "status": "PASS",
+      "seconds": 0.565,
+      "detail": {
+        "ambiguousRejected": true,
+        "effectConfirmed": true,
+        "inputMode": "dom-synthetic"
+      }
+    },
+    {
+      "name": "native click, text input, and Escape effects",
+      "status": "PASS",
+      "seconds": 1.708,
+      "detail": {
+        "provider": "appkit-nsevent",
+        "actions": [
+          {
+            "action": "click",
+            "operationId": "op_847101b38611a0777ba3595179bb85fa",
+            "beforeObservationId": "obs-a696288d-34a8-4519-b88e-56719c609a87-7",
+            "afterObservationId": "obs-a696288d-34a8-4519-b88e-56719c609a87-8",
+            "effectConfirmed": true,
+            "captureProvider": "wkwebview-snapshot",
+            "captureConsistency": "stable-window"
+          },
+          {
+            "action": "type",
+            "operationId": "op_e467f9d791aed51726f7132c2ffe1c8e",
+            "beforeObservationId": "obs-a696288d-34a8-4519-b88e-56719c609a87-10",
+            "afterObservationId": "obs-a696288d-34a8-4519-b88e-56719c609a87-11",
+            "effectConfirmed": true,
+            "captureProvider": "wkwebview-snapshot",
+            "captureConsistency": "stable-window"
+          },
+          {
+            "action": "key:Escape",
+            "operationId": "op_cb3f22055407c6ea4aef1c620f84871b",
+            "beforeObservationId": "obs-a696288d-34a8-4519-b88e-56719c609a87-13",
+            "afterObservationId": "obs-a696288d-34a8-4519-b88e-56719c609a87-14",
+            "effectConfirmed": true,
+            "captureProvider": "wkwebview-snapshot",
+            "captureConsistency": "stable-window"
+          }
+        ],
+        "artifacts": [
+          "native-command-open.png",
+          "native-search-input.png",
+          "native-command-close.png"
+        ],
+        "trustedEvent": "unverified",
+        "limitations": [
+          "local native window delivery; no global OS injection",
+          "no system shortcuts, native-menu or IME coverage",
+          "actual delivery and effects must be verified after each action"
+        ]
+      }
+    },
+    {
+      "name": "same environment comparison",
+      "status": "PASS",
+      "seconds": 0.672,
+      "detail": {
+        "comparable": true,
+        "pixels": {}
+      }
+    },
+    {
+      "name": "wait timeout evidence",
+      "status": "PASS",
+      "seconds": 0.308,
+      "detail": {
+        "timedOut": true,
+        "pending": [
+          "condition-not-met"
+        ]
+      }
+    },
+    {
+      "name": "persisted verify job",
+      "status": "PASS",
+      "seconds": 0.357,
+      "detail": {
+        "jobState": "succeeded",
+        "verification": {
+          "artifacts": {
+            "availability": "checked-at-report-time",
+            "imageStored": true,
+            "observationId": "obs-a696288d-34a8-4519-b88e-56719c609a87-22",
+            "observationStored": true,
+            "readWith": "app.diagnostics",
+            "retentionSec": 3600
+          },
+          "assertions": [
+            {
+              "name": "frontend.ready",
+              "passed": true
+            },
+            {
+              "name": "native.pixels",
+              "passed": true
+            },
+            {
+              "name": "capture.consistency",
+              "passed": true
+            },
+            {
+              "name": "confirmed.render.errors",
+              "passed": true
+            },
+            {
+              "name": "runtime.errors.clear",
+              "observed": true,
+              "passed": true
+            }
+          ],
+          "capture": {
+            "capturedAt": 1795679106491,
+            "consistency": "stable-window",
+            "contentHeight": 800,
+            "contentWidth": 1280,
+            "cssToOutput": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "scaleX": 1,
+              "scaleY": 1
+            },
+            "occlusionPossible": false,
+            "offsetX": 0,
+            "offsetY": 0,
+            "outputPixelSize": {
+              "height": 800,
+              "width": 1280
+            },
+            "pixelHeight": 800,
+            "pixelWidth": 1280,
+            "provider": "wkwebview-snapshot",
+            "redactionMode": "renderer-opacity-and-pixel-mask",
+            "redactions": 0,
+            "scaleX": 1,
+            "scaleY": 1,
+            "status": "captured",
+            "surface": "webview",
+            "windowId": "main"
+          },
+          "coverage": {
+            "components": "public-registry",
+            "dom": "complete-for-semantic-nodes",
+            "glyphFont": "unavailable",
+            "hitTest": "available",
+            "nativeInput": "unsupported",
+            "network": "not-instrumented",
+            "nodeCount": 35,
+            "paint": "requires-native-screenshot",
+            "pixels": "captured",
+            "screenshot": "provided-by-host",
+            "totalSemanticNodes": 35,
+            "truncated": false
+          },
+          "environment": "native-desktop",
+          "errors": [],
+          "finishedAt": 1795679106581,
+          "host": {
+            "backend": {
+              "metrics": {
+                "goMemoryBytes": 41613592,
+                "goroutines": 19,
+                "heapBytes": 18799680,
+                "processCPUms": 3430,
+                "processPeakRSSBytes": 108019712,
+                "processRSSBytes": 100876288,
+                "uptimeSec": 400
+              },
+              "source": "go-runtime",
+              "state": "healthy"
+            },
+            "bridge": {
+              "failureCount": 0,
+              "lastFailureAt": 0,
+              "lastRTTMs": 0,
+              "lastSuccessAt": 1795679106159,
+              "pending": 0,
+              "state": "healthy"
+            },
+            "browserDebug": {
+              "configured": false,
+              "platform": "darwin",
+              "reachable": false,
+              "ready": false,
+              "reasonCode": "CDP_DISABLED",
+              "requested": false,
+              "targetMatched": false
+            },
+            "build": {
+              "appVersion": "v1.2.3-0.20261126040834-1107e836c650+dirty rev=1107e836",
+              "arch": "arm64",
+              "binarySHA256": "ea437f0017d7c4fa17278749c642935aa862776e0af7197ffd6fa9bde29e8390",
+              "dirty": true,
+              "gitCommit": "1107e836c65014d8a16e47349fd9441feaf54931",
+              "goVersion": "go1.26.10",
+              "os": "darwin"
+            },
+            "frontendHeartbeat": {
+              "ageMs": 299,
+              "pageEpoch": "a696288d-34a8-4519-b88e-56719c609a87",
+              "ready": true,
+              "receivedAt": 1795679105948,
+              "sequences": {
+                "error": 0,
+                "frame": 75,
+                "layout": 24,
+                "mutation": 23
+              },
+              "state": "healthy",
+              "visibility": "visible"
+            },
+            "instanceId": "087885b7-a886-48dc-aecc-ac224a38dc57",
+            "observedAt": 1795679106243,
+            "pid": 67774,
+            "sessions": [],
+            "tunnels": [],
+            "window": {
+              "focused": true,
+              "minimized": false,
+              "visible": true,
+              "windowId": "main"
+            }
+          },
+          "inputMode": "none-read-only",
+          "issues": [],
+          "observationId": "obs-a696288d-34a8-4519-b88e-56719c609a87-22",
+          "residualResources": [],
+          "scenarioId": "desktop.current",
+          "schemaVersion": "1",
+          "startedAt": 1795679106243,
+          "status": "passed"
+        }
+      }
+    }
+  ],
+  "passed": 8,
+  "failed": 1,
+  "limitations": [
+    "No saved user remote target was accessed.",
+    "Native provider reports trustedEvent=unverified; this smoke confirms provider delivery plus UI state effects, not browser isTrusted semantics.",
+    "Windows/Linux native input is not implemented."
+  ]
+}

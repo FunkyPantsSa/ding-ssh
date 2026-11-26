@@ -1,0 +1,149 @@
+{
+  "passed": 21,
+  "checks": [
+    {
+      "name": "failure initially focuses retry",
+      "actual": "terminal-retry",
+      "expected": "terminal-retry",
+      "pass": true
+    },
+    {
+      "name": "native Enter retries exactly once",
+      "actual": 1,
+      "expected": 1,
+      "pass": true
+    },
+    {
+      "name": "right selects edit",
+      "actual": "terminal-edit-server",
+      "expected": "terminal-edit-server",
+      "pass": true
+    },
+    {
+      "name": "native Enter edits without retrying",
+      "actual": [
+        1,
+        1
+      ],
+      "expected": [
+        1,
+        1
+      ],
+      "pass": true
+    },
+    {
+      "name": "dialog focuses visible input",
+      "actual": "edit-input",
+      "expected": "edit-input",
+      "pass": true
+    },
+    {
+      "name": "input arrow keeps editing",
+      "actual": "edit-input",
+      "expected": "edit-input",
+      "pass": true
+    },
+    {
+      "name": "range arrow keeps native focus",
+      "actual": "range",
+      "expected": "range",
+      "pass": true
+    },
+    {
+      "name": "dialog arrow selects save",
+      "actual": "dialog-save",
+      "expected": "dialog-save",
+      "pass": true
+    },
+    {
+      "name": "dialog Enter saves once",
+      "actual": 1,
+      "expected": 1,
+      "pass": true
+    },
+    {
+      "name": "menu focuses first available item",
+      "actual": "编辑",
+      "expected": "编辑",
+      "pass": true
+    },
+    {
+      "name": "menu down selects copy",
+      "actual": "复制IP",
+      "expected": "复制IP",
+      "pass": true
+    },
+    {
+      "name": "menu skips disabled clone",
+      "actual": "测试在线状态",
+      "expected": "测试在线状态",
+      "pass": true
+    },
+    {
+      "name": "menu Escape preserves parent dialog",
+      "actual": true,
+      "expected": true,
+      "pass": true
+    },
+    {
+      "name": "menu Escape restores trigger",
+      "actual": "open-menu",
+      "expected": "open-menu",
+      "pass": true
+    },
+    {
+      "name": "dialog Escape closes parent only",
+      "actual": false,
+      "expected": false,
+      "pass": true
+    },
+    {
+      "name": "dialog returns focus to edit",
+      "actual": "terminal-edit-server",
+      "expected": "terminal-edit-server",
+      "pass": true
+    },
+    {
+      "name": "disconnect focuses reconnect",
+      "actual": "terminal-reconnect",
+      "expected": "terminal-reconnect",
+      "pass": true
+    },
+    {
+      "name": "disconnect selects cancel automatic retry",
+      "actual": "取消自动重连",
+      "expected": "取消自动重连",
+      "pass": true
+    },
+    {
+      "name": "cancel Enter does not also reconnect",
+      "actual": [
+        1,
+        1
+      ],
+      "expected": [
+        1,
+        1
+      ],
+      "pass": true
+    },
+    {
+      "name": "down selects close tab",
+      "actual": "关闭标签页",
+      "expected": "关闭标签页",
+      "pass": true
+    },
+    {
+      "name": "close Enter does not also reconnect",
+      "actual": [
+        1,
+        1
+      ],
+      "expected": [
+        1,
+        1
+      ],
+      "pass": true
+    }
+  ]
+}

@@ -87,6 +87,7 @@ export const useSettingsStore = defineStore('settings', {
     appearance: defaultAppearance() as UIAppearance,
     fonts: defaultFonts() as Fonts,
     autoStart: false,
+    trayIconEnabled: true,
     confirmCloseTab: true,
     confirmCloseApp: true,
     smoothAnimations: false,
@@ -154,6 +155,7 @@ export const useSettingsStore = defineStore('settings', {
       }
       this.fonts = {...defaultFonts(), ...(settings.fonts ?? {})}
       this.autoStart = settings.autoStart ?? false
+      this.trayIconEnabled = settings.trayIconEnabled ?? true
       this.confirmCloseTab = settings.confirmCloseTab ?? true
       this.confirmCloseApp = settings.confirmCloseApp ?? true
       this.smoothAnimations = settings.smoothAnimations ?? false
@@ -305,7 +307,7 @@ export const useSettingsStore = defineStore('settings', {
       if (patch.logTraceTabs !== undefined) this.logTraceTabs = normalizeLogTraceTabs(patch.logTraceTabs)
       await this.save()
     },
-    async setBehavior(key: 'autoStart' | 'confirmCloseTab' | 'confirmCloseApp' | 'smoothAnimations', value: boolean) {
+    async setBehavior(key: 'autoStart' | 'trayIconEnabled' | 'confirmCloseTab' | 'confirmCloseApp' | 'smoothAnimations', value: boolean) {
       const previous = this[key]
       this[key] = value
       try { await this.save() } catch (error) { this[key] = previous; throw error }
@@ -326,6 +328,7 @@ export const useSettingsStore = defineStore('settings', {
         appearance: normalizeAppearance(this.appearance),
         fonts: this.fonts,
         autoStart: this.autoStart,
+        trayIconEnabled: this.trayIconEnabled,
         confirmCloseTab: this.confirmCloseTab,
         confirmCloseApp: this.confirmCloseApp,
         smoothAnimations: this.smoothAnimations,

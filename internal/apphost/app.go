@@ -38,6 +38,8 @@ type App struct {
 	desktop       *application.App
 	window        *application.WebviewWindow
 	tray          *application.SystemTray
+	trayMenu      *application.Menu
+	trayMu        sync.Mutex
 	notifications *notifications.NotificationService
 	dock          *dock.DockService
 	closePending  atomic.Bool
@@ -124,6 +126,10 @@ func (a *App) startup(ctx context.Context) {
 		}
 		// 日志：命中 LogTraceTabs 的会话，其输出旁路一份到日志（见 debug.go 的 traceEvent）
 		a.traceEvent(eventName, payload)
+		// 会话连接状态变化时异步刷新系统托盘菜单与角标，避免阻塞推送路径
+		if strings.HasPrefix(eventName, "ssh:status:") {
+			go a.updateBadge()
+		}
 	}
 	a.manager = sshx.NewManager(notify)
 	a.local = localterm.NewManager(notify)
@@ -194,6 +200,7 @@ func (a *App) startup(ctx context.Context) {
 		logx.Errorf("[apphost] 读取设置失败: err=%v", err)
 	}
 	a.applyLogSettings(settings)
+	a.syncSystemTray(settings.TrayIconEnabled)
 	a.configureDebugAudit(settings.Debug)
 	logx.Debugf("[apphost] 设置已加载并应用日志开关: elapsed=%s", time.Since(start))
 	// 启动自检：把版本 / 日志目录 / 各项开关写进日志，便于排查「日志页没内容」
@@ -575,6 +582,7 @@ func (a *App) SaveSettings(settings models.Settings) error {
 		a.audits.Append(debugsrv.AuditRecord{Source: "ui", Tool: "authorization.settings", ClientID: "local-owner", OK: true})
 	}
 	syncNativeAppearance(settings.Appearance.BaseTone)
+	a.syncSystemTray(settings.TrayIconEnabled)
 	// 日志四项开关（控制台 / 文件 / 级别 / 调用日志）立即生效
 	a.applyLogSettings(settings)
 	logx.Infof("[apphost] 设置已保存并生效: elapsed=%s consoleLog=%v fileLog=%v level=%s apiLog=%v keepAlive=%v sysInfoCollect=%v",
@@ -1640,6 +1648,7 @@ func (a *App) OpenSFTPWindow(sessionID, title string) error {
 }
 
 func (a *App) updateBadge() {
+	a.refreshTrayMenu()
 	if a.dock == nil {
 		return
 	}

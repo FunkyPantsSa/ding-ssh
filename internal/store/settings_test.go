@@ -84,6 +84,48 @@ func TestJSONSettingsStoreSettingsPlacementDefault(t *testing.T) {
 	if got.SettingsPlacement != models.SettingsPlacementBottom {
 		t.Fatalf("旧配置缺省设置按钮位置 = %q，期望 %q", got.SettingsPlacement, models.SettingsPlacementBottom)
 	}
+	if !got.TrayIconEnabled {
+		t.Fatalf("旧配置缺省托盘图标开启状态 = %v，期望 true", got.TrayIconEnabled)
+	}
+}
+
+func TestJSONAndSQLiteTrayIconEnabledRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	jsonStore, err := NewJSONSettingsStore(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		t.Fatalf("创建 JSON 设置存储失败: %v", err)
+	}
+	st, err := jsonStore.Get()
+	if err != nil || !st.TrayIconEnabled {
+		t.Fatalf("JSON 默认托盘图标设置 = %v (err=%v)，期望 true", st.TrayIconEnabled, err)
+	}
+	st.TrayIconEnabled = false
+	if err := jsonStore.Save(st); err != nil {
+		t.Fatalf("保存 JSON 设置失败: %v", err)
+	}
+	reloaded, err := jsonStore.Get()
+	if err != nil || reloaded.TrayIconEnabled {
+		t.Fatalf("JSON 重读托盘图标设置 = %v (err=%v)，期望 false", reloaded.TrayIconEnabled, err)
+	}
+
+	db, err := OpenSQLite(filepath.Join(dir, "ding.db"))
+	if err != nil {
+		t.Fatalf("打开 SQLite 失败: %v", err)
+	}
+	defer db.Close()
+	sqlStore := NewSQLiteSettingsStore(db)
+	sqlSt, err := sqlStore.Get()
+	if err != nil || !sqlSt.TrayIconEnabled {
+		t.Fatalf("SQLite 默认托盘图标设置 = %v (err=%v)，期望 true", sqlSt.TrayIconEnabled, err)
+	}
+	sqlSt.TrayIconEnabled = false
+	if err := sqlStore.Save(sqlSt); err != nil {
+		t.Fatalf("保存 SQLite 设置失败: %v", err)
+	}
+	sqlReloaded, err := sqlStore.Get()
+	if err != nil || sqlReloaded.TrayIconEnabled {
+		t.Fatalf("SQLite 重读托盘图标设置 = %v (err=%v)，期望 false", sqlReloaded.TrayIconEnabled, err)
+	}
 }
 
 // 旧配置文件（无 rightClickAction 字段）应回落到默认值「打开选项栏」。

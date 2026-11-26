@@ -112,14 +112,16 @@ type diskJob struct {
 	Idempotency string     `json:"idempotency"`
 }
 type jobManager struct {
-	mu      sync.Mutex
-	jobs    map[string]*job
-	running int
-	closed  bool
-	dir     string
-	server  *Server
-	stop    chan struct{}
-	plans   map[string]*jobPlan
+	mu          sync.Mutex
+	jobs        map[string]*job
+	running     int
+	closed      bool
+	dir         string
+	server      *Server
+	stop        chan struct{}
+	janitorDone chan struct{}
+	workers     sync.WaitGroup
+	plans       map[string]*jobPlan
 }
 
 func init() {
@@ -191,7 +193,7 @@ func IsJobsHostOp(name string) bool {
 
 func (s *Server) jobStore() *jobManager {
 	s.jobsOnce.Do(func() {
-		m := &jobManager{jobs: map[string]*job{}, plans: map[string]*jobPlan{}, server: s, stop: make(chan struct{})}
+		m := &jobManager{jobs: map[string]*job{}, plans: map[string]*jobPlan{}, server: s, stop: make(chan struct{}), janitorDone: make(chan struct{})}
 		if d, ok := s.opts.Handler.(JobStateDirectory); ok {
 			m.dir = d.JobStateDirectory()
 			m.load()
@@ -452,11 +454,13 @@ func (m *jobManager) startPrepared(ctx context.Context, owner string, req JobReq
 	j := &job{view: jobView{ID: id, Owner: owner, BatchID: batchID, SessionID: req.SessionID, Local: req.Local, State: "queued", CreatedAt: time.Now().UnixMilli()}, maxBytes: req.MaxBytes, fingerprint: fingerprint, idem: req.IdempotencyKey, cancel: cancel, done: make(chan struct{})}
 	m.jobs[id] = j
 	m.running++
+	m.workers.Add(1)
 	m.mu.Unlock()
 	executor, ok := m.server.opts.Handler.(JobsExecutor)
-	if !ok {
+	if !ok && prepared == nil {
 		cancel()
 		m.finish(j, JobExecutionResult{Known: true, Error: "宿主未接入独立执行器"})
+		m.workers.Done()
 		return jobView{}, errors.New("宿主未接入独立执行器")
 	}
 	runner := prepared
@@ -467,6 +471,7 @@ func (m *jobManager) startPrepared(ctx context.Context, owner string, req JobReq
 	if err != nil {
 		cancel()
 		m.finish(j, JobExecutionResult{Known: true, Error: err.Error()})
+		m.workers.Done()
 		m.mu.Lock()
 		v := j.view
 		m.mu.Unlock()
@@ -482,10 +487,12 @@ func (m *jobManager) startPrepared(ctx context.Context, owner string, req JobReq
 	if err := m.persist(j); err != nil {
 		cancel()
 		m.finish(j, JobExecutionResult{Known: true, TerminationProven: true, Error: "任务状态无法安全保存，命令未执行"})
+		m.workers.Done()
 		return jobView{}, fmt.Errorf("任务状态无法安全保存，命令未执行: %w", err)
 	}
 	m.publish(v)
 	go func() {
+		defer m.workers.Done()
 		defer cancel()
 		defer func() {
 			if recover() != nil {
@@ -620,6 +627,10 @@ func (s *Server) CloseJobs() {
 		}
 	}
 	m.mu.Unlock()
+	if m.janitorDone != nil {
+		<-m.janitorDone
+	}
+	m.workers.Wait()
 }
 
 // CancelClientJobs is called when the owner revokes a client's authorization.
@@ -641,6 +652,7 @@ func (s *Server) CancelClientJobs(owner string) {
 	}
 }
 func (m *jobManager) janitor() {
+	defer close(m.janitorDone)
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {

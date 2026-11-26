@@ -91,6 +91,12 @@ describe('theme engine', () => {
     expect(monoFontStack('Maple Mono NF CN')).toMatch(/^"Maple Mono NF CN",/)
     expect(monoFontStack('JetBrains Mono + Sarasa Mono SC')).toMatch(/^"JetBrains Mono", "Sarasa Mono SC",/)
     expect(monoFontStack('Geist Mono + Sarasa Mono SC')).toMatch(/^"Geist Mono", "Sarasa Mono SC",/)
+    expect(monoFontStack('system')).toMatch(/^ui-monospace,/)
+    expect(monoFontStack('system')).not.toContain('"ui-monospace"')
+    expect(monoFontStack('system')).not.toContain('Geist Mono')
+    expect(monoFontStack('system')).not.toContain('Noto Sans SC')
+    expect(monoFontStack('pair:["system","system"]')).toBe(monoFontStack('system'))
+    expect(monoFontStack('pair:["JetBrains Mono","system"]')).toMatch(/^"DingLatin-JetBrains Mono", ui-monospace,.*"PingFang SC"/)
     const vars = computeUiCssVars(
       {
         mode: 'custom',
@@ -102,12 +108,14 @@ describe('theme engine', () => {
         glassOpacity: 85,
         glassBlur: 24,
       },
-      {uiFont: 'system', terminalFont: 'system', terminalFontSize: 14},
+      {uiFont: 'Geist Sans', terminalFont: 'Maple Mono NF CN', terminalFontSize: 14},
       'dark',
       PLAIN,
     )
     expect(vars['--text-primary']).toMatch(/^#[0-9a-f]{6}$/)
     expect(vars['--text-primary']).toBe(vars['--foreground'])
+    expect(vars['--font-mono']).toMatch(/^"Geist Mono",/)
+    expect(vars['--font-mono']).not.toContain('Maple Mono NF CN')
   })
 
   it('keeps light glass luminous and derives interactive colors from the seed', () => {

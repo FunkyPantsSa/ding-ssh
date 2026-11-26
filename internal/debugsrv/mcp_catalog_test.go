@@ -21,6 +21,7 @@ import (
 //
 // 这是**规格清单**（任务要求逐个点名），不是「总数」——总数仍由注册表 / mcpToolEntries 推导。
 var structuredExpect = []string{
+	OpAppObserve, OpRuntimeCapabilities, OpDiagnostics, OpUIObserve, OpUIInspect, OpUIDiagnose, OpUIWait, OpUIAct, OpUICompare, OpVerifyRun, OpVerifyGet, OpTargetsProbe,
 	"app_state", "app.health", "app.permissions",
 	"confirm.status",
 	"list_terminals", "read_terminal",

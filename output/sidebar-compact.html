@@ -1,0 +1,210 @@
+<style>
+#ding-sidebar-study { color-scheme: light dark; }
+#ding-sidebar-study .ds-stage { min-height: 698px; }
+#ding-sidebar-study .ds-app {
+  --ds-bg: light-dark(#d6edf5, #172b35);
+  --ds-nav-top: light-dark(#a6d9eb, #254c60);
+  --ds-nav-bottom: light-dark(#def2f8, #1e3542);
+  --ds-panel: light-dark(#f6fafb, #17252c);
+  --ds-text: light-dark(#24424e, #e0edf2);
+  --ds-muted: light-dark(#526c78, #a2b8c4);
+  --ds-line: light-dark(#80aebb55, #b5d7e025);
+  --ds-active: light-dark(#eefaff, #375365);
+  --ds-hover: light-dark(#ffffff55, #ffffff0c);
+  --ds-green: light-dark(#098359, #62dca8);
+  --ds-width: 188px;
+  --ds-row: 32px;
+  height: 688px; width: 100%; box-sizing: border-box;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--ds-line); border-radius: 12px;
+  overflow: hidden; background: var(--ds-bg); color: var(--ds-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  font-size: 13px; line-height: 1.5;
+}
+#ding-sidebar-study .ds-app *, #ding-sidebar-study .ds-app *::before { box-sizing: border-box; }
+#ding-sidebar-study .ds-app button { font: inherit; color: inherit; cursor: inherit; }
+#ding-sidebar-study .ds-windowbar { height: 30px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 0 12px; }
+#ding-sidebar-study .ds-light { height: 9px; width: 9px; border-radius: 50%; background: var(--ds-muted); opacity: .45; }
+#ding-sidebar-study .ds-windowname { margin-left: 9px; color: var(--ds-muted); font-size: 11px; }
+#ding-sidebar-study .ds-layout { display: grid; grid-template-columns: var(--ds-width) minmax(0,1fr); gap: 6px; padding: 0 6px 6px; flex: 1; min-height: 0; }
+#ding-sidebar-study .ds-side { background: linear-gradient(175deg,var(--ds-nav-top),var(--ds-nav-bottom)); border: 1px solid var(--ds-line); border-radius: 9px; min-width: 0; display: flex; flex-direction: column; }
+#ding-sidebar-study .ds-brand { display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 10px; border-bottom: 1px solid var(--ds-line); flex-shrink: 0; }
+#ding-sidebar-study .ds-brandname { white-space: nowrap; font-weight: 600; letter-spacing: -.3px; }
+#ding-sidebar-study .ds-mark { width: 24px; height: 24px; flex-shrink: 0; display: grid; place-items: center; }
+#ding-sidebar-study .ds-icon { border: 0; border-radius: 5px; background: transparent; width: 24px; height: 26px; padding: 0; display: grid; place-items: center; flex-shrink: 0; }
+#ding-sidebar-study .ds-brand .ds-icon { margin-left: auto; }
+#ding-sidebar-study .ds-app svg { width: 15px; height: 15px; flex-shrink: 0; stroke-width: 1.7; }
+#ding-sidebar-study .ds-body { padding: 8px; display: flex; flex-direction: column; gap: 3px; }
+#ding-sidebar-study .ds-row { display: flex; align-items: center; gap: 8px; padding: 0 8px; height: var(--ds-row); min-width: 0; border-radius: 6px; background: transparent; border: 1px solid transparent; }
+#ding-sidebar-study .ds-row > svg { color: var(--ds-muted); }
+#ding-sidebar-study .ds-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#ding-sidebar-study .ds-count { color: var(--ds-muted); font-size: 11px; margin-left: auto; }
+#ding-sidebar-study .ds-label { height: 31px; padding: 6px 8px 0; display: flex; align-items: center; gap: 5px; color: var(--ds-muted); font-size: 11px; }
+#ding-sidebar-study .ds-label .ds-icon { margin-left: auto; }
+#ding-sidebar-study .ds-divider { height: 1px; background: var(--ds-line); margin: 8px 8px 2px; }
+#ding-sidebar-study .ds-active { background: var(--ds-active); border-color: var(--ds-line); box-shadow: 0 2px 6px var(--ds-line); }
+#ding-sidebar-study .ds-status { display: flex; width: 10px; flex-shrink: 0; justify-content: center; }
+#ding-sidebar-study .ds-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--ds-green); }
+#ding-sidebar-study .ds-session-name { font-family: ui-monospace, 'SFMono-Regular', monospace; font-size: 12px; }
+#ding-sidebar-study .ds-close { width: 14px; display: grid; place-items: center; color: var(--ds-muted); font-size: 13px; }
+#ding-sidebar-study .ds-footer { margin-top: auto; padding: 6px 8px; border-top: 1px solid var(--ds-line); }
+#ding-sidebar-study .ds-main { min-width: 0; display: flex; flex-direction: column; background: var(--ds-panel); border-radius: 9px; border: 1px solid var(--ds-line); }
+#ding-sidebar-study .ds-topbar { height: 42px; padding: 0 14px; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid var(--ds-line); flex-shrink: 0; }
+#ding-sidebar-study .ds-terminal { flex: 1; min-width: 0; padding: 18px 14px; font-family: ui-monospace, 'SFMono-Regular', monospace; font-size: 12px; overflow-wrap: anywhere; }
+#ding-sidebar-study .ds-command { margin: 0 0 10px; }
+#ding-sidebar-study .ds-prompt { color: var(--ds-green); }
+#ding-sidebar-study .ds-dim { color: var(--ds-muted); }
+#ding-sidebar-study .ds-cursor { display: inline-block; width: 7px; height: 13px; vertical-align: -2px; background: var(--ds-text); }
+#ding-sidebar-study .ds-statusbar { border-top: 1px solid var(--ds-line); padding: 5px 12px; font-size: 11px; color: var(--ds-muted); }
+#ding-sidebar-study .ds-width { margin-left: auto; white-space: nowrap; font-size: 11px; color: var(--ds-muted); }
+#ding-sidebar-study .ds-current { --ds-width: 216px; --ds-row: 34px; }
+#ding-sidebar-study .ds-current .ds-body { padding: 12px; gap: 4px; }
+#ding-sidebar-study .ds-current .ds-row { gap: 10px; }
+#ding-sidebar-study .ds-current .ds-label { padding: 14px 8px 6px; height: 36px; letter-spacing: 1px; }
+#ding-sidebar-study .ds-new { font-size: 11px; color: var(--ds-muted); padding-left: 8px; height: 28px; display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+#ding-sidebar-study .ds-app[data-collapsed='true'] .ds-layout { grid-template-columns: 56px minmax(0,1fr); }
+#ding-sidebar-study .ds-app[data-collapsed='true'] .ds-hide,
+#ding-sidebar-study .ds-app[data-collapsed='true'] .ds-label,
+#ding-sidebar-study .ds-app[data-collapsed='true'] .ds-new { display: none; }
+#ding-sidebar-study .ds-app[data-collapsed='true'] .ds-brand { justify-content: center; padding: 0; }
+#ding-sidebar-study .ds-app[data-collapsed='true'] .ds-brand .ds-icon { margin: 0; }
+#ding-sidebar-study .ds-app[data-collapsed='true'] .ds-brand .ds-mark { display: none; }
+#ding-sidebar-study .ds-app[data-collapsed='true'] .ds-body,
+#ding-sidebar-study .ds-app[data-collapsed='true'] .ds-footer { padding: 8px 5px; }
+#ding-sidebar-study .ds-app[data-collapsed='true'] .ds-row { justify-content: center; gap: 0; padding: 0; }
+#ding-sidebar-study button:hover { background: var(--ds-hover); }
+#ding-sidebar-study button:focus-visible { outline: 2px solid var(--ds-text); outline-offset: 2px; }
+@media (max-width: 460px) {
+  #ding-sidebar-study .ds-topbar { padding: 0 8px; }
+  #ding-sidebar-study .ds-terminal { padding: 14px 8px; }
+  #ding-sidebar-study .ds-width { display: none; }
+  #ding-sidebar-study .ds-statusbar { padding: 5px 8px; }
+}
+@media (pointer: coarse) {
+  #ding-sidebar-study .ds-icon { width: 44px; height: 44px; }
+  #ding-sidebar-study .ds-brand, #ding-sidebar-study .ds-topbar { height: 48px; }
+}
+</style>
+<div id="ding-sidebar-study">
+  <div class="viz-carousel" aria-label="侧栏布局比较" data-previous-label="上一方案" data-next-label="下一方案">
+    <section class="ds-stage" data-variant="紧凑侧栏 · 推荐" aria-label="紧凑侧栏方案">
+      <div class="ds-app ds-compact" aria-label="紧凑侧栏" data-collapsed="false">
+        <div class="ds-windowbar" aria-hidden="true"><span class="ds-light"></span><span class="ds-light"></span><span class="ds-light"></span><span class="ds-windowname">ding-ssh</span></div>
+        <div class="ds-layout">
+          <aside class="ds-side" aria-label="主导航预览">
+            <div class="ds-brand"><span class="ds-mark"><i data-lucide="terminal" aria-hidden="true"></i></span><span class="ds-brandname ds-hide">DING-SSH</span><button class="ds-icon cursor-interaction" type="button" data-collapse aria-label="收起侧栏" aria-expanded="true" data-tooltip="收起 / 展开侧栏"><i data-lucide="panel-left-close" aria-hidden="true"></i></button></div>
+            <div class="ds-body">
+              <div class="ds-row"><i data-lucide="house" aria-hidden="true"></i><span class="ds-name ds-hide">首页</span></div>
+              <div class="ds-row"><i data-lucide="monitor" aria-hidden="true"></i><span class="ds-name ds-hide">本地终端</span></div>
+              <div class="ds-row"><i data-lucide="server" aria-hidden="true"></i><span class="ds-name ds-hide">服务器</span><span class="ds-count ds-hide">1</span></div>
+              <div class="ds-row"><i data-lucide="waypoints" aria-hidden="true"></i><span class="ds-name ds-hide">隧道</span></div>
+              <div class="ds-divider"></div>
+              <div class="ds-row"><i data-lucide="zap" aria-hidden="true"></i><span class="ds-name ds-hide">快速连接</span></div>
+              <div class="ds-row"><i data-lucide="plus" aria-hidden="true"></i><span class="ds-name ds-hide">新建服务器</span></div>
+              <div class="ds-label"><span>会话</span><span>1</span><span class="ds-icon" aria-label="新建会话入口"><i data-lucide="plus" aria-hidden="true"></i></span></div>
+              <div class="ds-row ds-active" aria-label="已连接会话 192.168.1.100"><span class="ds-status"></span><span class="ds-name ds-session-name ds-hide">192.168.1.100</span><span class="ds-close ds-hide" aria-hidden="true">×</span></div>
+            </div>
+            <div class="ds-footer"><div class="ds-row"><i data-lucide="settings" aria-hidden="true"></i><span class="ds-name ds-hide">设置</span></div></div>
+          </aside>
+          <main class="ds-main" aria-label="终端区域预览">
+            <div class="ds-topbar"><span class="ds-status" aria-label="已连接"></span><span class="ds-name" data-tooltip="root@192.168.1.100">root@192.168.1.100</span><span class="ds-width" data-width>188px 侧栏</span></div>
+            <div class="ds-terminal"><p class="ds-command ds-dim">Connected.</p><p class="ds-command"><span class="ds-prompt">root@server:~#</span> uname -s</p><p class="ds-command ds-dim">Linux</p><p class="ds-command"><span class="ds-prompt">root@server:~#</span> <span class="ds-cursor"></span></p></div>
+            <div class="ds-statusbar">SSH · UTF-8</div>
+          </main>
+        </div>
+      </div>
+    </section>
+    <section class="ds-stage" data-variant="当前结构" aria-label="当前侧栏结构示意" hidden>
+      <div class="ds-app ds-current" aria-label="当前侧栏" data-collapsed="false">
+        <div class="ds-windowbar" aria-hidden="true"><span class="ds-light"></span><span class="ds-light"></span><span class="ds-light"></span><span class="ds-windowname">ding-ssh</span></div>
+        <div class="ds-layout">
+          <aside class="ds-side" aria-label="主导航预览">
+            <div class="ds-brand"><span class="ds-mark"><i data-lucide="terminal" aria-hidden="true"></i></span><span class="ds-brandname ds-hide">DING-SSH</span><button class="ds-icon cursor-interaction" type="button" data-collapse aria-label="收起侧栏" aria-expanded="true" data-tooltip="收起 / 展开侧栏"><i data-lucide="panel-left-close" aria-hidden="true"></i></button></div>
+            <div class="ds-body">
+              <div class="ds-label">导航</div>
+              <div class="ds-row"><i data-lucide="house" aria-hidden="true"></i><span class="ds-name ds-hide">首页</span><span class="ds-count ds-hide">1</span></div>
+              <div class="ds-row"><i data-lucide="monitor" aria-hidden="true"></i><span class="ds-name ds-hide">本地终端</span></div>
+              <div class="ds-row"><i data-lucide="server" aria-hidden="true"></i><span class="ds-name ds-hide">服务器</span><span class="ds-count ds-hide">1</span></div>
+              <div class="ds-row"><i data-lucide="waypoints" aria-hidden="true"></i><span class="ds-name ds-hide">隧道</span></div>
+              <div class="ds-row"><i data-lucide="settings" aria-hidden="true"></i><span class="ds-name ds-hide">设置</span></div>
+              <div class="ds-label">会话</div>
+              <div class="ds-row"><i data-lucide="zap" aria-hidden="true"></i><span class="ds-name ds-hide">快速连接</span></div>
+              <div class="ds-row"><i data-lucide="plus" aria-hidden="true"></i><span class="ds-name ds-hide">新建服务器</span></div>
+              <div class="ds-label">会话 (SPACES) 1</div>
+              <div class="ds-row ds-active" aria-label="已连接会话 192.168.1.100"><span class="ds-status"></span><span class="ds-name ds-session-name ds-hide">192.168.1.100</span><span class="ds-close ds-hide" aria-hidden="true">×</span></div>
+              <div class="ds-new ds-hide"><i data-lucide="plus" aria-hidden="true"></i>新建会话…</div>
+            </div>
+          </aside>
+          <main class="ds-main" aria-label="终端区域预览">
+            <div class="ds-topbar"><span class="ds-status" aria-label="已连接"></span><span class="ds-name" data-tooltip="root@192.168.1.100">root@192.168.1.100</span><span class="ds-width" data-width>216px 侧栏</span></div>
+            <div class="ds-terminal"><p class="ds-command ds-dim">Connected.</p><p class="ds-command"><span class="ds-prompt">root@server:~#</span> uname -s</p><p class="ds-command ds-dim">Linux</p><p class="ds-command"><span class="ds-prompt">root@server:~#</span> <span class="ds-cursor"></span></p></div>
+            <div class="ds-statusbar">SSH · UTF-8</div>
+          </main>
+        </div>
+      </div>
+    </section>
+  </div>
+  <span role="status" aria-live="polite" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)" data-status></span>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('ding-sidebar-study');
+  const status = root.querySelector('[data-status]');
+  const saved = window.openai?.widgetState?.privateContent?.sidebarLayouts || {};
+  const layouts = {};
+  const renderers = {};
+  const clamp = (value, fallback, min, max) => Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
+  const persist = () => {
+    const content = Object.fromEntries(Object.entries(layouts).map(([key, state]) => [key, { ...state }]));
+    window.openai?.setWidgetState?.({
+      modelContent: { compactSidebarWidth: layouts.compact.width, compactRowHeight: layouts.compact.row },
+      privateContent: { sidebarLayouts: content }
+    })?.catch(() => {});
+  };
+  root.querySelectorAll('.ds-app').forEach((app) => {
+    const compact = app.classList.contains('ds-compact');
+    const key = compact ? 'compact' : 'current';
+    const prior = saved[key] || {};
+    const state = {
+      width: clamp(prior.width, compact ? 188 : 216, 176, 216),
+      row: clamp(prior.row, compact ? 32 : 34, 30, 36),
+      collapsed: prior.collapsed === true
+    };
+    layouts[key] = state;
+    const toggle = app.querySelector('[data-collapse]');
+    const widthLabel = app.querySelector('[data-width]');
+    const render = () => {
+      app.style.setProperty('--ds-width', state.width + 'px');
+      app.style.setProperty('--ds-row', state.row + 'px');
+      app.dataset.collapsed = String(state.collapsed);
+      widthLabel.textContent = (state.collapsed ? 56 : state.width) + 'px 侧栏';
+      toggle.setAttribute('aria-expanded', String(!state.collapsed));
+      toggle.setAttribute('aria-label', state.collapsed ? '展开侧栏' : '收起侧栏');
+    };
+    renderers[key] = render;
+    render();
+    toggle.addEventListener('click', () => {
+      state.collapsed = !state.collapsed;
+      render();
+      status.textContent = state.collapsed ? '侧栏已收起，宽度 56 像素' : '侧栏已展开，宽度 ' + state.width + ' 像素';
+      persist();
+    });
+    if (globalThis.Tweak) {
+      const tweak = new Tweak({ container: app, onChange: () => { render(); persist(); } });
+      tweak.addSlider(state, 'width', { label: '侧栏宽度', min: 176, max: 216, step: 2, unit: 'px' });
+      tweak.addSlider(state, 'row', { label: '条目高度', min: 30, max: 36, unit: 'px' });
+    }
+  });
+  window.addEventListener('openai:set_globals', (event) => {
+    const incoming = event.detail?.globals?.widgetState?.privateContent?.sidebarLayouts;
+    if (!incoming) return;
+    Object.entries(layouts).forEach(([key, state]) => {
+      if (!incoming[key]) return;
+      state.width = clamp(incoming[key].width, state.width, 176, 216);
+      state.row = clamp(incoming[key].row, state.row, 30, 36);
+      state.collapsed = incoming[key].collapsed === true;
+      renderers[key]();
+    });
+  });
+})();
+</script>

@@ -367,6 +367,7 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	logx.Debugf("[store] 设置键读取完成(SQLite): keys=%d", len(values))
 	st := models.Settings{
 		UISchema:             2,
+		TrayIconEnabled:      true,
 		ConfirmCloseTab:      true,
 		ConfirmCloseApp:      true,
 		Theme:                models.DefaultTheme(),
@@ -439,6 +440,9 @@ func (s *SQLiteSettingsStore) Get() (models.Settings, error) {
 	}
 	if v, ok := values["autoStart"]; ok {
 		st.AutoStart = v == "true"
+	}
+	if v, ok := values["trayIconEnabled"]; ok {
+		st.TrayIconEnabled = v == "true"
 	}
 	if v, ok := values["confirmCloseTab"]; ok {
 		st.ConfirmCloseTab = v == "true"
@@ -691,6 +695,7 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"fonts", string(fonts)},
 		{"autoReconnect", boolStr(st.AutoReconnect)},
 		{"autoStart", boolStr(st.AutoStart)},
+		{"trayIconEnabled", boolStr(st.TrayIconEnabled)},
 		{"confirmCloseTab", boolStr(st.ConfirmCloseTab)},
 		{"confirmCloseApp", boolStr(st.ConfirmCloseApp)},
 		{"smoothAnimations", boolStr(st.SmoothAnimations)},

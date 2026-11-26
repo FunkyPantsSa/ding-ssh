@@ -2,20 +2,26 @@ package apphost
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime"
+	"sort"
+	"strings"
 	"time"
 
 	"ding-ssh/internal/i18n"
+	"ding-ssh/internal/models"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-	"github.com/wailsapp/wails/v3/pkg/icons"
 	"github.com/wailsapp/wails/v3/pkg/services/dock"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
+
+//go:embed tray_icon.png
+var trayIconPNG []byte
 
 func ConfigureDesktop(a *App, desktop *application.App, window *application.WebviewWindow, ns *notifications.NotificationService, ds *dock.DockService) {
 	a.desktop = desktop
@@ -23,7 +29,6 @@ func ConfigureDesktop(a *App, desktop *application.App, window *application.Webv
 	a.notifications = ns
 	a.dock = ds
 	setupTerminalStream(a, desktop)
-	setupSystemTray(a, desktop, window)
 	setupApplicationMenu(a, desktop)
 	setupGlobalShortcut(a, desktop, window)
 	setupSystemEvents(a, desktop)
@@ -40,9 +45,18 @@ func ConfigureDesktop(a *App, desktop *application.App, window *application.Webv
 		if a.quitting.Load() {
 			return
 		}
-		// 关闭窗口时隐藏至系统托盘，保持后台隧道与连接常驻
-		event.Cancel()
-		window.Hide()
+		// 开启托盘图标（或 macOS 保留 Dock 入口）时隐藏窗口保持后台常驻；
+		// 非 macOS 且关闭托盘图标时走正常关闭确认流程，避免窗口隐藏后无法唤回。
+		if runtime.GOOS == "darwin" || a.isTrayIconEnabled() {
+			event.Cancel()
+			window.Hide()
+			return
+		}
+		if a.needsCloseConfirmation() {
+			event.Cancel()
+			return
+		}
+		a.quit()
 	})
 }
 
@@ -146,14 +160,142 @@ func setupApplicationMenu(a *App, desktop *application.App) {
 	desktop.Menu.SetApplicationMenu(menu)
 }
 
+func (a *App) isTrayIconEnabled() bool {
+	if a.settings == nil {
+		return a.tray != nil
+	}
+	settings, err := a.settings.Get()
+	if err != nil {
+		return a.tray != nil
+	}
+	return settings.TrayIconEnabled
+}
+
+func (a *App) syncSystemTray(enabled bool) {
+	a.trayMu.Lock()
+	defer a.trayMu.Unlock()
+	if a.desktop == nil {
+		return
+	}
+	if enabled {
+		if a.tray == nil {
+			setupSystemTray(a, a.desktop, a.window)
+		}
+		return
+	}
+	if a.tray != nil {
+		tray := a.tray
+		a.tray = nil
+		a.trayMenu = nil
+		application.InvokeSync(func() {
+			tray.Destroy()
+		})
+	}
+}
+
+func (a *App) connectedSSHSessions() []models.SessionInfo {
+	if a.manager == nil {
+		return nil
+	}
+	all := a.manager.List()
+	connected := make([]models.SessionInfo, 0, len(all))
+	for _, info := range all {
+		if info.Status == models.StatusConnected {
+			connected = append(connected, info)
+		}
+	}
+	sort.Slice(connected, func(i, j int) bool {
+		if connected[i].CreatedAt != connected[j].CreatedAt {
+			return connected[i].CreatedAt < connected[j].CreatedAt
+		}
+		return connected[i].SessionID < connected[j].SessionID
+	})
+	return connected
+}
+
+func formatTraySessionLabel(info models.SessionInfo) string {
+	endpoint := strings.TrimSpace(info.Host)
+	if user := strings.TrimSpace(info.User); user != "" && endpoint != "" {
+		endpoint = user + "@" + endpoint
+	}
+	name := strings.TrimSpace(info.ServerName)
+	switch {
+	case name != "" && endpoint != "" && name != endpoint:
+		return fmt.Sprintf("%s (%s)", name, endpoint)
+	case name != "":
+		return name
+	case endpoint != "":
+		return endpoint
+	default:
+		return info.SessionID
+	}
+}
+
+func (a *App) openSSHSessionWindow(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	if a.desktop != nil && a.desktop.Window != nil {
+		if existing, ok := a.desktop.Window.GetByName("terminal-" + sessionID); ok {
+			existing.Show()
+			existing.Focus()
+			return
+		}
+	}
+	if a.window != nil {
+		a.window.Show()
+		a.window.Focus()
+	}
+	a.emit("tray:open-session", sessionID)
+}
+
+func populateTrayMenu(a *App, menu *application.Menu, window *application.WebviewWindow) {
+	menu.Clear()
+	connected := a.connectedSSHSessions()
+	if len(connected) > 0 {
+		menu.Add(fmt.Sprintf(i18n.T("已连接的 SSH (%d)"), len(connected))).SetEnabled(false)
+		for _, sess := range connected {
+			sid := sess.SessionID
+			menu.Add(formatTraySessionLabel(sess)).OnClick(func(ctx *application.Context) {
+				a.openSSHSessionWindow(sid)
+			})
+		}
+	} else {
+		menu.Add(i18n.T("暂无已连接的 SSH")).SetEnabled(false)
+	}
+	menu.AddSeparator()
+
+	menu.Add(i18n.T("显示主窗口")).OnClick(func(ctx *application.Context) {
+		if window != nil {
+			window.Show()
+			window.Focus()
+		}
+	})
+	menu.AddSeparator()
+
+	menu.Add(i18n.T("断开所有连接与隧道")).OnClick(func(ctx *application.Context) {
+		a.DisconnectAll()
+	})
+	menu.AddSeparator()
+
+	menu.Add(i18n.T("退出 ding-ssh")).OnClick(func(ctx *application.Context) {
+		a.quit()
+	})
+}
+
+func (a *App) refreshTrayMenu() {
+	a.trayMu.Lock()
+	defer a.trayMu.Unlock()
+	if a.tray == nil || a.trayMenu == nil || a.desktop == nil {
+		return
+	}
+	populateTrayMenu(a, a.trayMenu, a.window)
+	a.trayMenu.Update()
+}
+
 func setupSystemTray(a *App, desktop *application.App, window *application.WebviewWindow) {
 	tray := desktop.SystemTray.New()
-	if runtime.GOOS == "darwin" {
-		tray.SetTemplateIcon(icons.SystrayMacTemplate)
-	} else {
-		tray.SetDarkModeIcon(icons.SystrayDark)
-		tray.SetIcon(icons.SystrayLight)
-	}
+	tray.SetIcon(trayIconPNG)
 	tray.SetTooltip("ding-ssh")
 
 	tray.OnClick(func() {
@@ -168,24 +310,10 @@ func setupSystemTray(a *App, desktop *application.App, window *application.Webvi
 	})
 
 	menu := desktop.NewMenu()
-	menu.Add("显示主窗口").OnClick(func(ctx *application.Context) {
-		if window != nil {
-			window.Show()
-			window.Focus()
-		}
-	})
-	menu.AddSeparator()
-
-	menu.Add("断开所有连接与隧道").OnClick(func(ctx *application.Context) {
-		a.DisconnectAll()
-	})
-	menu.AddSeparator()
-
-	menu.Add("退出 ding-ssh").OnClick(func(ctx *application.Context) {
-		a.quit()
-	})
+	populateTrayMenu(a, menu, window)
 
 	tray.SetMenu(menu)
+	a.trayMenu = menu
 	a.tray = tray
 }
 

@@ -35,7 +35,7 @@ import {attachZmodem, type ZmodemController, type ZmodemProgress} from '../servi
 import {Colorizer} from '../utils/output-color'
 import {patchXtermZoomCoords} from '../utils/xterm-zoom'
 import {openTerminalStream, type TerminalStreamClient} from '../services/terminal-stream'
-import {invalidateWebglGlyphModel, patchWebglZoomCanvas, syncWebglCanvas, webglCanvasReport} from '../utils/xterm-webgl-zoom'
+import {invalidateWebglGlyphModel, patchWebglZoomCanvas, syncWebglCanvas, webglCanvasReport, webglGeometrySnapshot} from '../utils/xterm-webgl-zoom'
 import {
   registerSharedAtlasTerminal,
   resetSharedAtlasTerminals,
@@ -56,7 +56,7 @@ import {useSessionsStore} from '../stores/sessions'
 import {useSettingsStore} from '../stores/settings'
 import {useUIStore} from '../stores/ui'
 import {useTerminalCompletion} from '../composables/useTerminalCompletion'
-import {fontPair, loadTerminalFonts} from '../theme/terminal-fonts'
+import {loadTerminalFonts, terminalFontReadyKeys} from '../theme/terminal-fonts'
 import {remoteFontStatus} from '../theme/remote-fonts'
 import {systemTone} from '../composables/useSystemTone'
 import {ClipboardGetText} from '../services/desktop'
@@ -129,6 +129,8 @@ onMounted(() => window.addEventListener('keydown', onSearchShortcut, true))
 
 let pendingOutputBytes = 0
 let peakOutputBytes = 0
+let outputSequence = 0, parsedSequence = 0, renderSequence = 0
+let lastOutputAt = 0, lastParsedAt = 0, lastRenderAt = 0, lastFitAt = 0
 let webglAddon: WebglAddon | null = null
 // WebGL 画布位图补丁探测结果：null = 尚未探测，false = 私有 API 不可用（缩放≠100% 时回退 DOM）
 let webglZoomPatched: boolean | null = null
@@ -333,18 +335,25 @@ function applyTheme() {
   atlasEntry.refresh()
 }
 
+let fontLoadSeq = 0
+
 function applyFontSettings() {
   if (!term) return
+  const seq = ++fontLoadSeq
   term.options.fontFamily = monoFontStack(settings.fonts.terminalFont)
   term.options.fontSize = effectiveFontSize()
   fit()
-  void loadTerminalFonts(settings.fonts.terminalFont, effectiveFontSize(), terminalFontWeight()).finally(() => {
-    if (!term) return
+  void loadTerminalFonts(settings.fonts.terminalFont, effectiveFontSize(), terminalFontWeight()).then(() => {
+    if (!term || seq !== fontLoadSeq) return
     term.clearTextureAtlas()
     fit()
     // 图集是多终端共享的：清空后必须让兄弟终端也重建顶点模型，否则切回其它标签会整屏乱码。
     resetSharedAtlasTerminals()
   }).catch((error: unknown) => {
+    if (!term || seq !== fontLoadSeq) return
+    term.clearTextureAtlas()
+    fit()
+    resetSharedAtlasTerminals()
     logClient('warn', t("[fonts] 终端字体加载失败，使用回退字体：{0}", [errorText(error)]))
   })
 }
@@ -512,6 +521,7 @@ function fit() {
   if (!term || !fitAddon || disposed) return
   const {cols, rows} = term
   fitAddon.fit()
+  lastFitAt = Date.now()
   // fit 改了网格尺寸：WebGL 下确保 canvas 位图 / GL viewport 跟着对齐
   // （CSS zoom 下观察器上报的是含 zoom 的尺寸，不能直接采用）
   if (webglAddon) syncWebglCanvas(webglAddon)
@@ -772,10 +782,14 @@ function onKeydown(e: KeyboardEvent) {
 function writeOutput(output: Uint8Array) {
   if (!term || disposed || !output.length) return
   const size = output.length
+  const sequence = ++outputSequence
+  lastOutputAt = Date.now()
   pendingOutputBytes += size
   peakOutputBytes = Math.max(peakOutputBytes, pendingOutputBytes)
   term.write(output, () => {
     pendingOutputBytes -= size
+    parsedSequence = Math.max(parsedSequence, sequence)
+    lastParsedAt = Date.now()
   })
 }
 
@@ -1173,7 +1187,7 @@ onMounted(() => {
     title: props.tab.serverName,
     kind: props.tab.kind ?? 'ssh',
     term,
-    runtimeStatus: () => ({webgl: webglAddon !== null, pendingOutputBytes, peakOutputBytes}),
+    runtimeStatus: () => ({webgl: webglAddon !== null, pendingOutputBytes, peakOutputBytes, outputSequence, parsedSequence, renderSequence, lastOutputAt, lastParsedAt, lastRenderAt, lastFitAt, webglGeometry: webglGeometrySnapshot(webglAddon)}),
     container: () => container.value ?? null,
     write: (data, binary) => writeRaw(data, undefined, false, binary),
     reconnect: () => {
@@ -1238,8 +1252,9 @@ onMounted(() => {
   })
   terminalDisposers.push(() => sudo.reset())
   const sudoWrite = term.onWriteParsed(positionSudo)
+  const debugRender = term.onRender(() => { renderSequence++; lastRenderAt = Date.now() })
   const sudoScroll = term.onScroll(positionSudo)
-  terminalDisposers.push(() => { sudoWrite.dispose(); sudoScroll.dispose() })
+  terminalDisposers.push(() => { sudoWrite.dispose(); sudoScroll.dispose(); debugRender.dispose() })
   const cancelSudoOnBlur = () => sudo.cancel(false)
   window.addEventListener('blur', cancelSudoOnBlur)
   terminalDisposers.push(() => window.removeEventListener('blur', cancelSudoOnBlur))
@@ -1311,11 +1326,9 @@ watch(
 // A retry in Settings can finish without changing the saved font preference.
 // Rebuild existing terminals when that selection becomes available.
 watch(
-  () => fontPair(settings.fonts.terminalFont).flatMap(family =>
-    [400, 500, 700].map(weight => remoteFontStatus[`${family}:${weight}`] === 'ready'),
-  ),
+  () => terminalFontReadyKeys(settings.fonts.terminalFont).map(key => remoteFontStatus[key] === 'ready'),
   (ready, previous) => {
-    if (ready.some((value, index) => value && !previous[index])) applyFontSettings()
+    if (ready.some((value, index) => value && !previous?.[index])) applyFontSettings()
   },
 )
 

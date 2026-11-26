@@ -1,6 +1,6 @@
 import {t} from '../i18n'
 import {reactive} from 'vue'
-import {isRemoteFont, latinUnicodeRange} from './font-catalog'
+import {isRemoteFont, nonCjkUnicodeRange} from './font-catalog'
 import {fontDataCache} from './font-cache'
 
 export const remoteFontStatus = reactive<Record<string, 'loading' | 'ready' | 'error'>>({})
@@ -50,12 +50,17 @@ async function evict(url: string) {
   try { await fontDataCache(url, null) } catch { /* IndexedDB is optional. */ }
 }
 
-async function loadFace(family: string, weight: number, url: string, unicodeRange?: string): Promise<FontFace[]> {
+async function loadFace(family: string, weight: number, url: string, unicodeRange?: string, nonCjkOnly = false): Promise<FontFace[]> {
   const data = await download(url)
-  const face = new FontFace(family, data, {weight: String(weight), ...(unicodeRange ? {unicodeRange} : {})})
+  const range = nonCjkUnicodeRange(unicodeRange)
   try {
+    if (nonCjkOnly) {
+      if (!range) return []
+      const latin = await new FontFace(`DingLatin-${family}`, data, {weight: String(weight), unicodeRange: range}).load()
+      return [latin]
+    }
+    const face = new FontFace(family, data, {weight: String(weight), ...(unicodeRange ? {unicodeRange} : {})})
     await face.load()
-    const range = latinUnicodeRange(unicodeRange)
     const latin = range ? await new FontFace(`DingLatin-${family}`, data, {weight: String(weight), unicodeRange: range}).load() : undefined
     return latin ? [face, latin] : [face]
   } catch (error) {
@@ -69,19 +74,23 @@ function register(faces: FontFace[]) {
   for (const face of faces) fonts.add(face)
 }
 
-async function install(family: string, weight: number) {
-  remoteFontProgress[`${family}:${weight}`] = {done: 0, total: 1}
+export function remoteFontKey(family: string, weight: number, nonCjkOnly = false): string {
+  return nonCjkOnly && family === 'Maple Mono NF CN' ? `${family}:noncjk:${weight}` : `${family}:${weight}`
+}
+
+async function install(family: string, weight: number, nonCjkOnly: boolean, statusKey: string) {
+  remoteFontProgress[statusKey] = {done: 0, total: 1}
   const latinSource = LATIN_SOURCES[family]
   if (latinSource) {
     register(await loadFace(family, weight, `${latinSource}${weight}-normal.woff2`))
-    remoteFontProgress[`${family}:${weight}`].done = 1
+    remoteFontProgress[statusKey].done = 1
     return
   }
   if (family === 'Sarasa Mono SC') {
     // Sarasa has no Medium; share Regular between 400 and 500.
     const file = weight === 700 ? 'Bold' : 'Regular'
     register(await loadFace(family, weight, `${SARASA}SarasaMonoSC-${file}.woff2`))
-    remoteFontProgress[`${family}:${weight}`].done = 1
+    remoteFontProgress[statusKey].done = 1
     return
   }
   const variant = weight === 700 ? 'bold' : weight === 500 ? 'medium' : 'main'
@@ -92,29 +101,30 @@ async function install(family: string, weight: number) {
     await evict(cssURL)
     throw new Error(t("字体源未返回字体定义"))
   }
-  const faces: {url: string; range?: string}[] = []
+  const parsed: {url: string; range?: string}[] = []
   try {
     for (const [, block] of blocks) {
       const source = block.match(/url\(["']?([^"')]+)["']?\)/)?.[1]
       if (!source) throw new Error(t("字体源缺少文件地址"))
       const range = block.match(/unicode-range\s*:\s*([^;}]+)/)?.[1]
-      faces.push({url: new URL(source, cssURL).href, range})
+      parsed.push({url: new URL(source, cssURL).href, range})
     }
   } catch (error) {
     await evict(cssURL)
     throw error
   }
-  // Fetch complete coverage, not only the preview characters: new terminal output
-  // must never enter the glyph atlas before its Chinese/icon shard has loaded.
-  remoteFontProgress[`${family}:${weight}`].total = faces.length
+  const faces = nonCjkOnly ? parsed.filter(face => nonCjkUnicodeRange(face.range) !== undefined) : parsed
+  // Fetch complete coverage for the selected role (all shards when used for Chinese,
+  // or non-CJK/Nerd Font shards only when paired with another Chinese font).
+  remoteFontProgress[statusKey].total = faces.length
   const loaded: FontFace[][] = new Array(faces.length)
   let next = 0
   await Promise.all(Array.from({length: Math.min(8, faces.length)}, async () => {
     while (next < faces.length) {
       const index = next++
       const face = faces[index]
-      loaded[index] = await loadFace(family, weight, face.url, face.range)
-      remoteFontProgress[`${family}:${weight}`].done++
+      loaded[index] = await loadFace(family, weight, face.url, face.range, nonCjkOnly)
+      remoteFontProgress[statusKey].done++
     }
   }))
   // Publish a weight only after all shards load; a failed selection keeps the
@@ -122,13 +132,17 @@ async function install(family: string, weight: number) {
   register(loaded.flat())
 }
 
-export function ensureRemoteFont(family: string, weight: number): Promise<void> {
+export function ensureRemoteFont(family: string, weight: number, options?: {nonCjkOnly?: boolean}): Promise<void> {
   if (!isRemoteFont(family)) return Promise.resolve()
-  const key = `${family}:${weight}`
+  const nonCjkOnly = Boolean(options?.nonCjkOnly && family === 'Maple Mono NF CN')
+  const fullKey = remoteFontKey(family, weight, false)
+  // If the full font (which already registers DingLatin-*) is loaded or loading, reuse it.
+  if (nonCjkOnly && pending.has(fullKey)) return pending.get(fullKey)!
+  const key = remoteFontKey(family, weight, nonCjkOnly)
   const existing = pending.get(key)
   if (existing) return existing
   remoteFontStatus[key] = 'loading'
-  const loading = install(family, weight).then(() => {
+  const loading = install(family, weight, nonCjkOnly, key).then(() => {
     remoteFontStatus[key] = 'ready'
   }).catch((error: unknown) => {
     remoteFontStatus[key] = 'error'

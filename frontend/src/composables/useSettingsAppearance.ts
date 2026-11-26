@@ -5,12 +5,9 @@ import {defaultAppearance, defaultFonts, defaultTheme, useSettingsStore} from '.
 import {defaultPreset, paletteToTheme, presetById, resolveActiveTerminalPalette, generateArcTerminalPalette, PRESETS} from '../theme/presets'
 import {normalizeSeed} from '../theme/engine'
 import {systemTone} from './useSystemTone'
-import {TERMINAL_FONT_SCHEMES} from '../theme/terminal-fonts'
 import type {Fonts, MaterialMode, Theme, UIAppearance} from '../types'
 import {clamp, deriveHarmonizedSecondary} from '../theme/material'
 
-export const UI_FONT_OPTIONS = ['Geist Sans', 'system'] as const
-export const TERMINAL_FONT_OPTIONS = [...TERMINAL_FONT_SCHEMES.map(scheme => scheme.value), 'Geist Mono', 'JetBrains Mono', 'Fira Code', 'system'] as const
 export const TONE_OPTIONS = [{key: 'auto', get label() { return t("跟随系统") }}, {key: 'light', get label() { return t("浅色") }}, {key: 'dark', get label() { return t("深色") }}] as const
 export const MODE_OPTIONS = [{key: 'preset', get label() { return t("预设主题") }}, {key: 'custom', get label() { return t("自定义") }}] as const
 export const MATERIAL_OPTIONS = [

@@ -119,6 +119,7 @@ type ProgressEvent struct {
 // Settings 应用设置（持久化到 settings.json / SQLite settings 表）。
 type Settings struct {
 	AutoStart        bool `json:"autoStart"`
+	TrayIconEnabled  bool `json:"trayIconEnabled"` // 是否在系统菜单栏/托盘显示应用图标（默认开启）
 	ConfirmCloseTab  bool `json:"confirmCloseTab"`
 	ConfirmCloseApp  bool `json:"confirmCloseApp"`
 	SmoothAnimations bool `json:"smoothAnimations"`
@@ -524,7 +525,7 @@ func DefaultAppearance() UIAppearance {
 func DefaultFonts() Fonts {
 	return Fonts{
 		UiFont:           "Geist Sans",
-		TerminalFont:     "Geist Mono + Noto Sans SC",
+		TerminalFont:     "JetBrains Mono + Sarasa Mono SC",
 		TerminalFontSize: 13,
 	}
 }

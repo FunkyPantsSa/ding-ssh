@@ -677,6 +677,11 @@ export enum SessionStatus {
  */
 export class Settings {
     "autoStart": boolean;
+
+    /**
+     * 是否在系统菜单栏/托盘显示应用图标（默认开启）
+     */
+    "trayIconEnabled": boolean;
     "confirmCloseTab": boolean;
     "confirmCloseApp": boolean;
     "smoothAnimations": boolean;
@@ -831,6 +836,9 @@ export class Settings {
         if (!("autoStart" in $$source)) {
             this["autoStart"] = false;
         }
+        if (!("trayIconEnabled" in $$source)) {
+            this["trayIconEnabled"] = false;
+        }
         if (!("confirmCloseTab" in $$source)) {
             this["confirmCloseTab"] = false;
         }
@@ -938,30 +946,30 @@ export class Settings {
      * Creates a new Settings instance from a string or object.
      */
     static createFrom($$source: any = {}): Settings {
-        const $$createField9_0 = $$createType0;
-        const $$createField19_0 = $$createType2;
-        const $$createField20_0 = $$createType3;
-        const $$createField21_0 = $$createType4;
-        const $$createField28_0 = $$createType0;
-        const $$createField33_0 = $$createType5;
+        const $$createField10_0 = $$createType0;
+        const $$createField20_0 = $$createType2;
+        const $$createField21_0 = $$createType3;
+        const $$createField22_0 = $$createType4;
+        const $$createField29_0 = $$createType0;
+        const $$createField34_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("logTraceTabs" in $$parsedSource) {
-            $$parsedSource["logTraceTabs"] = $$createField9_0($$parsedSource["logTraceTabs"]);
+            $$parsedSource["logTraceTabs"] = $$createField10_0($$parsedSource["logTraceTabs"]);
         }
         if ("theme" in $$parsedSource) {
-            $$parsedSource["theme"] = $$createField19_0($$parsedSource["theme"]);
+            $$parsedSource["theme"] = $$createField20_0($$parsedSource["theme"]);
         }
         if ("appearance" in $$parsedSource) {
-            $$parsedSource["appearance"] = $$createField20_0($$parsedSource["appearance"]);
+            $$parsedSource["appearance"] = $$createField21_0($$parsedSource["appearance"]);
         }
         if ("fonts" in $$parsedSource) {
-            $$parsedSource["fonts"] = $$createField21_0($$parsedSource["fonts"]);
+            $$parsedSource["fonts"] = $$createField22_0($$parsedSource["fonts"]);
         }
         if ("lastOpenServers" in $$parsedSource) {
-            $$parsedSource["lastOpenServers"] = $$createField28_0($$parsedSource["lastOpenServers"]);
+            $$parsedSource["lastOpenServers"] = $$createField29_0($$parsedSource["lastOpenServers"]);
         }
         if ("debug" in $$parsedSource) {
-            $$parsedSource["debug"] = $$createField33_0($$parsedSource["debug"]);
+            $$parsedSource["debug"] = $$createField34_0($$parsedSource["debug"]);
         }
         return new Settings($$parsedSource as Partial<Settings>);
     }

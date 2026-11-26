@@ -176,6 +176,12 @@ onMounted(() => {
     EventsOn('menu:check-updates', () => {
       void checkUpdates(true)
     }),
+    EventsOn('tray:open-session', (sessionId: string) => {
+      if (detachedMode.value || !sessionId) return
+      if (sessions.openSessionById(sessionId)) {
+        ui.showWorkspace()
+      }
+    }),
     EventsOn('system:did-wake', () => {
       toast.show(t('系统已从休眠唤醒，正在校验连接状态'), {tone: 'info'})
     }),

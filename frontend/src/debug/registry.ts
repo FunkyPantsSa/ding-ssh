@@ -19,7 +19,12 @@ export interface DebugTerminalEntry {
   title: string
   kind: string
   term: Terminal
-  runtimeStatus?: () => {webgl: boolean; pendingOutputBytes: number; peakOutputBytes: number}
+  runtimeStatus?: () => {
+    webgl: boolean; pendingOutputBytes: number; peakOutputBytes: number
+    outputSequence?: number; parsedSequence?: number; renderSequence?: number
+    lastOutputAt?: number; lastParsedAt?: number; lastRenderAt?: number; lastFitAt?: number
+    webglGeometry?: {grid: {w: number; h: number} | null; bitmap: {w: number; h: number} | null; matches: boolean | null}
+  }
   /** 终端容器（absolute inset-0 那层），用于测量几何。 */
   container: () => HTMLElement | null
   /** 向会话写入数据（走应用原有通道，含连接态/冻结态校验）。 */

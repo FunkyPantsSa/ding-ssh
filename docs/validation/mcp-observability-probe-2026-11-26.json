@@ -1,0 +1,199 @@
+{
+  "capturedAt": "2026-11-26T12:18:25+0800",
+  "mode": "read-only",
+  "discovery": {
+    "pid": 33708,
+    "port": 8765,
+    "cdpEnabled": false,
+    "cdpPort": 0
+  },
+  "checks": [
+    {
+      "tool": "app.health",
+      "observedAt": "2026-11-26T12:18:25+0800",
+      "elapsedMs": 16,
+      "result": {
+        "keys": [
+          "appVersion",
+          "arch",
+          "capabilities",
+          "dataDir",
+          "debug",
+          "goVersion",
+          "logDir",
+          "os",
+          "pendingConfirms",
+          "uptimeSec"
+        ],
+        "status": null
+      },
+      "toolIsError": false
+    },
+    {
+      "tool": "ui.revision",
+      "observedAt": "2026-11-26T12:18:25+0800",
+      "elapsedMs": 15,
+      "result": {
+        "revision": 1,
+        "hotReloaded": false,
+        "view": {
+          "activeId": "",
+          "cmdOpen": false,
+          "revision": 1,
+          "rightPanel": "sftp",
+          "sftpVisible": true,
+          "splitShown": false,
+          "tabCount": 0,
+          "terminalSidebarOpen": false,
+          "view": "home"
+        },
+        "viewport": {
+          "dpr": 1,
+          "height": 800,
+          "uiScale": 1,
+          "width": 1280
+        }
+      },
+      "toolIsError": false
+    },
+    {
+      "tool": "ui.layout",
+      "observedAt": "2026-11-26T12:18:25+0800",
+      "elapsedMs": 29,
+      "result": {
+        "entryCount": 9,
+        "overlapCount": 0,
+        "entries": [
+          {
+            "name": "topbar",
+            "found": true,
+            "visible": true
+          },
+          {
+            "name": "nav",
+            "found": true,
+            "visible": true
+          },
+          {
+            "name": "sftp",
+            "found": false,
+            "visible": false
+          },
+          {
+            "name": "terminal",
+            "found": true,
+            "visible": false
+          },
+          {
+            "name": "statusbar",
+            "found": true,
+            "visible": true
+          },
+          {
+            "name": "commandPalette",
+            "found": false,
+            "visible": false
+          },
+          {
+            "name": "quickConnect",
+            "found": true,
+            "visible": false
+          },
+          {
+            "name": "settingsPage",
+            "found": true,
+            "visible": false
+          },
+          {
+            "name": "contextMenu",
+            "found": false,
+            "visible": false
+          }
+        ]
+      },
+      "toolIsError": false
+    },
+    {
+      "tool": "ui.console",
+      "observedAt": "2026-11-26T12:18:25+0800",
+      "elapsedMs": 12,
+      "result": {
+        "count": 0,
+        "capacity": 200,
+        "buffered": 0,
+        "entryKeys": []
+      },
+      "toolIsError": false
+    },
+    {
+      "tool": "ui.tree",
+      "observedAt": "2026-11-26T12:18:25+0800",
+      "elapsedMs": 15,
+      "result": {
+        "keys": [
+          "error"
+        ],
+        "count": null,
+        "error": [
+          {
+            "text": "前端调用失败（ui.tree）：未找到 Vue 应用实例（#app.__vue_app__._instance 不可用）",
+            "type": "text"
+          }
+        ],
+        "note": null
+      },
+      "toolIsError": true
+    },
+    {
+      "tool": "ui.screenshot",
+      "observedAt": "2026-11-26T12:18:25+0800",
+      "elapsedMs": 12,
+      "result": {
+        "error": [
+          {
+            "text": "窗口截图失败：窗口截图目前仅支持 Windows（提示：窗口最小化或被完全遮挡时无法截图，请先 ui.window{restore:true}）",
+            "type": "text"
+          }
+        ]
+      },
+      "toolIsError": true
+    }
+  ],
+  "catalog": {
+    "total": 124,
+    "uiTools": [
+      "ui.layout",
+      "ui.query",
+      "ui.styles",
+      "ui.tokens",
+      "ui.hit",
+      "ui.tree",
+      "ui.console",
+      "ui.revision",
+      "ui.screenshot",
+      "ui.elementShot",
+      "ui.snapshot",
+      "ui.diff",
+      "ui.assert",
+      "ui.store",
+      "ui.setToken",
+      "ui.injectCSS",
+      "ui.storePatch",
+      "ui.navigate",
+      "ui.window",
+      "ui.reload",
+      "ui.click",
+      "ui.type",
+      "ui.key",
+      "ui.hover",
+      "ui.scroll"
+    ],
+    "protocol": "2025-06-18"
+  },
+  "projection": "summary: field names, safe UI state, layout names, and tool errors; no token, credentials, terminal text, or full log content",
+  "limitations": [
+    "Read-only probe of the currently running macOS instance.",
+    "Runtime build identity was not available; source/runtime equivalence is not proven.",
+    "Independent tool calls are not an atomic UI snapshot."
+  ]
+}

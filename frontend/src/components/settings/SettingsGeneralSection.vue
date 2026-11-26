@@ -178,6 +178,7 @@ onBeforeUnmount(() => {
     <div class="neo">
       <div v-for="option in [
         {key: 'autoStart', title: '开机自启', description: '登录系统后自动启动应用，默认关闭。'},
+        {key: 'trayIconEnabled', title: '显示系统托盘图标', description: '在系统菜单栏/托盘展示应用图标，关闭后可隐藏图标。'},
         {key: 'confirmCloseTab', title: '关闭标签页前确认', description: '关闭单个或多个标签页时确认，默认开启。'},
         {key: 'confirmCloseApp', title: '退出应用前确认', description: '关闭窗口或退出应用时确认，默认开启。'},
         {key: 'smoothAnimations', title: '平滑过渡动画', description: '延长界面过渡并使用平滑缓动；遵循系统减少动态效果设置。'},

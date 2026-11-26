@@ -1,5 +1,6 @@
 import {t} from '../i18n'
 import {ref} from 'vue'
+import {DEFAULT_NON_CJK_RANGE} from './font-catalog'
 
 export const customFontSizes = ref<Record<string, number>>({})
 export const customFontChinese = ref<Record<string, boolean>>({})
@@ -16,7 +17,7 @@ function database(): Promise<IDBDatabase> {
 async function register(name: string, data: ArrayBuffer) {
   const face = await new FontFace(name, data).load()
   ;(document.fonts as FontFaceSet & {add(face: FontFace): void}).add(face)
-  const latin = await new FontFace(`DingLatin-${name}`, data, {unicodeRange: 'U+0000-024F,U+1E00-1EFF'}).load()
+  const latin = await new FontFace(`DingLatin-${name}`, data, {unicodeRange: DEFAULT_NON_CJK_RANGE}).load()
   ;(document.fonts as FontFaceSet & {add(face: FontFace): void}).add(latin)
   customFontSizes.value[name] = data.byteLength
   customFontChinese.value[name] = supportsChinese(name)
@@ -34,7 +35,10 @@ export function restoreCustomFonts() {
       })
       for (const record of records) await register(record.name, record.data)
     } finally { db.close() }
-  })()
+  })().catch((error: unknown) => {
+    restored = undefined
+    throw error
+  })
 }
 export async function importCustomFont(file: File) {
   if (!/\.(ttf|otf|woff2?)$/i.test(file.name)) throw new Error(t("不是字体文件，请选择 TTF、OTF、WOFF 或 WOFF2 字体。"))

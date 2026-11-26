@@ -178,14 +178,16 @@ type Server struct {
 	policyEpoch atomic.Uint64
 
 	// MCP 会话（支持服务端推送的客户端用 GET /mcp 挂 SSE 通道）
-	mcpMu       sync.Mutex
-	mcpSessions map[string]*mcpSession
-	httpSlots   chan struct{}
-	streamSlots chan struct{}
-	jobsOnce    sync.Once
-	jobs        *jobManager
-	rpcMu       sync.Mutex
-	rpcActive   map[string]context.CancelFunc
+	mcpMu        sync.Mutex
+	mcpSessions  map[string]*mcpSession
+	httpSlots    chan struct{}
+	streamSlots  chan struct{}
+	jobsOnce     sync.Once
+	jobs         *jobManager
+	rpcMu        sync.Mutex
+	rpcActive    map[string]context.CancelFunc
+	obsMu        sync.Mutex
+	observations map[string]storedObservation
 
 	// M8：终端自动化的「同会话串行化」状态（见 sftp.go 的 acquireTerminal）。
 	// 键是终端 / 会话 id；同一时刻只允许一个 terminal.run / terminal.expect 在跑，
@@ -212,6 +214,7 @@ func (s *Server) Start() (string, error) {
 		return "", errors.New("debugsrv: Handler 不能为空")
 	}
 	mux := http.NewServeMux()
+	registerObservationRoutes(mux, s)
 
 	// coreRoutes 统计本文件注册的核心路由数量（ui.go 的 UI 路由由 registerUIRoutes
 	// 自行注册，不在这个计数里），启动日志用它核对「路由是否少注册」。
@@ -985,7 +988,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 // screenshot 返回应用窗口的 PNG 截图（平台相关实现；用于 AI 目视校验界面）。
 func (s *Server) screenshot(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	data, err := captureWindowPNG()
+	frame, err := s.captureFrame(r.Context(), "main")
+	data := frame.PNG
 	if err != nil {
 		// 截图失败的具体原因由 captureWindowPNG 自己记（平台能力缺失是 WARN），
 		// 这里只补请求侧的耗时，避免同一次失败留下两条同级别日志。

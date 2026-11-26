@@ -3,9 +3,10 @@ import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
 
-const bridge = vi.hoisted(() => ({handler: undefined as undefined | ((p: unknown) => Promise<void>), reply: vi.fn()}))
+const bridge = vi.hoisted(() => ({handler: undefined as undefined | ((p: unknown) => Promise<void>), reply: vi.fn(), desktop: false}))
 vi.mock('../services/desktop', async importOriginal => ({
   ...await importOriginal<typeof import('../services/desktop')>(),
+  isDesktop: () => bridge.desktop,
   EventsOn: vi.fn((name: string, fn: (p: unknown) => Promise<void>) => {if (name === 'debug:request') bridge.handler = fn; return () => {}}),
 }))
 vi.mock('../../bindings/ding-ssh/internal/apphost/app', async importOriginal => ({
@@ -17,6 +18,7 @@ import {registerDebugTerminal, unregisterDebugTerminal, type DebugTerminalEntry}
 beforeEach(() => {
   setActivePinia(createPinia())
   bridge.reply.mockReset()
+  bridge.desktop = false
   installDebugBridge()
 })
 async function call(op: string, args: Record<string, unknown>) {
@@ -24,6 +26,40 @@ async function call(op: string, args: Record<string, unknown>) {
   return JSON.parse(bridge.reply.mock.calls.at(-1)![1])
 }
 describe('workspace MCP bridge', () => {
+  it('sends lightweight desktop heartbeats and replaces the previous interval', async () => {
+    vi.useFakeTimers()
+    try {
+      bridge.desktop = true
+      installDebugBridge()
+      await Promise.resolve()
+      expect(bridge.reply).toHaveBeenCalledOnce()
+      expect(bridge.reply.mock.calls[0][0]).toBe('__heartbeat')
+      expect(JSON.parse(bridge.reply.mock.calls[0][1])).toMatchObject({windowId: 'main', pageEpoch: expect.any(String), ready: expect.any(Boolean), sequences: expect.any(Object), at: expect.any(Number), visibility: expect.any(String)})
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(bridge.reply).toHaveBeenCalledTimes(2)
+      installDebugBridge()
+      await Promise.resolve()
+      expect(bridge.reply).toHaveBeenCalledTimes(3)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(bridge.reply).toHaveBeenCalledTimes(4)
+    } finally {
+      bridge.desktop = false
+      installDebugBridge()
+      vi.useRealTimers()
+    }
+  })
+  it('keeps detached windows from replying to main-window debug requests', () => {
+    const previous = location.href
+    try {
+      history.replaceState({}, '', '?mode=detached-terminal&session=detached-test')
+      bridge.handler = undefined
+      installDebugBridge()
+      expect(bridge.handler).toBeUndefined()
+      history.replaceState({}, '', '?mode=detached-sftp&session=detached-test')
+      installDebugBridge()
+      expect(bridge.handler).toBeUndefined()
+    } finally { history.replaceState({}, '', previous) }
+  })
   it('distinguishes Unicode text from raw base64 input', async () => {
     const write = vi.fn()
     const entry = {clientId: 'audit-input', write} as unknown as DebugTerminalEntry
@@ -71,5 +107,22 @@ describe('workspace MCP bridge', () => {
     expect((await call('workspace.split',{sourceId:a.clientId,targetId:'missing'})).ok).toBe(false)
     expect(sessions.panes).toBeNull()
     expect((await call('workspace.split',{enabled:'false'})).ok).toBe(false)
+  })
+  it('activates a tab by backend sessionId including split panes', async () => {
+    const sessions = useSessionsStore()
+    const a = sessions.openLocalTab(), b = sessions.openLocalTab(), c = sessions.openLocalTab()
+    sessions.bindSession(a.clientId, 'ssh-1')
+    sessions.bindSession(b.clientId, 'ssh-2')
+    sessions.bindSession(c.clientId, 'ssh-3')
+    expect(sessions.openSessionById('ssh-1')).toBe(true)
+    expect(sessions.activeId).toBe(a.clientId)
+    expect(sessions.openSessionById('missing')).toBe(false)
+
+    expect((await call('workspace.split', {sourceId: a.clientId, targetId: b.clientId})).ok).toBe(true)
+    sessions.activateTab(c.clientId)
+    expect(sessions.splitVisible).toBe(false)
+    expect(sessions.openSessionById('ssh-2')).toBe(true)
+    expect(sessions.splitVisible).toBe(true)
+    expect(sessions.activePaneTabId).toBe(b.clientId)
   })
 })

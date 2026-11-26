@@ -1,0 +1,130 @@
+{
+  "capturedAt": "2026-11-26T17:04:19+0800",
+  "environment": "macOS native Wails production build",
+  "instanceId": "d8b8613a-afd1-4a43-a3d8-b31f3f4391a1",
+  "buildId": "02064976d8f7ce3275d14a7e10c9f258b9d00bef6612b5dd642b61ed9754060b",
+  "checks": [
+    {
+      "name": "tool catalog",
+      "status": "PASS",
+      "seconds": 0.002,
+      "detail": {
+        "count": 136,
+        "requiredCount": 14
+      }
+    },
+    {
+      "name": "production component registry",
+      "status": "PASS",
+      "seconds": 0.012,
+      "detail": {
+        "count": 71,
+        "source": "public-component-registry"
+      }
+    },
+    {
+      "name": "native screenshot and observation",
+      "status": "PASS",
+      "seconds": 0.345,
+      "detail": {
+        "observationId": "obs-2c21aa59-f641-4bcb-8470-8b985068e39f-2",
+        "capture": {
+          "capturedAt": 1795683857043,
+          "consistency": "semantic-observation-misaligned",
+          "contentHeight": 800,
+          "contentWidth": 1280,
+          "coordinatesAligned": false,
+          "cssToOutput": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "scaleX": 1,
+            "scaleY": 1
+          },
+          "occlusionPossible": false,
+          "offsetX": 0,
+          "offsetY": 0,
+          "outputPixelSize": {
+            "height": 800,
+            "width": 1280
+          },
+          "pixelHeight": 800,
+          "pixelWidth": 1280,
+          "provider": "wkwebview-snapshot",
+          "redactionMode": "renderer-opacity-and-pixel-mask",
+          "redactions": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "status": "captured",
+          "surface": "webview",
+          "windowId": "main"
+        },
+        "nodes": 35,
+        "health": {
+          "coverage": "partial",
+          "state": "degraded"
+        }
+      }
+    },
+    {
+      "name": "stable node inspection",
+      "status": "PASS",
+      "seconds": 0.021,
+      "detail": {
+        "role": "region",
+        "hasClipping": true
+      }
+    },
+    {
+      "name": "actionability and explicit effect",
+      "status": "PASS",
+      "seconds": 0.509,
+      "detail": {
+        "ambiguousRejected": true,
+        "effectConfirmed": true,
+        "inputMode": "dom-synthetic"
+      }
+    },
+    {
+      "name": "native click, text input, and Escape effects",
+      "status": "FAIL",
+      "seconds": 0.584,
+      "detail": {
+        "error": "{'capturedAt': 1795683858145, 'consistency': 'semantic-observation-misaligned', 'contentHeight': 800, 'contentWidth': 1280, 'coordinatesAligned': False, 'cssToOutput': {'offsetX': 0, 'offsetY': 0, 'scaleX': 1, 'scaleY': 1}, 'occlusionPossible': False, 'offsetX': 0, 'offsetY': 0, 'outputPixelSize': {'height': 800, 'width': 1280}, 'pixelHeight': 800, 'pixelWidth': 1280, 'provider': 'wkwebview-snapshot', 'redactionMode': 'renderer-opacity-and-pixel-mask', 'redactions': 0, 'scaleX': 1, 'scaleY': 1, 'status': 'captured', 'surface': 'webview', 'windowId': 'main'}"
+      }
+    },
+    {
+      "name": "same environment comparison",
+      "status": "FAIL",
+      "seconds": 0.642,
+      "detail": {
+        "error": "{'baselineId': 'obs-2c21aa59-f641-4bcb-8470-8b985068e39f-10', 'comparable': False, 'currentId': 'obs-2c21aa59-f641-4bcb-8470-8b985068e39f-12', 'reasonCode': 'CAPTURE_NOT_STABLE'}"
+      }
+    },
+    {
+      "name": "wait timeout evidence",
+      "status": "PASS",
+      "seconds": 0.346,
+      "detail": {
+        "timedOut": true,
+        "pending": [
+          "condition-not-met"
+        ]
+      }
+    },
+    {
+      "name": "persisted verify job",
+      "status": "FAIL",
+      "seconds": 0.325,
+      "detail": {
+        "error": "{'artifacts': {'availability': 'checked-at-report-time', 'imageStored': True, 'observationId': 'obs-2c21aa59-f641-4bcb-8470-8b985068e39f-16', 'observationStored': True, 'readWith': 'app.diagnostics', 'retentionSec': 3600}, 'assertions': [{'name': 'frontend.ready', 'passed': True}, {'name': 'native.pixels', 'passed': True}, {'name': 'capture.consistency', 'passed': False}, {'name': 'confirmed.render.errors', 'passed': True}, {'name': 'runtime.errors.clear', 'observed': True, 'passed': True}], 'capture': {'capturedAt': 1795683859487, 'consistency': 'semantic-observation-misaligned', 'contentHeight': 800, 'contentWidth': 1280, 'coordinatesAligned': False, 'cssToOutput': {'offsetX': 0, 'offsetY': 0, 'scaleX': 1, 'scaleY': 1}, 'occlusionPossible': False, 'offsetX': 0, 'offsetY': 0, 'outputPixelSize': {'height': 800, 'width': 1280}, 'pixelHeight': 800, 'pixelWidth': 1280, 'provider': 'wkwebview-snapshot', 'redactionMode': 'renderer-opacity-and-pixel-mask', 'redactions': 0, 'scaleX': 1, 'scal"
+      }
+    }
+  ],
+  "passed": 6,
+  "failed": 3,
+  "limitations": [
+    "No saved user remote target was accessed.",
+    "Native provider reports trustedEvent=unverified; this smoke confirms provider delivery plus UI state effects, not browser isTrusted semantics.",
+    "Windows/Linux native input is not implemented."
+  ]
+}

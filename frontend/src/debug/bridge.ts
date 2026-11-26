@@ -8,7 +8,7 @@ import {errorText} from '../i18n'
 // 会话管理与对外协议，前端桥负责「页面内视角」的能力（读状态 / 输入 / 滚动 / eval）。
 import {nextTick} from 'vue'
 import type {SplitDirection} from '../types'
-import {EventsOn} from '../services/desktop'
+import {EventsOn, isDesktop} from '../services/desktop'
 import {DebugReply, GetServers} from '../../bindings/ding-ssh/internal/apphost/app'
 import {buildCommands, runCommand} from '../commands'
 import {useSessionsStore} from '../stores/sessions'
@@ -17,6 +17,7 @@ import {useSettingsStore} from '../stores/settings'
 import {useUIStore} from '../stores/ui'
 import {getDebugTerminal, listDebugTerminals, type DebugTerminalEntry} from './registry'
 import {handleUIOp} from './ui'
+import {debugRevision} from './observation'
 
 interface DebugRequest {
   id: string
@@ -310,9 +311,17 @@ async function handle(req: DebugRequest): Promise<unknown> {
   }
 }
 
-/** 安装前端桥（应用挂载后调用一次）。 */
+let uninstallBridge: (() => void) | undefined
+
+/** 安装前端桥；热更新时同时清理旧事件监听器与心跳。 */
 export function installDebugBridge(): void {
-  EventsOn('debug:request', async (payload: DebugRequest) => {
+  uninstallBridge?.()
+  uninstallBridge = undefined
+  // Events are broadcast across Wails windows. Until each request is routed to
+  // a native window ID, only the main surface may reply to the shared bridge.
+  const mode = new URLSearchParams(location.search).get('mode')
+  if (mode === 'detached-terminal' || mode === 'detached-sftp') return
+  const off = EventsOn('debug:request', async (payload: DebugRequest) => {
     if (!payload || typeof payload.id !== 'string') return
     try {
       const data = await handle(payload)
@@ -326,4 +335,19 @@ export function installDebugBridge(): void {
       }
     }
   })
+  let heartbeat: ReturnType<typeof setInterval> | undefined
+  let sending = false
+  if (isDesktop()) {
+    const send = async () => {
+      if (sending) return
+      sending = true
+      try { await DebugReply('__heartbeat', JSON.stringify(debugRevision())) } catch { /* shutting down / bridge unavailable */ }
+      finally { sending = false }
+    }
+    void send()
+    heartbeat = setInterval(() => { void send() }, 1000)
+  }
+  uninstallBridge = () => { off(); if (heartbeat !== undefined) clearInterval(heartbeat) }
 }
+
+if (import.meta.hot) import.meta.hot.dispose(() => { uninstallBridge?.(); uninstallBridge = undefined })

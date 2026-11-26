@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs'
 import {createRequire} from 'node:module'
 import {resolve} from 'node:path'
 import {expect, it, vi} from 'vitest'
-import {BUNDLED_FONT_FAMILIES, DEFAULT_TERMINAL_FONT, isRemoteFont, latinUnicodeRange, REMOTE_FONT_FAMILIES} from './font-catalog'
+import {BUNDLED_FONT_FAMILIES, DEFAULT_TERMINAL_FONT, isRemoteFont, latinUnicodeRange, nonCjkUnicodeRange, REMOTE_FONT_FAMILIES} from './font-catalog'
 
 it('ships only the offline font set as WOFF2 while preserving every Chinese range', async () => {
   const {bundledFontCss} = await vi.importActual<{bundledFontCss(): string}>('../../build/bundled-fonts')
@@ -17,12 +17,12 @@ it('ships only the offline font set as WOFF2 while preserving every Chinese rang
   for (const family of REMOTE_FONT_FAMILIES) expect(css).not.toContain(`'${family}'`)
 })
 
-it('keeps frontend and native defaults aligned with the bundled set', () => {
+it('keeps frontend and native defaults aligned while keeping bundled fallbacks offline', () => {
   const frontend = readFileSync(resolve('src/stores/settings.ts'), 'utf8')
   const backend = readFileSync(resolve('../internal/models/models.go'), 'utf8')
   expect(frontend).toContain('terminalFont: DEFAULT_TERMINAL_FONT')
   expect(backend).toContain(`TerminalFont:     "${DEFAULT_TERMINAL_FONT}"`)
-  for (const family of DEFAULT_TERMINAL_FONT.split(' + ')) expect(isRemoteFont(family)).toBe(false)
+  for (const family of BUNDLED_FONT_FAMILIES) expect(isRemoteFont(family)).toBe(false)
 })
 
 it('restricts aliases to the Latin characters actually covered by each shard', () => {
@@ -30,4 +30,11 @@ it('restricts aliases to the Latin characters actually covered by each shard', (
   expect(latinUnicodeRange('U+4E00-9FFF')).toBeUndefined()
   expect(latinUnicodeRange('U+0-FF,U+4E00-9FFF')).toBe('U+0-ff')
   expect(latinUnicodeRange('U+1E??')).toBe('U+1e00-1eff')
+})
+
+it('preserves box-drawing, symbols, and Nerd Font PUA while excluding CJK', () => {
+  expect(nonCjkUnicodeRange('U+4E00-9FFF')).toBeUndefined()
+  expect(nonCjkUnicodeRange('U+2500-257F,U+4E00-9FFF')).toBe('U+2500-257f')
+  expect(nonCjkUnicodeRange('U+E000-F8FF')).toBe('U+e000-f8ff')
+  expect(nonCjkUnicodeRange('U+0-FF,U+3000-303F,U+4E00-9FFF')).toBe('U+0-ff')
 })

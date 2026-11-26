@@ -36,6 +36,7 @@ describe('UI inspection secret boundaries', () => {
         h(Blob, {value: secrets[1], blob: [secrets[1]], config: {[secrets[2]]: secrets[0]}, count: 123456, enabled: true, symbol: Symbol(secrets[3])}),
       ]),
     }))
+    installDebugUI(app)
     app.mount('#app')
     const result = await handleUIOp('ui.tree', {depth: 6, limit: 200}) as {nodes: Array<{name: string; propsSummary: Record<string, string>}>}
     const text = JSON.stringify(result)

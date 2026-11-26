@@ -640,8 +640,8 @@ func TestUIToolCapsRegistered(t *testing.T) {
 			registeredUI++
 		}
 	}
-	if registeredUI != len(uiToolNames) {
-		t.Fatalf("注册表里 ui.* 工具 %d 个，工具清单 %d 个（登记与清单不一致）", registeredUI, len(uiToolNames))
+	if registeredUI != len(uiToolNames)+6 {
+		t.Fatalf("注册表里 ui.* 工具 %d 个，工具清单 %d 个（登记与清单不一致）", registeredUI, len(uiToolNames)+6)
 	}
 	for _, name := range uiToolNames {
 		caps, known := ToolCapabilities(name)
@@ -1033,6 +1033,15 @@ func TestUIQueryAndTreeBounded(t *testing.T) {
 	}
 	if !uiBool(res.Data, "truncated") || !strings.Contains(uiArgString(res.Data, "truncatedNote"), "depth=") {
 		t.Fatalf("组件树截断说明不对：%v", res.Data)
+	}
+
+	// 组件树来源是前端公开注册表的契约字段，Go 聚合层不得丢失。
+	fe.replies[OpUITree] = map[string]any{
+		"nodes": []any{}, "total": 0.0, "source": "public-component-registry", "ready": true,
+	}
+	res, err = s.uiHandle(context.Background(), fe, OpUITree, map[string]any{"depth": 2, "limit": 3})
+	if err != nil || uiArgString(res.Data, "source") != "public-component-registry" || !uiBool(res.Data, "ready") {
+		t.Fatalf("组件树应保留来源和 ready：res=%v err=%v", res.Data, err)
 	}
 }
 

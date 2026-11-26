@@ -51,10 +51,11 @@ func DefaultSettingsPath() string {
 func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	if s == nil {
 		return models.Settings{
-			UISchema:             2,
-			ConfirmCloseTab:      true,
-			KeepAliveEnabled:     true,
-			AutoReconnect:        true,
+			UISchema:              2,
+			TrayIconEnabled:       true,
+			ConfirmCloseTab:       true,
+			KeepAliveEnabled:      true,
+			AutoReconnect:         true,
 			SysInfoCollectEnabled: true,
 		}, nil
 	}
@@ -66,6 +67,7 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 		logx.Debugf("[store] 设置文件不存在，返回默认设置: path=%q", s.path)
 		return models.Settings{
 			UISchema:             2,
+			TrayIconEnabled:      true,
 			ConfirmCloseTab:      true,
 			ConfirmCloseApp:      true,
 			WebGLEnabled:         true,
@@ -134,6 +136,9 @@ func (s *JSONSettingsStore) Get() (models.Settings, error) {
 	if settings.UIScale <= 0 {
 		logx.Warnf("[store] 设置项非法，界面缩放回落默认: key=uiScale value=%d", settings.UIScale)
 		settings.UIScale = 100
+	}
+	if !bytesContains(data, []byte(`"trayIconEnabled"`)) {
+		settings.TrayIconEnabled = true
 	}
 	if !bytesContains(data, []byte(`"confirmCloseTab"`)) {
 		settings.ConfirmCloseTab = true

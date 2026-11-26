@@ -10,6 +10,7 @@ import (
 // SetUILanguage synchronizes native dialogs and runtime errors with the frontend preference.
 func (a *App) SetUILanguage(language string) {
 	i18n.SetLanguage(language)
+	a.refreshTrayMenu()
 	if a.desktop != nil {
 		application.InvokeSync(func() { setupApplicationMenu(a, a.desktop) })
 	}

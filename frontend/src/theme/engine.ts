@@ -274,22 +274,38 @@ export function glassAlpha(opacity: number, tone: Tone): number {
 // ---- Font stacks -----------------------------------------------------------
 
 const SYSTEM_UI_FONT_STACK = '"PingFang SC", "Helvetica Neue", "Microsoft YaHei", system-ui, sans-serif'
-const SYSTEM_MONO_FONT_STACK = '"Noto Sans SC", ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Cascadia Mono", monospace'
+const SYSTEM_MONO_FONT_STACK = 'ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Cascadia Mono", "PingFang SC", "Microsoft YaHei", monospace'
+const TERMINAL_MONO_FALLBACK_STACK = 'ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Cascadia Mono", "Noto Sans SC", monospace'
 
 export const UI_FONT_FALLBACK = `"Geist Sans", ${SYSTEM_UI_FONT_STACK}`
-export const MONO_FONT_FALLBACK = `"Geist Mono", ${SYSTEM_MONO_FONT_STACK}`
+export const MONO_FONT_FALLBACK = `"Geist Mono", ${TERMINAL_MONO_FALLBACK_STACK}`
+
+const GENERIC_FONT_FAMILIES = new Set(['ui-monospace', 'ui-sans-serif', 'system-ui', 'monospace', 'sans-serif', 'serif'])
+
+function formatFontFamily(family: string): string {
+  return GENERIC_FONT_FAMILIES.has(family) ? family : `"${family}"`
+}
 
 export function uiFontStack(name: string | undefined): string {
   if (!name) return UI_FONT_FALLBACK
   if (name === 'system') return SYSTEM_UI_FONT_STACK
-  return `"${name}", ${SYSTEM_UI_FONT_STACK}`
+  return `${formatFontFamily(name)}, ${SYSTEM_UI_FONT_STACK}`
+}
+
+export function uiMonoFontStack(name: string | undefined): string {
+  if (name === 'system') return SYSTEM_MONO_FONT_STACK
+  return `"Geist Mono", ${SYSTEM_MONO_FONT_STACK}`
 }
 
 export function monoFontStack(name: string | undefined): string {
   if (!name) return MONO_FONT_FALLBACK
-  if (name === 'system') return 'ui-monospace, "SF Mono", Menlo, Consolas, "Noto Sans SC", monospace'
-  const families = [...new Set([...terminalFontFamilies(name), 'Geist Mono'])]
-  return `${families.map((family) => `"${family}"`).join(', ')}, ${SYSTEM_MONO_FONT_STACK}`
+  if (name === 'system') return SYSTEM_MONO_FONT_STACK
+  const resolved = terminalFontFamilies(name)
+  if (resolved.length === 1 && resolved[0] === 'system') return SYSTEM_MONO_FONT_STACK
+  const usesSystemSlot = resolved.includes('ui-monospace')
+  const families = usesSystemSlot ? resolved : [...new Set([...resolved, 'Geist Mono'])]
+  const tail = usesSystemSlot ? 'monospace' : TERMINAL_MONO_FALLBACK_STACK
+  return `${families.map(formatFontFamily).join(', ')}, ${tail}`
 }
 
 // ---- Full theme computation ------------------------------------------------
@@ -340,7 +356,7 @@ export function computeTheme(
   })
   const vars = rolesToCssVars(roles, plan)
   vars['--font-sans'] = uiFontStack(fonts.uiFont)
-  vars['--font-mono'] = monoFontStack(fonts.terminalFont)
+  vars['--font-mono'] = uiMonoFontStack(fonts.uiFont)
   const meta: ThemeMeta = {
     tone,
     requestedMode,

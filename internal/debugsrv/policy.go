@@ -226,7 +226,7 @@ func (s *Server) authorizeInvocation(ctx context.Context, tool string, args map[
 	if (tool == "open_tab" || tool == OpSessionsConnect) && !appctlBool(args, "local") && !hasString(p.Capabilities, string(CapCredentialUse)) {
 		return fmt.Errorf("客户端未获授权能力 %s", CapCredentialUse)
 	}
-	if unsafeUITool(tool) || strings.HasPrefix(tool, "ui.") || tool == "eval_js" || tool == "get_settings" || tool == "update_settings" || tool == "settings.reset" || tool == "settings.schema" || tool == "app.command" || tool == "app.commands" || tool == "app_state" || tool == "export_diagnostics" || tool == "recent_events" || tool == "read_logs" || tool == "list_logs" || tool == "app.recent_calls" || tool == "screenshot" || strings.HasPrefix(tool, "credentials.") {
+	if isObservationTool(tool) || tool == OpVerifyRun || tool == OpVerifyGet || tool == OpTargetsProbe || unsafeUITool(tool) || strings.HasPrefix(tool, "ui.") || tool == "eval_js" || tool == "get_settings" || tool == "update_settings" || tool == "settings.reset" || tool == "settings.schema" || tool == "app.command" || tool == "app.commands" || tool == "app_state" || tool == "export_diagnostics" || tool == "recent_events" || tool == "read_logs" || tool == "list_logs" || tool == "app.recent_calls" || tool == "screenshot" || strings.HasPrefix(tool, "credentials.") {
 		return errors.New("该工具仅供本机可信所有者使用")
 	}
 	if appctlBool(args, "includeSecrets") || args["node"] != nil || args["local"] == true {
@@ -317,7 +317,7 @@ func authorizeClientTarget(p ClientPolicy, tool string, args map[string]any) err
 
 func unsafeUITool(tool string) bool {
 	switch tool {
-	case OpUIClick, OpUIType, OpUIKey, OpUIStorePatch, OpUIReload:
+	case OpUIClick, OpUIType, OpUIKey, OpUIStorePatch, OpUIReload, OpUIAct:
 		return true
 	}
 	return false

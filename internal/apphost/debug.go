@@ -160,9 +160,10 @@ type debugController struct {
 	settingsUndo map[string]models.Settings
 	undoOrder    []string
 
-	mu   sync.Mutex
-	addr string
-	port int
+	mu                sync.Mutex
+	frontendHeartbeat map[string]any
+	addr              string
+	port              int
 }
 
 // start 启动调试服务（幂等）。
@@ -259,6 +260,7 @@ func (c *debugController) stop() {
 
 // info 返回调试模式运行状态（不含 token 之外的新信息；token 仅写给本机调用方）。
 func (c *debugController) info() map[string]any {
+	instanceID, build := debugIdentity()
 	c.mu.Lock()
 	addr, port := c.addr, c.port
 	running := c.srv != nil
@@ -270,22 +272,30 @@ func (c *debugController) info() map[string]any {
 		url = fmt.Sprintf("http://%s:%d", host, port)
 	}
 	return map[string]any{
-		"running":      running,
-		"enabled":      c.boot.Enabled,
-		"bindLan":      c.boot.BindLAN,
-		"addr":         addr,
-		"port":         port,
-		"url":          url,
-		"lanUrl":       lanURL(port),
-		"token":        c.boot.Token,
-		"cdpEnabled":   c.boot.CDPEnabled,
-		"cdpPort":      c.boot.CDPPort,
-		"allowEval":    c.boot.AllowEval,
-		"allowSecrets": c.boot.AllowSecrets,
-		"infoFile":     DebugInfoPath(),
-		"pid":          os.Getpid(),
-		"hint":         "Debug mode listens on localhost/LAN only. The token changes on every launch. Turn it off in Settings when unused.",
-		"streamHint":   "Realtime events: GET " + url + "/v1/stream?topics=ssh.output,ssh.status (SSE)",
+		"schemaVersion":  2,
+		"instanceId":     instanceID,
+		"buildId":        build["binarySHA256"],
+		"backendBuildId": build["binarySHA256"],
+		"binarySHA256":   build["binarySHA256"],
+		"build":          build,
+		"profile":        appdir.ConfigDir(),
+		"configDir":      appdir.ConfigDir(),
+		"running":        running,
+		"enabled":        c.boot.Enabled,
+		"bindLan":        c.boot.BindLAN,
+		"addr":           addr,
+		"port":           port,
+		"url":            url,
+		"lanUrl":         lanURL(port),
+		"token":          c.boot.Token,
+		"cdpEnabled":     c.boot.CDPEnabled,
+		"cdpPort":        c.boot.CDPPort,
+		"allowEval":      c.boot.AllowEval,
+		"allowSecrets":   c.boot.AllowSecrets,
+		"infoFile":       DebugInfoPath(),
+		"pid":            os.Getpid(),
+		"hint":           "Debug mode listens on localhost/LAN only. The token changes on every launch. Turn it off in Settings when unused.",
+		"streamHint":     "Realtime events: GET " + url + "/v1/stream?topics=ssh.output,ssh.status (SSE)",
 	}
 }
 
@@ -832,6 +842,12 @@ func (b DebugBoot) withRuntimeSettings(next models.DebugSettings) DebugBoot {
 
 // DebugReply 前端桥回包入口（Wails 绑定）。
 func (a *App) DebugReply(id string, payload string) {
+	if id == "__heartbeat" {
+		if a.debug != nil {
+			a.debug.recordFrontendHeartbeat(payload)
+		}
+		return
+	}
 	logx.Debugf("[apphost] 调试桥收到前端回包: id=%s payloadBytes=%d", id, len(payload))
 	if a.debug == nil || a.debug.bridge == nil {
 		logx.Debugf("[apphost] 调试桥未运行，回包被丢弃: id=%s", id)

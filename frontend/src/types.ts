@@ -158,6 +158,7 @@ export interface Fonts {
 // 应用设置（对应 Go 端 models.Settings）。
 export interface Settings {
   autoStart?: boolean
+  trayIconEnabled?: boolean
   confirmCloseTab?: boolean
   confirmCloseApp?: boolean
   smoothAnimations?: boolean

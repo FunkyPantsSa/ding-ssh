@@ -754,6 +754,15 @@ func (s *Server) uiTree(ctx context.Context, fe uiFrontend, args map[string]any)
 		"total": maxInt(int(uiNum(m["total"])), len(allNodes)),
 		"nodes": uiClipValue(nodes, uiMaxStringRunes, limit, 20, 0),
 	}
+	// 保留前端公开组件注册表的来源和 ready 状态。这个字段不是装饰信息：
+	// AI 需要据此区分“真实 Vue 组件注册表”与降级/空树，避免把部分结果
+	// 误判成完整的组件观测。
+	if source := uiArgString(m, "source"); source != "" {
+		data["source"] = source
+	}
+	if _, ok := m["ready"]; ok {
+		data["ready"] = uiBool(m, "ready")
+	}
 	if note := uiArgString(m, "note"); note != "" {
 		data["note"] = note
 	}
@@ -1857,10 +1866,11 @@ func (s *Server) uiShot(ctx context.Context, fe uiFrontend, op string, args map[
 		logx.Warnf("[debugsrv/ui] 截图区域无法确定: op=%s selector=%q err=%v", op, selector, err)
 		return nil, err
 	}
-	rawPNG, err := captureWindowPNG()
+	frame, err := s.captureFrame(ctx, "main")
+	rawPNG := frame.PNG
 	if err != nil {
 		logx.Errorf("[debugsrv/ui] 窗口截图失败: op=%s err=%v", op, err)
-		return nil, fmt.Errorf("窗口截图失败：%w（提示：窗口最小化或被完全遮挡时无法截图，请先 ui.window{restore:true}）", err)
+		return nil, fmt.Errorf("窗口截图失败：%w", err)
 	}
 	img, err := uiDecodePNG(rawPNG)
 	if err != nil {
@@ -1868,7 +1878,7 @@ func (s *Server) uiShot(ctx context.Context, fe uiFrontend, op string, args map[
 		return nil, err
 	}
 	bounds := img.Bounds()
-	calc := uiComputeScale(bounds.Dx(), bounds.Dy(), geo)
+	calc := uiCaptureScale(frame, bounds.Dx(), bounds.Dy(), geo)
 	crop := calc.imageRect(rect)
 	if crop.Empty() {
 		logx.Warnf("[debugsrv/ui] 截图裁剪区域为空: op=%s rect=%+v image=%dx%d",
@@ -1899,6 +1909,7 @@ func (s *Server) uiShot(ctx context.Context, fe uiFrontend, op string, args map[
 		"autoScale":    map[string]float64{"x": calc.ScaleX, "y": calc.ScaleY},
 		"scale":        scale,
 		"scalingBasis": calc.basis(),
+		"capture":      captureMetadata(frame),
 		"imageBytes":   len(pngBytes),
 	}
 	if op == OpUIElementShot {
@@ -1970,10 +1981,11 @@ func (s *Server) uiSnapshot(ctx context.Context, fe uiFrontend, args map[string]
 		viewport = fp["viewport"]
 	}
 
-	rawPNG, err := captureWindowPNG()
+	frame, err := s.captureFrame(ctx, "main")
+	rawPNG := frame.PNG
 	if err != nil {
 		logx.Errorf("[debugsrv/ui] 快照窗口截图失败: name=%q err=%v", name, err)
-		return nil, fmt.Errorf("窗口截图失败：%w（提示：窗口最小化时无法截图，请先 ui.window{restore:true}）", err)
+		return nil, fmt.Errorf("窗口截图失败：%w", err)
 	}
 	img, err := uiDecodePNG(rawPNG)
 	if err != nil {
@@ -1981,7 +1993,7 @@ func (s *Server) uiSnapshot(ctx context.Context, fe uiFrontend, args map[string]
 		return nil, err
 	}
 	bounds := img.Bounds()
-	calc := uiComputeScale(bounds.Dx(), bounds.Dy(), geo)
+	calc := uiCaptureScale(frame, bounds.Dx(), bounds.Dy(), geo)
 	crop := calc.imageRect(*clipRect)
 	if crop.Empty() {
 		logx.Warnf("[debugsrv/ui] 快照裁剪区域为空: name=%q rect=%+v image=%dx%d",
@@ -2789,16 +2801,17 @@ func (w *uiStateWatcher) run() {
 	defer ticker.Stop()
 	<-timer.C
 	failures := 0
-	lastRevision, lastView := "", ""
+	lastRevision, lastView, lastLayout := "", "", ""
 	for {
-		res, err := w.fe.CallUI(context.Background(), OpUIRevision, nil)
+		pollCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		res, err := w.fe.CallUI(pollCtx, OpUIRevision, nil)
+		cancel()
 		if err != nil {
 			failures++
 			logx.DebugSampled(uiWatcherFailLog, "[debugsrv/ui] UI 观察器轮询失败: failures=%d err=%v", failures, err)
 			if failures >= 5 {
 				logx.Warnf("[debugsrv/ui] UI 观察器连续 5 次轮询失败，停止: lastErr=%v", err)
-				w.close()
-				return
+				// Keep the supervisor alive: a frontend reload can recover.
 			}
 		} else {
 			failures = 0
@@ -2816,6 +2829,12 @@ func (w *uiStateWatcher) run() {
 				return
 			}
 			view := uiArgString(uiMap(m["view"]), "view")
+			sequences := uiMap(m["sequences"])
+			layout := fmt.Sprint(m["pageEpoch"], sequences["layout"], sequences["error"])
+			if layout != lastLayout && lastLayout != "" {
+				w.publish("ui.layout", map[string]any{"pageEpoch": m["pageEpoch"], "sequences": sequences, "view": view})
+			}
+			lastLayout = layout
 			if rev != lastRevision {
 				if lastRevision != "" {
 					w.publish("ui.layout", map[string]any{"revision": m["revision"], "view": view})

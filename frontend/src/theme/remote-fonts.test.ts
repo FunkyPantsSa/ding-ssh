@@ -185,3 +185,25 @@ it('persists downloads through IndexedDB when a native WebView has no Cache Stor
   await (await import('./remote-fonts')).ensureRemoteFont('Fira Code', 400)
   expect(offlineFetch).not.toHaveBeenCalled()
 })
+
+it('skips pure CJK shards when Maple is requested only for non-CJK glyphs and still allows upgrading to full coverage', async () => {
+  vi.resetModules()
+  const {add} = fontEnvironment()
+  vi.stubGlobal('caches', {open: vi.fn().mockRejectedValue(new Error('unavailable'))})
+  const fetch = vi.fn(async (url: string) => new Response(url.endsWith('.css')
+    ? '@font-face {src:url(./cjk.woff2);unicode-range:U+4E00-9FFF;} @font-face {src:url(./icons.woff2);unicode-range:U+2500-257F,U+E000-F8FF;}'
+    : new Uint8Array([1])))
+  vi.stubGlobal('fetch', fetch)
+  const {ensureRemoteFont, remoteFontKey, remoteFontStatus} = await import('./remote-fonts')
+  await ensureRemoteFont('Maple Mono NF CN', 400, {nonCjkOnly: true})
+  expect(fetch.mock.calls.map(c => c[0])).toEqual([
+    'https://fontsapi.zeoseven.com/442/main/result.css',
+    'https://fontsapi.zeoseven.com/442/main/icons.woff2',
+  ])
+  expect(add).toHaveBeenCalledOnce()
+  expect(remoteFontStatus[remoteFontKey('Maple Mono NF CN', 400, true)]).toBe('ready')
+  expect(remoteFontStatus[remoteFontKey('Maple Mono NF CN', 400, false)]).toBeUndefined()
+  await ensureRemoteFont('Maple Mono NF CN', 400)
+  expect(fetch.mock.calls.some(c => String(c[0]).endsWith('/cjk.woff2'))).toBe(true)
+  expect(remoteFontStatus[remoteFontKey('Maple Mono NF CN', 400, false)]).toBe('ready')
+})
