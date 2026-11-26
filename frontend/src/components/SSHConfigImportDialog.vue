@@ -24,7 +24,7 @@ function diff(entry: Entry) {
  return ['host', 'port', 'user', 'authType', 'identityFiles', 'identityAgent', 'identitiesOnly', 'hostKeyAlias', 'knownHostsSources'].map(key => {
   const before = (old as any)[key]; const after = (entry.node as any)[key]
   return JSON.stringify(before) === JSON.stringify(after) ? '' : `${key}: ${JSON.stringify(before ?? '')} → ${JSON.stringify(after ?? '')}`
- }).filter(Boolean).join('\n') + t("\n跳板机引用将按导入配置重建：{0}", [entry.jumps.join(' → ') || '直接连接'])
+ }).filter(Boolean).join('\n') + t("\n跳板机引用将按导入配置重建：{0}", [entry.jumps.join(' → ') || t('直接连接')])
 }
 async function preview() {
  busy.value = true; error.value = ''

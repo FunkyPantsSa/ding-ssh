@@ -20,8 +20,8 @@ const modes: TunnelMode[] = ['local', 'remote', 'dynamic', 'reverse-dynamic']
     <button
       v-for="mode in modes"
       :key="mode"
-      class="relative neo-flat p-4 text-left transition-all"
-      :class="modelValue === mode ? 'ring-1 ring-[var(--primary-hover)] bg-[var(--primary-weak)]' : 'hover:bg-surface-raised'"
+      class="tunnel-mode relative p-4 text-left transition-all"
+      :class="{selected: modelValue === mode}"
       :aria-checked="modelValue === mode"
       role="radio"
       @click="emit('update:modelValue', mode)"
@@ -34,3 +34,9 @@ const modes: TunnelMode[] = ['local', 'remote', 'dynamic', 'reverse-dynamic']
     </button>
   </div>
 </template>
+
+<style scoped>
+.tunnel-mode{border:1px solid var(--border-subtle);border-radius:var(--radius-control);background:var(--surface-bg)}
+.tunnel-mode:hover{background:var(--surface-raised-bg)}
+.tunnel-mode.selected{border-color:var(--accent-border);background:var(--primary-weak)}
+</style>

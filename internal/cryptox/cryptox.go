@@ -32,9 +32,9 @@ const (
 )
 
 var (
-	ErrLocked       = errors.New(i18n.T("保险库未解锁"))
-	ErrBadPassword  = errors.New(i18n.T("主密码错误"))
-	ErrNotEncrypted = errors.New(i18n.T("不是加密字段"))
+	ErrLocked       = i18n.NewError("保险库未解锁")
+	ErrBadPassword  = i18n.NewError("主密码错误")
+	ErrNotEncrypted = i18n.NewError("不是加密字段")
 )
 
 // Encrypt 使用 AES-256-GCM 加密明文，返回带 Prefix 的密文字符串。

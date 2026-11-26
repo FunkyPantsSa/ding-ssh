@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"runtime"
 	"time"
+
+	"ding-ssh/internal/i18n"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -84,22 +87,22 @@ func setupApplicationMenu(a *App, desktop *application.App) {
 	}
 
 	// File menu
-	fileMenu := menu.AddSubmenu("文件")
-	fileMenu.Add("新建连接").SetAccelerator("CmdOrCtrl+N").OnClick(func(ctx *application.Context) {
+	fileMenu := menu.AddSubmenu(i18n.T("文件"))
+	fileMenu.Add(i18n.T("新建连接")).SetAccelerator("CmdOrCtrl+N").OnClick(func(ctx *application.Context) {
 		a.emit("menu:new-connection")
 	})
-	fileMenu.Add("快速连接").SetAccelerator("CmdOrCtrl+K").OnClick(func(ctx *application.Context) {
+	fileMenu.Add(i18n.T("快速连接")).SetAccelerator("CmdOrCtrl+K").OnClick(func(ctx *application.Context) {
 		a.emit("menu:quick-connect")
 	})
 	fileMenu.AddSeparator()
-	fileMenu.Add("导入配置...").OnClick(func(ctx *application.Context) {
+	fileMenu.Add(i18n.T("导入配置...")).OnClick(func(ctx *application.Context) {
 		a.emit("menu:import-config")
 	})
-	fileMenu.Add("导出配置...").OnClick(func(ctx *application.Context) {
+	fileMenu.Add(i18n.T("导出配置...")).OnClick(func(ctx *application.Context) {
 		a.emit("menu:export-config")
 	})
 	fileMenu.AddSeparator()
-	fileMenu.Add("隐藏窗口").SetAccelerator("CmdOrCtrl+W").OnClick(func(ctx *application.Context) {
+	fileMenu.Add(i18n.T("隐藏窗口")).SetAccelerator("CmdOrCtrl+W").OnClick(func(ctx *application.Context) {
 		if a.window != nil {
 			a.window.Hide()
 		}
@@ -109,15 +112,15 @@ func setupApplicationMenu(a *App, desktop *application.App) {
 	menu.AddRole(application.EditMenu)
 
 	// Session menu
-	sessionMenu := menu.AddSubmenu("会话")
-	sessionMenu.Add("重连当前会话").SetAccelerator("CmdOrCtrl+R").OnClick(func(ctx *application.Context) {
+	sessionMenu := menu.AddSubmenu(i18n.T("会话"))
+	sessionMenu.Add(i18n.T("重连当前会话")).SetAccelerator("CmdOrCtrl+R").OnClick(func(ctx *application.Context) {
 		a.emit("menu:reconnect-current")
 	})
-	sessionMenu.Add("断开当前会话").OnClick(func(ctx *application.Context) {
+	sessionMenu.Add(i18n.T("断开当前会话")).OnClick(func(ctx *application.Context) {
 		a.emit("menu:disconnect-current")
 	})
 	sessionMenu.AddSeparator()
-	sessionMenu.Add("断开所有连接与隧道").OnClick(func(ctx *application.Context) {
+	sessionMenu.Add(i18n.T("断开所有连接与隧道")).OnClick(func(ctx *application.Context) {
 		a.DisconnectAll()
 	})
 
@@ -128,15 +131,15 @@ func setupApplicationMenu(a *App, desktop *application.App) {
 	menu.AddRole(application.WindowMenu)
 
 	// Help menu
-	helpMenu := menu.AddSubmenu("帮助")
-	helpMenu.Add("打开日志目录").OnClick(func(ctx *application.Context) {
+	helpMenu := menu.AddSubmenu(i18n.T("帮助"))
+	helpMenu.Add(i18n.T("打开日志目录")).OnClick(func(ctx *application.Context) {
 		_ = a.OpenLogFolder()
 	})
-	helpMenu.Add("开发者与诊断").OnClick(func(ctx *application.Context) {
+	helpMenu.Add(i18n.T("开发者与诊断")).OnClick(func(ctx *application.Context) {
 		a.emit("menu:open-debug")
 	})
 	helpMenu.AddSeparator()
-	helpMenu.Add("检查更新...").OnClick(func(ctx *application.Context) {
+	helpMenu.Add(i18n.T("检查更新...")).OnClick(func(ctx *application.Context) {
 		a.emit("menu:check-updates")
 	})
 
@@ -327,7 +330,7 @@ func (a *App) saveFile(options application.SaveFileDialogOptions) (string, error
 // a failed write from a successful copy.
 func (a *App) CopyText(text string) error {
 	if a.desktop == nil || !a.desktop.Clipboard.SetText(text) {
-		return errors.New("剪贴板写入失败")
+		return errors.New(i18n.T("剪贴板写入失败"))
 	}
 	return nil
 }
@@ -340,7 +343,7 @@ type approvalDialogOptions struct {
 
 func (a *App) promptApproval(options approvalDialogOptions) (string, error) {
 	if a.ctx == nil || a.window == nil || a.ctx.Err() != nil || a.window.NativeWindow() == nil {
-		return "", errors.New("可信用户审批不可用")
+		return "", errors.New(i18n.T("可信用户审批不可用"))
 	}
 	ctx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)
 	defer cancel()
@@ -352,7 +355,7 @@ func (a *App) promptApproval(options approvalDialogOptions) (string, error) {
 		// non-cancel choice. Explain that exact choice in the fallback.
 		for _, label := range options.Buttons {
 			if label != options.CancelButton {
-				message += "\n\n如果系统只显示“是 / 否”，“是”表示“" + label + "”，“否 / No”表示拒绝。"
+				message += fmt.Sprintf(i18n.T("\n\n如果系统只显示“是 / 否”，“是”表示“%s”，“否 / No”表示拒绝。"), label)
 				break
 			}
 		}

@@ -39,7 +39,7 @@ defineProps<{collapsed?: boolean; resizing?: boolean}>()
   overflow: hidden;
   border: var(--glass-border);
   border-radius: 10px;
-  background: var(--surface-bg, rgba(20, 20, 26, 0.88));
+  background: transparent;
   backdrop-filter: blur(var(--glass-shell-blur, 16px));
   -webkit-backdrop-filter: blur(var(--glass-shell-blur, 16px));
   box-shadow: var(--shadow-canvas);

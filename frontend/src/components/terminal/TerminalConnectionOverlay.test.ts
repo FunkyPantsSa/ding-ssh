@@ -2,6 +2,7 @@ import {enableAutoUnmount, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it} from 'vitest'
 import TerminalConnectionOverlay from './TerminalConnectionOverlay.vue'
 import type {SessionTab} from '../../types'
+import {nextTick} from 'vue'
 
 const tab: SessionTab = {
   clientId: 'tab-1',
@@ -55,8 +56,45 @@ describe('terminal connection overlay', () => {
 })
 
 function overlay(session: Partial<SessionTab> = {}) {
- return mount(TerminalConnectionOverlay,{props:{tab:{...tab,...session},settings:{autoReconnect:true},steps,connectSteps:[{key:'dns',label:'DNS'}],activeStepLabel:'',anyStepError:false,autoReconnectCountdown:5,autoReconnectAttempt:2}})
+ return mount(TerminalConnectionOverlay,{attachTo:document.body,props:{tab:{...tab,...session},settings:{autoReconnect:true},steps,connectSteps:[{key:'dns',label:'DNS'}],activeStepLabel:'',anyStepError:false,autoReconnectCountdown:5,autoReconnectAttempt:2}})
 }
+it('focuses retry and moves between all recovery actions with arrow keys', async () => {
+ const wrapper=overlay()
+ ;(wrapper.vm as unknown as {focus:()=>void}).focus()
+ const retry=wrapper.get<HTMLButtonElement>('[data-testid="terminal-retry"]')
+ const edit=wrapper.get<HTMLButtonElement>('[data-testid="terminal-edit-server"]')
+ expect(document.activeElement).toBe(retry.element)
+ await retry.trigger('keydown',{key:'ArrowRight'})
+ expect(document.activeElement).toBe(edit.element)
+ ;(wrapper.vm as unknown as {focus:()=>void}).focus()
+ expect(document.activeElement).toBe(edit.element)
+ await edit.trigger('keydown',{key:'ArrowDown'})
+ expect(document.activeElement?.textContent).toBe('关闭标签页')
+ await (document.activeElement as HTMLButtonElement).click()
+ expect(wrapper.emitted('close')).toHaveLength(1)
+ expect(wrapper.emitted('reconnect')).toBeUndefined()
+ await edit.trigger('keydown',{key:'ArrowLeft'})
+ expect(document.activeElement).toBe(retry.element)
+})
+it('does not reconnect when Enter belongs to a disconnected-banner action', async () => {
+ const wrapper=overlay({status:'disconnected'})
+ ;(wrapper.vm as unknown as {focus:()=>void}).focus()
+ expect(document.activeElement).toBe(wrapper.get('[data-testid="terminal-reconnect"]').element)
+ const cancel=wrapper.findAll('button').find(b=>b.text()==='取消自动重连')!
+ await cancel.trigger('keydown',{key:'Enter'})
+ await cancel.trigger('click')
+ expect(wrapper.emitted('cancelAutoReconnect')).toHaveLength(1)
+ expect(wrapper.emitted('reconnect')).toBeUndefined()
+})
+it('moves a passive connecting surface to retry after failure without moving an existing selection', async () => {
+ const wrapper=overlay({status:'connecting'})
+ const focus=()=> (wrapper.vm as unknown as {focus:()=>void}).focus()
+ focus()
+ expect(document.activeElement).toBe(wrapper.get('[data-terminal-focus-surface]').element)
+ await wrapper.setProps({tab:{...tab,status:'error'}})
+ await nextTick();focus()
+ expect(document.activeElement).toBe(wrapper.get('[data-testid="terminal-retry"]').element)
+})
 it('routes SSH retry to reconnect and local shell retry to connect', async () => {
  const remote=overlay()
  await remote.get('[data-testid="terminal-retry"]').trigger('click')

@@ -3,7 +3,8 @@ import {t as $t} from '../../i18n'
 
 import {t} from '../../i18n'
 
-import {ref, watchPostEffect} from 'vue'
+import {ref, useId, watchPostEffect} from 'vue'
+import {focusControl, focusableControls, navigateKeyboardFocus} from '../../utils/keyboard-navigation'
 import Icon from '../Icon.vue'
 import {Button} from '../ui'
 import type {SessionTab} from '../../types'
@@ -29,6 +30,31 @@ const emit = defineEmits<{
 }>()
 const statusPanel = ref<HTMLElement | null>(null)
 const disconnectedPanel = ref<HTMLElement | null>(null)
+const titleId = `connection-status-${useId()}`
+
+function focus() {
+  const panel = statusPanel.value ?? disconnectedPanel.value
+  // Retain the user's selection when another connection-progress update arrives.
+  if (!panel || (document.activeElement !== panel && panel.contains(document.activeElement))) return
+  if (props.tab.status === 'connecting') { focusControl(panel); return }
+  focusControl(panel.querySelector<HTMLElement>('[data-testid="terminal-retry"],[data-testid="terminal-reconnect"]')
+    ?? focusableControls(panel)[0] ?? panel)
+}
+
+function onKey(event: KeyboardEvent) {
+  const panel = statusPanel.value ?? disconnectedPanel.value
+  if (!panel || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return
+  // Only the passive surface itself has a default action. A button keeps its
+  // own Enter action (edit, cancel or close) without also reconnecting.
+  if (event.key === 'Enter' && event.target === panel && props.tab.status !== 'connecting') {
+    event.preventDefault()
+    event.stopPropagation()
+    if (props.tab.kind === 'local' && props.tab.status === 'error') emit('connect')
+    else emit('reconnect')
+    return
+  }
+  navigateKeyboardFocus(event, panel)
+}
 
 // 等日志 DOM 更新后滚到底部，覆盖所有连接阶段及重新展开的日志。
 watchPostEffect(() => {
@@ -43,7 +69,7 @@ watchPostEffect(() => {
     panel.scrollTop = panel.scrollHeight
   })
 })
-defineExpose({focus: () => (statusPanel.value ?? disconnectedPanel.value)?.focus()})
+defineExpose({focus})
 </script>
 
 <template>
@@ -52,10 +78,15 @@ defineExpose({focus: () => (statusPanel.value ?? disconnectedPanel.value)?.focus
     ref="statusPanel"
     class="absolute inset-0 z-30 grid place-items-center pointer-events-auto overlay-backdrop"
     tabindex="0"
+    data-terminal-focus-surface
+    data-keyboard-nav="linear"
+    role="dialog"
+    :aria-labelledby="titleId"
+    @keydown="onKey"
   >
     <div class="neo w-[min(460px,92%)] p-6 max-h-[86vh] overflow-y-auto">
       <div class="flex items-center justify-between gap-3 mb-1">
-        <h3 class="text-[15px] font-semibold text-[var(--foreground)] truncate">
+        <h3 :id="titleId" class="text-[15px] font-semibold text-[var(--foreground)] truncate">
           {{ tab.kind === 'local' ? (tab.status === 'connecting' ? t('正在打开 {0}', [tab.serverName]) : t('打开 {0} 失败', [tab.serverName])) : (tab.status === 'connecting' ? t('正在连接 {0}', [tab.serverName]) : t('连接 {0} 失败', [tab.serverName])) }}
         </h3>
         <Button variant="ghost" size="icon" class="shrink-0" :title="$t('关闭标签页')" :aria-label="$t('关闭标签页')" data-testid="terminal-close-session" @click.stop="emit('close')">
@@ -65,7 +96,7 @@ defineExpose({focus: () => (statusPanel.value ?? disconnectedPanel.value)?.focus
       <p v-if="tab.status === 'error' && tab.message" class="text-xs text-[var(--destructive)] break-all mb-3">{{ tab.message }}</p>
       <template v-if="tab.kind === 'local'">
         <p class="text-xs text-mist mb-4">{{ tab.status === 'connecting' ? t('正在启动本机 Shell…') : t('可关闭后重试，或在设置中更换本机 Shell。') }}</p>
-        <div class="flex gap-2">
+        <div class="flex gap-2" data-keyboard-nav="linear">
           <Button v-if="tab.status === 'error'" variant="primary" size="sm" data-testid="terminal-retry" @click="emit('connect')">{{ $t('重试') }}</Button>
           <Button variant="ghost" size="sm" @click="emit('close')">{{ $t('关闭') }}</Button>
         </div>
@@ -92,7 +123,7 @@ defineExpose({focus: () => (statusPanel.value ?? disconnectedPanel.value)?.focus
             </div>
           </div>
         </div>
-        <div class="flex gap-2 mt-5">
+        <div class="flex gap-2 mt-5" data-keyboard-nav="linear">
           <template v-if="tab.status === 'connecting'">
             <Button variant="ghost" size="sm" @click.stop="emit('close')">{{ $t('关闭标签页') }}</Button>
           </template>
@@ -110,7 +141,11 @@ defineExpose({focus: () => (statusPanel.value ?? disconnectedPanel.value)?.focus
     ref="disconnectedPanel"
     class="absolute inset-x-3 top-3 z-30 pointer-events-auto disconnect-banner flex items-center gap-3 px-4 py-2.5"
     tabindex="0"
-    @keydown.enter.prevent="emit('reconnect')"
+    data-terminal-focus-surface
+    data-keyboard-nav="linear"
+    role="group"
+    :aria-label="t('连接已断开')"
+    @keydown="onKey"
   >
     <span class="banner-accent" aria-hidden="true"></span>
     <div class="min-w-0 flex-1">
@@ -122,7 +157,7 @@ defineExpose({focus: () => (statusPanel.value ?? disconnectedPanel.value)?.focus
         <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
         {{ autoReconnectAttempt > 1 ? t('第 {0} 次失败，', [autoReconnectAttempt - 1]) : '' }} {{ $t('{0}s 后自动重连…', [autoReconnectCountdown]) }}</p>
     </div>
-    <div class="flex shrink-0 items-center gap-2">
+    <div class="flex shrink-0 items-center gap-2" data-keyboard-nav="linear">
       <Button variant="primary" size="sm" data-testid="terminal-reconnect" @click.stop="emit('reconnect')">{{ $t('立即重连') }}</Button>
       <Button v-if="tab.status === 'disconnected' && settings.autoReconnect && autoReconnectCountdown > 0" variant="ghost" size="sm" @click.stop="emit('cancelAutoReconnect')">{{ $t('取消自动重连') }}</Button>
       <Button variant="ghost" size="sm" @click.stop="emit('close')">{{ $t('关闭标签页') }}</Button>

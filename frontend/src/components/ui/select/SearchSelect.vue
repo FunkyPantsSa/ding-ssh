@@ -3,7 +3,7 @@ import {t as $t} from '../../../i18n'
 
 import {t} from '../../../i18n'
 
-import {computed, nextTick, onBeforeUnmount, ref, useId} from 'vue'
+import {computed, nextTick, onBeforeUnmount, ref, useId, watch} from 'vue'
 import {getDisplayRect} from '../../../utils/dom'
 import Icon from '../../Icon.vue'
 import Input from '../input/Input.vue'
@@ -11,7 +11,7 @@ import Input from '../input/Input.vue'
 defineOptions({inheritAttrs: false})
 const props = defineProps<{
   modelValue: string | undefined
-  options: readonly {value: string; label: string; keywords?: string}[]
+  options: readonly {value: string; label: string; keywords?: string; disabled?: boolean; hidden?: boolean}[]
   placeholder?: string
   class?: string
   disabled?: boolean
@@ -30,7 +30,8 @@ const LIST_GAP = 4
 const LIST_MAX_HEIGHT = 180
 const matches = computed(() => {
   const words = query.value.trim().toLowerCase().split(/\s+/)
-  return props.options.filter(({label, keywords}) => {
+  return props.options.filter(({label, keywords, hidden}) => {
+    if (hidden) return false
     const haystack = `${label} ${keywords ?? ''}`.toLowerCase()
     return words.every((word) => haystack.includes(word))
   })
@@ -38,16 +39,17 @@ const matches = computed(() => {
 const text = computed({
   get: () => open.value ? query.value : selected.value ?? '',
   set: (value: string | number) => {
-    open.value = true
+    show()
     query.value = String(value)
-    active.value = 0
+    active.value = enabledIndices()[0] ?? -1
   },
 })
 
 function show() {
   if (open.value || props.disabled) return
   open.value = true
-  active.value = matches.value.findIndex((option) => option.value === props.modelValue)
+  active.value = matches.value.findIndex((option) => option.value === props.modelValue && !option.disabled)
+  if (active.value < 0) active.value = enabledIndices()[0] ?? -1
   positionList()
   bind()
   void nextTick(positionList)
@@ -121,29 +123,62 @@ function unbind() {
 onBeforeUnmount(unbind)
 
 function choose(value: string) {
+  if (!matches.value.some(option => option.value === value && !option.disabled) || props.disabled) return
   close()
   emit('update:modelValue', value)
 }
 
+function enabledIndices() {
+  return matches.value.flatMap((option, index) => option.disabled ? [] : [index])
+}
+
+function revealActive() {
+  void nextTick(() => list.value?.querySelector<HTMLElement>(`[id="${listId}-${active.value}"]`)?.scrollIntoView?.({block: 'nearest'}))
+}
+
+watch(matches, () => {
+  if (!matches.value[active.value] || matches.value[active.value]?.disabled) active.value = enabledIndices()[0] ?? -1
+})
+watch(() => props.disabled, disabled => { if (disabled) close() })
+
 function onKeydown(event: KeyboardEvent) {
-  if (event.isComposing) return
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey || props.disabled) return
+  if (event.key === 'Tab') {
+    close()
+    return
+  }
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     event.preventDefault()
-    if (!open.value) show()
-    const count = matches.value.length
-    if (!count) return
+    event.stopPropagation()
+    const wasOpen = open.value
+    if (!wasOpen) show()
+    const enabled = enabledIndices()
+    if (!enabled.length) return
     const step = event.key === 'ArrowDown' ? 1 : -1
-    active.value = active.value < 0 ? (step === 1 ? 0 : count - 1) : (active.value + step + count) % count
-    void nextTick(() => list.value?.children[active.value]?.scrollIntoView?.({block: 'nearest'}))
-  } else if (event.key === 'Enter' && open.value) {
+    const current = enabled.indexOf(active.value)
+    active.value = !wasOpen || current < 0 ? (step === 1 ? enabled[0]! : enabled[enabled.length - 1]!)
+      : enabled[(current + step + enabled.length) % enabled.length]!
+    revealActive()
+  } else if ((event.key === 'Home' || event.key === 'End') && open.value) {
     event.preventDefault()
-    const option = matches.value[active.value]
-    if (option) choose(option.value)
+    event.stopPropagation()
+    const enabled = enabledIndices()
+    active.value = (event.key === 'Home' ? enabled[0] : enabled[enabled.length - 1]) ?? -1
+    revealActive()
+  } else if (event.key === 'Enter') {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!open.value) show()
+    else if (!event.repeat) {
+      const option = matches.value[active.value]
+      if (option) choose(option.value)
+    }
   } else if (event.key === 'Escape' && open.value) {
     event.preventDefault()
     event.stopPropagation()
     close()
   }
+  // Space remains text input in this editable combobox, including when filtering labels with spaces.
 }
 </script>
 
@@ -177,7 +212,8 @@ function onKeydown(event: KeyboardEvent) {
           :key="option.value"
           role="option"
           :aria-selected="option.value === modelValue"
-          :class="{active: index === active}"
+          :aria-disabled="option.disabled || undefined"
+          :class="{active: index === active, disabled: option.disabled}"
           @mousedown.prevent
           @click="choose(option.value)"
         >{{ option.label }}</li>
@@ -194,9 +230,10 @@ function onKeydown(event: KeyboardEvent) {
 .search-select-input :deep(input.has-clear){padding-right:72px}
 .search-select-input :deep(.ui-input-clear){right:24px}
 .search-select-input :deep(svg){position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--muted-foreground)}
-.search-select-list{position:fixed;z-index:1100;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;margin:0;padding:4px;list-style:none;background:var(--surface-overlay-bg);border:1px solid var(--border-strong);border-radius:var(--radius-md);color:var(--foreground);box-shadow:var(--shadow-pop)}
+.search-select-list{position:fixed;z-index:1100;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;margin:0;padding:4px;list-style:none;background:var(--surface-overlay-bg);backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(160%);-webkit-backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(160%);border:1px solid color-mix(in srgb,var(--accent-border) 32%,var(--border-default));border-radius:var(--radius-md);color:var(--foreground);box-shadow:var(--shadow-floating)}
 .search-select-list li{padding:6px 8px;overflow-wrap:anywhere;border-radius:var(--radius-sm);cursor:pointer}
-.search-select-list li:hover,.search-select-list li.active{background:var(--interactive-hover-bg)}
+.search-select-list li:not(.disabled):hover,.search-select-list li.active{background:var(--interactive-hover-bg)}
 .search-select-list li[aria-selected='true']{color:var(--primary-hover)}
+.search-select-list li.disabled{opacity:.5;cursor:not-allowed}
 .search-select-list .search-select-empty{color:var(--muted-foreground);cursor:default}
 </style>

@@ -63,3 +63,13 @@ func T(message string) string {
 	}
 	return message
 }
+
+// NewError keeps sentinel identity stable while resolving its message in the
+// current UI language, including after switching languages without a restart.
+func NewError(message string) error {
+	return &localizedError{message: message}
+}
+
+type localizedError struct{ message string }
+
+func (e *localizedError) Error() string { return T(e.message) }

@@ -15,9 +15,46 @@ import (
 	"testing"
 
 	"ding-ssh/internal/debugsrv"
+	"ding-ssh/internal/i18n"
 	"ding-ssh/internal/models"
 	"ding-ssh/internal/store"
 )
+
+func TestNativeApprovalsFollowUILanguage(t *testing.T) {
+	defer i18n.SetLanguage("zh-CN")
+	for _, language := range []string{"zh-CN", "en"} {
+		t.Run(language, func(t *testing.T) {
+			i18n.SetLanguage(language)
+			for _, selected := range []int{0, 1, 2} {
+				a := &App{debugDialog: func(opts approvalDialogOptions) (string, error) {
+					if opts.Title != i18n.T("MCP 操作授权") || opts.DefaultButton != i18n.T("拒绝") || opts.CancelButton != i18n.T("拒绝") {
+						t.Fatalf("wrong dialog language or unsafe defaults: %#v", opts)
+					}
+					if !strings.Contains(opts.Message, "client-id") || !strings.Contains(opts.Message, "用户文件.txt") {
+						t.Fatal("translation changed user data")
+					}
+					return opts.Buttons[selected], nil
+				}}
+				decision, err := (&debugController{app: a}).approveDebugOperation(context.Background(), debugsrv.ApprovalRequest{ClientID: "client-id", Tool: "sftp.write", Summary: "用户文件.txt"})
+				if err != nil || decision.Approved != (selected != 0) || (decision.AllowFor > 0) != (selected == 2) {
+					t.Fatalf("translated selection was not respected: %#v, %v", decision, err)
+				}
+			}
+			before := models.DefaultDebugSettings()
+			after := before
+			after.CapLocalExec = true
+			a := &App{debugDialog: func(opts approvalDialogOptions) (string, error) {
+				if opts.Title != i18n.T("更改 MCP 授权") || opts.Buttons[1] != i18n.T("批准") {
+					t.Fatalf("permission approval was not localized: %#v", opts)
+				}
+				return opts.Buttons[1], nil
+			}}
+			if err := a.approveDebugSettingsChange(before, after); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 
 func TestDebugSettingsChangesNeedNativeApprovalForExpansion(t *testing.T) {
 	base := models.DefaultDebugSettings()

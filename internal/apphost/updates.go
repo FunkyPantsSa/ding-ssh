@@ -2,6 +2,7 @@ package apphost
 
 import (
 	"context"
+	"ding-ssh/internal/i18n"
 	"ding-ssh/internal/logx"
 	"ding-ssh/internal/updater"
 	"fmt"
@@ -40,13 +41,13 @@ func (a *App) CheckUpdate(channel string) (UpdateInfo, error) {
 	current := currentUpdateCommit()
 	if current == "" {
 		logx.Errorf("[apphost] 检查更新失败（无法识别当前构建提交）: channel=%q", channel)
-		return UpdateInfo{}, fmt.Errorf("无法识别当前构建提交，请安装带版本信息的构建")
+		return UpdateInfo{}, fmt.Errorf("%s", i18n.T("无法识别当前构建提交，请安装带版本信息的构建"))
 	}
 	a.updates.Lock()
 	defer a.updates.Unlock()
 	if a.updates.busy || a.updates.source != "" {
 		logx.Warnf("[apphost] 检查更新被拒（已有更新下载或等待安装）: channel=%q", channel)
-		return UpdateInfo{}, fmt.Errorf("已有更新下载或等待安装")
+		return UpdateInfo{}, fmt.Errorf("%s", i18n.T("已有更新下载或等待安装"))
 	}
 	a.updates.manifest = &m
 	logx.Infof("[apphost] 检查更新完成: channel=%q current=%s latest=%s available=%v elapsed=%s",
@@ -61,7 +62,7 @@ func (a *App) DownloadUpdate(restart bool) error {
 		a.updates.Unlock()
 		logx.Warnf("[apphost] 下载更新被拒（未检查更新或已有任务）: busy=%v pendingInstall=%v hasManifest=%v",
 			a.updates.busy, a.updates.source != "", a.updates.manifest != nil)
-		return fmt.Errorf("请先检查更新，或等待当前更新完成")
+		return fmt.Errorf("%s", i18n.T("请先检查更新，或等待当前更新完成"))
 	}
 	m := *a.updates.manifest
 	a.updates.busy = true
@@ -116,7 +117,7 @@ func (a *App) InstallUpdateNow() error {
 	a.updates.Unlock()
 	if !ready {
 		logx.Warnf("[apphost] 立即安装更新被拒（尚未下载完成）")
-		return fmt.Errorf("更新尚未下载完成")
+		return fmt.Errorf("%s", i18n.T("更新尚未下载完成"))
 	}
 	logx.Infof("[apphost] 立即安装更新并退出: source=%q", source)
 	a.requestQuit()

@@ -1473,7 +1473,7 @@ func (a *App) WriteRaw(sessionID string, data []byte) error {
 	if a.manager != nil {
 		return a.manager.WriteRaw(sessionID, data)
 	}
-	return errors.New("会话不存在")
+	return errors.New(i18n.T("会话不存在"))
 }
 
 // WriteRawInteractive 向会话直接写入原始字节并附带命令上下文（Stream 通道使用）。
@@ -1484,7 +1484,7 @@ func (a *App) WriteRawInteractive(sessionID string, data []byte, command string)
 	if a.manager != nil {
 		return a.manager.WriteRawInteractive(sessionID, data, command)
 	}
-	return errors.New("会话不存在")
+	return errors.New(i18n.T("会话不存在"))
 }
 
 // RegisterTerminalStream 注册指定会话的原始二进制输出监听器（跨 SSH 与本地终端）。
@@ -1550,7 +1550,7 @@ func (a *App) DisconnectAll() {
 // OpenTerminalWindow 打开独立的终端弹窗。
 func (a *App) OpenTerminalWindow(sessionID, title string) error {
 	if a.desktop == nil {
-		return errors.New("桌面环境未就绪")
+		return errors.New(i18n.T("桌面环境未就绪"))
 	}
 	winName := "terminal-" + sessionID
 	if existing, ok := a.desktop.Window.GetByName(winName); ok {
@@ -1596,7 +1596,7 @@ func (a *App) OpenTerminalWindow(sessionID, title string) error {
 // OpenSFTPWindow 打开独立的 SFTP 弹窗。
 func (a *App) OpenSFTPWindow(sessionID, title string) error {
 	if a.desktop == nil {
-		return errors.New("桌面环境未就绪")
+		return errors.New(i18n.T("桌面环境未就绪"))
 	}
 	winName := "sftp-" + sessionID
 	if existing, ok := a.desktop.Window.GetByName(winName); ok {
@@ -1659,7 +1659,7 @@ func (a *App) SetWindowContentProtection(enabled bool) {
 // RegisterGlobalShortcut 动态注册全局系统快捷键。
 func (a *App) RegisterGlobalShortcut(shortcut string) error {
 	if a.desktop == nil || a.desktop.GlobalShortcut == nil {
-		return errors.New("桌面环境未就绪")
+		return errors.New(i18n.T("桌面环境未就绪"))
 	}
 	return a.desktop.GlobalShortcut.Register(shortcut, func() {
 		if a.window != nil {
@@ -1676,7 +1676,7 @@ func (a *App) RegisterGlobalShortcut(shortcut string) error {
 // UnregisterGlobalShortcut 注销指定的全局快捷键。
 func (a *App) UnregisterGlobalShortcut(shortcut string) error {
 	if a.desktop == nil || a.desktop.GlobalShortcut == nil {
-		return errors.New("桌面环境未就绪")
+		return errors.New(i18n.T("桌面环境未就绪"))
 	}
 	return a.desktop.GlobalShortcut.Unregister(shortcut)
 }

@@ -1,5 +1,6 @@
 <script lang="ts" setup>
-import {onBeforeUnmount, ref} from 'vue'
+import {computed, onBeforeUnmount, ref} from 'vue'
+import {t} from '../i18n'
 import {useSessionsStore} from '../stores/sessions'
 import {currentZoom} from '../utils/dom'
 import type {PaneDirection} from '../types'
@@ -14,6 +15,7 @@ const props = defineProps<{
 const sessions = useSessionsStore()
 const dragging = ref(false)
 const dividerEl = ref<HTMLElement | null>(null)
+const currentSize = computed(() => sessions.findPane(props.parentId)?.children[props.index - 1]?.size ?? 0.5)
 
 let startX = 0
 let startY = 0
@@ -62,6 +64,28 @@ function onDblclick() {
   parent.children[1].size = 0.5
 }
 
+function onKeydown(event: KeyboardEvent) {
+  if (event.altKey || event.ctrlKey || event.metaKey || dragging.value) return
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    event.stopPropagation()
+    onDblclick()
+    return
+  }
+  const backward = props.direction === 'row' ? 'ArrowLeft' : 'ArrowUp'
+  const forward = props.direction === 'row' ? 'ArrowRight' : 'ArrowDown'
+  const step = event.shiftKey ? 0.1 : 0.02
+  let delta: number
+  if (event.key === backward) delta = -step
+  else if (event.key === forward) delta = step
+  else if (event.key === 'Home') delta = 0.1 - currentSize.value
+  else if (event.key === 'End') delta = 0.9 - currentSize.value
+  else return
+  event.preventDefault()
+  event.stopPropagation()
+  sessions.resizePane(props.parentId, props.index, delta)
+}
+
 onBeforeUnmount(() => {
   window.removeEventListener('mousemove', onMousemove)
   window.removeEventListener('mouseup', onMouseup)
@@ -74,8 +98,18 @@ onBeforeUnmount(() => {
     class="split-divider-inner"
     :class="direction === 'row' ? 'v' : 'h'"
     :data-dragging="dragging"
+    role="separator"
+    tabindex="0"
+    :aria-orientation="direction === 'row' ? 'vertical' : 'horizontal'"
+    :aria-label="t('调整分屏比例')"
+    :aria-valuemin="10"
+    :aria-valuemax="90"
+    :aria-valuenow="Math.round(currentSize * 100)"
+    :aria-valuetext="Math.round(currentSize * 100) + '%'"
+    :aria-keyshortcuts="(direction === 'row' ? 'ArrowLeft ArrowRight' : 'ArrowUp ArrowDown') + ' Home End Enter'"
     @mousedown="onMousedown"
     @dblclick="onDblclick"
+    @keydown="onKeydown"
   >
     <div class="split-divider-hit"></div>
   </div>
@@ -98,6 +132,7 @@ onBeforeUnmount(() => {
 .v .split-divider-hit { width: 1px; height: 100%; }
 .h .split-divider-hit { height: 1px; width: 100%; }
 .split-divider-inner:hover .split-divider-hit,
+.split-divider-inner:focus-visible .split-divider-hit,
 .split-divider-inner[data-dragging='true'] .split-divider-hit {
   background: var(--primary-hover);
 }

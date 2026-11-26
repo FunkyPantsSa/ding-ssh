@@ -3,6 +3,7 @@
 package updater
 
 import (
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -22,5 +23,5 @@ func waitForParent(pid int) error {
 		}
 		time.Sleep(time.Second)
 	}
-	return fmt.Errorf("等待主进程退出超时，更新未安装")
+	return fmt.Errorf("%s", i18n.T("等待主进程退出超时，更新未安装"))
 }

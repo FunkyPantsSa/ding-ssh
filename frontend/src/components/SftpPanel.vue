@@ -11,6 +11,8 @@ import Icon from './Icon.vue'
 import {onSftpTransfer, onSftpDirUpdated, sshService} from '../services/ssh'
 import {useSessionsStore} from '../stores/sessions'
 import {useMenuPlacement} from '../composables/useMenuPlacement'
+import {useMenuKeyboard} from '../composables/useMenuKeyboard'
+import {focusControl, navigateKeyboardFocus} from '../utils/keyboard-navigation'
 import {useSettingsStore} from '../stores/settings'
 import {useTransfersStore} from '../stores/transfers'
 import {EventsOn} from '../services/desktop'
@@ -25,13 +27,13 @@ const transfersStore = useTransfersStore()
 function sftpError(e: unknown): string {
   const message = errorText(e)
   return props.tab.node.jumpServerMode && message.includes('please select one of the assets')
-    ? '请先进入目标资产和账号的文件目录，再进行操作（JumpServer 尚未选中资产）。'
+    ? translate('请先进入目标资产和账号的文件目录，再进行操作（JumpServer 尚未选中资产）。')
     : message
 }
 
 function canWrite(): boolean {
   if (props.tab.node.jumpServerMode && (path.value === '/' || !!error.value || loading.value)) {
-    error.value = '请先进入目标资产和账号的文件目录，再进行操作。'
+    error.value = translate('请先进入目标资产和账号的文件目录，再进行操作。')
     return false
   }
   return true
@@ -43,6 +45,18 @@ const error = ref('')
 
 // 交互状态：选中 / 右键菜单 / 重命名 / 删除确认 / 新建文件夹 / 路径编辑
 const selected = ref('')
+const fileList = ref<HTMLElement | null>(null)
+let menuTrigger: HTMLElement | null = null
+let focusDirectoryAfterLoad = false
+function restoreDirectoryFocus() {
+  if (!focusDirectoryAfterLoad) return
+  focusDirectoryAfterLoad = false
+  void nextTick(() => {
+    if (document.activeElement === document.body || fileList.value?.contains(document.activeElement)) {
+      focusControl(fileList.value?.querySelector<HTMLElement>('[data-testid="sftp-entry"]') ?? fileList.value)
+    }
+  })
+}
 const uploadMenuOpen = ref(false)
 const uploadMenuRoot = ref<HTMLElement>()
 async function toggleUploadMenu() {
@@ -62,6 +76,12 @@ function uploadMenuKey(event: KeyboardEvent) {
 const menu = ref<{x: number; y: number; entry: SFTPEntry | null} | null>(null)
 // 文件右键菜单：打开后按真实高度定位，贴底时上移，避免操作项被窗口裁掉
 const {menuEl: fileMenuEl, menuStyle: fileMenuStyle, place: placeFileMenu} = useMenuPlacement()
+const fileMenuKeyboard = useMenuKeyboard(fileMenuEl, closeMenu, {initialFocus: false, trigger: () => menuTrigger})
+watch(menu, async value => {
+  if (!value) return
+  await nextTick()
+  fileMenuKeyboard.focusAt(0)
+})
 const renaming = ref<{path: string; name: string} | null>(null)
 const renameInput = ref('')
 const confirmDeletePath = ref('')
@@ -146,6 +166,7 @@ async function load(dir: string) {
     error.value = sftpError(e)
   } finally {
     loading.value = false
+    restoreDirectoryFocus()
   }
 }
 
@@ -176,6 +197,8 @@ async function loadFromSync(dir: string) {
   } catch (e) {
     error.value = sftpError(e)
     console.warn(translate("[sftp-sync] 列出失败，保持当前列表"), dir, e)
+  } finally {
+    restoreDirectoryFocus()
   }
 }
 
@@ -189,6 +212,7 @@ function refresh() {
 
 // ---- 右键菜单 ----
 function openMenu(e: MouseEvent, entry: SFTPEntry | null = null) {
+  menuTrigger = e.currentTarget instanceof HTMLElement ? e.currentTarget : document.activeElement as HTMLElement | null
   selected.value = entry?.path || ''
   menu.value = {x: e.clientX, y: e.clientY, entry}
   void placeFileMenu(e.clientX, e.clientY)
@@ -205,12 +229,16 @@ function menuAction(action: () => unknown) {
   void action()
 }
 function closeMenu() {
+  if (fileMenuEl.value?.contains(document.activeElement)) focusControl(menuTrigger)
   uploadMenuOpen.value = false
   menu.value = null
 }
 
 function menuEnter() {
-  if (menu.value?.entry?.isDir) enter(menu.value.entry)
+  if (menu.value?.entry?.isDir) {
+    focusDirectoryAfterLoad = !!fileMenuEl.value?.contains(document.activeElement)
+    enter(menu.value.entry)
+  }
   closeMenu()
 }
 
@@ -252,6 +280,7 @@ async function doRename() {
 function requestDelete(entry: SFTPEntry) {
   confirmDeletePath.value = entry.path
   closeMenu()
+  void nextTick(() => focusControl(fileList.value?.querySelector<HTMLElement>('[data-testid="sftp-delete-cancel"]')))
 }
 
 async function doDelete() {
@@ -302,13 +331,43 @@ function doPathEdit() {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key !== 'Escape') return
+  if (e.defaultPrevented || e.isComposing || e.key !== 'Escape') return
+  if (!menu.value && !uploadMenuOpen.value && !renaming.value && !confirmDeletePath.value && !newFolderActive.value && !editingPath.value) return
+  e.preventDefault()
+  e.stopPropagation()
   uploadMenuOpen.value = false
   menu.value = null
   renaming.value = null
   confirmDeletePath.value = ''
   newFolderActive.value = false
   editingPath.value = false
+}
+
+function onEntryKey(event: KeyboardEvent, entry: SFTPEntry) {
+  if (event.target !== event.currentTarget || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    event.stopPropagation()
+    selected.value = entry.path
+    if (event.key === 'Enter' && !event.repeat) {
+      focusDirectoryAfterLoad = entry.isDir
+      onDblClick(entry)
+    }
+  } else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+    event.preventDefault()
+    event.stopPropagation()
+    const element = event.currentTarget as HTMLElement
+    const rect = element.getBoundingClientRect()
+    openMenu(new MouseEvent('contextmenu', {clientX: rect.left + 16, clientY: rect.bottom}), entry)
+  } else if (event.key === 'F2') {
+    event.preventDefault()
+    event.stopPropagation()
+    startRename(entry)
+  } else if (event.key === 'Delete') {
+    event.preventDefault()
+    event.stopPropagation()
+    requestDelete(entry)
+  }
 }
 
 // ---- 双击：目录进入 / 文件下载 ----
@@ -599,7 +658,6 @@ if (typeof window !== 'undefined') {
 onMounted(() => {
   bindSessionEvents(props.tab.sessionId)
   window.addEventListener('click', closeMenu)
-  window.addEventListener('keydown', onKeydown)
   window.addEventListener('scroll', closeMenu, true)
   disposeFileDrop = EventsOn('sftp:files-dropped', ({target, paths}: {target: string; paths: string[]}) => {
     if (target !== dropTarget.value) return
@@ -638,14 +696,13 @@ onBeforeUnmount(() => {
   transferTimers.clear()
   disposers.forEach((d) => d())
   window.removeEventListener('click', closeMenu)
-  window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('scroll', closeMenu, true)
   disposeFileDrop?.()
 })
 </script>
 
 <template>
-  <div class="tool sftp-panel" data-ui="context-panel">
+  <div class="tool sftp-panel" data-ui="context-panel" data-keyboard-nav="grid" @keydown="onKeydown">
     <div class="tool-head tool-head-light">
       <div class="flex items-center gap-1.5 font-medium text-xs text-[var(--foreground)]">
         <Icon name="folder" :size="13" class="text-[var(--primary)]" />
@@ -726,11 +783,17 @@ onBeforeUnmount(() => {
     </div>
 
     <div
+      ref="fileList"
       class="group flex-1 overflow-y-auto px-2 py-1.5 relative transition-colors [&.file-drop-target-active]:bg-[var(--primary-weak)]"
       data-file-drop-target
       :id="dropTarget"
       :class="dragOver ? 'bg-[var(--primary-weak)]' : ''"
       data-testid="sftp-file-list"
+      data-keyboard-nav="vertical"
+      role="group"
+      tabindex="0"
+      :aria-label="$t('SFTP 文件管理')"
+      @keydown="navigateKeyboardFocus($event, fileList!)"
       @contextmenu.prevent="openMenu($event)"
       @dragenter.prevent="dragOver = true"
       @dragover.prevent="dragOver = true"
@@ -740,17 +803,23 @@ onBeforeUnmount(() => {
       <div :class="dragOver ? 'grid' : 'hidden group-[.file-drop-target-active]:grid'" class="absolute inset-2 rounded-[10px] border-2 border-dashed border-[var(--primary-hover)] bg-[var(--primary-glow-soft)] place-items-center pointer-events-none z-10">
         <p class="text-xs text-[var(--primary-hover)]">{{ $t('松开以上传到当前目录') }}</p>
       </div>
-      <p v-if="props.tab.node.jumpServerMode" class="px-2 py-2 text-xs text-mist">JumpServer 模式：请逐级进入资产、账号的文件目录；终端目录不会与此处同步。</p>
+      <p v-if="props.tab.node.jumpServerMode" class="px-2 py-2 text-xs text-mist">{{ $t('JumpServer 模式：请逐级进入资产、账号的文件目录；终端目录不会与此处同步。') }}</p>
       <div v-if="!entries.length && !loading && !error" class="py-6 text-center text-xs text-mist">{{ $t('空目录') }}</div>
       <div
         v-for="e in entries"
         :key="e.path"
         data-testid="sftp-entry"
+        tabindex="0"
+        role="button"
+        :aria-label="e.name"
+        :aria-pressed="selected === e.path"
         :data-path="e.path"
         :data-dir="e.isDir ? 'true' : 'false'"
         class="grid grid-cols-[20px_1fr_auto] items-center gap-2 h-9 px-2 rounded-[6px] text-xs cursor-pointer"
         :class="selected === e.path ? 'sftp-entry-selected' : 'hover:bg-[var(--hover)]'"
         @click="selected = e.path"
+        @focus="selected = e.path"
+        @keydown="onEntryKey($event, e)"
         @dblclick="onDblClick(e)"
         @contextmenu.stop.prevent="openMenu($event, e)"
       >
@@ -770,9 +839,9 @@ onBeforeUnmount(() => {
         </template>
         <template v-else-if="confirmDeletePath === e.path">
           <span class="text-[12px] text-danger truncate">{{ $t('删除「') }} {{ e.name }}」？</span>
-          <div class="flex gap-1">
+          <div class="flex gap-1" data-keyboard-nav="horizontal">
             <Button variant="danger" size="sm" @click.stop="doDelete">{{ $t('确认') }}</Button>
-            <Button variant="ghost" size="sm" @click.stop="confirmDeletePath = ''">{{ $t('取消') }}</Button>
+            <Button variant="ghost" size="sm" data-testid="sftp-delete-cancel" @click.stop="confirmDeletePath = ''">{{ $t('取消') }}</Button>
           </div>
         </template>
         <template v-else>
@@ -820,26 +889,28 @@ onBeforeUnmount(() => {
         ref="fileMenuEl"
         class="menu-pop neo fixed z-50"
         data-ui="context-menu"
-        @keydown.esc="closeMenu"
+        role="menu"
+        :aria-label="$t('SFTP 文件管理')"
+        @keydown="fileMenuKeyboard.onKeydown"
         :style="fileMenuStyle"
         @contextmenu.prevent
         @click.stop
       >
-        <button @click="menuAction(refresh)">{{ $t('刷新') }}</button>
-        <button @click="copyMenuPath()">{{ $t('复制当前目录路径') }}</button>
+        <button role="menuitem" @click="menuAction(refresh)">{{ $t('刷新') }}</button>
+        <button role="menuitem" @click="copyMenuPath()">{{ $t('复制当前目录路径') }}</button>
         <template v-if="menu.entry">
-          <button @click="copyMenuPath(true)">{{ $t('复制完整路径') }}</button>
-          <button v-if="menu.entry.isDir" @click="menuEnter">{{ $t('进入目录') }}</button>
-          <button v-if="menu.entry.isDir" @click="menuDownloadFolder">{{ $t('下载文件夹到本地') }}</button>
-          <button v-else @click="menuDownload">{{ $t('下载到本地') }}</button>
-          <button @click="startRename(menu.entry)">{{ $t('重命名') }}</button>
-          <button class="danger" @click="requestDelete(menu.entry)">{{ $t('删除') }}</button>
+          <button role="menuitem" @click="copyMenuPath(true)">{{ $t('复制完整路径') }}</button>
+          <button role="menuitem" v-if="menu.entry.isDir" @click="menuEnter">{{ $t('进入目录') }}</button>
+          <button role="menuitem" v-if="menu.entry.isDir" @click="menuDownloadFolder">{{ $t('下载文件夹到本地') }}</button>
+          <button role="menuitem" v-else @click="menuDownload">{{ $t('下载到本地') }}</button>
+          <button role="menuitem" @click="startRename(menu.entry)">{{ $t('重命名') }}</button>
+          <button role="menuitem" class="danger" @click="requestDelete(menu.entry)">{{ $t('删除') }}</button>
         </template>
         <template v-else>
-          <button @click="menuAction(up)">{{ $t('返回上级目录') }}</button>
-          <button @click="menuAction(startNewFolder)">{{ $t('新建文件夹') }}</button>
-          <button @click="menuAction(upload)">{{ $t('上传文件') }}</button>
-          <button @click="menuAction(uploadFolder)">{{ $t('上传文件夹') }}</button>
+          <button role="menuitem" @click="menuAction(up)">{{ $t('返回上级目录') }}</button>
+          <button role="menuitem" @click="menuAction(startNewFolder)">{{ $t('新建文件夹') }}</button>
+          <button role="menuitem" @click="menuAction(upload)">{{ $t('上传文件') }}</button>
+          <button role="menuitem" @click="menuAction(uploadFolder)">{{ $t('上传文件夹') }}</button>
         </template>
       </div>
     </Teleport>

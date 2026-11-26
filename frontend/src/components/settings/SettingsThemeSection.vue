@@ -12,7 +12,7 @@ import {MATERIAL_OPTIONS, TONE_OPTIONS, useSettingsAppearance} from '../../compo
 import {systemTone} from '../../composables/useSystemTone'
 import type {UIAppearance} from '../../types'
 import {useSettingsStore} from '../../stores/settings'
-import {detectCapabilities, hexToRgb, monoFontStack} from '../../theme/engine'
+import {detectCapabilities, hexToRgb, monoFontStack, readableOn} from '../../theme/engine'
 import {TERMINAL_FONT_SCHEMES, loadTerminalFonts, fontPair, encodeFontPair} from '../../theme/terminal-fonts'
 import {customFontSizes, formatFontSize, customFontChinese, customFonts, importCustomFont, restoreCustomFonts, removeCustomFont} from '../../theme/custom-fonts'
 import {remoteFontProgress, remoteFontStatus} from '../../theme/remote-fonts'
@@ -157,6 +157,16 @@ function startPicker(event: PointerEvent) {
   picker.value?.setPointerCapture(event.pointerId)
   updateFromPointer(event)
 }
+function onPickerKey(event: KeyboardEvent) {
+  if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return
+  event.preventDefault()
+  event.stopPropagation()
+  const step = event.shiftKey ? 0.1 : 0.01
+  const saturation = Math.max(0, Math.min(1, hsv.value.s + (event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0)))
+  const brightness = Math.max(0, Math.min(1, hsv.value.v + (event.key === 'ArrowUp' ? step : event.key === 'ArrowDown' ? -step : 0)))
+  void setSeedColor(hsvToHex(hsv.value.h, saturation, brightness))
+}
 function chooseColor(color: string) {
   if (color === '#A3A3A3') void selectPreset('monochrome')
   else void setSeedColor(color)
@@ -169,7 +179,7 @@ function clearColor() {
 <template>
   <section class="theme-page fade-rise" data-section-content="theme" aria-labelledby="settings-theme-title">
     <header class="theme-header">
-      <div><span class="theme-kicker">APPEARANCE</span><h3 id="settings-theme-title">{{ $t('主题') }}</h3><p>{{ $t('选择一个颜色，ding-ssh 会自动生成协调、清晰的完整界面。') }}</p></div>
+      <div><span class="theme-kicker">{{ $t('外观') }}</span><h3 id="settings-theme-title">{{ $t('主题') }}</h3><p>{{ $t('选择一个颜色，ding-ssh 会自动生成协调、清晰的完整界面。') }}</p></div>
       <span class="save-state"><span :class="{saving}"></span> {{ saving ? t('正在保存') : t('已自动保存') }}</span>
     </header>
     <div class="theme-layout">
@@ -179,7 +189,7 @@ function clearColor() {
             <Icon :name="opt.key === 'auto' ? 'sparkles' : opt.key === 'light' ? 'sun' : 'moon'" :size="18" />
           </button>
         </div>
-        <div ref="picker" class="color-field" :style="pickerStyle" role="slider" tabindex="0" :aria-label="$t('主题颜色二维选择器')" @pointerdown="startPicker" @pointermove="dragging && updateFromPointer($event)" @pointerup="dragging = false" @pointercancel="dragging = false">
+        <div ref="picker" class="color-field" :style="pickerStyle" role="group" tabindex="0" :aria-label="$t('主题颜色二维选择器')" :aria-description="$t('左右调整饱和度，上下调整明度；按住 Shift 加速。')" @keydown="onPickerKey" @pointerdown="startPicker" @pointermove="dragging && updateFromPointer($event)" @pointerup="dragging = false" @pointercancel="dragging = false">
           <span class="field-white"></span><span class="field-black"></span>
           <span class="color-marker" :style="markerStyle"><span :style="{background: appearanceForm.primary}"></span></span>
         </div>
@@ -195,7 +205,7 @@ function clearColor() {
         <div class="color-meta">
           <div class="preset-row" :aria-label="$t('预设主题色')">
             <span v-for="(preset, index) in PRESET_COLORS" :key="preset.name" class="preset-color-item">
-              <button type="button" class="preset-dot" :class="{active: appearanceForm.primary.toUpperCase() === preset.color}" :style="{background: preset.color}" :aria-label="preset.name" :aria-describedby="`preset-color-name-${index}`" @click="chooseColor(preset.color)"></button>
+              <button type="button" class="preset-dot" :class="{active: appearanceForm.primary.toUpperCase() === preset.color}" :style="{background: preset.color}" :aria-label="preset.name" :aria-pressed="appearanceForm.primary.toUpperCase() === preset.color" :aria-describedby="`preset-color-name-${index}`" @click="chooseColor(preset.color)"><Icon v-if="appearanceForm.primary.toUpperCase() === preset.color" name="check" :size="14" :style="{color: readableOn(preset.color)}" aria-hidden="true" /></button>
               <span :id="`preset-color-name-${index}`" class="preset-color-name" role="tooltip">{{ preset.name }}</span>
             </span>
           </div>
@@ -220,7 +230,7 @@ function clearColor() {
         </div>
       </section>
       <aside class="theme-preview">
-        <div class="preview-head"><div><span class="theme-kicker">LIVE PREVIEW</span><h4>{{ $t('界面预览') }}</h4></div><span><Icon :name="modeIcon" :size="13" /> {{ appearanceForm.baseTone === 'auto' ? t('自动') : appearanceForm.baseTone === 'light' ? t('浅色') : t('深色') }}</span></div>
+        <div class="preview-head"><div><span class="theme-kicker">{{ $t('实时预览') }}</span><h4>{{ $t('界面预览') }}</h4></div><span><Icon :name="modeIcon" :size="13" /> {{ appearanceForm.baseTone === 'auto' ? t('自动') : appearanceForm.baseTone === 'light' ? t('浅色') : t('深色') }}</span></div>
         <div class="preview-window">
           <div class="preview-sidebar"><i></i><b></b><b></b><b></b></div>
           <div class="preview-main"><div class="preview-toolbar"></div><div class="preview-card"><span></span><span></span><span></span></div><div class="preview-terminal" :style="{background: themeForm.background}"><i :style="{background: themeForm.blue}"></i><i :style="{background: themeForm.green}"></i><i :style="{background: themeForm.yellow}"></i></div></div>
@@ -229,7 +239,7 @@ function clearColor() {
       </aside>
     </div>
     <section class="font-section" aria-labelledby="font-title">
-      <div class="section-heading"><span class="theme-kicker">TYPOGRAPHY</span><h4 id="font-title">{{ $t('终端字体') }}</h4><p>{{ $t('分别选择中英文字体，在右侧查看混排效果。') }}</p></div>
+      <div class="section-heading"><span class="theme-kicker">{{ $t('字体排印') }}</span><h4 id="font-title">{{ $t('终端字体') }}</h4><p>{{ $t('分别选择中英文字体，在右侧查看混排效果。') }}</p></div>
       <div class="font-layout">
         <div class="font-editor">
           <div class="recommended-fonts"><div class="library-heading"><div><h5>{{ $t('默认推荐') }}</h5><small>{{ $t('一键套用中英文字体组合') }}</small></div></div><div class="recommendation-list"><button v-for="scheme in TERMINAL_FONT_SCHEMES" :key="scheme.value" type="button" :class="{active: fontsForm.terminalFont === scheme.value}" :aria-pressed="fontsForm.terminalFont === scheme.value" @click="fontsForm.terminalFont = scheme.value"><strong>{{ scheme.label }}</strong><small>{{ scheme.description }}</small></button></div></div>
@@ -256,7 +266,7 @@ function clearColor() {
           </div>
         </div>
         <aside class="font-preview">
-          <div class="preview-head"><div><span class="theme-kicker">LIVE PREVIEW</span><h4>{{ $t('终端预览') }}</h4></div><span>{{ fontsForm.terminalFontSize }} px</span></div>
+          <div class="preview-head"><div><span class="theme-kicker">{{ $t('实时预览') }}</span><h4>{{ $t('终端预览') }}</h4></div><span>{{ fontsForm.terminalFontSize }} px</span></div>
           <div class="mini-terminal" :style="{background: themeForm.background, color: themeForm.foreground}">
             <div class="terminal-titlebar"><span class="window-dots">● ● ●</span><span>{{ $t('ding-ssh · 本机') }}</span></div>
             <div class="terminal-content" :style="{fontFamily: monoFontStack(fontsForm.terminalFont), fontSize: `${fontsForm.terminalFontSize}px`}">
@@ -282,7 +292,7 @@ function clearColor() {
 .hex-clear-btn{height:30px;padding:0 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius-control);background:var(--hover);color:var(--foreground-secondary);cursor:pointer;transition:all var(--dur)}
 .hex-clear-btn:hover{background:var(--hover-strong);color:var(--foreground)}
 
-.preset-color-item{position:relative;display:inline-flex}.preset-color-name{position:absolute;z-index:10;bottom:calc(100% + 9px);left:50%;transform:translate(-50%,3px);padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius-small);background:var(--surface-2);color:var(--foreground);box-shadow:var(--shadow-pop);white-space:nowrap;font-size:11px;line-height:1.4;pointer-events:none;opacity:0;visibility:hidden;transition:opacity 100ms,transform 100ms,visibility 0s 100ms}.preset-color-item:hover .preset-color-name,.preset-color-item:focus-within .preset-color-name{opacity:1;visibility:visible;transform:translate(-50%,0);transition-delay:100ms}
+.preset-color-item{position:relative;display:inline-flex}.preset-color-name{position:absolute;z-index:10;bottom:calc(100% + 9px);left:50%;transform:translate(-50%,3px);padding:5px 8px;border:1px solid color-mix(in srgb,var(--accent-border) 32%,var(--border-default));border-radius:var(--radius-small);background:var(--surface-overlay-bg);color:var(--foreground);box-shadow:var(--shadow-pop);white-space:nowrap;font-size:11px;line-height:1.4;pointer-events:none;opacity:0;visibility:hidden;transition:opacity 100ms,transform 100ms,visibility 0s 100ms}.preset-color-item:hover .preset-color-name,.preset-color-item:focus-within .preset-color-name{opacity:1;visibility:visible;transform:translate(-50%,0);transition-delay:100ms}
 
 .color-spectrum{margin-top:18px;padding-top:16px;border-top:1px solid var(--border-subtle)}.spectrum-heading{display:flex;justify-content:space-between;gap:12px;font-size:12px}.spectrum-heading span{color:var(--muted-foreground);font-size:11px}.color-spectrum .hue-control,.spectrum-control{display:flex;align-items:center;gap:12px;margin-top:16px;font-size:12px;color:var(--foreground-secondary)}.color-spectrum label>span{flex:0 1 8rem;min-width:0;overflow-wrap:anywhere}.color-spectrum input{flex:1;min-width:0;appearance:none;height:12px;border:1px solid var(--border-subtle);border-radius:var(--radius-pill);cursor:pointer}.color-spectrum output{width:36px;text-align:right;font-size:11px;color:var(--muted-foreground);font-variant-numeric:tabular-nums}.color-spectrum .grayscale-range{background:linear-gradient(90deg,#000,#fff)}.color-spectrum input::-webkit-slider-thumb{appearance:none;width:18px;height:18px;background:var(--foreground);border:3px solid var(--surface-2);border-radius:50%;box-shadow:0 0 0 1px var(--border-strong)}.color-spectrum input::-moz-range-thumb{width:12px;height:12px;background:var(--foreground);border:3px solid var(--surface-2);border-radius:50%}.spectrum-help{margin:14px 0 0;font-size:11px;line-height:1.6;color:var(--muted-foreground)}
 
@@ -297,9 +307,9 @@ function clearColor() {
 :root[data-glass="on"] .theme-editor,
 :root[data-glass="on"] .theme-preview,
 html[data-glass="on"] .theme-editor,
-html[data-glass="on"] .theme-preview{backdrop-filter:blur(var(--glass-overlay-blur, 20px)) saturate(160%);-webkit-backdrop-filter:blur(var(--glass-overlay-blur, 20px)) saturate(160%)}.tone-switch{display:flex;justify-content:center;gap:5px;margin-bottom:18px}.tone-switch button{width:38px;height:34px;display:grid;place-items:center;border-radius:var(--radius-control);color:var(--muted-foreground);transition:background var(--dur),color var(--dur),transform var(--dur)}.tone-switch button:hover{color:var(--foreground);background:var(--hover)}.tone-switch button.active{color:var(--primary-hover);background:var(--primary-weak);box-shadow:inset 0 0 0 1px var(--primary-border)}
+html[data-glass="on"] .theme-preview{backdrop-filter:blur(var(--glass-overlay-blur, 20px));-webkit-backdrop-filter:blur(var(--glass-overlay-blur, 20px))}.tone-switch{display:flex;justify-content:center;gap:5px;margin-bottom:18px}.tone-switch button{width:38px;height:34px;display:grid;place-items:center;border-radius:var(--radius-control);color:var(--muted-foreground);transition:background var(--dur),color var(--dur),transform var(--dur)}.tone-switch button:hover{color:var(--foreground);background:var(--hover)}.tone-switch button.active{color:var(--primary-hover);background:var(--primary-weak);box-shadow:inset 0 0 0 1px var(--primary-border)}
 .color-field{position:relative;height:300px;border-radius:var(--radius-card);overflow:hidden;cursor:crosshair;touch-action:none;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 7%)}.field-white,.field-black{position:absolute;inset:0;pointer-events:none}.field-white{background:linear-gradient(90deg,#fff,transparent)}.field-black{background:linear-gradient(0deg,#000000,transparent)}.color-marker{position:absolute;width:32px;height:32px;border:4px solid white;border-radius:50%;box-shadow:0 2px 10px rgb(0 0 0 / 35%);transform:translate(-50%,-50%);pointer-events:none}.color-marker span{display:block;width:100%;height:100%;border-radius:50%}
-.hue-control,.native-color{display:flex;align-items:center;gap:16px;margin-top:16px;font-size:12px;color:var(--foreground-secondary)}.hue-control input{flex:1;appearance:none;height:12px;border-radius:var(--radius-pill);background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}.native-color input{width:54px;height:32px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-control);background:transparent}.color-meta{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:18px 0 22px}.preset-row{display:flex;gap:9px;flex-wrap:wrap}.preset-dot{width:27px;height:27px;border-radius:50%;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 8%);transition:transform var(--dur),box-shadow var(--dur)}.preset-dot:hover{transform:scale(1.08)}.preset-dot.active{box-shadow:0 0 0 2px var(--surface-2),0 0 0 4px var(--foreground)}.hex-field{display:flex;align-items:center;gap:7px;flex-shrink:0}.hex-field>span{font:600 9px var(--font-mono);color:var(--muted-foreground)}.hex-field :deep(input){width:88px;height:30px;font:11px var(--font-mono);text-transform:uppercase}
+.hue-control,.native-color{display:flex;align-items:center;gap:16px;margin-top:16px;font-size:12px;color:var(--foreground-secondary)}.hue-control input{flex:1;appearance:none;height:12px;border-radius:var(--radius-pill);background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}.native-color input{width:54px;height:32px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-control);background:transparent}.color-meta{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:18px 0 22px}.preset-row{display:flex;gap:9px;flex-wrap:wrap}.preset-dot{display:grid;place-items:center;width:27px;height:27px;border:1px solid var(--border-default);border-radius:50%;transition:transform var(--dur),border-color var(--dur)}.preset-dot:hover{transform:scale(1.08)}.preset-dot.active{border-color:var(--accent-border)}.hex-field{display:flex;align-items:center;gap:7px;flex-shrink:0}.hex-field>span{font:600 9px var(--font-mono);color:var(--muted-foreground)}.hex-field :deep(input){width:88px;height:30px;font:11px var(--font-mono);text-transform:uppercase}
 .glass-help{margin:0;color:var(--muted-foreground);font-size:12px}.slider-list .glass-toggle input{appearance:auto;width:18px;height:18px}.slider-list{display:grid;gap:22px}.slider-list label>span{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}.slider-list strong{font-size:12.5px;font-weight:500}.slider-list output{font:12px var(--font-mono);color:var(--muted-foreground)}.slider-list input{width:100%;height:5px;appearance:none;border-radius:var(--radius-pill);background:var(--hover-strong);accent-color:var(--primary)}.slider-list input::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border:3px solid var(--surface-2);border-radius:50%;background:var(--primary);box-shadow:0 0 0 1px var(--primary-border),0 2px 6px rgb(0 0 0 / 20%)}
 .theme-preview{align-self:start;padding:22px}.preview-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}.preview-head h4{margin:7px 0 0;font-size:14px}.preview-head>span{display:flex;align-items:center;gap:5px;padding:5px 8px;border-radius:var(--radius-pill);background:var(--hover);color:var(--muted-foreground);font-size:10px}.preview-window{height:270px;display:grid;grid-template-columns:34% 1fr;overflow:hidden;border:1px solid var(--border-subtle);border-radius:var(--radius-card);background:var(--workspace-gradient,var(--workspace-bg));box-shadow:0 10px 24px rgb(0 0 0 / 10%)}.preview-sidebar{padding:14px 10px;background:var(--sidebar-primary-gradient,var(--sidebar-primary-bg))}.preview-sidebar i{display:block;width:55%;height:7px;margin-bottom:17px;border-radius:var(--radius-control);background:var(--primary);opacity:.65}.preview-sidebar b{display:block;height:27px;margin-bottom:7px;border-radius:var(--radius-control);background:var(--hover-strong)}.preview-main{padding:12px;background:var(--workspace-gradient,var(--workspace-bg))}.preview-toolbar{height:28px;margin-bottom:10px;border-radius:var(--radius-control);background:var(--toolbar-bg)}.preview-card{height:70px;padding:12px;margin-bottom:10px;border-radius:var(--radius-card);background:var(--surface-bg)}.preview-card span{display:block;width:75%;height:6px;margin-bottom:8px;border-radius:var(--radius-small);background:var(--border-strong);opacity:.55}.preview-card span:nth-child(2){width:52%}.preview-card span:nth-child(3){width:63%}.preview-terminal{height:125px;padding:16px;border-radius:var(--radius-card);background:var(--terminal-bg,#11151b)}.preview-terminal i{display:block;width:60%;height:5px;margin-bottom:9px;border-radius:var(--radius-small);background:#8fb0f2;opacity:.7}.preview-terminal i:nth-child(2){width:78%;background:#7ad8a3}.preview-terminal i:nth-child(3){width:42%;background:#d4a04a}.preview-note{display:flex;gap:10px;margin-top:16px;padding:13px;border-radius:var(--radius-card);background:var(--hover);color:var(--primary-hover)}.preview-note span{color:var(--muted-foreground);font-size:10.5px;line-height:1.45}.preview-note strong{display:block;margin-bottom:2px;color:var(--foreground-secondary);font-size:11px}.theme-footer{display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:0 4px}.theme-footer p{margin:0;color:var(--muted-foreground);font-size:11px}
 @keyframes pulse{50%{opacity:.35}}@media(max-width:900px){.theme-layout{grid-template-columns:1fr}.theme-preview{width:100%}}@media(max-width:600px){.theme-header{align-items:flex-start;flex-direction:column}.theme-layout{display:block}.theme-preview{margin-top:14px}.color-field{height:240px}.color-meta{align-items:flex-start;flex-direction:column}}

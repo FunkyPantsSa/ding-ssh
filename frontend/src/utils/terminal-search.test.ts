@@ -22,6 +22,12 @@ it('does not intercept ordinary form fields, composition or shifted shortcuts', 
  expect(isTerminalSearchShortcut(key(input),true,search)).toBe(true)
 })
 it('leaves modal dialogs in control of keyboard input', () => {
- const dialog=document.createElement('div');dialog.setAttribute('role','dialog');document.body.append(dialog)
+ const dialog=document.createElement('div');dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');document.body.append(dialog)
  expect(isTerminalSearchShortcut(key(document.body),true)).toBe(false)
+})
+it('ignores hidden connection dialogs and nonmodal status in other terminal panes', () => {
+ document.body.innerHTML='<div hidden><div role="dialog" aria-modal="true"></div></div><div role="dialog"><button id="retry">Retry</button></div><div class="xterm"><textarea></textarea></div>'
+ const terminal=document.querySelector<HTMLTextAreaElement>('textarea')!
+ expect(isTerminalSearchShortcut(key(terminal),true)).toBe(true)
+ expect(isTerminalSearchShortcut(key(document.getElementById('retry')!),true)).toBe(false)
 })

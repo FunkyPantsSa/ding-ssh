@@ -2,6 +2,7 @@ package sshx
 
 import (
 	"context"
+	"ding-ssh/internal/i18n"
 	"errors"
 	"fmt"
 	"io"
@@ -65,19 +66,19 @@ var execEnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // ExecCommand validates arguments and never silently changes raw shell syntax.
 func ExecCommand(req ExecRequest) (string, error) {
 	if strings.TrimSpace(req.Command) == "" || len(req.Command) > 256<<10 || strings.IndexByte(req.Command, 0) >= 0 {
-		return "", errors.New("command 必须是非空文本，最多 256 KiB 且不能包含 NUL")
+		return "", errors.New(i18n.T("command 必须是非空文本，最多 256 KiB 且不能包含 NUL"))
 	}
 	if req.Mode == "" || req.Mode == "raw" {
 		if req.Cwd != "" || len(req.Env) != 0 {
-			return "", errors.New("cwd/env 只支持显式 mode=posix；raw 模式不改写命令")
+			return "", errors.New(i18n.T("cwd/env 只支持显式 mode=posix；raw 模式不改写命令"))
 		}
 		return req.Command, nil
 	}
 	if req.Mode != "posix" {
-		return "", errors.New("mode 必须是 raw 或 posix")
+		return "", errors.New(i18n.T("mode 必须是 raw 或 posix"))
 	}
 	if strings.IndexByte(req.Cwd, 0) >= 0 || len(req.Cwd) > 8192 || len(req.Env) > 128 {
-		return "", errors.New("cwd/env 超出限制或包含 NUL")
+		return "", errors.New(i18n.T("cwd/env 超出限制或包含 NUL"))
 	}
 	var script strings.Builder
 	if req.Cwd != "" {
@@ -86,7 +87,7 @@ func ExecCommand(req ExecRequest) (string, error) {
 	keys := make([]string, 0, len(req.Env))
 	for key, value := range req.Env {
 		if !execEnvName.MatchString(key) || strings.IndexByte(value, 0) >= 0 || len(value) > 32768 {
-			return "", errors.New("env 包含无效变量名或值")
+			return "", errors.New(i18n.T("env 包含无效变量名或值"))
 		}
 		keys = append(keys, key)
 	}
@@ -114,10 +115,10 @@ func (m *Manager) PrepareExec(req ExecRequest) (*PreparedExec, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.client == nil || s.closed || s.closing || s.reconnecting {
-		return nil, errors.New("SSH 会话未连接或正在重连")
+		return nil, errors.New(i18n.T("SSH 会话未连接或正在重连"))
 	}
 	if s.server.JumpServerMode {
-		return nil, errors.New("JumpServer 交互网关不支持独立 exec；请使用交互终端")
+		return nil, errors.New(i18n.T("JumpServer 交互网关不支持独立 exec；请使用交互终端"))
 	}
 	return &PreparedExec{client: s.client, command: command}, nil
 }
@@ -147,7 +148,7 @@ func execWaitResult(err error) ExecResult {
 		n := exit.ExitStatus()
 		return ExecResult{ExitCode: &n, Signal: exit.Signal(), Known: true, TerminationProven: true}
 	}
-	return ExecResult{Known: false, Error: fmt.Sprintf("SSH exec 结果未知：%v", err)}
+	return ExecResult{Known: false, Error: fmt.Sprintf(i18n.T("SSH exec 结果未知：%v"), err)}
 }
 
 // Run closes only this job's channel on cancellation. Closing an SSH channel does
@@ -160,7 +161,7 @@ func (p *PreparedExec) Run(ctx context.Context, emit func(string, []byte)) ExecR
 	select {
 	case slots <- struct{}{}:
 	case <-ctx.Done():
-		return ExecResult{Known: true, Cancelled: true, CancelRequested: true, TerminationProven: true, Error: "SSH 独立通道预算等待已取消，命令未执行"}
+		return ExecResult{Known: true, Cancelled: true, CancelRequested: true, TerminationProven: true, Error: i18n.T("SSH 独立通道预算等待已取消，命令未执行")}
 	}
 	release := func() { <-slots }
 	type opened struct {
@@ -188,12 +189,12 @@ func (p *PreparedExec) Run(ctx context.Context, emit func(string, []byte)) ExecR
 		}
 		session = item.s
 	case <-ctx.Done():
-		return ExecResult{Known: false, CancelRequested: true, Error: "打开 SSH exec 通道已取消，未启动命令"}
+		return ExecResult{Known: false, CancelRequested: true, Error: i18n.T("打开 SSH exec 通道已取消，未启动命令")}
 	}
 	defer session.Close()
 	if err := ctx.Err(); err != nil {
 		release()
-		return ExecResult{Known: true, Cancelled: true, CancelRequested: true, TerminationProven: true, Error: "SSH exec 启动前已取消，命令未执行"}
+		return ExecResult{Known: true, Cancelled: true, CancelRequested: true, TerminationProven: true, Error: i18n.T("SSH exec 启动前已取消，命令未执行")}
 	}
 	var writeMu sync.Mutex
 	session.Stdout = execOutput{"stdout", emit, &writeMu}
@@ -224,7 +225,7 @@ func (p *PreparedExec) Run(ctx context.Context, emit func(string, []byte)) ExecR
 		case <-timer.C:
 		}
 		_ = session.Close()
-		return ExecResult{Known: false, CancelRequested: true, TerminationProven: false, Error: "已关闭任务通道；未确认远端进程或子进程已终止"}
+		return ExecResult{Known: false, CancelRequested: true, TerminationProven: false, Error: i18n.T("已关闭任务通道；未确认远端进程或子进程已终止")}
 	}
 }
 

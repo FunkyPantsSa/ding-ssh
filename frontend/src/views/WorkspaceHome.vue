@@ -58,7 +58,7 @@ function connect(server: (typeof servers.servers)[number]) {
     <div class="home-content">
       <header class="home-hero">
         <div>
-          <span class="home-eyebrow"><span class="home-live-dot"></span> SSH workspace</span>
+          <span class="home-eyebrow"><span class="home-live-dot"></span> {{ $t('SSH 工作区') }}</span>
           <h2>{{ $t('准备连接到哪里？') }}</h2>
           <p>{{ $t('在一个安静、专注的工作区里管理服务器、终端与文件传输。') }}</p>
         </div>
@@ -75,7 +75,7 @@ function connect(server: (typeof servers.servers)[number]) {
         <section class="home-panel home-servers">
           <div class="home-panel-head">
             <div>
-              <span class="home-kicker">SERVERS</span>
+              <span class="home-kicker">{{ $t('服务器') }}</span>
               <h3>{{ $t('常用服务器') }}</h3>
               <p class="home-panel-hint">{{ $t('按成功登录次数排序') }}</p>
             </div>
@@ -127,7 +127,7 @@ function connect(server: (typeof servers.servers)[number]) {
         </div>
         <aside class="home-side">
           <section class="home-panel home-status">
-            <span class="home-kicker">OVERVIEW</span>
+            <span class="home-kicker">{{ $t('概览') }}</span>
             <h3>{{ $t('首页概览') }}</h3>
             <div class="home-stats">
               <div><strong>{{ servers.servers.length }}</strong><span>{{ $t('服务器') }}</span></div>
@@ -188,11 +188,9 @@ function connect(server: (typeof servers.servers)[number]) {
 .home-hero h2{margin:9px 0 6px;font-size:clamp(23px,2.8cqw,32px);line-height:1.2;letter-spacing:-.03em;font-weight:600}
 .home-hero p{margin:0;font-size:12px;line-height:1.5;color:var(--muted-foreground)}
 .home-hero-actions{display:flex;flex-wrap:wrap;gap:6px}
-.home-hero-actions :deep(button){outline:none !important}
-.home-hero-actions :deep(button:hover){outline:none !important;border-color:transparent !important;box-shadow:0 0 14px var(--primary-glow-soft, rgba(244, 114, 182, 0.25))}
 .home-grid{display:grid;grid-template-columns:minmax(0,1fr) 280px;align-items:start;gap:16px}
 .home-primary,.home-side{display:grid;align-content:start;gap:14px;min-width:0}
-.home-panel{min-width:0;border:var(--glass-border);border-radius:var(--radius-card, 14px);background:rgba(255, 255, 255, 0.035);backdrop-filter:blur(var(--glass-shell-blur, 16px));-webkit-backdrop-filter:blur(var(--glass-shell-blur, 16px));box-shadow:0 8px 24px -4px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08)}
+.home-panel{min-width:0;border:var(--glass-border);border-radius:var(--radius-card, 14px);background:var(--surface-bg);backdrop-filter:blur(var(--glass-shell-blur, 16px));-webkit-backdrop-filter:blur(var(--glass-shell-blur, 16px));box-shadow:0 8px 24px -4px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08)}
 .home-servers,.home-tools,.home-status{padding:16px}
 .home-panel-head{display:flex;justify-content:space-between;gap:12px;align-items:start;margin-bottom:10px}
 .home-panel h3{margin:4px 0 10px;font-size:13px;font-weight:600}
@@ -200,8 +198,8 @@ function connect(server: (typeof servers.servers)[number]) {
 .home-link{display:flex;align-items:center;gap:5px;white-space:nowrap;font-size:12px;color:var(--muted-foreground);transition:color var(--dur)}
 .home-link:hover{color:var(--foreground)}
 .home-server-list{display:grid;gap:4px}
-.home-server-row{display:flex;align-items:center;gap:10px;width:100%;min-width:0;min-height:44px;padding:8px 10px;text-align:left;border-radius:var(--radius-control, 10px);border:1px solid transparent;outline:none !important;transition:all var(--dur) var(--ease)}
-.home-server-row:hover{background:var(--interactive-hover-bg, rgba(255, 255, 255, 0.08));border-color:var(--primary-border, rgba(255, 255, 255, 0.15));box-shadow:0 2px 14px -1px var(--primary-glow-soft, rgba(0, 0, 0, 0.04));transform:translateY(-0.5px);outline:none !important}
+.home-server-row{display:flex;align-items:center;gap:10px;width:100%;min-width:0;min-height:44px;padding:8px 10px;text-align:left;border-radius:var(--radius-control, 10px);border:1px solid transparent;transition:all var(--dur) var(--ease)}
+.home-server-row:hover{background:var(--interactive-hover-bg);border-color:var(--accent-border);transform:translateY(-0.5px)}
 .home-server-icon,.home-theme-icon,.home-empty-icon{display:grid;place-items:center;flex-shrink:0;width:32px;height:32px;border-radius:var(--radius-control, 10px);background:var(--arc-active-tab-gradient, var(--primary-weak));color:var(--primary-hover);border:1px solid var(--arc-active-tab-border, var(--primary-border))}
 .home-server-copy{flex:1;min-width:0}
 .home-server-copy strong{display:block;font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -216,8 +214,8 @@ function connect(server: (typeof servers.servers)[number]) {
 .home-activity .home-status+.home-status{border-top:var(--glass-border-subtle)}
 .home-status .home-server-row{min-height:34px;padding:5px 0}
 .home-status p{margin:6px 0 0;font-size:12px;color:var(--muted-foreground)}
-.home-theme{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:14px;text-align:left;border:var(--glass-border);border-radius:var(--radius-card, 14px);background:rgba(255, 255, 255, 0.035);box-shadow:0 8px 24px -4px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08);transition:all var(--dur) var(--ease)}
-.home-theme:hover{border-color:var(--primary-border, rgba(255, 255, 255, 0.2));box-shadow:0 4px 16px -2px var(--primary-glow-soft, rgba(0, 0, 0, 0.06));transform:translateY(-1px);outline:none !important}
+.home-theme{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:14px;text-align:left;border:var(--glass-border);border-radius:var(--radius-card, 14px);background:var(--surface-bg);box-shadow:0 8px 24px -4px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08);transition:all var(--dur) var(--ease)}
+.home-theme:hover{background:var(--interactive-hover-bg);border-color:var(--accent-border);transform:translateY(-1px)}
 .home-theme strong,.home-theme small{display:block;line-height:1.4}
 .home-theme strong{font-size:12px;font-weight:500}
 .home-theme small{margin-top:2px;font-size:11px;color:var(--muted-foreground)}
@@ -229,15 +227,11 @@ function connect(server: (typeof servers.servers)[number]) {
 .home-empty p{margin:4px 0;font-size:12px}
 .home-shortcuts{display:flex;justify-content:center;padding-top:24px;padding-bottom:6px}
 .home-shortcuts-dock{display:inline-flex;align-items:center;gap:3px;padding:4px 6px;border:var(--glass-border);border-radius:9999px;background:var(--surface-bg, rgba(255, 255, 255, 0.65));backdrop-filter:blur(var(--glass-shell-blur, 16px));-webkit-backdrop-filter:blur(var(--glass-shell-blur, 16px));box-shadow:0 4px 16px -2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04)}
-.home-shortcut-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:9999px;border:1px solid transparent;background:transparent;color:var(--text-secondary, var(--foreground));font-size:11.5px;font-weight:500;cursor:pointer;outline:none !important;transition:all var(--dur-fast) var(--ease)}
-.home-shortcut-pill:hover{background:var(--interactive-hover-bg, rgba(255, 255, 255, 0.14));border-color:transparent !important;color:var(--foreground);box-shadow:0 0 16px var(--primary-glow-soft, rgba(244, 114, 182, 0.25));transform:translateY(-1px);outline:none !important}
-.home-shortcut-pill:focus,
-.home-shortcut-pill:focus-visible{outline:none !important;border-color:var(--primary) !important;background:var(--interactive-active-bg, rgba(255, 255, 255, 0.16));box-shadow:0 0 0 1.5px var(--primary), 0 0 18px 2px var(--primary-glow, rgba(244, 114, 182, 0.35));color:var(--foreground)}
-.home-shortcut-pill:active{outline:none !important;transform:scale(0.97)}
+.home-shortcut-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:9999px;border:1px solid transparent;background:transparent;color:var(--text-secondary, var(--foreground));font-size:11.5px;font-weight:500;cursor:pointer;transition:all var(--dur-fast) var(--ease)}
+.home-shortcut-pill:hover{background:var(--interactive-hover-bg);color:var(--foreground);transform:translateY(-1px)}
+.home-shortcut-pill:active{transform:scale(0.97)}
 .home-shortcut-pill kbd{display:inline-flex;align-items:center;justify-content:center;padding:2px 5px;min-width:18px;height:18px;border:var(--glass-border-subtle);border-radius:4px;background:var(--interactive-active-bg, rgba(255, 255, 255, 0.08));color:var(--text-muted);font:500 10px/1 var(--font-mono);box-shadow:0 1px 2px rgba(0, 0, 0, 0.04);transition:all var(--dur-fast) var(--ease)}
-.home-shortcut-pill:hover kbd{color:var(--foreground);border-color:var(--primary-border, var(--primary));background:var(--interactive-hover-bg);box-shadow:0 0 6px var(--primary-glow-soft, rgba(244, 114, 182, 0.20))}
-.home-shortcut-pill:focus kbd,
-.home-shortcut-pill:focus-visible kbd{color:var(--foreground);border-color:var(--primary)}
+.home-shortcut-pill:hover kbd{color:var(--foreground);border-color:var(--accent-border);background:var(--interactive-hover-bg)}
 .home-shortcut-sep{width:1px;height:12px;background:var(--border-subtle, rgba(0, 0, 0, 0.08))}
 .skeleton-row{background:var(--hover)}
 @container(max-width:720px){

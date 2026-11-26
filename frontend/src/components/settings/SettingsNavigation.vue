@@ -20,10 +20,11 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <nav class="set-nav" data-ui="settings-nav" :aria-label="$t('设置分类')">
+  <nav class="set-nav" data-ui="settings-nav" data-keyboard-nav="vertical" :aria-label="$t('设置分类')">
     <button
       v-for="item in items"
       :key="item.key"
+      type="button"
       :class="modelValue === item.key ? 'active' : ''"
       :data-section="item.key"
       :aria-current="modelValue === item.key ? 'page' : undefined"

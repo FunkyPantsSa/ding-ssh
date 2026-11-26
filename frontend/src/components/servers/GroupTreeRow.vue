@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import {computed} from 'vue'
+import {t as $t} from '../../i18n'
+import {computed, inject, type ComputedRef} from 'vue'
+import {isMenuItemAvailable} from '../../composables/useMenuKeyboard'
+import {getDisplayRect} from '../../utils/dom'
 import Icon from '../Icon.vue'
 import type {GroupNode} from '../../utils/groupTree'
 import type {GroupSelection} from '../../types'
@@ -25,6 +28,8 @@ const emit = defineEmits<{
   remove: [path: string]
 }>()
 
+const keyboard = inject<{tabStopPath: ComputedRef<string>; focus: (path: string) => void}>('ding-group-tree-keyboard')
+
 const hasChildren = computed(() => props.node.children.length > 0)
 const isOpen = computed(() => props.expanded.has(props.node.path))
 const isActive = computed(() => props.activePath === props.node.path)
@@ -41,34 +46,57 @@ function toggle(event?: MouseEvent) {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.isComposing) return
-  switch (event.key) {
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey) return
+  // Buttons inside a row keep their native Enter/Space actions; row shortcuts apply only to the row itself.
+  if (event.target !== event.currentTarget) return
+  const row = event.currentTarget as HTMLElement
+  const tree = row.closest('[role="tree"]')
+  const rows = Array.from(tree?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? []).filter(isMenuItemAvailable)
+  const index = rows.indexOf(row)
+  const focus = (element?: HTMLElement) => { element?.focus(); element?.scrollIntoView?.({block: 'nearest'}) }
+  const key = event.key
+  if (!['Enter', ' ', 'ArrowDown', 'ArrowUp', 'Home', 'End', 'ArrowRight', 'ArrowLeft', 'F2', 'Delete', 'ContextMenu'].includes(key)
+    && !(key === 'F10' && event.shiftKey)) return
+  event.preventDefault()
+  event.stopPropagation()
+  switch (key) {
     case 'Enter':
     case ' ':
-      event.preventDefault()
-      select()
+      if (!event.repeat) select()
+      break
+    case 'ArrowDown':
+      focus(rows[Math.min(rows.length - 1, index + 1)])
+      break
+    case 'ArrowUp':
+      focus(rows[Math.max(0, index - 1)])
+      break
+    case 'Home':
+      focus(rows[0])
+      break
+    case 'End':
+      focus(rows[rows.length - 1])
       break
     case 'ArrowRight':
-      event.preventDefault()
       if (!hasChildren.value) return
       if (!isOpen.value) toggle()
+      else focus(rows.find(item => item.dataset.groupPath === props.node.children[0]?.path))
       break
     case 'ArrowLeft':
-      event.preventDefault()
-      if (isOpen.value) {
-        toggle()
-      } else if (props.node.parent) {
-        emit('select', {kind: 'group', path: props.node.parent})
-      }
+      if (hasChildren.value && isOpen.value) toggle()
+      else focus(rows.find(item => item.dataset.groupPath === props.node.parent))
       break
     case 'F2':
-      event.preventDefault()
-      emit('rename', props.node.path)
+      if (!event.repeat) emit('rename', props.node.path)
       break
     case 'Delete':
-      event.preventDefault()
-      emit('remove', props.node.path)
+      if (!event.repeat) emit('remove', props.node.path)
       break
+    case 'ContextMenu':
+    case 'F10': {
+      const rect = getDisplayRect(row)
+      emit('contextMenu', new MouseEvent('contextmenu', {clientX: rect.left, clientY: rect.bottom}), props.node.path)
+      break
+    }
   }
 }
 
@@ -109,10 +137,11 @@ function onContextMenu(event: MouseEvent) {
       :aria-level="node.depth"
       :aria-selected="isActive"
       :aria-expanded="hasChildren ? isOpen : undefined"
-      :aria-label="`${node.path}，共 ${node.total} 台服务器`"
+      :aria-label="$t('{0}，共 {1} 台服务器', [node.path, node.total])"
       :data-group-path="node.path"
-      :title="`${node.path} · 本组 ${node.direct} 台 · 含子分组共 ${node.total} 台`"
-      tabindex="0"
+      :title="$t('{0} · 本组 {1} 台 · 含子分组共 {2} 台', [node.path, node.direct, node.total])"
+      :tabindex="!keyboard || keyboard.tabStopPath.value === node.path ? 0 : -1"
+      @focus="keyboard?.focus(node.path)"
       @click="select"
       @keydown="onKeydown"
       @contextmenu="onContextMenu"
@@ -126,9 +155,9 @@ function onContextMenu(event: MouseEvent) {
         v-if="hasChildren"
         type="button"
         class="group-tree-disclosure"
-        :aria-label="isOpen ? '收起分组' : '展开分组'"
+        :aria-label="$t(isOpen ? '收起分组' : '展开分组')"
         :aria-expanded="isOpen"
-        :title="isOpen ? '收起分组' : '展开分组'"
+        :title="$t(isOpen ? '收起分组' : '展开分组')"
         tabindex="-1"
         @click="toggle($event)"
       >
@@ -137,18 +166,18 @@ function onContextMenu(event: MouseEvent) {
       <span class="count group-tree-count">{{ node.total }}</span>
       <template v-if="manage">
         <span class="group-tree-actions">
-          <button type="button" class="group-tree-action" title="新建子分组" aria-label="新建子分组" @click="onManageCreate">
+          <button type="button" class="group-tree-action" :title="$t('新建子分组')" :aria-label="$t('新建子分组')" @click="onManageCreate">
             <Icon name="folder-plus" :size="13" />
           </button>
-          <button type="button" class="group-tree-action" title="重命名" aria-label="重命名" @click="onManageRename">
+          <button type="button" class="group-tree-action" :title="$t('重命名')" :aria-label="$t('重命名')" @click="onManageRename">
             <Icon name="pencil" :size="13" />
           </button>
-          <button type="button" class="group-tree-action danger" title="删除" aria-label="删除" @click="onManageRemove">
+          <button type="button" class="group-tree-action danger" :title="$t('删除')" :aria-label="$t('删除')" @click="onManageRemove">
             <Icon name="trash" :size="13" />
           </button>
         </span>
       </template>
-      <button v-else type="button" class="group-tree-more" title="分组操作" aria-label="分组操作" @click="onMore">
+      <button v-else type="button" class="group-tree-more" :title="$t('分组操作')" :aria-label="$t('分组操作')" @click="onMore">
         <Icon name="ellipsis" :size="14" />
       </button>
     </div>
@@ -206,10 +235,13 @@ function onContextMenu(event: MouseEvent) {
   color: var(--muted-foreground);
   transition: color var(--dur), background var(--dur);
 }
-.group-tree-disclosure:hover,
-.group-tree-disclosure:focus-visible {
+.group-tree-disclosure:hover {
   color: var(--foreground);
   background: var(--hover);
+}
+.group-tree-disclosure:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: -2px;
 }
 .group-tree-disclosure :deep(svg) {
   transition: transform 120ms cubic-bezier(0.22, 1, 0.36, 1);

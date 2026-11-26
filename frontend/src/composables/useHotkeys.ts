@@ -1,5 +1,6 @@
 import {onBeforeUnmount, onMounted} from 'vue'
 import type {HotkeyDefinition, HotkeyScope} from '@/hotkeys'
+import {hasOpenModal} from '@/utils/terminal-focus'
 
 type HotkeyHandler = (event: KeyboardEvent) => void
 export type HotkeyBinding = HotkeyDefinition & {run: HotkeyHandler; enabled?: () => boolean}
@@ -39,13 +40,17 @@ export function useHotkeys(bindings: HotkeyBinding[]) {
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (event.isComposing || event.key === 'Process') return
+    if (event.defaultPrevented || event.isComposing || event.key === 'Process') return
     const keys = normalizeEvent(event)
     const scope = activeScope()
     const binding = unique.find((item) => item.keys === keys && (
       item.scope === 'global' || item.scope === scope || (scope === 'terminal' && item.scope === 'workspace')
     ))
     if (!binding || binding.enabled?.() === false) return
+    // Modal handlers own their keys, including when a button rather than an
+    // editable field has focus. The palette keeps its own toggle shortcut.
+    if (hasOpenModal() && !(binding.id === 'command-palette'
+      && event.target instanceof HTMLElement && !!event.target.closest('[data-ui="command-palette"]'))) return
     if (editableTarget(event.target) && binding.id !== 'command-palette' && binding.id !== 'close-overlay') return
     binding.run(event)
   }

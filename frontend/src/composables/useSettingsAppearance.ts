@@ -20,8 +20,8 @@ export const MATERIAL_OPTIONS = [
 ] as const
 type AnsiColorKey = 'black' | 'red' | 'green' | 'yellow' | 'blue' | 'magenta' | 'cyan' | 'white' | 'brightBlack' | 'brightRed' | 'brightGreen' | 'brightYellow' | 'brightBlue' | 'brightMagenta' | 'brightCyan' | 'brightWhite'
 export const ANSI_FIELDS: {key: AnsiColorKey; label: string}[] = [
-  {key: 'black', label: 'Black'}, {key: 'red', label: 'Red'}, {key: 'green', label: 'Green'}, {key: 'yellow', label: 'Yellow'},
-  {key: 'blue', label: 'Blue'}, {key: 'magenta', label: 'Magenta'}, {key: 'cyan', label: 'Cyan'}, {key: 'white', label: 'White'},
+  {key: 'black', get label() { return t('黑色') }}, {key: 'red', get label() { return t('红色') }}, {key: 'green', get label() { return t('绿色') }}, {key: 'yellow', get label() { return t('黄色') }},
+  {key: 'blue', get label() { return t('蓝色') }}, {key: 'magenta', get label() { return t('品红') }}, {key: 'cyan', get label() { return t('青色') }}, {key: 'white', get label() { return t('白色') }},
   {key: 'brightBlack', get label() { return t("亮黑") }}, {key: 'brightRed', get label() { return t("亮红") }}, {key: 'brightGreen', get label() { return t("亮绿") }}, {key: 'brightYellow', get label() { return t("亮黄") }},
   {key: 'brightBlue', get label() { return t("亮蓝") }}, {key: 'brightMagenta', get label() { return t("亮紫") }}, {key: 'brightCyan', get label() { return t("亮青") }}, {key: 'brightWhite', get label() { return t("亮白") }},
 ]

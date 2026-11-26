@@ -21,7 +21,7 @@ const emit = defineEmits<{submit: []}>()
           </div>
           <div>
             <div class="brand-name">ding<span>-ssh</span></div>
-            <div class="text-[10.5px] tracking-[0.16em] uppercase text-mist mt-1">fluid glass workspace</div>
+            <div class="text-[10.5px] tracking-[0.16em] uppercase text-mist mt-1">{{ $t('流光玻璃工作区') }}</div>
           </div>
         </div>
         <h1 class="text-[30px] font-semibold tracking-[-0.03em] leading-[1.15] text-[var(--foreground)]">{{ $t('解锁工作台') }}</h1>
@@ -37,7 +37,7 @@ const emit = defineEmits<{submit: []}>()
           </div>
           <div class="flex items-baseline justify-between gap-4">
             <span class="text-[10.5px] uppercase tracking-[0.1em] text-mist">{{ $t('密钥存储') }}</span>
-            <span class="font-mono text-[12px] text-[var(--foreground)]">OS Keyring</span>
+            <span class="font-mono text-[12px] text-[var(--foreground)]">{{ $t('系统钥匙串') }}</span>
           </div>
         </div>
       </section>

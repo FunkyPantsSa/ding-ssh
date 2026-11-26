@@ -9,7 +9,7 @@ defineProps<{windows: boolean; onlineCount: number}>()
 <template>
   <header class="window-drag-region" data-ui="window-titlebar" @dblclick="WindowToggleMaximise">
     <div class="window-drag-title flex items-center gap-2">
-      <span class="text-[11px] font-mono tracking-wide opacity-50">ding-ssh · fluid glass workspace</span>
+      <span class="text-[11px] font-mono tracking-wide opacity-50">ding-ssh · {{ t('流光玻璃工作区') }}</span>
     </div>
     <div v-if="onlineCount > 0" class="window-drag-status flex items-center gap-1.5 text-[11px] text-[var(--muted-foreground)]">
       <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>

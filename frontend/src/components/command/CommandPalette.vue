@@ -3,7 +3,8 @@ import {t as $t} from '../../i18n'
 
 import {t} from '../../i18n'
 
-import {computed, nextTick, ref, watch} from 'vue'
+import {computed, nextTick, onBeforeUnmount, ref, watch} from 'vue'
+import {focusableControls, focusControl} from '../../utils/keyboard-navigation'
 import Icon from '@/components/Icon.vue'
 import type {AppCommand} from '@/commands'
 
@@ -14,6 +15,9 @@ const query = ref('')
 const settledQuery = ref('')
 const index = ref(0)
 const input = ref<HTMLInputElement>()
+const dialog = ref<HTMLElement>()
+let previousFocus: HTMLElement | null = null
+let focusRevision = 0
 let debounceTimer: number | undefined
 
 type GroupName = string
@@ -86,20 +90,46 @@ function run(command?: AppCommand) {
   close()
 }
 function select(command: AppCommand) { index.value = flatItems.value.findIndex((item) => item.id === command.id) }
+function settleQuery() {
+  window.clearTimeout(debounceTimer)
+  if (settledQuery.value !== query.value) { settledQuery.value = query.value; index.value = 0 }
+}
+
 function keydown(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey) return
+  if (event.key === 'Tab') {
+    const controls = dialog.value ? focusableControls(dialog.value) : []
+    const current = controls.indexOf(document.activeElement as HTMLElement)
+    if (current < 0 || event.shiftKey && current === 0 || !event.shiftKey && current === controls.length - 1) {
+      event.preventDefault()
+      event.stopPropagation()
+      focusControl(event.shiftKey ? controls.at(-1) : controls[0])
+    }
+    return
+  }
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); return }
+  const option = event.target instanceof Element ? event.target.closest<HTMLElement>('[role="option"]') : null
+  if (event.target !== input.value && !option) return
+  const navigation = ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)
+  const activate = event.key === 'Enter' || event.key === ' ' && !!option
+  if (!navigation && !activate) return
+  event.preventDefault()
+  event.stopPropagation()
+  settleQuery()
   const items = flatItems.value
-  if (event.key === 'Tab') event.preventDefault()
-  if (event.key === 'Escape') { event.preventDefault(); close() }
-  if (event.key === 'ArrowDown') { event.preventDefault(); index.value = items.length ? (index.value + 1) % items.length : 0 }
-  if (event.key === 'ArrowUp') { event.preventDefault(); index.value = items.length ? (index.value - 1 + items.length) % items.length : 0 }
-  if (event.key === 'Enter') { event.preventDefault(); run() }
+  if (event.key === 'ArrowDown') index.value = items.length ? (index.value + 1) % items.length : 0
+  else if (event.key === 'ArrowUp') index.value = items.length ? (index.value - 1 + items.length) % items.length : 0
+  else if (event.key === 'Home') index.value = 0
+  else if (event.key === 'End') index.value = Math.max(0, items.length - 1)
+  else if (!event.repeat) run()
+  if (navigation && option) void nextTick(() => focusControl(document.getElementById(`command-${activeId.value}`)))
 }
 
 function scrollToActive() {
   nextTick(() => {
     if (!activeId.value) return
     const el = document.getElementById(`command-${activeId.value}`)
-    el?.scrollIntoView({block: 'nearest', inline: 'nearest'})
+    el?.scrollIntoView?.({block: 'nearest', inline: 'nearest'})
   })
 }
 
@@ -111,26 +141,42 @@ watch(query, (value) => {
   window.clearTimeout(debounceTimer)
   debounceTimer = window.setTimeout(() => { settledQuery.value = value; index.value = 0 }, props.commands.length > 200 ? 80 : 0)
 })
+function restoreFocus() {
+  if (!dialog.value?.contains(document.activeElement) && document.activeElement !== document.body) return
+  focusControl(previousFocus)
+}
+
 watch(open, async (value) => {
-  if (!value) return
+  const revision = ++focusRevision
+  if (!value) {
+    window.clearTimeout(debounceTimer)
+    await nextTick()
+    if (!open.value && revision === focusRevision) restoreFocus()
+    return
+  }
+  previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  window.clearTimeout(debounceTimer)
   query.value = ''; settledQuery.value = ''; index.value = 0
-  await nextTick(); input.value?.focus()
+  await nextTick()
+  if (!open.value || revision !== focusRevision) return
+  input.value?.focus()
   scrollToActive()
-})
+}, {immediate: true})
+onBeforeUnmount(() => { ++focusRevision; window.clearTimeout(debounceTimer); if (open.value) restoreFocus() })
 </script>
 
 <template>
   <div v-if="open" class="modal-root" data-ui="modal" @click.self="close">
-    <div class="modal command-palette" role="dialog" aria-modal="true" :aria-label="$t('命令面板')" data-ui="command-palette">
+    <div ref="dialog" class="modal command-palette" role="dialog" @keydown="keydown" aria-modal="true" :aria-label="$t('命令面板')" data-ui="command-palette">
       <div class="command-search">
         <Icon name="search" :size="15" extra-class="text-mist" />
-        <input ref="input" v-model="query" :aria-label="$t('搜索命令或服务器')" role="combobox" aria-controls="command-results" :aria-activedescendant="activeId ? `command-${activeId}` : undefined" :aria-expanded="open" :placeholder="$t('搜索命令、服务器或操作…')" @keydown="keydown" />
+        <input ref="input" v-model="query" :aria-label="$t('搜索命令或服务器')" role="combobox" aria-controls="command-results" :aria-activedescendant="activeId ? `command-${activeId}` : undefined" :aria-expanded="open" aria-autocomplete="list" :placeholder="$t('搜索命令、服务器或操作…')" />
         <span class="kbd">ESC</span>
       </div>
       <div id="command-results" class="command-list" role="listbox">
         <section v-for="group in groups" :key="group.name" class="command-group">
           <header><span>{{ group.name }}</span><button v-if="group.name === t('最近')" type="button" @click="emit('clearRecent')">{{ $t('清除') }}</button></header>
-          <button v-for="command in group.items" :id="`command-${command.id}`" :key="command.id" type="button" role="option" :aria-selected="command.id === activeId" :class="command.id === activeId && 'active'" :data-testid="`command-item-${command.id}`" @mouseenter="select(command)" @click="run(command)">
+          <button v-for="command in group.items" :id="`command-${command.id}`" :key="command.id" type="button" role="option" tabindex="-1" :aria-selected="command.id === activeId" :class="command.id === activeId && 'active'" :data-testid="`command-item-${command.id}`" @focus="select(command)" @mouseenter="select(command)" @click="run(command)">
             <span><strong>{{ command.title }}</strong><small v-if="command.subtitle">{{ command.subtitle }}</small></span><small>{{ command.section }}</small>
           </button>
           <p v-if="group.overflow" class="command-more">{{ $t('还有') }} {{ group.overflow }} {{ $t('项，继续输入以筛选') }}</p>
@@ -147,10 +193,10 @@ watch(open, async (value) => {
   padding: 0;
   overflow: hidden;
   border-radius: var(--radius-card, 16px);
-  border: var(--glass-border);
-  background: rgba(20, 20, 26, 0.85);
-  backdrop-filter: blur(var(--glass-overlay-blur, 32px)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 32px)) saturate(180%);
+  border: 1px solid color-mix(in srgb, var(--accent-border) 32%, var(--border-default));
+  background: var(--surface-overlay-bg);
+  backdrop-filter: blur(var(--glass-overlay-blur, 28px)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 28px)) saturate(160%);
   box-shadow: var(--shadow-floating);
 }
 .command-search {
@@ -159,8 +205,8 @@ watch(open, async (value) => {
   align-items: center;
   gap: 12px;
   padding: 0 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--interactive-hover-bg);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .command-search input {
   flex: 1;
@@ -168,9 +214,13 @@ watch(open, async (value) => {
   height: 100%;
   border: 0;
   background: transparent;
-  outline: 0;
   font-size: 14px;
   color: var(--text-primary);
+}
+.command-search input:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: -2px;
+  border-radius: var(--radius-control);
 }
 .command-list {
   max-height: 420px;
@@ -211,14 +261,15 @@ watch(open, async (value) => {
   transition: all var(--dur) var(--ease);
 }
 .command-group > button:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--interactive-hover-bg);
+  border-color: var(--border-subtle);
   color: var(--foreground);
 }
 .command-group > button.active {
-  background: var(--arc-active-tab-gradient, rgba(255, 255, 255, 0.12));
+  background: var(--arc-active-tab-gradient, var(--interactive-active-bg));
   color: var(--text-primary);
-  border-color: var(--arc-active-tab-border, rgba(255, 255, 255, 0.2));
-  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  border-color: var(--arc-active-tab-border, var(--accent-border));
+  box-shadow: var(--shadow-sm);
 }
 .command-group strong {
   display: block;

@@ -3,7 +3,8 @@ import {t as $t} from '../../i18n'
 
 import {t} from '../../i18n'
 
-import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {computed, nextTick, onBeforeUnmount, onMounted, ref} from 'vue'
+import {useMenuKeyboard} from '../../composables/useMenuKeyboard'
 import Icon from '@/components/Icon.vue'
 import type {TunnelInfo} from '@/types'
 import {Button} from '@/components/ui'
@@ -22,6 +23,14 @@ const emit = defineEmits<{copy: [address: string]; loadAddresses: []; start: [];
 const running = computed(() => props.tunnel.status === 'running')
 const copyMenu = ref<HTMLDetailsElement>()
 const moreMenu = ref<HTMLDetailsElement>()
+const copyPanel = ref<HTMLElement>()
+const morePanel = ref<HTMLElement>()
+const copyKeyboard = useMenuKeyboard(copyPanel, () => closeMenu(copyMenu.value), {
+  initialFocus: false, restoreOnUnmount: false, trigger: () => copyMenu.value?.querySelector('summary'),
+})
+const moreKeyboard = useMenuKeyboard(morePanel, () => closeMenu(moreMenu.value), {
+  initialFocus: false, restoreOnUnmount: false, trigger: () => moreMenu.value?.querySelector('summary'),
+})
 
 function copy(address: string) {
   closeMenus()
@@ -34,10 +43,36 @@ function runMore(action: 'restart' | 'remove') {
   else emit('remove')
 }
 
+function closeMenu(menu: HTMLDetailsElement | undefined) {
+  if (!menu?.open) return
+  if (menu.contains(document.activeElement)) menu.querySelector('summary')?.focus()
+  menu.open = false
+}
+
 function closeMenus() {
-  for (const menu of [copyMenu.value, moreMenu.value]) {
-    if (menu?.open) menu.open = false
+  closeMenu(copyMenu.value)
+  closeMenu(moreMenu.value)
+}
+
+async function onSummaryKeydown(event: KeyboardEvent, menu: HTMLDetailsElement | undefined) {
+  if (!menu || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey) return
+  if (!['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Escape'].includes(event.key)) return
+  event.preventDefault()
+  event.stopPropagation()
+  if (event.key === 'Escape' || (menu.open && (event.key === 'Enter' || event.key === ' '))) {
+    closeMenu(menu)
+    return
   }
+  menu.open = true
+  // Native details toggle events may arrive after the key event; close siblings immediately.
+  onMenuToggle(menu)
+  await nextTick()
+  const keyboard = menu === copyMenu.value ? copyKeyboard : moreKeyboard
+  keyboard.focusAt(event.key === 'ArrowUp' ? keyboard.items().length - 1 : 0)
+}
+
+function onMenuFocusOut(event: FocusEvent, menu: HTMLDetailsElement | undefined) {
+  if (event.relatedTarget instanceof Node && !menu?.contains(event.relatedTarget)) closeMenu(menu)
 }
 
 /** 同一时刻只展开一个菜单，避免「复制」和「更多」叠在一起。 */
@@ -59,7 +94,7 @@ function onDocumentPointerDown(event: PointerEvent) {
 }
 
 function onDocumentKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') closeMenus()
+  if (event.key === 'Escape' && !event.defaultPrevented && event.target === document) closeMenus()
 }
 
 onMounted(() => {
@@ -89,15 +124,15 @@ onBeforeUnmount(() => {
         <div class="font-mono text-[13px] text-[var(--foreground)] break-all">{{ address }}</div>
         <div v-if="!running" class="mt-1 text-[11px] text-mist">{{ $t('启动后可访问') }}</div>
       </div>
-      <details v-if="copyOptions.length" ref="copyMenu" class="tunnel-menu" @toggle="onMenuToggle(copyMenu)">
-        <summary class="tunnel-menu-trigger">
+      <details v-if="copyOptions.length" ref="copyMenu" class="tunnel-menu" @toggle="onMenuToggle(copyMenu)" @focusout="onMenuFocusOut($event, copyMenu)">
+        <summary class="tunnel-menu-trigger" aria-haspopup="menu" @keydown="onSummaryKeydown($event, copyMenu)">
           <Icon :name="copied ? 'check' : 'copy'" :size="14" />
           {{ copied ? t('已复制') : t('复制') }}
           <Icon name="chevron-down" :size="12" />
         </summary>
-        <div class="tunnel-menu-panel">
+        <div ref="copyPanel" class="tunnel-menu-panel" role="menu" :aria-label="$t('复制')" @keydown="copyKeyboard.onKeydown">
           <div class="px-2 py-1 text-[11px] text-mist">{{ $t('选择客户端使用的地址') }}</div>
-          <Button v-for="option in copyOptions" :key="option" size="sm" variant="ghost" class="font-mono" @click="copy(option)">{{ option }}</Button>
+          <Button v-for="option in copyOptions" role="menuitem" :key="option" size="sm" variant="ghost" class="font-mono" @click="copy(option)">{{ option }}</Button>
         </div>
       </details>
       <Button v-else variant="ghost" size="sm" :title="t('复制 {0}', [address])" @click="copy(address)">
@@ -118,11 +153,11 @@ onBeforeUnmount(() => {
       <Button v-if="running" variant="secondary" size="sm" class="stop-button" :disabled="busy" @click="emit('stop')">{{ $t('停止') }}</Button>
       <Button v-else variant="primary" size="sm" :disabled="busy" @click="emit('start')">{{ $t('启动') }}</Button>
       <Button variant="ghost" size="sm" :disabled="busy" @click="emit('edit')">{{ $t('编辑') }}</Button>
-      <details ref="moreMenu" class="tunnel-menu" @toggle="onMenuToggle(moreMenu)">
-        <summary class="tunnel-menu-trigger">{{ $t('更多') }}<Icon name="chevron-down" :size="12" /></summary>
-        <div class="tunnel-menu-panel">
-          <Button v-if="running" variant="ghost" size="sm" :disabled="busy" @click="runMore('restart')">{{ $t('重启') }}</Button>
-          <Button variant="ghost" size="sm" :disabled="busy" @click="runMore('remove')">{{ $t('删除') }}</Button>
+      <details ref="moreMenu" class="tunnel-menu" @toggle="onMenuToggle(moreMenu)" @focusout="onMenuFocusOut($event, moreMenu)">
+        <summary class="tunnel-menu-trigger" aria-haspopup="menu" @keydown="onSummaryKeydown($event, moreMenu)">{{ $t('更多') }}<Icon name="chevron-down" :size="12" /></summary>
+        <div ref="morePanel" class="tunnel-menu-panel" role="menu" :aria-label="$t('更多')" @keydown="moreKeyboard.onKeydown">
+          <Button v-if="running" role="menuitem" variant="ghost" size="sm" :disabled="busy" @click="runMore('restart')">{{ $t('重启') }}</Button>
+          <Button role="menuitem" variant="ghost" size="sm" :disabled="busy" @click="runMore('remove')">{{ $t('删除') }}</Button>
         </div>
       </details>
     </div>
@@ -139,5 +174,5 @@ onBeforeUnmount(() => {
 .tunnel-menu-trigger{display:flex;align-items:center;gap:5px;cursor:pointer;list-style:none;padding:0 8px;height:28px;font-size:12px;border-radius:var(--radius-md);color:var(--foreground-secondary)}
 .tunnel-menu-trigger::-webkit-details-marker{display:none}
 .tunnel-menu-trigger:hover{background:var(--button-ghost-hover)}
-.tunnel-menu-panel{position:absolute;z-index:5;right:0;top:calc(100% + 4px);display:grid;min-width:max-content;padding:4px;background:var(--surface-overlay-bg);border:1px solid var(--border-strong);border-radius:var(--radius-md);box-shadow:var(--shadow-pop)}
+.tunnel-menu-panel{position:absolute;z-index:5;right:0;top:calc(100% + 4px);display:grid;min-width:max-content;padding:4px;background:var(--surface-overlay-bg);backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(160%);-webkit-backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(160%);border:1px solid color-mix(in srgb,var(--accent-border) 32%,var(--border-default));border-radius:var(--radius-md);box-shadow:var(--shadow-floating)}
 </style>

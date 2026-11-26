@@ -8,6 +8,7 @@ import {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} fr
 import {Terminal} from '@xterm/xterm'
 import {guardProgrammaticSelection} from '../utils/selection-copy-guard'
 import {isTerminalSearchShortcut} from '../utils/terminal-search'
+import {hasOpenModal, shouldFocusTerminal} from '../utils/terminal-focus'
 import {encodeTerminalInput} from '../utils/terminal-input'
 import {SearchAddon} from '@xterm/addon-search'
 import {Button, Input} from './ui'
@@ -76,6 +77,7 @@ const isActiveTab = computed(() => {
 })
 
 const container = ref<HTMLElement>()
+const terminalRoot = ref<HTMLElement>()
 const connectionOverlay = ref<{focus: () => void} | null>(null)
 const menu = ref<{x: number; y: number} | null>(null)
 const fontSize = ref(settings.fonts.terminalFontSize || 13)
@@ -115,10 +117,10 @@ function closeSearch() {
   searchOpen.value = false
   searchAddon?.clearDecorations()
   term?.clearSelection()
-  term?.focus()
+  focusTerminal()
 }
 function onSearchShortcut(event: KeyboardEvent) {
-  if (!isTerminalSearchShortcut(event, isActiveTab.value, searchRoot.value)) return
+  if (ui.cmdOpen || ui.terminalSidebarOpen || !isTerminalSearchShortcut(event, ui.view === 'workspace' && isActiveTab.value, searchRoot.value)) return
   event.preventDefault(); event.stopImmediatePropagation()
   searchOpen.value = true
   void nextTick(() => { const input = searchRoot.value?.querySelector('input'); input?.focus(); input?.select() })
@@ -179,7 +181,7 @@ const {
 
 const sudo = useSudoAssistant({
   sessionId: () => props.tab.sessionId,
-  active: () => isActiveTab.value && props.tab.status === 'connected' && !!container.value?.clientWidth && !!container.value?.clientHeight && !inputLocked && !zmodem?.active(),
+  active: () => terminalInteractionAllowed() && props.tab.status === 'connected' && !!container.value?.clientWidth && !!container.value?.clientHeight && !inputLocked && !zmodem?.active(),
   focusTerminal,
   resetInput,
 })
@@ -464,8 +466,20 @@ function disableWebGL() {
   webglAddon = null
 }
 
-function focusActiveSurface() {
-  if (disposed || !isActiveTab.value) return
+function terminalFocusAllowed(intent: 'background' | 'activate' | 'restore' = 'background') {
+  return shouldFocusTerminal({
+    root: terminalRoot.value,
+    terminal: container.value,
+    active: isActiveTab.value,
+    workspace: ui.view === 'workspace',
+    overlayOpen: ui.cmdOpen || ui.terminalSidebarOpen,
+    intent,
+    restoreFrom: [searchRoot.value, terminalRoot.value?.querySelector<HTMLElement>('[data-testid="terminal-sudo-popover"]'), document.querySelector<HTMLElement>('[data-testid="terminal-context-menu"]')],
+  })
+}
+
+function focusActiveSurface(intent: 'background' | 'activate' = 'background') {
+  if (disposed || !terminalFocusAllowed(intent)) return
   if (sudoPrompt.value) return
   if (props.tab.status === 'connected') {
     container.value?.focus()
@@ -483,14 +497,14 @@ function focusActiveSurface() {
   }
 }
 
-function scheduleFocusActiveSurface() {
+function scheduleFocusActiveSurface(intent: 'background' | 'activate' = 'background') {
   if (focusTimer !== null) {
     clearTimeout(focusTimer)
     focusTimer = null
   }
   focusTimer = setTimeout(() => {
     focusTimer = null
-    void nextTick(() => focusActiveSurface())
+    void nextTick(() => focusActiveSurface(intent))
   }, 0)
 }
 
@@ -544,8 +558,13 @@ function toggleFullscreen() {
 }
 
 /** 是否可向终端写入（连接中 / 断开 / Zmodem 传输中一律拒绝）。 */
+function terminalInteractionAllowed(): boolean {
+  return ui.view === 'workspace' && isActiveTab.value && !ui.cmdOpen && !ui.terminalSidebarOpen && !hasOpenModal()
+}
+
 function canSendInput(): boolean {
   if (disposed || !term) return false
+  if (!terminalInteractionAllowed()) return false
   if (props.tab.status !== 'connected') return false
   return !inputLocked && !zmodem?.active()
 }
@@ -554,6 +573,7 @@ function canSendInput(): boolean {
 function focusTerminal() {
   if (disposed || !term) return
   if (props.tab.status !== 'connected') return
+  if (!terminalFocusAllowed('restore')) return
   try {
     term.focus()
   } catch {
@@ -675,6 +695,7 @@ function doSelectAll() {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  if (!terminalInteractionAllowed()) return
   if (e.isComposing || e.keyCode === 229) {
     composing = true
     return
@@ -781,7 +802,7 @@ async function setupZmodem(sessionId: string) {
         if (!active) {
           // 确保 xterm 重新获得键盘焦点
           try {
-            term?.focus()
+            focusTerminal()
           } catch {
             /* ignore */
           }
@@ -1176,6 +1197,7 @@ onMounted(() => {
   // 在 xterm 处理按键前拦截补全快捷键
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true
+    if (!canSendInput()) return false
     if (e.isComposing || e.keyCode === 229) {
       composing = true
       return true
@@ -1198,8 +1220,7 @@ onMounted(() => {
 
   term.onData((data) => {
     // 非连接态（断开/关闭/失败）：画面冻结只读，忽略键盘输入，避免写入已死会话
-    if (props.tab.status !== 'connected') return
-    if (inputLocked || zmodem?.active()) return
+    if (!canSendInput()) return
     if (sudoSensitive.value) {
       resetInput()
       writeRaw(data)
@@ -1248,7 +1269,7 @@ onMounted(() => {
   container.value?.addEventListener('paste', onPasteEvent, true)
   window.addEventListener('click', onWindowClick)
   void connect()
-  scheduleFocusActiveSurface()
+  scheduleFocusActiveSurface('activate')
 })
 
 watch(
@@ -1325,13 +1346,14 @@ watch(
 )
 
 watch(
-  () => [isActiveTab.value, props.tab.status] as const,
-  ([active]) => {
+  () => [isActiveTab.value, props.tab.status, ui.view] as const,
+  ([active, , view], previous) => {
     if (!active) { sudo.cancel(false); return }
     // 共享字形图集可能在后台标签渲染时被清空/重排；切回时丢弃顶点模型并整屏重绘。
     atlasEntry.invalidateModel()
     atlasEntry.refresh()
-    scheduleFocusActiveSurface()
+    const activated = !previous?.[0] || (view === 'workspace' && previous?.[2] !== 'workspace')
+    scheduleFocusActiveSurface(activated ? 'activate' : 'background')
   },
   {immediate: true},
 )
@@ -1389,7 +1411,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="relative h-full overflow-hidden terminal-theme" :style="terminalStyle">
+  <div ref="terminalRoot" class="relative h-full overflow-hidden terminal-theme" :style="terminalStyle">
     <div v-if="searchOpen" ref="searchRoot" class="terminal-search" role="search" :aria-label="t('搜索终端输出')" @keydown.esc.stop.prevent="closeSearch">
       <Input v-model="searchQuery" @keydown.enter.stop.prevent="findOutput($event.shiftKey)" class="min-w-0 flex-1" :placeholder="t('搜索终端输出')" :aria-label="t('搜索终端输出')" />
       <span class="text-xs shrink-0" role="status">{{ searchQuery ? (searchCount ? `${searchIndex + 1}/${searchCount}` : t('无匹配结果')) : '' }}</span>
@@ -1408,8 +1430,9 @@ onBeforeUnmount(() => {
       ref="container"
       class="absolute inset-0"
       :class="tab.status === 'connected' ? '' : 'frozen-surface'"
+      data-keyboard-native
       tabindex="0"
-      @focus.self
+      @focus.self="focusActiveSurface()"
     ></div>
 
     <TerminalConnectionOverlay
@@ -1480,6 +1503,6 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped>
-.terminal-search{position:absolute;z-index:35;top:8px;right:8px;display:flex;align-items:center;gap:4px;padding:6px;width:min(400px,calc(100% - 16px));flex-wrap:wrap;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-2);color:var(--foreground);box-shadow:var(--shadow-overlay)}
+.terminal-search{position:absolute;z-index:35;top:8px;right:8px;display:flex;align-items:center;gap:4px;padding:6px;width:min(400px,calc(100% - 16px));flex-wrap:wrap;border:1px solid color-mix(in srgb,var(--accent-border) 32%,var(--border-default));border-radius:var(--radius-md);background:var(--surface-overlay-bg);backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(160%);-webkit-backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(160%);color:var(--foreground);box-shadow:var(--shadow-floating)}
 .terminal-search input{flex-basis:120px}
 </style>

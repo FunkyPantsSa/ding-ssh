@@ -139,15 +139,15 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="neo px-5 py-4 space-y-4">
-      <h4 class="text-sm font-medium text-slate-200">应用更新</h4>
+      <h4 class="text-sm font-medium text-slate-200">{{ $t('应用更新') }}</h4>
       <div class="flex items-center justify-between gap-4 text-sm text-slate-300">
-        <label for="update-channel">更新渠道</label>
+        <label for="update-channel">{{ $t('更新渠道') }}</label>
         <Select id="update-channel" :model-value="updateChannel" :disabled="updateBusy || updateReady" class="update-channel-select" @update:model-value="setUpdateChannel(String($event))">
-          <option value="main">main（稳定版）</option><option value="dev">dev（测试版）</option>
+          <option value="main">{{ $t('main（稳定版）') }}</option><option value="dev">{{ $t('dev（测试版）') }}</option>
         </Select>
       </div>
       <div class="flex items-center justify-between gap-4">
-        <div><p id="startup-update-label" class="text-sm text-slate-300">启动时检查更新</p><p class="mt-1 text-xs text-slate-500">发现新版本后在左下角提示，确认后才下载安装。</p></div>
+        <div><p id="startup-update-label" class="text-sm text-slate-300">{{ $t('启动时检查更新') }}</p><p class="mt-1 text-xs text-slate-500">{{ $t('发现新版本后显示更新提示，确认后才下载安装。') }}</p></div>
         <ToggleSwitch :model-value="checkUpdatesOnStartup" aria-labelledby="startup-update-label" @update:model-value="setStartupCheck" />
       </div>
       <div class="flex items-center gap-3">
@@ -162,7 +162,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="min-w-0">
           <div class="brand-name">ding<span>-ssh</span></div>
-          <p class="text-xs text-slate-500 mt-0.5">Local-first SSH workstation</p>
+          <p class="text-xs text-slate-500 mt-0.5">{{ $t('本地优先的 SSH 工作台') }}</p>
         </div>
         <span class="chip ml-auto">{{ rows[0].value }}</span>
       </div>

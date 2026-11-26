@@ -3,6 +3,7 @@ package updater
 import (
 	"context"
 	"crypto/sha256"
+	"ding-ssh/internal/i18n"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -78,7 +79,7 @@ func get(ctx context.Context, c *http.Client, u string) (*http.Response, error) 
 	if res.StatusCode != 200 {
 		res.Body.Close()
 		logx.Warnf("[updater] 更新请求返回非 200: url=%s status=%s", u, res.Status)
-		return nil, fmt.Errorf("更新服务器返回 %s", res.Status)
+		return nil, fmt.Errorf(i18n.T("更新服务器返回 %s"), res.Status)
 	}
 	logx.Debugf("[updater] 更新请求成功: url=%s status=%d contentLength=%d", u, res.StatusCode, res.ContentLength)
 	return res, nil
@@ -89,7 +90,7 @@ func Check(ctx context.Context, channel string) (Manifest, error) {
 	logx.Infof("[updater] 检查更新: channel=%s currentCommit=%s", channel, BuildCommit)
 	if channel != "dev" && channel != "main" {
 		logx.Warnf("[updater] 检查更新被拒绝: 无效通道 channel=%q", channel)
-		return m, fmt.Errorf("无效更新通道")
+		return m, fmt.Errorf("%s", i18n.T("无效更新通道"))
 	}
 	res, err := get(ctx, Client(), repository+"/releases/download/"+channel+"-latest/update.json")
 	if err != nil {
@@ -104,7 +105,7 @@ func Check(ctx context.Context, channel string) (Manifest, error) {
 	}
 	if m.Channel != channel || len(m.Commit) != 40 {
 		logx.Errorf("[updater] 更新清单无效: channel=%s manifestChannel=%q commitLen=%d", channel, m.Channel, len(m.Commit))
-		return m, fmt.Errorf("更新清单无效")
+		return m, fmt.Errorf("%s", i18n.T("更新清单无效"))
 	}
 	if m.Commit == BuildCommit {
 		logx.Infof("[updater] 当前已是最新版本: channel=%s commit=%s elapsed=%s", channel, m.Commit, time.Since(start))
@@ -123,12 +124,12 @@ func Download(ctx context.Context, m Manifest, progress func(int64, int64)) (str
 	a, ok := m.Assets[key]
 	if !ok {
 		logx.Errorf("[updater] 下载更新失败: 当前平台暂无更新包 platform=%s assets=%d", key, len(m.Assets))
-		return "", fmt.Errorf("当前平台暂无更新包")
+		return "", fmt.Errorf("%s", i18n.T("当前平台暂无更新包"))
 	}
 	logx.Infof("[updater] 开始下载更新包: channel=%s asset=%s platform=%s", m.Channel, a.Name, key)
 	if filepath.Base(a.Name) != a.Name || strings.ContainsAny(a.Name, "/\\") || len(a.SHA256) != 64 {
 		logx.Errorf("[updater] 下载更新失败: 更新包信息无效 asset=%s sha256Len=%d", a.Name, len(a.SHA256))
-		return "", fmt.Errorf("更新包信息无效")
+		return "", fmt.Errorf("%s", i18n.T("更新包信息无效"))
 	}
 	dir, err := os.MkdirTemp("", "ding-ssh-update-")
 	if err != nil {
@@ -189,7 +190,7 @@ func Download(ctx context.Context, m Manifest, progress func(int64, int64)) (str
 		if total > 2<<30 {
 			f.Close()
 			logx.Errorf("[updater] 更新包过大，中止下载: asset=%s received=%d", a.Name, total)
-			return "", fmt.Errorf("更新包过大")
+			return "", fmt.Errorf("%s", i18n.T("更新包过大"))
 		}
 	}
 	if err = f.Close(); err != nil {
@@ -198,7 +199,7 @@ func Download(ctx context.Context, m Manifest, progress func(int64, int64)) (str
 	}
 	if !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), a.SHA256) {
 		logx.Errorf("[updater] 更新包校验失败: asset=%s bytes=%d", a.Name, total)
-		return "", fmt.Errorf("更新包校验失败")
+		return "", fmt.Errorf("%s", i18n.T("更新包校验失败"))
 	}
 	success = true
 	logx.Infof("[updater] 更新包下载完成: asset=%s bytes=%d path=%q elapsed=%s",

@@ -69,4 +69,48 @@ describe('ui.Dialog accessibility', () => {
     expect(document.activeElement?.id).toBe('dialog-input')
     wrapper.unmount()
   })
+
+  it('skips collapsed form fields and keeps Tab able to leave a footer', async () => {
+    const wrapper = mount(Dialog, {
+      attachTo: document.body,
+      props: {modelValue: true, title: '表单', footerNavigation: true},
+      slots: {default:'<div style="display:none"><input id="hidden-input"></div><input id="visible-input">', footer:'<button id="cancel">取消</button><button id="save">保存</button>'},
+    })
+    await nextTick();await nextTick()
+    expect(document.activeElement?.id).toBe('visible-input')
+    const cancel = document.getElementById('cancel')!
+    cancel.focus()
+    cancel.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true,cancelable:true}))
+    expect(document.activeElement?.id).toBe('save')
+    cancel.focus()
+    const tab = new KeyboardEvent('keydown',{key:'Tab',shiftKey:true,bubbles:true,cancelable:true})
+    cancel.dispatchEvent(tab)
+    expect(tab.defaultPrevented).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('gives Escape and focus ownership to the top nested dialog', async () => {
+    const trigger = document.createElement('button');document.body.append(trigger);trigger.focus()
+    const outer = mount(Dialog,{attachTo:document.body,props:{modelValue:true,title:'外层'},slots:{default:'<button id="open-inner">Open</button>'}})
+    await nextTick();await nextTick()
+    document.getElementById('open-inner')!.focus()
+    const inner = mount(Dialog,{attachTo:document.body,props:{modelValue:true,title:'内层'},slots:{default:'<button id="inner-ok">OK</button>'}})
+    await nextTick();await nextTick()
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))
+    expect(inner.emitted('close')).toHaveLength(1)
+    expect(outer.emitted('close')).toBeUndefined()
+    await inner.setProps({modelValue:false});await nextTick()
+    expect(document.activeElement?.id).toBe('open-inner')
+    inner.unmount();outer.unmount()
+  })
+
+  it('leaves Escape to a native select before dismissing the dialog', async () => {
+    const wrapper=mount(Dialog,{attachTo:document.body,props:{modelValue:true,title:'选择'},slots:{default:'<select><option>One</option><option>Two</option></select>'}})
+    await nextTick();await nextTick()
+    const event=new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})
+    document.activeElement!.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    expect(wrapper.emitted('close')).toBeUndefined()
+    wrapper.unmount()
+  })
 })

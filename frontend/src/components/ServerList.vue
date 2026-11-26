@@ -92,7 +92,7 @@ async function confirmDeleteGroup() {
           <ServerToolbar @import-config="showSSHImport = true" v-model="keyword" :total="servers.servers.length" :online="onlineServers" :testing="servers.testingAll" @test-all="servers.testAll()" @refresh="servers.load()" @create="openNew" />
 
           <!-- 列表 -->
-          <div class="flex-1 min-h-0 overflow-y-auto server-list-panel">
+          <div class="flex-1 min-h-0 overflow-y-auto server-list-panel" data-keyboard-nav="vertical">
             <div class="list-crumbs">
               <GroupBreadcrumb
                 :selection="selection"

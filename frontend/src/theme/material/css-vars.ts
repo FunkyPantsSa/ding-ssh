@@ -47,48 +47,17 @@ export function rolesToCssVars(roles: ColorRoles, plan: MaterialPlan): Record<st
   const toolbar = surface(roles.toolbarBg, alpha.toolbar)
   const field = surface(roles.fieldBg, alpha.field)
 
-  let sidebarPrimaryGradient: string
-  let sidebarPrimaryStart: string
-  let sidebarPrimaryEnd: string
+  // Paint the same restrained ramp that was checked for text contrast by the
+  // role engine. Rebuilding it from the raw seed made red themes much darker
+  // and more saturated than their neighbouring panels.
+  const sidebarPrimaryGradient = gradientLayer(roles.gradients.sidebarPrimary, alpha.sidebarPrimary)
+  const sidebarPrimaryStart = gradientEdge(roles.gradients.sidebarPrimary, alpha.sidebarPrimary, 'start')
+  const sidebarPrimaryEnd = gradientEdge(roles.gradients.sidebarPrimary, alpha.sidebarPrimary, 'end')
   let workspaceGradient: string
   let workspaceStart: string
   let workspaceEnd: string
 
   const atmo = clamp((roles.atmosphere ?? 75) / 100, 0.2, 1)
-
-  let navTop: string
-  let navMid: string
-  let navBottom: string
-
-  if (roles.seedChroma < NEUTRAL_SEED_CHROMA) {
-    if (light) {
-      navTop = '#f8fafc'
-      navMid = '#f1f5f9'
-      navBottom = '#e2e8f0'
-    } else {
-      navTop = '#22252a'
-      navMid = '#1a1d22'
-      navBottom = '#141619'
-    }
-  } else {
-    const primaryPalette = paletteForHueChroma(roles.seedHue, Math.max(roles.seedChroma, 35))
-    const secondarySource = Hct.fromInt(argbFromHex(roles.secondarySeed || roles.seed))
-    const secondaryPalette = paletteForHueChroma(secondarySource.hue, Math.max(secondarySource.chroma, 30))
-
-    if (light) {
-      navTop = toneHex(primaryPalette, Math.round(clamp(82 - atmo * 4, 76, 86)))
-      navMid = toneHex(primaryPalette, Math.round(clamp(88 - atmo * 3, 84, 91)))
-      navBottom = toneHex(secondaryPalette, Math.round(clamp(93 - atmo * 2, 90, 96)))
-    } else {
-      navTop = toneHex(primaryPalette, Math.round(clamp(22 + atmo * 3, 18, 28)))
-      navMid = toneHex(primaryPalette, Math.round(clamp(16 + atmo * 2, 13, 19)))
-      navBottom = toneHex(secondaryPalette, Math.round(clamp(11 + atmo * 2, 9, 14)))
-    }
-  }
-
-  sidebarPrimaryGradient = `linear-gradient(180deg, ${surface(navTop, alpha.sidebarPrimary)} 0%, ${surface(navMid, alpha.sidebarPrimary)} 50%, ${surface(navBottom, alpha.sidebarPrimary)} 100%)`
-  sidebarPrimaryStart = surface(navTop, alpha.sidebarPrimary)
-  sidebarPrimaryEnd = surface(navBottom, alpha.sidebarPrimary)
 
   if (light) {
     workspaceGradient = gradientLayer(roles.gradients.workspace, alpha.workspace)

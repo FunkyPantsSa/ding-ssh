@@ -1,4 +1,5 @@
 import {mount} from '@vue/test-utils'
+import {nextTick} from 'vue'
 import {afterEach, describe, expect, it} from 'vitest'
 import TunnelCard from './TunnelCard.vue'
 import type {TunnelInfo} from '@/types'
@@ -80,4 +81,38 @@ describe('tunnel card menus', () => {
     expect(copyMenu.open).toBe(false)
     wrapper.unmount()
   })
+})
+
+it('opens menus from the summary, selects an address with Enter, and restores focus on Escape', async () => {
+  const wrapper = mountCard()
+  try {
+    const [copyMenu, moreMenu] = menus(wrapper)
+    const copySummary = copyMenu!.querySelector('summary')!
+    const moreSummary = moreMenu!.querySelector('summary')!
+    copySummary.focus()
+    const press = async (key: string) => {
+      document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true}))
+      await nextTick()
+    }
+    await press('ArrowDown')
+    expect(copyMenu!.open).toBe(true)
+    expect(document.activeElement?.textContent).toBe('100.108.95.99:13306')
+    await press('End')
+    expect(document.activeElement?.textContent).toBe('127.0.0.1:13306')
+    await press('Enter')
+    expect(wrapper.emitted('copy')).toEqual([['127.0.0.1:13306']])
+    expect(copyMenu!.open).toBe(false)
+    expect(document.activeElement).toBe(copySummary)
+    moreSummary.focus()
+    await press(' ')
+    expect(moreMenu!.open).toBe(true)
+    expect(document.activeElement?.textContent).toBe('删除')
+    await press('Escape')
+    expect(moreMenu!.open).toBe(false)
+    expect(document.activeElement).toBe(moreSummary)
+    await wrapper.setProps({busy: true})
+    await press('ArrowDown')
+    expect(document.activeElement).toBe(moreSummary)
+    expect(wrapper.emitted('remove')).toBeUndefined()
+  } finally { wrapper.unmount() }
 })

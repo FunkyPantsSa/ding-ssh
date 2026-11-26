@@ -1636,11 +1636,11 @@ func (g debugGate) Allow(cap debugsrv.Capability, detail string) error {
 		logx.Warnf("[apphost] MCP 能力校验未通过: cap=%s detail=%q reason=%s", cap, detail, reason)
 		suffix := ""
 		if detail != "" {
-			suffix = fmt.Sprintf("（本次操作涉及：%s）", detail)
+			suffix = fmt.Sprintf(i18n.T("（本次操作涉及：%s）"), detail)
 		}
-		return fmt.Errorf(i18n.T("「%s」能力未开启：%s%s。可在 设置 → 调试模式 → MCP 能力 中开启，")+
-			"权限只能由用户在应用内修改（能力：%q）。",
-			label, reason, suffix, string(cap))
+		return fmt.Errorf(i18n.T("「%s」能力未开启：%s%s。可在 设置 → 调试模式 → MCP 能力 中开启，"+
+			"权限只能由用户在应用内修改（能力：%q）。"),
+			label, i18n.T(reason), suffix, string(cap))
 	}
 	if allowed, known := debugCapabilityValue(d, cap); known {
 		if !allowed {
@@ -1686,13 +1686,13 @@ func (g debugGate) Allow(cap debugsrv.Capability, detail string) error {
 		// 能力位本身 + 「允许读取敏感数据」（密码只从凭据库读，不允许读密钥就不可能提权）。
 		var missing []string
 		if !d.CapSudoCredential {
-			missing = append(missing, "「sudo 凭证提权」(sudo.credential) 本身未开启")
+			missing = append(missing, i18n.T("「sudo 凭证提权」(sudo.credential) 本身未开启"))
 		}
 		if !d.CapCredentialUse {
-			missing = append(missing, "credentials.use 未开启（内部使用保存的凭据，不导出明文）")
+			missing = append(missing, i18n.T("credentials.use 未开启（内部使用保存的凭据，不导出明文）"))
 		}
 		if len(missing) > 0 {
-			return deny("它允许 AI 在当前会话对应的服务器上用保存的密码执行 sudo -i（等于交出该机器的 root）。缺：" +
+			return deny(i18n.T("它允许 AI 在当前会话对应的服务器上用保存的密码执行 sudo -i（等于交出该机器的 root）。缺：") +
 				strings.Join(missing, "；"))
 		}
 	case debugsrv.CapLifecycle:
@@ -1799,8 +1799,8 @@ func (e debugExecutor) ExecuteAction(ctx context.Context, action string, args ma
 		return c.Handle(ctx, op, b)
 	}
 	logx.Warnf("[apphost] 已确认动作没有执行器: action=%s", action)
-	return nil, fmt.Errorf(i18n.T("动作 %q 暂未实现执行器：本波可通过应用界面完成，")+
-		"或等待对应工具接入后再调用", action)
+	return nil, fmt.Errorf(i18n.T("动作 %q 暂未实现执行器：本波可通过应用界面完成，"+
+		"或等待对应工具接入后再调用"), action)
 }
 
 // ctlActionOps 确认动作名 → 宿主 op 的映射（只列 confirm.commit 需要直接执行的动作）。
@@ -3153,8 +3153,8 @@ func (c *debugController) ctlSettingsReset(paths []string) (any, error) {
 	resetPaths := make([]string, 0, len(paths))
 	for _, p := range paths {
 		if ctlPreserveOnReset(p) {
-			return nil, fmt.Errorf(i18n.T("%w: 字段 %q 在重置时被刻意保留（改了会把调试控制面自己关掉、导致 AI 失联）；")+
-				"如确需修改请用 update_settings", debugsrv.ErrBadInput, p)
+			return nil, fmt.Errorf(i18n.T("%w: 字段 %q 在重置时被刻意保留（改了会把调试控制面自己关掉、导致 AI 失联）；"+
+				"如确需修改请用 update_settings"), debugsrv.ErrBadInput, p)
 		}
 		if _, ok := ctlLookupPath(curMap, p); !ok {
 			return nil, fmt.Errorf(i18n.T("%w: 未知设置字段 %q（可用 settings.schema 查看全部字段）"), debugsrv.ErrBadInput, p)
@@ -3278,8 +3278,8 @@ func (c *debugController) ctlSftpClient(args map[string]any) (*sftp.Client, stri
 	client, err := c.app.manager.SftpClient(sess)
 	if err != nil {
 		if errors.Is(err, sshx.ErrSessionNotFound) {
-			return nil, sess, fmt.Errorf(i18n.T("会话 %s 不存在或不是 SSH 会话（本机终端没有 SFTP）：")+
-				"请先用 list_terminals 确认会话 id", sess)
+			return nil, sess, fmt.Errorf(i18n.T("会话 %s 不存在或不是 SSH 会话（本机终端没有 SFTP）："+
+				"请先用 list_terminals 确认会话 id"), sess)
 		}
 		return nil, sess, fmt.Errorf(i18n.T("建立 SFTP 连接失败（会话 %s）：%w"), sess, err)
 	}
@@ -3759,8 +3759,8 @@ func (c *debugController) sftpHostCancel(ctx context.Context, args map[string]an
 	if err := c.app.SftpCancelTransfer(sess, direction, name); err != nil {
 		logx.Warnf("[apphost] MCP SFTP 取消传输失败: session=%s direction=%s name=%s err=%v",
 			sess, direction, name, err)
-		return nil, fmt.Errorf(i18n.T("取消传输失败（session=%s direction=%s name=%s）：%w；")+
-			"可先用 sftp.transfers 确认它仍在进行中", sess, direction, name, err)
+		return nil, fmt.Errorf(i18n.T("取消传输失败（session=%s direction=%s name=%s）：%w；"+
+			"可先用 sftp.transfers 确认它仍在进行中"), sess, direction, name, err)
 	}
 	logx.Infof("[apphost] MCP SFTP 传输已取消: session=%s direction=%s name=%s", sess, direction, name)
 	return debugsrv.SFTPMutationPayload{OK: true, Path: name}, nil
@@ -3824,8 +3824,8 @@ func (c *debugController) ctlSudoCredential(ctx context.Context, sessionID strin
 	logx.Debugf("[apphost] MCP sudo 解析会话凭据: session=%s", sess)
 	// 1) 本机终端：明确拒绝（工具描述里也写明了不支持）。
 	if c.app != nil && c.app.local != nil && c.app.local.Has(sess) {
-		return models.ServerNode{}, "", errors.New(i18n.T("本机终端不支持 sudo 凭证提权：本机终端没有远端账号，") +
-			"也没有可用的 SFTP 通道（本机请直接用 terminal.run / send_input 手动输入）")
+		return models.ServerNode{}, "", errors.New(i18n.T("本机终端不支持 sudo 凭证提权：本机终端没有远端账号，" +
+			"也没有可用的 SFTP 通道（本机请直接用 terminal.run / send_input 手动输入）"))
 	}
 	// 2) 会话 → 服务器节点（完整节点只存在于页面标签里）。
 	v, err := c.callFrontend(ctx, "session.node", map[string]any{"id": sess})
@@ -3843,8 +3843,8 @@ func (c *debugController) ctlSudoCredential(ctx context.Context, sessionID strin
 	}
 	if node.Host == "" {
 		logx.Warnf("[apphost] MCP sudo 取凭据被拒（会话没有对应服务器）: session=%s", sess)
-		return models.ServerNode{}, "", fmt.Errorf(i18n.T("会话 %s 没有对应的服务器：")+
-			"sudo 凭证提权需要从凭据库读取该服务器保存的密码（本机终端 / 未绑定服务器的会话都不支持）", sess)
+		return models.ServerNode{}, "", fmt.Errorf(i18n.T("会话 %s 没有对应的服务器："+
+			"sudo 凭证提权需要从凭据库读取该服务器保存的密码（本机终端 / 未绑定服务器的会话都不支持）"), sess)
 	}
 	// 3) 保存的密码：优先按 id 从存储再读一份（= servers.get includeSecrets=true 的宿主实现），
 	//    因为会话节点是打开标签那一刻的快照，可能早于用户后来改的密码。
@@ -3860,8 +3860,8 @@ func (c *debugController) ctlSudoCredential(ctx context.Context, sessionID strin
 		if name == "" {
 			name = saved.Host
 		}
-		return saved, "", fmt.Errorf(i18n.T("服务器「%s」没有保存密码：请先在应用里为该服务器保存密码")+
-			"（服务器 → 编辑 → 密码），或在该机器上配置免密 sudo 后改用 terminal.run", name)
+		return saved, "", fmt.Errorf(i18n.T("服务器「%s」没有保存密码：请先在应用里为该服务器保存密码"+
+			"（服务器 → 编辑 → 密码），或在该机器上配置免密 sudo 后改用 terminal.run"), name)
 	}
 	return saved, saved.Password, nil
 }
@@ -3894,8 +3894,8 @@ func (c *debugController) sudoHostStage(ctx context.Context, args map[string]any
 	}
 	allow := c.app.sftpWriteAllowlist()
 	if !debugsrv.SFTPPathAllowed(allow, norm) {
-		return nil, fmt.Errorf(i18n.T("sudo 临时文件路径 %q 不在远端写入白名单内（当前白名单：%s）：")+
-			"请在 设置 → 调试模式 → MCP 能力 里把 /tmp 加进白名单前缀", norm, strings.Join(allow, "、"))
+		return nil, fmt.Errorf(i18n.T("sudo 临时文件路径 %q 不在远端写入白名单内（当前白名单：%s）："+
+			"请在 设置 → 调试模式 → MCP 能力 里把 /tmp 加进白名单前缀"), norm, strings.Join(allow, "、"))
 	}
 	client, _, err := c.ctlSftpClient(map[string]any{"sessionId": sess})
 	if err != nil {
@@ -3962,8 +3962,8 @@ func (c *debugController) sudoHostCleanup(ctx context.Context, args map[string]a
 	}
 	allow := c.app.sftpWriteAllowlist()
 	if !debugsrv.SFTPPathAllowed(allow, norm) {
-		return nil, fmt.Errorf(i18n.T("sudo 临时文件 %q 不在远端写入白名单内（当前白名单：%s）：")+
-			"请在 设置 → 调试模式 → MCP 能力 里把 /tmp 加进白名单前缀", norm, strings.Join(allow, "、"))
+		return nil, fmt.Errorf(i18n.T("sudo 临时文件 %q 不在远端写入白名单内（当前白名单：%s）："+
+			"请在 设置 → 调试模式 → MCP 能力 里把 /tmp 加进白名单前缀"), norm, strings.Join(allow, "、"))
 	}
 	client, _, cerr := c.ctlSftpClient(map[string]any{"sessionId": sess})
 	if cerr != nil {

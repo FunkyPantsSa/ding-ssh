@@ -1,5 +1,5 @@
 import {enableAutoUnmount, flushPromises, mount} from '@vue/test-utils'
-import {afterEach, describe, expect, it} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 import TerminalSudoPopover from './TerminalSudoPopover.vue'
 import {language} from '../../i18n'
 
@@ -43,6 +43,21 @@ describe('terminal sudo popover', () => {
     const wrapper = popover()
     await wrapper.findAll('button').find(button => button.text() === '取消')!.trigger('keydown', {key: 'Enter'})
     expect(wrapper.emitted('submit')).toBeUndefined()
+  })
+  it('lets unhandled navigation reach the application while containing submitted passwords and cancellation', async () => {
+    const wrapper = popover(false)
+    const navigation = vi.fn()
+    window.addEventListener('keydown', navigation)
+    try {
+      await wrapper.get('button').trigger('keydown', {key: 'ArrowRight'})
+      expect(navigation).toHaveBeenCalledOnce()
+      navigation.mockClear()
+      await wrapper.get('input').trigger('keydown', {key: 'Enter'})
+      await wrapper.trigger('keydown', {key: 'Escape'})
+      expect(navigation).not.toHaveBeenCalled()
+      expect(wrapper.emitted('submit')).toHaveLength(1)
+      expect(wrapper.emitted('cancel')).toHaveLength(1)
+    } finally { window.removeEventListener('keydown', navigation) }
   })
   it('localizes the prompt in English', () => {
     language.value = 'en'

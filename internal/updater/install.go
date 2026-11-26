@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"crypto/sha256"
+	"ding-ssh/internal/i18n"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -69,7 +70,7 @@ func Target() (string, error) {
 		i := strings.LastIndex(p, ".app/Contents/MacOS/")
 		if i < 0 {
 			logx.Warnf("[updater] 当前不在已安装的 .app 中运行，无法自动更新: path=%q", p)
-			return "", fmt.Errorf("请从已安装的 .app 中更新")
+			return "", fmt.Errorf("%s", i18n.T("请从已安装的 .app 中更新"))
 		}
 		p = p[:i+4]
 	}
@@ -83,7 +84,7 @@ func Target() (string, error) {
 			return p, nil
 		}
 		logx.Warnf("[updater] 安装目录不可写，无法自动更新: dir=%q err=%v", filepath.Dir(p), e)
-		return "", fmt.Errorf("安装目录不可写，请将应用安装到当前用户可写目录后更新: %w", e)
+		return "", fmt.Errorf(i18n.T("安装目录不可写，请将应用安装到当前用户可写目录后更新: %w"), e)
 	}
 	logx.Debugf("[updater] 更新目标路径已解析: target=%q writable=true", p)
 	return p, nil
@@ -109,7 +110,7 @@ func Prepare(file string) (string, error) {
 		cmd := exec.Command("/usr/bin/ditto", "-x", "-k", file, dir)
 		if b, e := cmd.CombinedOutput(); e != nil {
 			logx.Warnf("[updater] 解压 macOS 更新包失败: file=%q output=%q err=%v", file, string(b), e)
-			return "", fmt.Errorf("解压失败: %s: %w", b, e)
+			return "", fmt.Errorf(i18n.T("解压失败: %s: %w"), b, e)
 		}
 		p := filepath.Join(dir, "ding-ssh.app")
 		_, e := os.Stat(filepath.Join(p, "Contents/MacOS/ding-ssh"))
@@ -193,7 +194,7 @@ func Prepare(file string) (string, error) {
 		logx.Warnf("[updater] tar.gz 更新包中缺少 ding-ssh: file=%q", file)
 	}
 	logx.Warnf("[updater] 更新包中缺少可执行程序: file=%q", file)
-	return "", fmt.Errorf("更新包中缺少程序")
+	return "", fmt.Errorf("%s", i18n.T("更新包中缺少程序"))
 }
 func Launch(source, target string, restart bool) error {
 	logx.Infof("[updater] 启动安装助手: source=%q target=%q restart=%v pid=%d", source, target, restart, os.Getpid())
@@ -214,7 +215,7 @@ func Launch(source, target string, restart bool) error {
 	if runtime.GOOS == "windows" {
 		p.SourceSHA256, e = fileSHA256(source)
 		if e != nil {
-			return fmt.Errorf("校验待安装程序失败: %w", e)
+			return fmt.Errorf(i18n.T("校验待安装程序失败: %w"), e)
 		}
 	}
 	b, e := json.Marshal(p)

@@ -247,7 +247,7 @@ const usageClass = (pct: number) => pct >= 95 ? 'danger' : pct >= 85 ? 'warn' : 
   transition:background .15s ease, color .15s ease;
 }
 .details-close:hover { background:var(--hover); color:var(--foreground) }
-.details-close:focus-visible { outline:2px solid var(--border-focus); outline-offset:1px }
+.details-close:focus-visible { outline:2px solid var(--focus-ring-color); outline-offset:2px }
 
 /* ---- 规格：两列键值对，紧凑且填满卡片宽度 ---- */
 .config-grid {
@@ -310,7 +310,7 @@ progress.danger::-moz-progress-bar { background:var(--status-error) }
   transition:background .15s ease, border-color .15s ease, color .15s ease;
 }
 .refresh-btn:hover { background:var(--hover); border-color:var(--border-strong); color:var(--foreground) }
-.refresh-btn:focus-visible { outline:2px solid var(--border-focus); outline-offset:1px }
+.refresh-btn:focus-visible { outline:2px solid var(--focus-ring-color); outline-offset:2px; border-color:var(--border-default) }
 .refresh-btn:disabled { opacity:.55; cursor:default }
 
 /* ---- 响应式 ---- */

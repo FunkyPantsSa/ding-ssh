@@ -22,7 +22,7 @@ const (
 	metaFileName   = "security.json"
 )
 
-var errInvalidKeyringKey = errors.New(i18n.T("Keyring 中的主密钥无效"))
+var errInvalidKeyringKey = i18n.NewError("Keyring 中的主密钥无效")
 
 // Meta 持久化的安全元数据（不含主密钥本身）。
 type Meta struct {

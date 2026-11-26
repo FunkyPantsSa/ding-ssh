@@ -10,7 +10,8 @@ withDefaults(defineProps<{text: string; align?: 'center' | 'left' | 'right'}>(),
   white-space:pre-line; text-align:left; line-height:1.5;
   font-size:var(--text-2xs); color:var(--foreground);
   background:var(--surface-overlay-bg, var(--surface-3));
-  border:1px solid var(--border-default); border-radius:var(--radius-control);
+  backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(160%); -webkit-backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(160%);
+  border:1px solid color-mix(in srgb,var(--accent-border) 32%,var(--border-default)); border-radius:var(--radius-control);
   box-shadow:var(--shadow-pop);
   pointer-events:none;
 }

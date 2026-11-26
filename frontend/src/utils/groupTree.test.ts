@@ -1,4 +1,7 @@
-import {describe, expect, it} from 'vitest'
+import {afterEach, describe, expect, it} from 'vitest'
+import {language} from '../i18n'
+
+afterEach(() => { language.value = 'zh-CN' })
 import {
   ancestorsToExpand,
   buildGroupTree,
@@ -17,6 +20,16 @@ import {
 } from './groupTree'
 
 describe('group path helpers', () => {
+  it('localizes validation limits while preserving group names', () => {
+    language.value = 'en'
+    expect(validateGroupNameInput('')).toBe('Enter a group name')
+    expect(validateGroupNameInput('生产/华东/杭州', 2)).toBe('Groups cannot exceed 2 levels')
+    expect(validateGroupNameInput('服务器', 6, 2)).toBe('Each group name must be at most 2 characters')
+    expect(validateGroupNameInput('生产/华东')).toBe('')
+    language.value = 'zh-CN'
+    expect(validateGroupNameInput('a/b/c', 2)).toBe('分组层级不能超过 2 级')
+  })
+
   it('normalizes paths and derives name/parent/depth', () => {
     expect(normalizeGroupPath(' /生产环境//华东/ ')).toBe('生产环境/华东')
     expect(groupName('生产环境/华东/杭州')).toBe('杭州')

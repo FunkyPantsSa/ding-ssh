@@ -48,6 +48,37 @@ function solidPlan(): MaterialPlan {
 }
 
 describe('material color engine', () => {
+  it('paints the contrast-checked navigation ramp instead of a second saturated palette', () => {
+    for (const seed of [...SEEDS, '#F15E6A']) {
+      for (const tone of TONES) {
+        for (const atmosphere of [0, 93]) {
+          const roles = deriveColorRoles({seed, tone, atmosphere, separation: 0})
+          const vars = rolesToCssVars(roles, solidPlan())
+          const stops = vars['--sidebar-primary-gradient'].match(/#[0-9a-f]{6}/g)
+          expect(stops).toEqual(roles.gradients.sidebarPrimary.stops)
+          for (const stop of stops!) {
+            expect(contrastRatio(roles.textMuted, stop)).toBeGreaterThanOrEqual(4.5)
+          }
+          if (atmosphere === 0) {
+            for (const stop of stops!) expect(hexToOklch(stop).c).toBeLessThan(0.001)
+          }
+        }
+      }
+    }
+  })
+
+  it('uses a restrained selection wash beside high-saturation dark themes', () => {
+    for (const seed of ['#F15E6A', '#EF4444', '#22C55E', '#3B82F6', '#A78BFA']) {
+      const roles = deriveColorRoles({seed, tone: 'dark', atmosphere: 93, separation: 0})
+      const active = hexToOklch(roles.interactiveActiveBg)
+      expect(active.l).toBeGreaterThan(hexToOklch(roles.surfaceBg).l)
+      expect(active.c).toBeLessThan(0.08)
+      expect(contrastRatio(roles.interactiveActiveBg, roles.surfaceBg)).toBeLessThan(1.6)
+      expect(contrastRatio(roles.accentBg, roles.interactiveActiveBg)).toBeGreaterThanOrEqual(3)
+      expect(contrastRatio(roles.textPrimary, roles.interactiveActiveBg)).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
   it('is deterministic for identical input', () => {
     const options = {seed: '#A78BFA', tone: 'dark' as const, atmosphere: 75, separation: 65}
     expect(deriveColorRoles(options)).toEqual(deriveColorRoles(options))

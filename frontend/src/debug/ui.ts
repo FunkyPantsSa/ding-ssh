@@ -1053,15 +1053,15 @@ async function storePatchOp(args: Args): Promise<unknown> {
 
 const SETTINGS_SECTIONS: Record<string, string> = {
   get general() { return t("通用") },
-  hotkeys: '快捷键',
-  connectionInfo: '连接说明',
+  get hotkeys() { return t('快捷键') },
+  get connectionInfo() { return t('连接说明') },
   get theme() { return t("外观") },
-  credentials: '保存的凭证',
+  get credentials() { return t('保存的凭证') },
   get security() { return t("安全") },
-  debug: '调试模式',
+  get debug() { return t('调试模式') },
   get logs() { return t("日志") },
-  audit: 'AI 记录',
-  migrate: '导入导出',
+  get audit() { return t('AI 记录') },
+  get migrate() { return t('导入导出') },
   get about() { return t("关于") },
 }
 

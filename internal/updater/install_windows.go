@@ -2,6 +2,7 @@ package updater
 
 import (
 	"crypto/sha256"
+	"ding-ssh/internal/i18n"
 	"errors"
 	"fmt"
 	"os"
@@ -38,7 +39,7 @@ func waitForParent(pid int) error {
 		return nil // The parent has already exited.
 	}
 	if err != nil {
-		return fmt.Errorf("检查主进程退出状态失败: %w", err)
+		return fmt.Errorf(i18n.T("检查主进程退出状态失败: %w"), err)
 	}
 	defer windows.CloseHandle(h)
 	status, err := windows.WaitForSingleObject(h, 300000)
@@ -46,7 +47,7 @@ func waitForParent(pid int) error {
 		return err
 	}
 	if status != windows.WAIT_OBJECT_0 {
-		return fmt.Errorf("等待主进程退出超时，更新未安装")
+		return fmt.Errorf("%s", i18n.T("等待主进程退出超时，更新未安装"))
 	}
 	return nil
 }
@@ -84,7 +85,7 @@ func runElevated(planPath, planHash string) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	if err = windows.CoInitializeEx(0, windows.COINIT_APARTMENTTHREADED); err != nil && !errors.Is(err, syscall.Errno(1)) { // S_FALSE also requires CoUninitialize.
-		return fmt.Errorf("初始化管理员授权失败: %w", err)
+		return fmt.Errorf(i18n.T("初始化管理员授权失败: %w"), err)
 	}
 	defer windows.CoUninitialize()
 	info := shellExecuteInfo{
@@ -96,12 +97,12 @@ func runElevated(planPath, planHash string) error {
 	runtime.KeepAlive(info)
 	if ok == 0 {
 		if errors.Is(callErr, windows.ERROR_CANCELLED) {
-			return fmt.Errorf("已取消管理员授权，更新未安装，原版本保持不变: %w", callErr)
+			return fmt.Errorf(i18n.T("已取消管理员授权，更新未安装，原版本保持不变: %w"), callErr)
 		}
-		return fmt.Errorf("启动管理员安装助手失败: %w", callErr)
+		return fmt.Errorf(i18n.T("启动管理员安装助手失败: %w"), callErr)
 	}
 	if info.Process == 0 {
-		return fmt.Errorf("无法获取管理员安装助手进程")
+		return fmt.Errorf("%s", i18n.T("无法获取管理员安装助手进程"))
 	}
 	defer windows.CloseHandle(info.Process)
 	if _, err = windows.WaitForSingleObject(info.Process, windows.INFINITE); err != nil {
@@ -112,7 +113,7 @@ func runElevated(planPath, planHash string) error {
 		return err
 	}
 	if code != 0 {
-		return fmt.Errorf("管理员安装更新失败（退出码 %d），请检查安装目录或安全软件限制", code)
+		return fmt.Errorf(i18n.T("管理员安装更新失败（退出码 %d），请检查安装目录或安全软件限制"), code)
 	}
 	return nil
 }
@@ -122,14 +123,14 @@ func elevatedHelper() (bool, error) {
 		return false, nil
 	}
 	if len(os.Args) != 4 || !windows.GetCurrentProcessToken().IsElevated() || len(os.Args[3]) != sha256.Size*2 {
-		return true, fmt.Errorf("管理员安装参数或权限无效")
+		return true, fmt.Errorf("%s", i18n.T("管理员安装参数或权限无效"))
 	}
 	p, _, err := readInstallPlan(os.Args[2], os.Args[3])
 	if err != nil {
 		return true, err
 	}
 	if len(p.SourceSHA256) != sha256.Size*2 {
-		return true, fmt.Errorf("待安装程序缺少校验信息")
+		return true, fmt.Errorf("%s", i18n.T("待安装程序缺少校验信息"))
 	}
 	if err = waitForParent(p.PID); err != nil {
 		return true, err

@@ -3,7 +3,8 @@ import {t as $t} from '../i18n'
 
 import {t} from '../i18n'
 
-import {computed, reactive, ref, watch} from 'vue'
+import {computed, nextTick, onBeforeUnmount, reactive, ref, watch} from 'vue'
+import {focusableControls, focusControl, isAvailableControl} from '../utils/keyboard-navigation'
 import Icon from './Icon.vue'
 import {useGroupsStore} from '../stores/groups'
 import {useServersStore} from '../stores/servers'
@@ -20,6 +21,11 @@ const ui = useUIStore()
 
 const open = computed(() => ui.terminalSidebarOpen)
 const keyword = ref('')
+const panel = ref<HTMLElement>()
+const searchInput = ref<{focus: () => void}>()
+const resultList = ref<HTMLElement>()
+let previousFocus: HTMLElement | null = null
+let focusRevision = 0
 const collapsed = reactive<Record<string, boolean>>(loadCollapsed())
 
 function loadCollapsed(): Record<string, boolean> {
@@ -38,14 +44,28 @@ function toggleGroup(name: string) {
   saveCollapsed()
 }
 
-watch(open, (v) => {
-  // 只在首次展开时拉取：面板是常驻 DOM，若每次展开都重新 load()，
-  // 列表会先切成骨架屏再整表重渲染，正好落在展开动画期间 → 掉帧 + 闪烁。
-  if (v && !servers.loading && !servers.loadedOnce) {
-    void servers.load()
-    void groups.load()
+function restoreFocus() {
+  if ((!panel.value?.contains(document.activeElement) && document.activeElement !== document.body) || !previousFocus) return
+  focusControl(previousFocus)
+}
+
+watch(open, async (visible) => {
+  const revision = ++focusRevision
+  if (visible) {
+    previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    // The panel stays mounted. Load data only for its first opening, then focus the search after rendering.
+    if (!servers.loading && !servers.loadedOnce) {
+      void servers.load()
+      void groups.load()
+    }
+    await nextTick()
+    if (open.value && revision === focusRevision) searchInput.value?.focus()
+  } else {
+    await nextTick()
+    if (!open.value && revision === focusRevision) restoreFocus()
   }
-})
+}, {immediate: true})
+onBeforeUnmount(() => { ++focusRevision; if (open.value) restoreFocus() })
 
 // 模糊搜索：名称 / 主机 / 分组
 const filtered = computed(() => {
@@ -147,6 +167,66 @@ function nodeStatus(node: ServerNode): 'on' | 'err' | 'connecting' | '' {
 function isActiveNode(node: ServerNode): boolean {
   return sessions.activeTab?.node.id === node.id
 }
+
+function resultButtons(): HTMLElement[] {
+  return Array.from(resultList.value?.querySelectorAll<HTMLElement>('[data-quick-row]') ?? []).filter(isAvailableControl)
+}
+
+function onSearchKeydown(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey) return
+  if (!['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key)) return
+  event.preventDefault()
+  event.stopPropagation()
+  const buttons = resultButtons().filter(button => button.dataset.quickRow?.startsWith('server-'))
+  if (event.key === 'Enter') {
+    if (!event.repeat) buttons[0]?.click()
+  } else focusControl(event.key === 'ArrowDown' ? buttons[0] : buttons.at(-1))
+}
+
+function onPanelKeydown(event: KeyboardEvent) {
+  if (!open.value || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    ui.closeTerminalSidebar()
+    return
+  }
+  if (event.key === 'Tab') {
+    const controls = panel.value ? focusableControls(panel.value) : []
+    const current = controls.indexOf(document.activeElement as HTMLElement)
+    if (current < 0 || event.shiftKey && current === 0 || !event.shiftKey && current === controls.length - 1) {
+      event.preventDefault()
+      event.stopPropagation()
+      focusControl(event.shiftKey ? controls.at(-1) : controls[0])
+    }
+    return
+  }
+  const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-quick-row]') : null
+  if (!target) return
+  const buttons = resultButtons()
+  const current = buttons.indexOf(target)
+  const row = rows.value.find(row => rowKey(row) === target.dataset.quickRow)
+  if (!row || !['ArrowDown', 'ArrowUp', 'Home', 'End', 'ArrowLeft', 'ArrowRight', 'Enter', ' '].includes(event.key)) return
+  event.preventDefault()
+  event.stopPropagation()
+  if (event.key === 'ArrowDown') focusControl(buttons[(current + 1) % buttons.length])
+  else if (event.key === 'ArrowUp') {
+    if (current === 0) searchInput.value?.focus()
+    else focusControl(buttons[current - 1])
+  } else if (event.key === 'Home') focusControl(buttons[0])
+  else if (event.key === 'End') focusControl(buttons.at(-1))
+  else if (event.key === 'Enter' || event.key === ' ') { if (!event.repeat) target.click() }
+  else if (event.key === 'ArrowRight' && row.kind !== 'server') {
+    const path = row.kind === 'group' ? row.node.path : ''
+    if (isCollapsed(path)) toggleGroup(path)
+    else focusControl(buttons[current + 1])
+  } else if (event.key === 'ArrowLeft') {
+    const path = row.kind === 'server' ? row.node.group.trim() : row.kind === 'group' ? row.node.parent : ''
+    if (row.kind !== 'server' && !searching.value && !isCollapsed(row.kind === 'group' ? row.node.path : '')) {
+      toggleGroup(row.kind === 'group' ? row.node.path : '')
+    } else focusControl(buttons.find(button => button.dataset.quickRow === (path ? `group-${path}` : 'ungrouped')))
+  }
+}
 </script>
 
 <template>
@@ -159,7 +239,7 @@ function isActiveNode(node: ServerNode): boolean {
     </Transition>
 
     <Transition name="qconn">
-      <aside v-show="open" class="qconn" :aria-label="$t('快速连接')" data-ui="quick-connect">
+      <aside v-show="open" ref="panel" class="qconn" role="dialog" aria-modal="true" @keydown="onPanelKeydown" :aria-label="$t('快速连接')" data-ui="quick-connect">
         <div class="px-4 h-12 flex items-center justify-between shrink-0 inset-line-b">
           <div class="flex items-center gap-2">
             <Icon name="server" :size="16" extra-class="text-signal" />
@@ -175,7 +255,9 @@ function isActiveNode(node: ServerNode): boolean {
           <div class="search">
             <Icon name="search" :size="14" extra-class="search-ico" />
             <Input
+              ref="searchInput"
               v-model="keyword"
+              @keydown="onSearchKeydown"
               type="text"
               class="qconn-search-input"
               :placeholder="$t('搜索名称 / 主机 / 分组…')"
@@ -184,7 +266,7 @@ function isActiveNode(node: ServerNode): boolean {
           </div>
         </div>
 
-        <div class="flex-1 min-h-0 overflow-y-auto p-2.5 pt-0 flex flex-col gap-1.5">
+        <div ref="resultList" class="flex-1 min-h-0 overflow-y-auto p-2.5 pt-0 flex flex-col gap-1.5">
           <div v-if="servers.loading && !servers.servers.length" class="space-y-2">
             <div v-for="i in 4" :key="i" class="flex items-center gap-2 px-2.5 py-2">
               <div class="skel w-2 h-2 rounded-full"></div>
@@ -200,6 +282,7 @@ function isActiveNode(node: ServerNode): boolean {
             <button
               v-if="row.kind === 'ungrouped'"
               class="group-h qc-group"
+              :data-quick-row="rowKey(row)"
               :style="{paddingLeft: indent(0)}"
               @click="toggleGroup('')"
             >
@@ -210,6 +293,7 @@ function isActiveNode(node: ServerNode): boolean {
             <button
               v-else-if="row.kind === 'group'"
               class="group-h qc-group"
+              :data-quick-row="rowKey(row)"
               :style="{paddingLeft: indent(row.depth)}"
               :title="row.node.path"
               @click="toggleGroup(row.node.path)"
@@ -228,6 +312,7 @@ function isActiveNode(node: ServerNode): boolean {
             <button
               v-else
               class="qconn-item group"
+              :data-quick-row="rowKey(row)"
               :class="isActiveNode(row.node) ? 'active' : ''"
               :style="{paddingLeft: indent(row.depth)}"
               :title="t('连接 {0}', [row.node.name])"

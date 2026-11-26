@@ -35,6 +35,28 @@ function clampWidth(v: number): number {
   return Math.round(Math.min(Math.max(v, lo), hi))
 }
 
+function onKeydown(event: KeyboardEvent) {
+  if (event.altKey || event.ctrlKey || event.metaKey || dragging.value) return
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    event.stopPropagation()
+    emit('reset')
+    return
+  }
+  const step = event.shiftKey ? 40 : 10
+  const direction = props.side === 'left' ? 1 : -1
+  let width: number
+  if (event.key === 'ArrowLeft') width = props.width - direction * step
+  else if (event.key === 'ArrowRight') width = props.width + direction * step
+  else if (event.key === 'Home') width = Math.min(props.min, props.max)
+  else if (event.key === 'End') width = Math.max(props.min, props.max)
+  else return
+  event.preventDefault()
+  event.stopPropagation()
+  const next = clampWidth(width)
+  if (next !== props.width) emit('resize', next)
+}
+
 function onMousedown(e: MouseEvent) {
   if (e.button !== 0) return
   // 阻止默认行为：避免拖动时在终端 / 列表上拉出文本选区
@@ -86,11 +108,18 @@ onBeforeUnmount(() => {
     :data-dragging="dragging"
     :style="side === 'left' ? {left: inset} : {right: inset}"
     role="separator"
+    tabindex="0"
     aria-orientation="vertical"
-    :aria-label="label + t('宽度')"
-    :title="t('拖动调整') + label + t('宽度 · 双击复位')"
+    :aria-valuemin="Math.min(min, max)"
+    :aria-valuemax="Math.max(min, max)"
+    :aria-valuenow="clampWidth(width)"
+    :aria-valuetext="clampWidth(width) + ' px'"
+    aria-keyshortcuts="ArrowLeft ArrowRight Home End Enter"
+    :aria-label="t('{0}宽度', [label])"
+    :title="t('拖动调整{0}宽度；方向键微调，Shift 加速，Enter 或双击复位', [label])"
     @mousedown="onMousedown"
     @dblclick="emit('reset')"
+    @keydown="onKeydown"
   >
     <span class="width-resizer-line"></span>
   </div>
@@ -119,6 +148,7 @@ onBeforeUnmount(() => {
   transition: background var(--dur);
 }
 .width-resizer:hover .width-resizer-line,
+.width-resizer:focus-visible .width-resizer-line,
 .width-resizer[data-dragging='true'] .width-resizer-line {
   background: var(--primary-hover);
 }

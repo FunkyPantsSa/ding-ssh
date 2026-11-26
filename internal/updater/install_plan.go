@@ -2,6 +2,7 @@ package updater
 
 import (
 	"crypto/sha256"
+	"ding-ssh/internal/i18n"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -48,14 +49,14 @@ func readInstallPlan(path, expectedHash string) (Plan, []byte, error) {
 	if expectedHash != "" {
 		h := sha256.Sum256(b)
 		if !strings.EqualFold(hex.EncodeToString(h[:]), expectedHash) {
-			return p, nil, fmt.Errorf("安装计划校验失败，更新已取消")
+			return p, nil, fmt.Errorf("%s", i18n.T("安装计划校验失败，更新已取消"))
 		}
 	}
 	if err = json.Unmarshal(b, &p); err != nil {
-		return p, nil, fmt.Errorf("解析安装计划失败: %w", err)
+		return p, nil, fmt.Errorf(i18n.T("解析安装计划失败: %w"), err)
 	}
 	if !filepath.IsAbs(p.Source) || !filepath.IsAbs(p.Target) || p.PID <= 0 || filepath.Clean(p.Source) == filepath.Clean(p.Target) {
-		return p, nil, fmt.Errorf("安装计划路径或进程无效")
+		return p, nil, fmt.Errorf("%s", i18n.T("安装计划路径或进程无效"))
 	}
 	return p, b, nil
 }
@@ -69,7 +70,7 @@ func stageUpdate(p Plan) (staged string, err error) {
 	}
 	if info.IsDir() {
 		if runtime.GOOS != "darwin" {
-			return "", fmt.Errorf("更新程序不是普通文件")
+			return "", fmt.Errorf("%s", i18n.T("更新程序不是普通文件"))
 		}
 		staged, err = os.MkdirTemp(filepath.Dir(p.Target), ".ding-update-stage-")
 		if err != nil {
@@ -86,7 +87,7 @@ func stageUpdate(p Plan) (staged string, err error) {
 		return staged, nil
 	}
 	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("更新程序不是普通文件")
+		return "", fmt.Errorf("%s", i18n.T("更新程序不是普通文件"))
 	}
 	in, err := os.Open(p.Source)
 	if err != nil {
@@ -110,7 +111,7 @@ func stageUpdate(p Plan) (staged string, err error) {
 		return staged, err
 	}
 	if p.SourceSHA256 != "" && !strings.EqualFold(hex.EncodeToString(h.Sum(nil)), p.SourceSHA256) {
-		return staged, fmt.Errorf("待安装程序校验失败，原版本未修改")
+		return staged, fmt.Errorf("%s", i18n.T("待安装程序校验失败，原版本未修改"))
 	}
 	return staged, nil
 }
@@ -131,7 +132,7 @@ func installWithElevation(p Plan, planPath string, planBytes []byte, writable fu
 		return err
 	}
 	if len(p.SourceSHA256) != sha256.Size*2 {
-		return fmt.Errorf("待安装程序缺少校验信息，更新已取消")
+		return fmt.Errorf("%s", i18n.T("待安装程序缺少校验信息，更新已取消"))
 	}
 	h := sha256.Sum256(planBytes)
 	logx.Infof("[updater] 请求管理员权限安装更新: target=%q", p.Target)
@@ -141,23 +142,23 @@ func installWithElevation(p Plan, planPath string, planBytes []byte, writable fu
 func applyPlanWithRename(p Plan, rename func(string, string) error) error {
 	backup := p.Target + ".update-backup"
 	if _, err := os.Lstat(backup); err == nil {
-		return fmt.Errorf("已存在未清理的备份文件: %s", backup)
+		return fmt.Errorf(i18n.T("已存在未清理的备份文件: %s"), backup)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	staged, err := stageUpdate(p)
 	if err != nil {
-		return fmt.Errorf("准备替换程序失败: %w", err)
+		return fmt.Errorf(i18n.T("准备替换程序失败: %w"), err)
 	}
 	defer os.RemoveAll(staged)
 	if err = rename(p.Target, backup); err != nil {
-		return fmt.Errorf("备份旧版本失败: %w", err)
+		return fmt.Errorf(i18n.T("备份旧版本失败: %w"), err)
 	}
 	if err = rename(staged, p.Target); err != nil {
 		if rollbackErr := rename(backup, p.Target); rollbackErr != nil {
-			return fmt.Errorf("替换失败: %w；恢复旧版本失败（备份位于 %s）: %v", err, backup, rollbackErr)
+			return fmt.Errorf(i18n.T("替换失败: %w；恢复旧版本失败（备份位于 %s）: %v"), err, backup, rollbackErr)
 		}
-		return fmt.Errorf("替换失败，已恢复旧版本: %w", err)
+		return fmt.Errorf(i18n.T("替换失败，已恢复旧版本: %w"), err)
 	}
 	if err = os.RemoveAll(backup); err != nil {
 		logx.Warnf("[updater] 更新已安装，清理旧版本备份失败: backup=%q err=%v", backup, err)

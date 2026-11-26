@@ -5,12 +5,15 @@ import App from './App.vue'
 import {installDebugBridge} from './debug/bridge'
 import {installDebugUI} from './debug/ui'
 import {monitorFrontendRuntime} from './utils/runtime-status'
+import {installKeyboardNavigation} from './utils/keyboard-navigation'
 import 'virtual:ding-bundled-fonts.css'
 import './style.css'
 
 const app = createApp(App)
 app.use(createPinia())
 installI18n(app)
+const stopKeyboardNavigation = installKeyboardNavigation()
+if (import.meta.hot) import.meta.hot.dispose(stopKeyboardNavigation)
 void syncBackendLanguage().catch(console.error).finally(() => app.mount('#app'))
 
 // 调试模式的 UI 观测域：安装控制台 / window.onerror / Vue errorHandler 采集钩子

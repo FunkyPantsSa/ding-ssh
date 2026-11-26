@@ -27,10 +27,10 @@ import (
 var transferChunkLog = logx.NewSampler(0, 2*time.Second)
 
 // ErrSessionNotFound 会话不存在。
-var ErrSessionNotFound = errors.New(i18n.T("会话不存在"))
+var ErrSessionNotFound = i18n.NewError("会话不存在")
 
 // ErrTransferCancelled SFTP 传输被用户取消。
-var ErrTransferCancelled = errors.New(i18n.T("传输已取消"))
+var ErrTransferCancelled = i18n.NewError("传输已取消")
 
 // Notifier 事件通知回调，由上层（App）注入，实现与 Wails runtime 解耦。
 type Notifier func(eventName string, payload interface{})
@@ -342,7 +342,7 @@ func (m *Manager) SyncSftpToTerminal(sessionID, path string) error {
 	}
 	if s.server.JumpServerMode {
 		logx.Warnf("[sshx] JumpServer 模式不支持目录同步到终端: session=%s path=%s", sessionID, path)
-		return fmt.Errorf("JumpServer 模式不支持终端与 SFTP 目录同步")
+		return fmt.Errorf("%s", i18n.T("JumpServer 模式不支持终端与 SFTP 目录同步"))
 	}
 	cmd := "cd " + escapeShellPath(path) + "\n"
 	logx.Infof("[sshx] 目录同步(SFTP→终端): session=%s path=%s", sessionID, path)

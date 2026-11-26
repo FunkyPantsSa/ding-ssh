@@ -2,6 +2,7 @@ package sshx
 
 import (
 	"context"
+	"ding-ssh/internal/i18n"
 	"errors"
 	"sort"
 	"sync"
@@ -67,7 +68,7 @@ func (m *Manager) CollectSnapshot(ctx context.Context, id string) (models.SysInf
 		if result.Error != "" {
 			return models.SysInfoSnapshot{}, errors.New(result.Error)
 		}
-		return models.SysInfoSnapshot{}, errors.New("无系统指标输出；仅支持 Linux / procps top")
+		return models.SysInfoSnapshot{}, errors.New(i18n.T("无系统指标输出；仅支持 Linux / procps top"))
 	}
 	snap, _, counters, ips := parseSysInfoLoose(raw)
 	snap.SessionID = id
@@ -76,9 +77,9 @@ func (m *Manager) CollectSnapshot(ctx context.Context, id string) (models.SysInf
 		snap.NetIfaces = append(snap.NetIfaces, models.NetIface{Name: c.name, IP: ips[c.name]})
 	}
 	if wasTruncated {
-		snap.Error = "采集输出超过 1 MiB，部分字段不可用"
+		snap.Error = i18n.T("采集输出超过 1 MiB，部分字段不可用")
 	} else if !snap.TopAvailable {
-		snap.Error = "top 不可用或平台不支持；保留可解析的部分指标"
+		snap.Error = i18n.T("top 不可用或平台不支持；保留可解析的部分指标")
 	}
 	return snap, nil
 }

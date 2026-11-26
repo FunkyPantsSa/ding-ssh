@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {t as $t} from '../../i18n'
-import {nextTick, onMounted} from 'vue'
+import {onMounted} from 'vue'
+import {useMenuKeyboard} from '../../composables/useMenuKeyboard'
 import Icon from '../Icon.vue'
 import {useMenuPlacement} from '../../composables/useMenuPlacement'
 
@@ -15,42 +16,9 @@ const emit = defineEmits<{
 
 const {menuEl, menuStyle, place} = useMenuPlacement()
 
-function items(): HTMLElement[] {
-  return Array.from(menuEl.value?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])
-}
+const {onKeydown} = useMenuKeyboard(menuEl, () => emit('close'))
 
-function focusAt(index: number) {
-  const list = items()
-  if (!list.length) return
-  list[(index + list.length) % list.length].focus()
-}
-
-function onKeydown(event: KeyboardEvent) {
-  const list = items()
-  const current = list.indexOf(document.activeElement as HTMLElement)
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    emit('close')
-  } else if (event.key === 'ArrowDown') {
-    event.preventDefault()
-    focusAt(current + 1)
-  } else if (event.key === 'ArrowUp') {
-    event.preventDefault()
-    focusAt(current - 1)
-  } else if (event.key === 'Home') {
-    event.preventDefault()
-    focusAt(0)
-  } else if (event.key === 'End') {
-    event.preventDefault()
-    focusAt(list.length - 1)
-  }
-}
-
-onMounted(async () => {
-  await nextTick()
-  focusAt(0)
-  void place(props.position.x, props.position.y)
-})
+onMounted(() => { void place(props.position.x, props.position.y) })
 </script>
 
 <template>

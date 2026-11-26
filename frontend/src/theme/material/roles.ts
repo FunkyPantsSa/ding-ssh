@@ -202,7 +202,9 @@ export function deriveColorRoles(options: ColorRoleOptions): ColorRoles {
     direction,
   )
   const accentForeground = foregroundOn(accentBg)
-  const interactiveActiveBg = toneHex(accentPalette, tone === 'light' ? 90 : 30)
+  // Selection and badges are a gentle wash on the content surface. Reserve
+  // the full accent palette for primary actions, icons and focus indicators.
+  const interactiveActiveBg = composite(accentBg, surfaceBg, tone === 'light' ? 0.12 : 0.16)
   if (contrastRatio(accentBg, interactiveActiveBg) < 3) {
     accentBg = ensureTone(
       accentPalette,

@@ -4,13 +4,13 @@ import {t as $t} from '../i18n'
 import {t} from '../i18n'
 
 import {copyText as ClipboardSetText} from '../utils/clipboard'
-import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {computed, nextTick, onBeforeUnmount, onMounted, ref} from 'vue'
 import {OpenTerminalWindow, OpenSFTPWindow} from '../../bindings/ding-ssh/internal/apphost/app'
 import Icon from './Icon.vue'
 import SessionTabLabel from './SessionTabLabel.vue'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
-import {getElementRect} from '../utils/dom'
+import {getDisplayRect, getElementRect} from '../utils/dom'
 import {useMenuPlacement} from '../composables/useMenuPlacement'
 
 import type {SessionTab, SplitDirection} from '../types'
@@ -115,6 +115,7 @@ const splitSubmenu = ref(false)
 const splitCloseTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const draggingId = ref('')
 const dropState = ref<TabDropState | null>(null)
+let menuTrigger: HTMLElement | null = null
 
 function cancelSplitClose() {
   if (splitCloseTimer.value) {
@@ -142,22 +143,41 @@ function activate(clientId: string) {
   sessions.activateTab(clientId)
 }
 
-function openTabMenu(e: MouseEvent, clientId: string) {
+function openTabMenu(e: MouseEvent, clientId: string, trigger = e.currentTarget as HTMLElement | null) {
   e.preventDefault()
+  menuTrigger = trigger?.querySelector<HTMLElement>('.tab-main') ?? trigger
   tabMenu.value = {x: e.clientX, y: e.clientY, clientId}
   splitSubmenu.value = false
   // 渲染后按真实高度/宽度贴边或上移，避免贴底时被窗口裁掉
   void placeTabMenu(e.clientX, e.clientY)
+  void nextTick(() => tabMenuEl.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus())
+}
+
+function onTabKeydown(event: KeyboardEvent, clientId: string) {
+  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+  event.preventDefault()
+  event.stopPropagation()
+  const trigger = event.currentTarget as HTMLElement
+  const rect = getDisplayRect(trigger)
+  openTabMenu(new MouseEvent('contextmenu', {clientX: rect.left, clientY: rect.bottom}), clientId, trigger)
+}
+
+function dismissTabMenu() {
+  closeTabMenu()
+  menuTrigger?.focus()
 }
 
 /** 展开分屏子菜单：贴主菜单右侧，放不下时翻到左侧/上方。 */
-function openSplitSubmenu(e: MouseEvent) {
+function openSplitSubmenu(e: Event) {
   cancelSplitClose()
   splitSubmenu.value = true
   const row = e.currentTarget as HTMLElement | null
   if (!row) return
   const anchor = row.getBoundingClientRect()
   void placeSplitMenu(anchor.right + 4, anchor.top, {anchor})
+  if (e.type !== 'mouseenter') {
+    void nextTick(() => splitMenuEl.value?.querySelector<HTMLButtonElement>('button')?.focus())
+  }
 }
 
 function closeTabMenu() {
@@ -320,10 +340,10 @@ onBeforeUnmount(() => {
 
 <template>
   <!-- 顶栏横向标签栏（默认） -->
-  <div v-if="!side" class="tabs no-scrollbar" data-ui="tabbar">
+  <div v-if="!side" class="tabs no-scrollbar" data-ui="tabbar" data-keyboard-nav="horizontal" role="group" :aria-label="$t('会话')">
     <template v-for="item in tabItems" :key="item.key">
       <!-- 独立标签：点击切换、拖拽排序或拖到另一个标签上重合分屏 -->
-      <button
+      <div
         v-if="item.kind === 'tab'"
         class="tab group"
         :data-tab-id="item.tab.clientId"
@@ -337,25 +357,30 @@ onBeforeUnmount(() => {
         @click="activate(item.tab.clientId)"
         @auxclick.middle="close(item.tab.clientId)"
         @contextmenu.prevent="openTabMenu($event, item.tab.clientId)"
+        @keydown="onTabKeydown($event, item.tab.clientId)"
         draggable="true"
         @dragstart="onTabDragStart($event, item.tab.clientId)"
         @dragend="clearDragState"
         @dragover.prevent="onTabDragOver($event, item.tab.clientId)"
         @drop.prevent="onTabDrop($event, item.tab.clientId)"
       >
-        <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot[item.tab.status] ?? 'bg-[var(--muted-foreground)]'"></span>
-        <span class="truncate">{{ item.tab.serverName }}</span>
-        <span
+        <button type="button" class="tab-main" :aria-pressed="ui.view === 'workspace' && item.tab.clientId === sessions.activeId" :aria-label="item.tab.serverName">
+          <span aria-hidden="true" class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot[item.tab.status] ?? 'bg-[var(--muted-foreground)]'"></span>
+          <span class="truncate">{{ item.tab.serverName }}</span>
+        </button>
+        <button
+          type="button"
           class="tab-close"
           :title="$t('关闭')"
+          :aria-label="$t('关闭标签') + ': ' + item.tab.serverName"
           @click.stop="close(item.tab.clientId)"
         >
           <Icon name="close" :size="10" />
-        </span>
-      </button>
+        </button>
+      </div>
 
       <!-- 合并标签：代表整个分屏组；拖到空白处取消分屏 -->
-      <button
+      <div
         v-else
         class="tab group split-tab"
         :class="[splitActive ? 'active' : '']"
@@ -366,24 +391,28 @@ onBeforeUnmount(() => {
         @dragstart="onSplitGroupDragStart"
         @dragend="clearDragState"
       >
-        <Icon name="columns" :size="12" class="shrink-0 text-signal" />
-        <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot[item.status] ?? 'bg-[var(--muted-foreground)]'"></span>
-        <span class="truncate">{{ item.title }}</span>
-        <span
+        <button type="button" class="tab-main" :aria-pressed="ui.view === 'workspace' && splitActive" :aria-label="item.title">
+          <Icon name="columns" :size="12" class="shrink-0 text-signal" />
+          <span aria-hidden="true" class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot[item.status] ?? 'bg-[var(--muted-foreground)]'"></span>
+          <span class="truncate">{{ item.title }}</span>
+        </button>
+        <button
+          type="button"
           class="tab-close"
           :title="$t('关闭分屏组')"
+          :aria-label="$t('关闭分屏组') + ': ' + item.title"
           @click.stop="sessions.closeSplitGroup()"
         >
           <Icon name="close" :size="10" />
-        </span>
-      </button>
+        </button>
+      </div>
     </template>
 
     <div class="flex-1" @dragover.prevent @drop.prevent="onTabBarDrop"></div>
   </div>
 
   <!-- 左侧导航纵向标签列表 (Arc 风格会话树) -->
-  <div v-else class="side-tabs" data-ui="tabbar">
+  <div v-else class="side-tabs" data-ui="tabbar" data-keyboard-nav="vertical" role="group" :aria-label="$t('会话')">
     <div class="nav-label side-tabs-label">
       <span>{{ $t('会话') }}</span>
       <span v-if="sessions.tabs.length" class="nav-count">{{ sessions.tabs.length }}</span>
@@ -397,7 +426,7 @@ onBeforeUnmount(() => {
       ><Icon name="plus" :size="13" /></button>
     </div>
     <template v-for="item in tabItems" :key="item.key">
-      <button
+      <div
         v-if="item.kind === 'tab'"
         class="nav-item side-tab group"
         :data-tab-id="item.tab.clientId"
@@ -412,26 +441,29 @@ onBeforeUnmount(() => {
         @click="activate(item.tab.clientId)"
         @auxclick.middle="close(item.tab.clientId)"
         @contextmenu.prevent="openTabMenu($event, item.tab.clientId)"
+        @keydown="onTabKeydown($event, item.tab.clientId)"
         draggable="true"
         @dragstart="onTabDragStart($event, item.tab.clientId)"
         @dragend="clearDragState"
         @dragover.prevent="onTabDragOver($event, item.tab.clientId)"
         @drop.prevent="onTabDrop($event, item.tab.clientId)"
       >
-        <span class="nav-ico side-dot">
+        <button type="button" class="tab-main" :aria-pressed="ui.view === 'workspace' && item.tab.clientId === sessions.activeId" :aria-label="item.tab.serverName">
+        <span class="nav-ico side-dot" aria-hidden="true">
           <span class="w-1.5 h-1.5 rounded-full" :class="statusDot[item.tab.status] ?? 'bg-[var(--muted-foreground)]'"></span>
         </span>
         <span class="side-initial" :class="statusInk[item.tab.status] ?? 'text-[var(--muted-foreground)]'">
           {{ item.tab.serverName.slice(0, 1) }}
         </span>
         <SessionTabLabel :text="item.tab.serverName" />
-        <span class="tab-close" :title="$t('关闭')" @click.stop="close(item.tab.clientId)">
+        </button>
+        <button type="button" class="tab-close" :title="$t('关闭')" :aria-label="$t('关闭标签') + ': ' + item.tab.serverName" @click.stop="close(item.tab.clientId)">
           <Icon name="close" :size="10" />
-        </span>
-      </button>
+        </button>
+      </div>
 
       <!-- 分屏组：合并为一个条目；拖到列表空白处取消分屏 -->
-      <button
+      <div
         v-else
         class="nav-item side-tab group"
         :class="[splitActive ? 'active' : '']"
@@ -442,12 +474,14 @@ onBeforeUnmount(() => {
         @dragstart="onSplitGroupDragStart"
         @dragend="clearDragState"
       >
-        <Icon name="columns" :size="15" extra-class="nav-ico text-signal" />
-        <SessionTabLabel :text="item.title" />
-        <span class="tab-close" :title="$t('关闭分屏组')" @click.stop="sessions.closeSplitGroup()">
+        <button type="button" class="tab-main" :aria-pressed="ui.view === 'workspace' && splitActive" :aria-label="item.title">
+          <Icon name="columns" :size="15" extra-class="nav-ico text-signal" />
+          <SessionTabLabel :text="item.title" />
+        </button>
+        <button type="button" class="tab-close" :title="$t('关闭分屏组')" :aria-label="$t('关闭分屏组') + ': ' + item.title" @click.stop="sessions.closeSplitGroup()">
           <Icon name="close" :size="10" />
-        </span>
-      </button>
+        </button>
+      </div>
     </template>
     <div class="side-tabs-fill" @dragover.prevent @drop.prevent="onTabBarDrop"></div>
   </div>
@@ -458,9 +492,11 @@ onBeforeUnmount(() => {
       ref="tabMenuEl"
       class="menu-pop neo fixed"
       data-ui="context-menu"
+      data-keyboard-nav="vertical"
       :style="tabMenuStyle"
       @contextmenu.prevent
       @click.stop
+      @keydown.esc.stop.prevent="dismissTabMenu"
     >
       <button class="!flex items-center gap-1.5" @click="duplicateTab(tabMenu.clientId)">
         <Icon name="copy" :size="13" />{{ $t('复制终端') }}</button>
@@ -476,7 +512,7 @@ onBeforeUnmount(() => {
       <div class="divider-h my-1"></div>
       <!-- 分屏子菜单 -->
       <div class="relative" @mouseenter="openSplitSubmenu" @mouseleave="scheduleSplitClose">
-        <button class="!flex items-center gap-1.5 justify-between w-full">
+        <button class="!flex items-center gap-1.5 justify-between w-full" type="button" aria-haspopup="true" :aria-expanded="splitSubmenu" @click="openSplitSubmenu" @keydown.right.stop.prevent="openSplitSubmenu">
           <span class="flex items-center gap-1.5">
             <Icon name="columns" :size="13" />{{ $t('分屏') }}</span>
           <Icon name="chevron-right" :size="12" class="text-mist" />
@@ -486,9 +522,11 @@ onBeforeUnmount(() => {
           ref="splitMenuEl"
           class="menu-pop neo fixed split-submenu"
           data-ui="context-menu"
+          data-keyboard-nav="vertical"
           :style="splitMenuStyle"
           @mouseenter="cancelSplitClose()"
           @mouseleave="scheduleSplitClose"
+          @keydown.left.stop.prevent="splitSubmenu = false; ($event.currentTarget as HTMLElement).parentElement?.querySelector<HTMLButtonElement>('button')?.focus()"
         >
           <button @click="splitTab(tabMenu.clientId, 'left')">{{ $t('分屏到左侧') }}</button>
           <button @click="splitTab(tabMenu.clientId, 'right')">{{ $t('分屏到右侧') }}</button>
@@ -513,3 +551,22 @@ onBeforeUnmount(() => {
     </div>
   </Teleport>
 </template>
+
+<style scoped>
+.tab-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  align-self: stretch;
+  gap: inherit;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tab-close { padding: 0; border: 0; }
+:is(.tab, .side-tab):focus-within .tab-close { opacity: 1; }
+</style>

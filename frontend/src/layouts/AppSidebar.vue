@@ -74,7 +74,7 @@ function onBrandClick() {
 </script>
 
 <template>
-  <aside ref="sidebar" class="nav" :class="{'nav-collapsed': visuallyCollapsed, 'nav-preview': collapsed && preview}" @pointerdown="keyboardFocus = false" @keydown.tab="keyboardFocus = true" @pointerenter="enterSidebar" @pointerleave="leaveSidebar" @focusout="leaveFocus" @dragstart="dragging = true" @dragend="finishDrag" @drop="finishDrag" @keydown.esc="preview = false" :aria-label="$t('主导航')" data-ui="sidebar">
+  <aside ref="sidebar" class="nav" data-keyboard-nav="vertical" :class="{'nav-collapsed': visuallyCollapsed, 'nav-preview': collapsed && preview}" @pointerdown="keyboardFocus = false" @keydown.tab="keyboardFocus = true" @pointerenter="enterSidebar" @pointerleave="leaveSidebar" @focusout="leaveFocus" @dragstart="dragging = true" @dragend="finishDrag" @drop="finishDrag" @keydown.esc="preview = false" :aria-label="$t('主导航')" data-ui="sidebar">
     <div class="nav-brand">
       <button
         class="nav-mark"
@@ -195,7 +195,7 @@ function onBrandClick() {
     </nav>
 
     <div v-if="settingsPlacement === 'bottom' && !visuallyCollapsed" class="nav-foot-capsule">
-      <button class="nav-foot-link" data-ui="nav-item-settings-bottom" :class="ui.view === 'settings' ? 'active' : ''" @click="ui.showSettings()" :title="$t('设置')">
+      <button class="nav-foot-link" data-ui="nav-item-settings-bottom" :class="ui.view === 'settings' ? 'active' : ''" :aria-current="ui.view === 'settings' ? 'page' : undefined" @click="ui.showSettings()" :title="$t('设置')">
         <Icon name="settings" :size="15" />
         <span>{{ $t('设置') }}</span>
       </button>

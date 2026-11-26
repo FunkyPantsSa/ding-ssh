@@ -58,7 +58,7 @@ function onMainKeydown(event: KeyboardEvent) {
       </span>
       <ServerConfigSummary :node="node" :status="status" />
     </div>
-    <div class="server-row-operations">
+    <div class="server-row-operations" data-keyboard-nav="horizontal">
     <button
       v-if="badge"
       type="button"
@@ -159,7 +159,7 @@ function onMainKeydown(event: KeyboardEvent) {
   border: 0;
 }
 .server-row-main:focus-visible {
-  outline: 2px solid var(--border-focus);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }

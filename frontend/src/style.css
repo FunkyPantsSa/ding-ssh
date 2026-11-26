@@ -54,6 +54,7 @@ body {
 }
 
 button, input, select, textarea { font: inherit; color: inherit; }
+button, [type="button"], [type="reset"], [type="submit"] { appearance: none; -webkit-appearance: none; }
 button { border: 0; background: none; cursor: pointer; }
 input, select, textarea { outline: none; }
 a { color: inherit; text-decoration: none; }
@@ -64,9 +65,14 @@ img, svg { display: block; max-width: 100%; }
 :focus-visible {
   outline: 2px solid var(--focus-ring-color);
   outline-offset: 2px;
-  border-radius: var(--radius-sm);
 }
 :focus:not(:focus-visible) { outline: none; }
+
+/* Keep form focus inside the control so clipped containers never hide it.
+   Background tokens must not be used as opaque outer focus halos. */
+:is(.ui-input,.ui-select,.ui-textarea,.input,.select,.textarea):focus-visible {
+  outline-offset: -2px;
+}
 
 /* ============================================================
    Arc Ambient Dual-Tone Glow Backdrops
@@ -468,13 +474,13 @@ html[data-tone="light"] .nav-label {
   gap: 10px;
   padding: 0 12px 0 14px;
   border-radius: 0 !important;
-  background: rgba(255, 255, 255, 0.02) !important;
+  background: var(--toolbar-bg) !important;
   box-shadow: none !important;
   border-bottom: 1px solid var(--border-subtle) !important;
   flex-shrink: 0;
 }
 html[data-tone="light"] .topbar {
-  background: rgba(0, 0, 0, 0.02) !important;
+  background: var(--toolbar-bg) !important;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
 }
 .topbar h1 {
@@ -731,11 +737,6 @@ html[data-tone="light"] .topbar-chip-btn.active {
   cursor: not-allowed;
 }
 .input:hover, .select:hover, .textarea:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
-.input:focus, .select:focus, .textarea:focus {
-  outline: none;
-  background: var(--hover);
-  box-shadow: inset 0 0 0 1px var(--primary-hover), 0 0 0 3px var(--primary-weak);
-}
 .input-sm { height: 30px; font-size: 12.5px; }
 .select {
   appearance: none;
@@ -1243,7 +1244,7 @@ html[data-tone="light"] .topbar-chip-btn.active {
   overflow: auto;
   background: var(--surface-overlay-bg);
   border-radius: var(--radius-md);
-  box-shadow: inset 0 0 0 1px var(--border-strong), var(--shadow-pop);
+  box-shadow: inset 0 0 0 1px var(--border-default), var(--shadow-pop);
 }
 .modal.wide { width: min(560px, 100%); padding: 0; }
 .modal h3 { font-size: 15px; font-weight: 600; color: var(--foreground); }
@@ -1255,7 +1256,7 @@ html[data-tone="light"] .topbar-chip-btn.active {
   font-size: 12.5px;
   background: var(--surface-overlay-bg);
   border-radius: var(--radius-md);
-  box-shadow: inset 0 0 0 1px var(--border-strong), var(--shadow-pop);
+  box-shadow: inset 0 0 0 1px var(--border-default), var(--shadow-pop);
 }
 .menu-pop button {
   display: flex;
@@ -1267,7 +1268,7 @@ html[data-tone="light"] .topbar-chip-btn.active {
   color: var(--foreground);
 }
 .menu-pop button:hover { background: var(--interactive-hover-bg); color: var(--text-primary); }
-.menu-pop button:focus-visible { outline:none; background:var(--interactive-hover-bg); color:var(--text-primary); box-shadow:inset 0 0 0 1px var(--border-strong); }
+.menu-pop button:focus-visible { outline-offset:-2px; background:var(--interactive-hover-bg); color:var(--text-primary); }
 .menu-pop button.danger { color: var(--destructive); }
 .menu-pop button.danger:hover { background: var(--destructive-weak-hover); }
 .menu-pop button.is-active { background: var(--interactive-active-bg); color: var(--accent-bg); }
@@ -1480,8 +1481,8 @@ html[data-tone="light"] .topbar-chip-btn.active {
   flex-direction: column;
   min-height: 0;
   border-radius: var(--radius-card, 16px);
-  border: var(--glass-border);
-  background: rgba(22, 22, 28, 0.85);
+  border: 1px solid color-mix(in srgb, var(--accent-border) 32%, var(--border-default));
+  background: var(--surface-overlay-bg);
   backdrop-filter: blur(var(--glass-overlay-blur, 28px)) saturate(160%);
   -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 28px)) saturate(160%);
   box-shadow: var(--shadow-floating);
@@ -1504,7 +1505,7 @@ html[data-tone="light"] .topbar-chip-btn.active {
 }
 .qconn-item:hover {
   background: var(--interactive-hover-bg, rgba(255, 255, 255, 0.08));
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--border-subtle);
 }
 .qconn-item.active {
   background: var(--arc-active-tab-gradient, var(--interactive-active-bg));
@@ -1641,7 +1642,7 @@ html[data-tone="light"] ::-webkit-scrollbar-thumb:hover {
       near-opaque.
    5. Fallback: unsupported platforms receive solid tokens automatically.
    ============================================================ */
-.topbar,.status-bar{background:transparent}
+.topbar,.status-bar{background:var(--toolbar-bg)}
 /* Tier 2: one wide, low-strength diagonal ramp for the whole workspace.
    Cards, fields, dialogs and the terminal sit on their own solid tokens. */
 .app-layout-main{background:var(--workspace-gradient,var(--workspace-bg))}
@@ -1650,36 +1651,29 @@ html[data-tone="light"] ::-webkit-scrollbar-thumb:hover {
 .server-list-panel{background:var(--surface-bg)}
 .panel,.neo,.neo-flat{background:var(--surface-bg)}
 
-html[data-glass="on"] .app-layout-main{background:transparent}
-html[data-glass="on"] .app-layout-main:has(.workspace-home){background:transparent}
-
 html[data-glass="on"] :is(.nav, .app-layout-content){
-  backdrop-filter: blur(var(--glass-shell-blur, 24px)) saturate(160%);
-  -webkit-backdrop-filter: blur(var(--glass-shell-blur, 24px)) saturate(160%);
+  backdrop-filter: blur(var(--glass-shell-blur, 24px));
+  -webkit-backdrop-filter: blur(var(--glass-shell-blur, 24px));
 }
-html[data-glass="on"] :is(.home-panel, .server-sidebar, .server-list-panel, .neo, .set-block, .page-card, .theme-editor, .theme-preview){
-  background: rgba(255, 255, 255, 0.055);
-  backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
-  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
-  border: var(--glass-border-subtle);
+html[data-glass="on"] :is(.home-panel, .server-sidebar, .server-list-panel, .neo, .set-block, .page-card, .theme-editor, .theme-preview, .font-editor, .font-preview){
+  background: var(--surface-bg);
+  backdrop-filter: blur(var(--glass-overlay-blur, 20px));
+  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 20px));
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card, 14px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: var(--shadow-sm);
 }
-html[data-tone="light"][data-glass="on"] :is(.home-panel, .server-sidebar, .server-list-panel, .neo, .set-block, .page-card, .theme-editor, .theme-preview){
-  background: rgba(255, 255, 255, 0.58);
-  backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
-  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
-  border: 1px solid rgba(0, 0, 0, 0.07);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+html[data-glass="on"] .server-sidebar{
+  background: var(--sidebar-secondary-bg);
+}
+html[data-glass="on"] :is(.theme-editor, .theme-preview, .font-editor, .font-preview){
+  background: var(--surface-raised-bg);
 }
 html[data-glass="on"] .tool{
-  background: rgba(255, 255, 255, 0.055);
-  backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
-  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 20px)) saturate(160%);
+  background: var(--surface-bg);
+  backdrop-filter: blur(var(--glass-overlay-blur, 20px));
+  -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 20px));
   border-radius: var(--radius-layout);
-}
-html[data-tone="light"][data-glass="on"] .tool{
-  background: rgba(255, 255, 255, 0.58);
 }
 .app-layout-content {
   grid-column: 2;
@@ -1696,13 +1690,13 @@ html[data-tone="dark"] .app-layout-content,
 html:not([data-tone="light"]) .app-layout-content {
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   border-radius: 10px !important;
-  background: var(--surface-bg, rgba(18, 18, 22, 0.72));
+  background: transparent;
   backdrop-filter: blur(var(--glass-shell-blur, 16px)) saturate(140%);
   -webkit-backdrop-filter: blur(var(--glass-shell-blur, 16px)) saturate(140%);
   box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.35) !important;
 }
 html[data-tone="light"] .app-layout-content {
-  background: var(--surface-bg, rgba(255, 255, 255, 0.72));
+  background: transparent;
   border: 1px solid rgba(0, 0, 0, 0.07) !important;
   border-radius: 10px !important;
   backdrop-filter: blur(var(--glass-shell-blur, 20px)) saturate(150%);
@@ -1711,13 +1705,13 @@ html[data-tone="light"] .app-layout-content {
 }
 html[data-glass="on"][data-tone="dark"] .app-layout-content,
 html[data-glass="on"]:not([data-tone="light"]) .app-layout-content {
-  background: var(--surface-bg, rgba(18, 18, 22, 0.65));
+  background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   border-radius: 10px !important;
   box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.35) !important;
 }
 html[data-glass="on"][data-tone="light"] .app-layout-content {
-  background: var(--surface-bg, rgba(255, 255, 255, 0.65));
+  background: transparent;
   border: 1px solid rgba(0, 0, 0, 0.07) !important;
   border-radius: 10px !important;
   box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.06), 0 2px 8px -2px rgba(0, 0, 0, 0.04) !important;
@@ -1728,11 +1722,11 @@ html[data-glass="on"][data-tone="light"] .app-layout-content {
 }
 html[data-tone="dark"] .status-bar,
 html:not([data-tone="light"]) .status-bar {
-  background: rgba(0, 0, 0, 0.20) !important;
+  background: var(--toolbar-bg) !important;
   border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
 }
 html[data-tone="light"] .status-bar {
-  background: rgba(0, 0, 0, 0.03) !important;
+  background: var(--toolbar-bg) !important;
   border-top: 1px solid rgba(0, 0, 0, 0.06) !important;
 }
 .terminal-slot {
@@ -1748,47 +1742,37 @@ html[data-tone="light"] .status-bar {
 .app-shell.platform-windows{border-radius:0;-webkit-font-smoothing:auto}
 .platform-windows .terminal-theme{-webkit-font-smoothing:auto;text-rendering:auto}
 
-/* Floating surfaces may blur app content behind them (never the desktop).
-   Their own tint token is near-opaque so text stays readable over any page. */
-:root body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover,.update-panel){
-  background: rgba(22, 22, 28, 0.80);
+/* Floating surfaces consume the theme engine's overlay token (--surface-overlay-bg)
+   and themed border tokens across solid, soft, and clear materials in both tones. */
+:root body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover,.update-panel,.completion-panel){
+  background: var(--surface-overlay-bg);
   backdrop-filter: blur(var(--glass-overlay-blur, 28px)) saturate(160%);
   -webkit-backdrop-filter: blur(var(--glass-overlay-blur, 28px)) saturate(160%);
-  border: var(--glass-border);
+  border: 1px solid color-mix(in srgb, var(--accent-border) 32%, var(--border-default));
   border-radius: var(--radius-card, 16px);
   box-shadow: var(--shadow-floating);
-}
-html[data-tone="light"] body :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover,.update-panel){
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid rgba(0, 0, 0, 0.10);
-  box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.12);
 }
 /* Update panel ensures real Gaussian blur even if glass blur is low, falling back to opaque in solid mode */
 :root body .update-panel{
   backdrop-filter: blur(max(var(--glass-overlay-blur, 28px), 24px)) saturate(160%);
   -webkit-backdrop-filter: blur(max(var(--glass-overlay-blur, 28px), 24px)) saturate(160%);
 }
-html[data-material="solid"] body .update-panel{
-  background: var(--surface-overlay-bg);
-}
-/* Config popover: same overlay material as menus, but a softer edge, deeper lift and
-   a faint vertical sheen so the card reads as a deliberate floating surface. */
+/* Config popover: same themed overlay material with a slightly stronger accent edge. */
 :root body .config-popover.config-popover{
-  border-color:var(--border-default);
-  background-image:linear-gradient(180deg,transparent 58%,rgb(9 12 16 / 3%));
-  box-shadow:var(--shadow-pop),0 24px 56px -24px rgb(9 12 16 / 26%);
+  border-color: color-mix(in srgb, var(--accent-border) 42%, var(--border-default));
+  box-shadow: var(--shadow-floating);
 }
 
 .menu-pop{max-width:min(560px,calc(100vw - 24px));overflow-x:hidden}
 .menu-pop button{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* Solid mode and platforms without a native backdrop get no compositor filter. */
-html[data-material="solid"] :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover,.update-panel,.tool,.nav,.topbar,.status-bar,.app-layout-main){
+html[data-material="solid"] :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover,.update-panel,.completion-panel,.sudo-popover,.search-select-list,.tunnel-menu-panel,.terminal-search,.ui-tooltip > span,.tool,.nav,.topbar,.status-bar,.app-layout-main){
   backdrop-filter:none;
   -webkit-backdrop-filter:none;
 }
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover,.update-panel){backdrop-filter:none;-webkit-backdrop-filter:none}
+  :is(.menu-pop,.qconn,.modal,.ui-dialog,.overlay-backdrop > .neo,.toast-item,.config-popover,.update-panel,.completion-panel,.sudo-popover,.search-select-list,.tunnel-menu-panel,.terminal-search,.ui-tooltip > span){backdrop-filter:none;-webkit-backdrop-filter:none}
 }
 
 /* Tool panels share the shell material, including SFTP, history and system info. */

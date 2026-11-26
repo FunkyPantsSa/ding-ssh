@@ -1,6 +1,7 @@
 package updater
 
 import (
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"golang.org/x/sys/windows/registry"
 	"net/url"
@@ -21,7 +22,7 @@ func systemProxy() (*url.URL, error) {
 		pac, _, _ := k.GetStringValue("AutoConfigURL")
 		if pac != "" {
 			logx.Warnf("[updater] 系统使用 PAC 代理，无法自动解析，需配置 HTTPS_PROXY 或手动系统代理")
-			return nil, fmt.Errorf("系统使用 PAC，请配置 HTTPS_PROXY 或手动系统代理")
+			return nil, fmt.Errorf("%s", i18n.T("系统使用 PAC，请配置 HTTPS_PROXY 或手动系统代理"))
 		}
 		logx.Debugf("[updater] 系统代理未启用")
 		return nil, nil
@@ -51,7 +52,7 @@ func systemProxy() (*url.URL, error) {
 	}
 	if server == "" {
 		logx.Warnf("[updater] 系统代理已启用但地址为空")
-		return nil, fmt.Errorf("系统代理地址为空")
+		return nil, fmt.Errorf("%s", i18n.T("系统代理地址为空"))
 	}
 	if !strings.Contains(server, "://") {
 		server = "http://" + server

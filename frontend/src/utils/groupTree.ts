@@ -1,3 +1,5 @@
+import {t} from '../i18n'
+
 // 分组路径工具：嵌套分组以完整路径作为唯一标识（例如 生产环境/华东/杭州）。
 // 这里只负责展示层的建树、计数与过滤；路径合法性的最终裁决在后端。
 
@@ -212,17 +214,17 @@ export function retargetGroupPath(path: string, oldPath: string, newPath: string
 /** 判断分组路径是否合法（仅用于前端即时校验，最终以后端为准）。 */
 export function validateGroupNameInput(raw: string, maxDepth = 6, maxSegment = 32): string {
   const value = raw.trim()
-  if (!value) return '请输入分组名称'
-  if (value.startsWith('/') || value.endsWith('/')) return '分组名称不能以 / 开头或结尾'
-  if (value.includes('//')) return '分组路径不能包含空层级'
+  if (!value) return t('请输入分组名称')
+  if (value.startsWith('/') || value.endsWith('/')) return t('分组名称不能以 / 开头或结尾')
+  if (value.includes('//')) return t('分组路径不能包含空层级')
   const parts = value.split('/')
-  if (parts.length > maxDepth) return `分组层级不能超过 ${maxDepth} 级`
+  if (parts.length > maxDepth) return t('分组层级不能超过 {0} 级', [maxDepth])
   for (const part of parts) {
     const segment = part.trim()
-    if (!segment) return '分组路径不能包含空层级'
-    if (segment === '.' || segment === '..') return '分组名称不能是 . 或 ..'
-    if ([...segment].length > maxSegment) return `每级分组名称不能超过 ${maxSegment} 个字符`
-    if (/[\u0000-\u001f\u007f]/.test(segment)) return '分组名称不能包含控制字符'
+    if (!segment) return t('分组路径不能包含空层级')
+    if (segment === '.' || segment === '..') return t('分组名称不能是 . 或 ..')
+    if ([...segment].length > maxSegment) return t('每级分组名称不能超过 {0} 个字符', [maxSegment])
+    if (/[\u0000-\u001f\u007f]/.test(segment)) return t('分组名称不能包含控制字符')
   }
   return ''
 }

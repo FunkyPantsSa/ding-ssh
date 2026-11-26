@@ -4,6 +4,7 @@ import {t as $t} from '../../../i18n'
 import {t} from '../../../i18n'
 
 import {nextTick, onBeforeUnmount, ref, useId, watch} from 'vue'
+import {focusableControls, focusControl, isAvailableControl, navigateKeyboardFocus} from '../../../utils/keyboard-navigation'
 
 const open = defineModel<boolean>({default: false})
 const props = withDefaults(defineProps<{title?: string; closeOnOverlay?: boolean; closeOnEscape?: boolean; showClose?: boolean; closeDisabled?: boolean; width?: number | string; initialFocus?: string; footerNavigation?: boolean}>(), {
@@ -18,31 +19,24 @@ const panel = ref<HTMLElement | null>(null)
 const titleId = `ui-dialog-title-${useId()}`
 let lastActive: HTMLElement | null = null
 
-const FOCUSABLE = [
-  'a[href]',
-  'button:not([disabled])',
-  'input:not([disabled]):not([type="hidden"])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(',')
-
 function focusables(): HTMLElement[] {
-  if (!panel.value) return []
-  return Array.from(panel.value.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-    (el) => !el.hasAttribute('inert') && !el.hasAttribute('hidden') && el.getAttribute('aria-hidden') !== 'true',
-  )
+  return panel.value ? focusableControls(panel.value) : []
+}
+
+function isTopDialog() {
+  const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')).filter(isAvailableControl)
+  return dialogs.at(-1) === panel.value
 }
 
 async function focusInitial() {
   await nextTick()
+  if (!open.value || !isTopDialog()) return
   const explicit = props.initialFocus ? panel.value?.querySelector<HTMLElement>(props.initialFocus) : null
   // 默认把焦点放到第一个表单控件；没有表单时才落到关闭按钮 / 第一个可交互元素。
-  const formControl = panel.value?.querySelector<HTMLElement>(
-    'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [autofocus]',
-  )
-  const target = explicit ?? formControl ?? focusables()[0] ?? panel.value
-  target?.focus()
+  const items = focusables()
+  const formControl = items.find(el => el.matches('input,select,textarea,[autofocus]'))
+  const target = (explicit && isAvailableControl(explicit) ? explicit : null) ?? formControl ?? items[0] ?? panel.value
+  focusControl(target)
 }
 
 function close() {
@@ -52,22 +46,24 @@ function close() {
 }
 
 function onKey(e: KeyboardEvent) {
+  if (!open.value || !isTopDialog() || e.defaultPrevented) return
   if (e.key === 'Escape') {
-    if (e.isComposing || (e.target instanceof HTMLElement && e.target.matches('[role=combobox][aria-expanded=true]'))) return
+    if (e.isComposing || (e.target instanceof HTMLElement && e.target.closest('select,[role="menu"],[role="listbox"],[role="combobox"][aria-expanded="true"]'))) return
     e.preventDefault()
     e.stopPropagation()
     if (props.closeOnEscape) close()
     return
   }
+  const footerOnly = props.footerNavigation && !focusables().some(el => el.matches('input,select,textarea'))
   if (props.footerNavigation && panel.value && !e.isComposing
-    && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab'].includes(e.key)) {
-    const buttons = Array.from(panel.value.querySelectorAll<HTMLButtonElement>('footer button:not([disabled])'))
+    && (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) || (footerOnly && e.key === 'Tab'))) {
+    const buttons = focusableControls(panel.value).filter(el => el.matches('footer button'))
     const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
     if (index >= 0 && buttons.length) {
       e.preventDefault()
       e.stopPropagation()
       const previous = e.key === 'ArrowLeft' || e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)
-      buttons[(index + (previous ? -1 : 1) + buttons.length) % buttons.length]?.focus()
+      focusControl(buttons[(index + (previous ? -1 : 1) + buttons.length) % buttons.length])
       return
     }
   }
@@ -98,7 +94,9 @@ function onKey(e: KeyboardEvent) {
 
 function cleanup() {
   document.removeEventListener('keydown', onKey, true)
-  lastActive?.focus?.()
+  if (lastActive && (!document.activeElement || document.activeElement === document.body || panel.value?.contains(document.activeElement))) {
+    focusControl(lastActive)
+  }
   lastActive = null
 }
 
@@ -130,6 +128,8 @@ onBeforeUnmount(cleanup)
         :aria-labelledby="title ? titleId : undefined"
         :aria-label="title ? undefined : t('对话框')"
         tabindex="-1"
+        data-keyboard-nav="grid"
+        @keydown="navigateKeyboardFocus($event, panel!)"
         :style="{width: typeof width === 'number' ? `min(${width}px, 100%)` : width}"
       >
         <header v-if="title || $slots.header">
@@ -137,7 +137,7 @@ onBeforeUnmount(cleanup)
           <button v-if="showClose" type="button" class="ui-dialog-close" :aria-label="$t('关闭对话框')" @click="close">×</button>
         </header>
         <div class="ui-dialog-body"><slot /></div>
-        <footer v-if="$slots.footer"><slot name="footer" /></footer>
+        <footer v-if="$slots.footer" data-keyboard-nav="horizontal"><slot name="footer" /></footer>
       </section>
     </div>
   </Teleport>
@@ -145,10 +145,9 @@ onBeforeUnmount(cleanup)
 
 <style scoped>
 .ui-dialog-root{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:var(--space-4);background:var(--overlay)}
-.ui-dialog{width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:var(--space-5);background:var(--surface-overlay-bg);backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);-webkit-backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);border:1px solid var(--border-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow-pop)}
+.ui-dialog{width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:var(--space-5);background:var(--surface-overlay-bg);backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);-webkit-backdrop-filter:blur(var(--glass-overlay-blur,0px)) saturate(135%);border:1px solid color-mix(in srgb,var(--accent-border) 32%,var(--border-default));border-radius:var(--radius-lg);box-shadow:var(--shadow-pop)}
 .ui-dialog:focus{outline:none}
-.ui-dialog:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
-.ui-dialog :deep(footer button:focus){outline:none;box-shadow:0 0 0 3px var(--primary-weak);border-color:var(--primary-hover)}
+.ui-dialog:focus-visible{outline:2px solid var(--focus-ring-color);outline-offset:2px}
 header,footer{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)}
 footer{justify-content:flex-end;margin-top:var(--space-5)}
 h2{margin:0;font-size:var(--text-md);color:var(--foreground)}

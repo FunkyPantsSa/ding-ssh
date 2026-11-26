@@ -46,6 +46,34 @@ beforeEach(() => {
 })
 
 describe('SFTP flow', () => {
+  it('selects files with arrows, opens folders with Enter, and returns from the keyboard menu', async () => {
+    vi.mocked(sshService.sftpList).mockImplementation(async (_sid,dir) => dir === '/home'
+      ? [{name:'logs',path:'/home/logs',isDir:true,size:0,modTime:0},{name:'notes.txt',path:'/home/notes.txt',isDir:false,size:1,modTime:0}]
+      : [{name:'app.log',path:'/home/logs/app.log',isDir:false,size:2,modTime:0}])
+    const pinia=createPinia();setActivePinia(pinia)
+    const wrapper=mount(SftpPanel,{attachTo:document.body,props:{tab:{...tab,sftpPath:'/home'}},global:{plugins:[pinia]}})
+    await flushPromises()
+    const rows=wrapper.findAll<HTMLElement>('[data-testid="sftp-entry"]')
+    rows[0]!.element.focus()
+    await rows[0]!.trigger('keydown',{key:'ArrowDown'})
+    expect(document.activeElement).toBe(rows[1]!.element)
+    expect(rows[1]!.attributes('aria-pressed')).toBe('true')
+    await rows[1]!.trigger('keydown',{key:'ContextMenu'})
+    await flushPromises()
+    const menu=document.querySelector<HTMLElement>('[role="menu"][data-ui="context-menu"]')!
+    expect(menu.contains(document.activeElement)).toBe(true)
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))
+    await flushPromises()
+    expect(document.querySelector('[role="menu"][data-ui="context-menu"]')).toBeNull()
+    expect(document.activeElement).toBe(rows[1]!.element)
+    rows[0]!.element.focus()
+    await rows[0]!.trigger('keydown',{key:'Enter'})
+    await flushPromises()
+    expect(sshService.sftpList).toHaveBeenCalledWith('sess-1','/home/logs')
+    expect((document.activeElement as HTMLElement)?.dataset.path).toBe('/home/logs/app.log')
+    wrapper.unmount()
+  })
+
   it('lists the remote directory and navigates into a folder with terminal sync', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)

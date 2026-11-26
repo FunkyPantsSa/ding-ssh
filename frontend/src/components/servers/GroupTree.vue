@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import {t as $t} from '../../i18n'
+import {computed, provide, ref, watch} from 'vue'
 import GroupTreeRow from './GroupTreeRow.vue'
 import type {GroupNode} from '../../utils/groupTree'
 import type {GroupSelection} from '../../types'
 
-defineProps<{
+const props = defineProps<{
   nodes: GroupNode[]
   activePath: string
   expanded: Set<string>
@@ -23,10 +25,29 @@ const emit = defineEmits<{
   rename: [path: string]
   remove: [path: string]
 }>()
+
+const focusedPath = ref('')
+const visiblePaths = computed(() => {
+  const paths: string[] = []
+  function visit(nodes: GroupNode[]) {
+    for (const node of nodes) {
+      paths.push(node.path)
+      if (props.expanded.has(node.path)) visit(node.children)
+    }
+  }
+  visit(props.nodes)
+  return paths
+})
+const tabStopPath = computed(() => visiblePaths.value.includes(focusedPath.value) ? focusedPath.value
+  : visiblePaths.value.includes(props.activePath) ? props.activePath : visiblePaths.value[0] ?? '')
+provide('ding-group-tree-keyboard', {tabStopPath, focus: (path: string) => { focusedPath.value = path }})
+watch(visiblePaths, paths => {
+  if (!paths.includes(focusedPath.value)) focusedPath.value = ''
+})
 </script>
 
 <template>
-  <div class="group-tree" role="tree" aria-label="分组树">
+  <div class="group-tree" role="tree" :aria-label="$t('分组树')">
     <GroupTreeRow
       v-for="node in nodes"
       :key="node.path"

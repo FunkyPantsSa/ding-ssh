@@ -130,7 +130,7 @@ func (a *App) ImportSSHConfig(path string, choices []SSHImportChoice) (int, erro
 				node.BlurAmount = matches[0].BlurAmount
 				logx.Debugf("[apphost] 覆盖已有服务器: alias=%s id=%s", choice.Alias, node.ID)
 			} else {
-				node.Name += "（导入副本）"
+				node.Name += i18n.T("（导入副本）")
 				logx.Debugf("[apphost] 以副本方式导入冲突主机: alias=%s newName=%s", choice.Alias, node.Name)
 			}
 		}

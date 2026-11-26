@@ -54,7 +54,7 @@ function onHeaderDragStart(e: DragEvent) {
 </script>
 
 <template>
-  <div class="split-root">
+  <div class="split-root" data-keyboard-nav="grid">
     <!-- 叶子格子：纯标题栏格头（可拖拽改方向）+ 分隔条 -->
     <template v-for="leafItem in leafList" :key="leafItem.paneId">
       <div
@@ -62,8 +62,10 @@ function onHeaderDragStart(e: DragEvent) {
         :class="sessions.focusedPaneId === leafItem.paneId ? 'focused' : ''"
         :style="rectStyle(leafItem.rect)"
       >
-        <div
+        <button
+          type="button"
           class="split-pane-header"
+          :aria-pressed="sessions.focusedPaneId === leafItem.paneId"
           draggable="true"
           @click="sessions.setFocusedPane(leafItem.paneId)"
           @dragstart="onHeaderDragStart"
@@ -71,7 +73,7 @@ function onHeaderDragStart(e: DragEvent) {
         >
           <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDot(paneTab(leafItem.paneId)?.status ?? 'closed')"></span>
           <span class="truncate" :title="paneTab(leafItem.paneId)?.serverName">{{ paneTab(leafItem.paneId)?.serverName ?? t('（空）') }}</span>
-        </div>
+        </button>
       </div>
     </template>
 
@@ -116,6 +118,8 @@ function onHeaderDragStart(e: DragEvent) {
   align-items: center;
   gap: 6px;
   padding: 0 10px;
+  width: 100%;
+  border: 0;
   background: var(--surface-1);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
@@ -124,6 +128,7 @@ function onHeaderDragStart(e: DragEvent) {
   pointer-events: auto;
   font-size: 11.5px;
   color: var(--foreground);
+  text-align: left;
   cursor: grab;
   user-select: none;
 }

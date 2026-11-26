@@ -3,6 +3,7 @@
 package updater
 
 import (
+	"ding-ssh/internal/i18n"
 	"fmt"
 	"net/url"
 	"os/exec"
@@ -24,7 +25,7 @@ func systemProxy() (*url.URL, error) {
 	logx.Debugf("[updater] 检测 GNOME 代理模式: mode=%q", mode)
 	if mode == "auto" {
 		logx.Warnf("[updater] 系统使用 PAC 代理，无法自动解析，需设置 HTTPS_PROXY 或手动代理")
-		return nil, fmt.Errorf("系统使用 PAC，请设置 HTTPS_PROXY 或使用手动代理")
+		return nil, fmt.Errorf("%s", i18n.T("系统使用 PAC，请设置 HTTPS_PROXY 或使用手动代理"))
 	}
 	if mode != "manual" {
 		return nil, nil

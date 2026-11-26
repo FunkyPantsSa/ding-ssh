@@ -36,10 +36,8 @@ defineExpose({
 <style scoped>
 .ui-input-wrap{position:relative;display:inline-flex;min-width:0;width:100%;vertical-align:middle}
 .ui-input{min-width:0;width:100%;height:32px;padding:0 var(--space-2);color:var(--foreground);background:var(--input-bg);border:1px solid var(--input-border);border-radius:var(--radius-control)}
-.ui-input:focus{outline:none;background:var(--input-bg);border-color:var(--input-border);box-shadow:0 0 0 3px var(--primary-weak)}
 .ui-input.has-clear{padding-right:52px}
 .ui-input-clear{position:absolute;right:5px;top:50%;transform:translateY(-50%);height:24px;padding:0 6px;border:0;border-radius:var(--radius-sm);background:var(--input-bg);color:var(--muted-foreground);font-size:var(--text-2xs);white-space:nowrap;cursor:pointer}
 .ui-input-clear:hover{color:var(--foreground);background:var(--interactive-hover-bg)}
-.ui-input-clear:focus-visible{outline:2px solid var(--border-focus);outline-offset:1px}
 .ui-input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 </style>

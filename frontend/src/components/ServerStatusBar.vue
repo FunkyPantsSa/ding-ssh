@@ -385,7 +385,7 @@ function fmtMbps(v: number): string {
 }
 .statusbar-pick:focus-visible,
 .statusbar-menu button:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: -2px;
 }
 .statusbar-pick:hover {
