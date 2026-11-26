@@ -344,6 +344,20 @@ func validResourceURI(uri string) bool {
 }
 
 func toolErrorMeta(err error) map[string]any {
+	var operation *OperationError
+	if errors.As(err, &operation) {
+		meta := map[string]any{"errorCode": operation.Code, "retryable": operation.Retryable, "outcomeKnown": !operation.OutcomeUnknown}
+		if len(operation.MissingCapabilities) > 0 {
+			meta["missingCapabilities"] = operation.MissingCapabilities
+		}
+		if len(operation.NextSteps) > 0 {
+			meta["nextSteps"] = operation.NextSteps
+		}
+		if operation.RetryAfterMs > 0 {
+			meta["retryAfterMs"] = operation.RetryAfterMs
+		}
+		return meta
+	}
 	code := "OPERATION_FAILED"
 	retryable := false
 	switch {
@@ -358,5 +372,16 @@ func toolErrorMeta(err error) map[string]any {
 	case errors.Is(err, ErrNotFound):
 		code = "NOT_FOUND"
 	}
-	return map[string]any{"errorCode": code, "retryable": retryable, "outcomeKnown": code != "TIMEOUT" && code != "CANCELLED"}
+	meta := map[string]any{"errorCode": code, "retryable": retryable, "outcomeKnown": code != "TIMEOUT" && code != "CANCELLED"}
+	switch code {
+	case "PERMISSION_DENIED":
+		meta["nextSteps"] = []string{"Run app.preflight for the exact tool and arguments to inspect missing capabilities and target/path scopes."}
+	case "INVALID_ARGUMENT":
+		meta["nextSteps"] = []string{"Read the tool input schema with tools.search, correct the arguments, then run app.preflight."}
+	case "NOT_FOUND":
+		meta["nextSteps"] = []string{"Refresh the relevant session, server or job state and use the returned identifier."}
+	case "TIMEOUT", "CANCELLED":
+		meta["nextSteps"] = []string{"Inspect the operation state before retrying; a timed out request does not prove that its side effects stopped."}
+	}
+	return meta
 }

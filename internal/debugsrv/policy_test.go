@@ -166,6 +166,29 @@ func TestPolicyConnectRequiresClientCredentialUse(t *testing.T) {
 	}
 }
 
+func TestPolicyObservationToolsRemainOwnerOnlyWithPreflight(t *testing.T) {
+	s := policyTestServer(t, nil)
+	p, _, err := s.opts.Clients.Issue(ClientPolicy{
+		Capabilities: []string{string(CapRead), string(CapUIInspect), string(CapConnect)},
+		AllTargets:   true,
+		ExpiresAt:    time.Now().Add(time.Hour).UnixMilli(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.WithValue(context.Background(), callerKey{}, p)
+	for _, tool := range []string{OpAppObserve, OpRuntimeCapabilities, OpDiagnostics, OpUIObserve, OpUIInspect, OpUIDiagnose, OpUIWait, OpUIAct, OpUICompare, OpVerifyRun, OpVerifyGet, OpTargetsProbe} {
+		if err := s.authorizeInvocationPolicy(ctx, tool, nil); err == nil || !strings.Contains(err.Error(), "本机可信所有者") {
+			t.Fatalf("owner-only observation tool escaped the merged policy: tool=%s err=%v", tool, err)
+		}
+	}
+	for _, tool := range []string{OpAppPreflight, OpToolsSearch} {
+		if err := s.authorizeInvocation(ctx, tool, nil); err != nil {
+			t.Fatalf("scoped client lost discovery/preflight access: tool=%s err=%v", tool, err)
+		}
+	}
+}
+
 func TestPolicyConfirmationOwnershipRevocationAndExpiry(t *testing.T) {
 	env := newSFTPEnv(t)
 	env.scope.set("/srv/app")

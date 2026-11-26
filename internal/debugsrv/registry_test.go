@@ -58,6 +58,8 @@ func ensureSFTPRegistrations(t *testing.T) {
 func ensureAllRegistrations(t *testing.T) {
 	registerObservationCaps()
 	registerJobsCaps()
+	registerDiscoveryCaps()
+	registerPreflightCaps()
 
 	t.Helper()
 	ensureUIRegistrations(t)

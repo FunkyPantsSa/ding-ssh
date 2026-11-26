@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"time"
 
@@ -21,25 +19,52 @@ func (c *debugController) JobStateDirectory() string {
 	return filepath.Join(appdir.ConfigDir(), "mcp-jobs")
 }
 
+// PreflightJob validates the same arguments as execution without scheduling a
+// task, opening an SSH channel, or starting a local process.
+func (c *debugController) PreflightJob(ctx context.Context, req debugsrv.JobRequest) error {
+	if req.Local {
+		if _, err := localJobCommand(ctx, req); err != nil {
+			return fmt.Errorf("%w: %v", debugsrv.ErrBadInput, err)
+		}
+		return nil
+	}
+	if req.Shell != "" {
+		return fmt.Errorf("%w: shell 仅支持 local=true", debugsrv.ErrBadInput)
+	}
+	if _, err := sshx.ExecCommand(sshx.ExecRequest{Command: req.Command, Mode: req.Mode, Cwd: req.Cwd, Env: req.Env}); err != nil {
+		return fmt.Errorf("%w: %v", debugsrv.ErrBadInput, err)
+	}
+	if c.app.manager == nil {
+		return fmt.Errorf("%w: SSH 会话不存在", debugsrv.ErrNotFound)
+	}
+	v := c.app.manager.SessionState(req.SessionID)
+	if v["exists"] != true {
+		return fmt.Errorf("%w: SSH 会话不存在", debugsrv.ErrNotFound)
+	}
+	if v["status"] != "connected" {
+		return &debugsrv.OperationError{Code: "SESSION_NOT_READY", Message: "SSH 会话尚未连接", NextSteps: []string{"调用 sessions.wait 等待 connected，或 sessions.reconnect 重连"}}
+	}
+	return nil
+}
+
 func (c *debugController) PrepareJob(ctx context.Context, req debugsrv.JobRequest) (debugsrv.JobRunner, error) {
 	gate := debugGate{c}
-	if err := gate.Allow(debugsrv.CapTerminalInput, req.SessionID); err != nil {
-		return nil, err
-	}
 	if req.Local {
 		if err := gate.Allow(debugsrv.CapLocalExec, "exec.start"); err != nil {
 			return nil, err
 		}
-		command, err := sshx.ExecCommand(sshx.ExecRequest{Command: req.Command, Mode: req.Mode, Cwd: req.Cwd, Env: req.Env})
-		if err != nil {
-			return nil, err
-		}
-		if runtime.GOOS == "windows" && req.Mode == "posix" {
-			return nil, errors.New("Windows 本机执行不支持 POSIX 模式")
+		if _, err := localJobCommand(ctx, req); err != nil {
+			return nil, fmt.Errorf("%w: %v", debugsrv.ErrBadInput, err)
 		}
 		return func(ctx context.Context, emit func(string, []byte)) debugsrv.JobExecutionResult {
-			return runLocalJob(ctx, command, emit)
+			return runLocalJobRequest(ctx, req, emit)
 		}, nil
+	}
+	if err := gate.Allow(debugsrv.CapTerminalInput, req.SessionID); err != nil {
+		return nil, err
+	}
+	if req.Shell != "" {
+		return nil, fmt.Errorf("%w: shell 仅支持 local=true；远端 shell 由 SSH 服务端决定", debugsrv.ErrBadInput)
 	}
 	if c.app.manager == nil {
 		return nil, errors.New("SSH 管理器不可用")
@@ -69,11 +94,13 @@ func (w localJobWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 func runLocalJob(ctx context.Context, command string, emit func(string, []byte)) debugsrv.JobExecutionResult {
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "cmd.exe", "/D", "/S", "/C", command)
-	} else {
-		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	return runLocalJobRequest(ctx, debugsrv.JobRequest{Local: true, Command: command}, emit)
+}
+
+func runLocalJobRequest(ctx context.Context, req debugsrv.JobRequest, emit func(string, []byte)) debugsrv.JobExecutionResult {
+	cmd, err := localJobCommand(ctx, req)
+	if err != nil {
+		return debugsrv.JobExecutionResult{Known: true, TerminationProven: true, Error: err.Error()}
 	}
 	configureJobProcess(cmd)
 	cmd.WaitDelay = time.Second
@@ -81,7 +108,7 @@ func runLocalJob(ctx context.Context, command string, emit func(string, []byte))
 	cmd.Stdout = localJobWriter{"stdout", emit, &mu}
 	cmd.Stderr = localJobWriter{"stderr", emit, &mu}
 	cmd.Stdin = nil
-	err := cmd.Run()
+	err = cmd.Run()
 	result := debugsrv.JobExecutionResult{Known: true, TerminationProven: cmd.ProcessState != nil}
 	if cmd.ProcessState != nil {
 		code := cmd.ProcessState.ExitCode()
@@ -120,6 +147,11 @@ func (c *debugController) handleJobsHostOp(ctx context.Context, op string, raw j
 	}
 	id := ctlArgStr(args, "sessionId")
 	switch op {
+	case debugsrv.OpSessionSnapshot:
+		if id == "" {
+			return nil, fmt.Errorf("%w: 缺少 sessionId", debugsrv.ErrBadInput)
+		}
+		return c.sessionSnapshot(ctx, id)
 	case debugsrv.OpSessionsGet, debugsrv.OpSessionsWait:
 		if id == "" {
 			return nil, fmt.Errorf("%w: 缺少 sessionId", debugsrv.ErrBadInput)
@@ -146,7 +178,10 @@ func (c *debugController) handleJobsHostOp(ctx context.Context, op string, raw j
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 		for {
-			v := c.sessionJobView(id)
+			v, err := c.sessionSnapshot(ctx, id)
+			if err != nil {
+				return nil, err
+			}
 			v["matched"] = v["status"] == want
 			if op == debugsrv.OpSessionsGet || v["status"] == want {
 				return v, nil

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -113,12 +114,12 @@ func TestSFTPManagerCRUDAndBinaryTransfers(t *testing.T) {
 	state.once.Do(func() {})
 	m := NewManager(func(string, interface{}) {})
 	m.sessions["audit"] = &Session{ID: "audit", sftpState: state}
-	remoteDir := filepath.Join(root, "目录-é")
+	remoteDir := remoteTestPath(filepath.Join(root, "目录-é"))
 	if err := m.SftpMkdir("audit", remoteDir); err != nil {
 		t.Fatal(err)
 	}
 	payload := append(bytes.Repeat([]byte{0, 1, 127, 128, 255}, 27000), []byte("中文é")...)
-	source, target, download := filepath.Join(local, "源.bin"), filepath.Join(remoteDir, "文件.bin"), filepath.Join(local, "download.bin")
+	source, target, download := filepath.Join(local, "源.bin"), path.Join(remoteDir, "文件.bin"), filepath.Join(local, "download.bin")
 	if err := os.WriteFile(source, payload, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -136,14 +137,14 @@ func TestSFTPManagerCRUDAndBinaryTransfers(t *testing.T) {
 	if err != nil || len(entries) != 1 || entries[0].Size != int64(len(payload)) {
 		t.Fatal(entries, err)
 	}
-	renamed := filepath.Join(remoteDir, "renamed.bin")
+	renamed := path.Join(remoteDir, "renamed.bin")
 	if err := m.SftpRename("audit", target, renamed); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.SftpRemove("audit", remoteDir); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(remoteDir); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "目录-é")); !os.IsNotExist(err) {
 		t.Fatal("recursive remove", err)
 	}
 	if err := m.SftpDownload("missing", renamed, download); err == nil {

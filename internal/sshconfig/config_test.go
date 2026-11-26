@@ -3,6 +3,7 @@ package sshconfig
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -59,7 +60,7 @@ func TestUnsafeConfigNeverExecutes(t *testing.T) {
 }
 func TestIncludeCycle(t *testing.T) {
 	file := configFile(t, "")
-	if err := os.WriteFile(file, []byte("Include "+file+"\n"), 0600); err != nil {
+	if err := os.WriteFile(file, []byte("Include "+strconv.Quote(file)+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Parse(file); err == nil {

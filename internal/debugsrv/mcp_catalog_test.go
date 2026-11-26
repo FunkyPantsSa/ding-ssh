@@ -22,7 +22,7 @@ import (
 // 这是**规格清单**（任务要求逐个点名），不是「总数」——总数仍由注册表 / mcpToolEntries 推导。
 var structuredExpect = []string{
 	OpAppObserve, OpRuntimeCapabilities, OpDiagnostics, OpUIObserve, OpUIInspect, OpUIDiagnose, OpUIWait, OpUIAct, OpUICompare, OpVerifyRun, OpVerifyGet, OpTargetsProbe,
-	"app_state", "app.health", "app.permissions",
+	"app_state", "app.health", "app.permissions", "app.preflight", "tools.search",
 	"confirm.status",
 	"list_terminals", "read_terminal",
 	OpUILayout, OpUIDiff, OpUIQuery,
@@ -33,6 +33,7 @@ var structuredExpect = []string{
 	"exec.start", "exec.plan", "exec.batch", "jobs.cancel", "jobs.get", "jobs.list", "jobs.output", "jobs.wait",
 	"hostTrust.challenges", "hosts.metrics", "processes.list", "sessions.get", "sessions.wait", "tunnels.health",
 	"servers.search", "services.status", "services.logs", "services.restart", "sessions.connect", "sessions.disconnect", "sessions.reconnect",
+	"sessions.close", "sessions.closeStatus",
 	"sftp.download", "sftp.patch", "sftp.patch.preview", "sftp.upload",
 }
 

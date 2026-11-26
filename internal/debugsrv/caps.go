@@ -264,6 +264,7 @@ func (s *Server) allowCap(cap Capability, detail string) error {
 		// WARN：能力位拒绝是「可恢复异常」——按提示开启能力后重试即可。
 		// detail 只可能是路径 / id 这类定位信息，不含凭据（见 docs/logging.md §6）。
 		logx.Warnf("[debugsrv/caps] 能力位校验拒绝: cap=%s detail=%q reason=%v", cap, detail, err)
+		return &OperationError{Code: "PERMISSION_DENIED", Message: err.Error(), Cause: ErrForbidden, MissingCapabilities: []string{string(cap)}, NextSteps: []string{"Ask the user to enable the missing capability in Settings → Debug → MCP capabilities, then run app.preflight again."}}
 	}
 	return err
 }
@@ -282,6 +283,16 @@ func (s *Server) CapabilitySnapshot() map[Capability]bool {
 // 是否出现「需先 confirm.prepare」由 **该工具自己的** 确认登记决定，而不是由能力位推断：
 // terminal.input 能力下的 send_input 不需要 token，而 config.write 下的 update_settings 需要。
 func (s *Server) capabilityRequirementText(tool string) string {
+	if tool == OpExecStart {
+		confirmAction, needConfirm := ToolConfirmAction(tool)
+		text := "能力要求：local=true 仅需本机命令执行（exec.local）；远端 sessionId 需终端输入（terminal.input）。"
+		if needConfirm {
+			text += fmt.Sprintf("该工具要求独立用户审批：需先 confirm.prepare（action=%s），用户批准后取得 token=… 再调用。", confirmAction)
+		} else {
+			text += "无需单次执行 token；仍须满足能力、身份与目标范围授权。"
+		}
+		return text
+	}
 	caps, _ := ToolCapabilities(tool)
 	confirmAction, needConfirm := ToolConfirmAction(tool)
 	if len(caps) == 0 {
@@ -329,7 +340,7 @@ var toolCaps = map[string][]Capability{
 	"resize_terminal":    {CapUIWrite},
 	"open_tab":           {CapConnect},
 	"close_tab":          {CapDisconnect},
-	"reconnect_session":  {CapConnect, CapDisconnect, CapCredentialUse},
+	"reconnect_session":  {CapConnect, CapDisconnect},
 	"disconnect_session": {CapDisconnect},
 	"list_servers":       nil,
 	"get_settings":       nil,

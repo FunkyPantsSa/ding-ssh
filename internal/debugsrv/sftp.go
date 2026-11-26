@@ -306,19 +306,19 @@ func (s *Server) sftpRequireWritePath(label, raw string) (string, error) {
 	p, err := NormalizeRemotePath(raw)
 	if err != nil {
 		logx.Warnf("[debugsrv/sftp] 远端写路径被拒绝: label=%s path=%q err=%v", label, raw, err)
-		return "", fmt.Errorf("%s：%w", label, err)
+		return "", &OperationError{Code: "INVALID_ARGUMENT", Message: fmt.Sprintf("%s：%v", label, err), Cause: ErrBadInput, NextSteps: []string{"Use an absolute remote path without parent traversal (..)."}}
 	}
 	allow := s.sftpAllowlist()
 	if len(allow) == 0 {
 		logx.Warnf("[debugsrv/sftp] 远端写操作被拒绝（白名单为空）: label=%s path=%q", label, p)
-		return "", fmt.Errorf("远端写操作被拒绝（%s=%s）：远端写入白名单为空 —— 白名单留空 = 禁止一切 SFTP 写入 / 删除 / 改名 / 目录同步。"+
-			"请在 设置 → 调试模式 → MCP 能力 →「远端文件写入」的白名单里填写允许的路径前缀（例如 /srv/app），再重试", label, p)
+		return "", &OperationError{Code: "PATH_NOT_ALLOWED", Cause: ErrForbidden, Message: fmt.Sprintf("远端写操作被拒绝（%s=%s）：远端写入白名单为空 —— 白名单留空 = 禁止一切 SFTP 写入 / 删除 / 改名 / 目录同步。"+
+			"请在 设置 → 调试模式 → MCP 能力 →「远端文件写入」的白名单里填写允许的路径前缀（例如 /srv/app），再重试", label, p), NextSteps: []string{"Ask the user to configure a remote write allowlist, then call app.preflight again."}}
 	}
 	if !SFTPPathAllowed(allow, p) {
 		logx.Warnf("[debugsrv/sftp] 远端路径不在写入白名单内: label=%s path=%q allowlist=%d", label, p, len(allow))
-		return "", fmt.Errorf("远端路径 %q 不在写入白名单内（%s）：白名单按路径段前缀匹配，/srv/app 放行 /srv/app 与 /srv/app/x，"+
+		return "", &OperationError{Code: "PATH_NOT_ALLOWED", Cause: ErrForbidden, Message: fmt.Sprintf("远端路径 %q 不在写入白名单内（%s）：白名单按路径段前缀匹配，/srv/app 放行 /srv/app 与 /srv/app/x，"+
 			"但**不放行** /srv/app-evil；当前白名单：%s。请在 设置 → 调试模式 → MCP 能力 中调整白名单",
-			p, label, strings.Join(allow, "、"))
+			p, label, strings.Join(allow, "、")), NextSteps: []string{"Choose a remote path within the write allowlist, or ask the user to adjust that allowlist."}}
 	}
 	return p, nil
 }
@@ -1736,12 +1736,12 @@ func (s *Server) waitTerminal(
 //     依据：PTY 回显的是**同一串字节**，可见文本里属于回显的字节序列与命令逐字节一致
 //     （中文按字节比较，与显示宽度无关）；折行只往里插换行，不改变其它字节。
 //  2. **换行口径（terminalEchoEndByNewline）**：既有做法 —— 在文本里找命令第一行的**逐字**出现，
-//     再取其后第一个换行。命令没被折行时它最精确，因此仍然保留。
+//     只跳过紧邻命令的换行。命令没被折行时它最精确，因此仍然保留。
 //
 // 为什么取两者中较大者：折行会让逐字命中失败或只命中残片（换行口径低估 → 回显残片会参与
 // expect 匹配，正是实测到的现象），而长度口径给出的是「整段回显结束」的位置；反过来长度口径
-// 找不到可信回显（例如终端不回声）时换行口径仍然可用。两个口径的取值都停在换行边界
-// （或停在「回显还没收完」的估算位置），因此取较大者不会越过整行回显。
+// 找不到可信回显（例如终端不回声）时换行口径仍然可用。两者只跳过命令本身及紧邻的换行，
+// 不搜索后续换行：ConPTY 可能让真实输出紧贴命令回显，向后搜索会吞掉首行真实输出。
 //
 // 兜底：终端不回声（stty -echo）、回显被重绘打散（字节不再连续）或可见文本比命令还短时，
 // 两个口径都返回 0 = 不跳过，行为与 M9 之前一致 —— 不会因为跳过逻辑而漏掉真实输出。
@@ -1767,7 +1767,7 @@ func terminalEchoEnd(visible, command string) int {
 	return byNewline
 }
 
-// terminalEchoEndByNewline 换行口径：命令第一行逐字出现在文本里，取其后的第一个换行。
+// terminalEchoEndByNewline 换行口径：命令第一行逐字出现在文本里，只跳过紧邻的换行。
 //
 // 其后暂时没有换行时返回「命中位置 + 命令长度」（把命令行文本本身算作回显），
 // 这样即使终端只回显 \r 不回显 \n，也不会把命令本身匹配上，而其后的真实输出仍能匹配。
@@ -1777,8 +1777,8 @@ func terminalEchoEndByNewline(visible, line string) int {
 		return 0
 	}
 	end := idx + len(line)
-	if nl := strings.IndexByte(visible[end:], '\n'); nl >= 0 {
-		return end + nl + 1
+	if end < len(visible) && visible[end] == '\n' {
+		return end + 1
 	}
 	return end
 }
@@ -1789,7 +1789,7 @@ func terminalEchoEndByNewline(visible, line string) int {
 // readline 重绘插入的 \r\n 归一化后的 \n），因此命令长度超过终端宽度时也能定位准。
 //
 // 实现：按「候选起点」逐个尝试（起点可以是行首，也可以是提示符之后的行内位置），
-// 逐字节与命令比较、比较时跳过换行；命中整行后取其后的第一个换行收尾。
+// 逐字节与命令比较、比较时跳过换行；命中整行后只跳过紧邻的换行。
 // 起点扫描上限 echoScanLimit 字节：回显一定出现在捕获的开头附近，超出这个范围不再回溯，
 // 避免在一大段真实输出上做无谓的二次扫描（超大输出是常态，这里不能退化成 O(n·m)）。
 //
@@ -1812,7 +1812,7 @@ func terminalEchoEndByLength(visible, line string) int {
 
 // echoMatchAt 判断 visible[start:] 是否以「折行后的 line」开头（比较时跳过换行）。
 //
-// 命中返回回显的结束位置（其后第一个换行之后；其后暂时没有换行则停在最后一个匹配字节之后），
+// 命中返回回显的结束位置（含紧邻的换行；否则停在最后一个匹配字节之后），
 // 未命中返回 0。字节比较（不做 rune 归一化）：中文等多字节字符在回显里是同一串字节，
 // 按字节比较既准确又与「显示宽度」无关。
 func echoMatchAt(visible string, start int, line string) int {
@@ -1832,8 +1832,8 @@ func echoMatchAt(visible string, start int, line string) int {
 	if count < len(line) {
 		return 0 // 回显还没收完
 	}
-	if nl := strings.IndexByte(visible[end:], '\n'); nl >= 0 {
-		return end + nl + 1
+	if end < len(visible) && visible[end] == '\n' {
+		return end + 1
 	}
 	return end
 }

@@ -86,21 +86,23 @@ func OpenSQLite(path string) (*sql.DB, error) {
 		logx.Errorf("[store] 创建数据目录失败: dir=%q err=%v", filepath.Dir(path), err)
 		return nil, fmt.Errorf(i18n.T("创建数据目录失败: %w"), err)
 	}
-	db, err := sql.Open("sqlite", path)
+	// PRAGMAs set with db.Exec only affect whichever pooled connection runs
+	// that statement. Configure the timeout in the DSN so new connections
+	// also wait for a concurrent writer instead of failing immediately.
+	separator := "?"
+	if strings.Contains(path, "?") {
+		separator = "&"
+	}
+	db, err := sql.Open("sqlite", path+separator+"_pragma=busy_timeout%3d5000")
 	if err != nil {
 		logx.Errorf("[store] 打开 SQLite 数据库失败: path=%q err=%v", path, err)
 		return nil, fmt.Errorf(i18n.T("打开数据库失败: %w"), err)
 	}
-	// WAL 提升并发读写体验；busy_timeout 避免多连接写冲突。
+	// WAL 提升并发读写体验。
 	if _, err := db.Exec(`PRAGMA journal_mode = WAL`); err != nil {
 		db.Close()
 		logx.Errorf("[store] 设置 WAL 模式失败: path=%q err=%v", path, err)
 		return nil, fmt.Errorf(i18n.T("设置 WAL 模式失败: %w"), err)
-	}
-	if _, err := db.Exec(`PRAGMA busy_timeout = 5000`); err != nil {
-		db.Close()
-		logx.Errorf("[store] 设置 busy_timeout 失败: path=%q err=%v", path, err)
-		return nil, fmt.Errorf(i18n.T("设置 busy_timeout 失败: %w"), err)
 	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
@@ -713,13 +715,23 @@ func (s *SQLiteSettingsStore) Save(st models.Settings) error {
 		{"terminalColorMode", st.TerminalColorMode},
 		{"debug", string(debugJSON)},
 	}
+	// One save is one snapshot: readers must not see a mixture of settings
+	// from concurrent saves, and a failed key must roll back earlier keys.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf(i18n.T("保存设置失败: %w"), err)
+	}
+	defer tx.Rollback()
 	for _, e := range entries {
-		if _, err := s.db.Exec(`
+		if _, err := tx.Exec(`
 			INSERT INTO settings (key, value) VALUES (?, ?)
 			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, e.k, e.v); err != nil {
 			logx.Errorf("[store] 保存设置项失败: key=%s err=%v", e.k, err)
 			return fmt.Errorf(i18n.T("保存设置失败: %w"), err)
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf(i18n.T("保存设置失败: %w"), err)
 	}
 	logx.Infof("[store] 设置已保存(SQLite): keys=%d elapsed=%s", len(entries), time.Since(start))
 	return nil
