@@ -33,7 +33,25 @@ func TestLocalJobNativeShellCwdAndEnv(t *testing.T) {
 		out[stream] += string(data)
 		mu.Unlock()
 	})
-	if !r.Known || r.ExitCode == nil || *r.ExitCode != 7 || !strings.Contains(out["stdout"], dir) || !strings.Contains(out["stdout"], "中文 '$() & value") || out["stderr"] != "problem" {
+	// Windows may print the long spelling of a temporary directory while the
+	// test input uses an 8.3 alias (or vice versa). Compare the directory
+	// objects instead of requiring byte-identical path spellings.
+	wantDir, statErr := os.Stat(dir)
+	stdout := strings.ReplaceAll(out["stdout"], "\r\n", "\n")
+	cwdMatches := false
+	if statErr == nil {
+		for _, line := range strings.Split(stdout, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			if gotDir, err := os.Stat(line); err == nil && os.SameFile(wantDir, gotDir) {
+				cwdMatches = true
+				break
+			}
+		}
+	}
+	if !r.Known || r.ExitCode == nil || *r.ExitCode != 7 || !cwdMatches || !strings.Contains(stdout, "中文 '$() & value") || out["stderr"] != "problem" {
 		t.Fatalf("native execution lost shell/cwd/env/output: %+v %#v", r, out)
 	}
 }
