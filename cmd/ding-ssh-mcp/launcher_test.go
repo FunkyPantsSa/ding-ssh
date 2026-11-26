@@ -29,7 +29,11 @@ func TestLauncherFlagsRejectAmbiguousOrUnsafeProfiles(t *testing.T) {
 			t.Errorf("accepted unsafe/ambiguous flags: %v", args)
 		}
 	}
-	opts, err := parseFlags([]string{"--launch=if-needed", "--app-path=/test/app", "--profile=" + filepath.Join(t.TempDir(), "new"), "--wait-ready-ms=500"}, io.Discard)
+	// filepath.Join keeps this a valid absolute path on both drive-letter
+	// Windows runners and POSIX runners; a POSIX-rooted literal is relative to
+	// filepath.IsAbs on Windows.
+	appPath := filepath.Join(t.TempDir(), "test-app")
+	opts, err := parseFlags([]string{"--launch=if-needed", "--app-path=" + appPath, "--profile=" + filepath.Join(t.TempDir(), "new"), "--wait-ready-ms=500"}, io.Discard)
 	if err != nil || !strictAttachment(opts) || !opts.waitReadySet {
 		t.Fatalf("valid flags failed: %+v %v", opts, err)
 	}
@@ -219,19 +223,20 @@ func TestLauncherCancellationAndEarlyExit(t *testing.T) {
 	if !processAlive(os.Getpid()) || processAlive(-1) {
 		t.Fatal("process liveness check failed")
 	}
-	start := time.Now()
 	profile := filepath.Join(t.TempDir(), "new")
 	binary := filepath.Join(t.TempDir(), "app")
 	_ = os.WriteFile(binary, []byte("test"), 0700)
 	deps := defaultLauncherDeps()
 	deps.getenv = func(string) string { return "" }
+	var launchedAt time.Time
 	deps.start = func(string, string) (int, <-chan error, error) {
+		launchedAt = time.Now()
 		done := make(chan error, 1)
 		done <- errors.New("exit 7")
 		return 123, done, nil
 	}
 	_, err = prepareTarget(context.Background(), options{launch: "if-needed", appPath: binary, profile: profile, waitReadyMs: 2000, expectedBuildID: "expected"}, &logf2{quiet: true}, deps)
-	if err == nil || !strings.Contains(err.Error(), "LAUNCH_EXITED") || time.Since(start) > time.Second {
+	if err == nil || !strings.Contains(err.Error(), "LAUNCH_EXITED") || launchedAt.IsZero() || time.Since(launchedAt) > time.Second {
 		t.Fatalf("early exit not reported promptly: %v", err)
 	}
 }

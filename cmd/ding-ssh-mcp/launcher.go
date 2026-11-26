@@ -176,7 +176,7 @@ func provisionProfile(path string) (bool, error) {
 func profileDebugEnabled(path string) (bool, error) {
 	dbPath := filepath.Join(path, "ding-ssh.db")
 	if _, err := os.Stat(dbPath); err == nil {
-		u := url.URL{Scheme: "file", Path: dbPath, RawQuery: "mode=ro"}
+		u := url.URL{Scheme: "file", Path: sqliteURIPath(dbPath), RawQuery: "mode=ro"}
 		db, err := sql.Open("sqlite", u.String())
 		if err != nil {
 			return false, err
@@ -210,6 +210,17 @@ func profileDebugEnabled(path string) (bool, error) {
 		return false, err
 	}
 	return settings.Debug.Enabled, nil
+}
+
+// sqliteURIPath returns an absolute URI path. Windows drive-letter paths need
+// one extra leading slash (`file:///C:/...`); without it modernc.org/sqlite
+// treats `C:` as a URI authority and rejects the read-only connection.
+func sqliteURIPath(path string) string {
+	path = filepath.ToSlash(filepath.Clean(path))
+	if runtime.GOOS == "windows" && len(path) >= 2 && path[1] == ':' && !strings.HasPrefix(path, "/") {
+		return "/" + path
+	}
+	return path
 }
 
 func prepareTarget(parent context.Context, o options, log *logf2, deps launcherDeps) (config, error) {
