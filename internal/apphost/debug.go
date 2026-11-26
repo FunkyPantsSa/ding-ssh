@@ -486,7 +486,7 @@ func (c *debugController) Handle(ctx context.Context, op string, args json.RawMe
 	case debugsrv.OpHealth:
 		return debugsrv.SafeProjection(c.info()), nil
 	case debugsrv.OpStatus:
-		return c.statusView(), nil
+		return c.healthView(ctx), nil
 	case debugsrv.OpState:
 		return c.state(ctx)
 	case debugsrv.OpSessions:
@@ -699,7 +699,7 @@ func (c *debugController) settingsView(st models.Settings) map[string]any {
 func (c *debugController) callFrontend(ctx context.Context, op string, args any) (any, error) {
 	if c.bridge == nil {
 		logx.Warnf("[apphost] 前端桥未初始化，调试 op 无法转交: op=%s", op)
-		return nil, errors.New("前端桥未初始化")
+		return nil, &debugsrv.OperationError{Code: "FRONTEND_NOT_READY", Message: "前端桥未初始化", Retryable: true, RetryAfterMs: 250, NextSteps: []string{"调用 app.health 检查 readiness.frontendResponsive，等待界面初始化"}}
 	}
 	logx.Debugf("[apphost] 调试 op 请求前端: op=%s", op)
 	raw, err := c.bridge.Call(ctx, op, args)

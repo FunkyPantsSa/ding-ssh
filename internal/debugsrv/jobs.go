@@ -19,27 +19,30 @@ import (
 )
 
 const (
-	OpExecStart          = "exec.start"
-	OpExecPlan           = "exec.plan"
-	OpExecBatch          = "exec.batch"
-	OpJobsGet            = "jobs.get"
-	OpJobsWait           = "jobs.wait"
-	OpJobsOutput         = "jobs.output"
-	OpJobsCancel         = "jobs.cancel"
-	OpJobsList           = "jobs.list"
-	OpSessionsGet        = "sessions.get"
-	OpSessionsWait       = "sessions.wait"
-	OpHostChallenges     = "hostTrust.challenges"
-	OpHostsMetrics       = "hosts.metrics"
-	OpProcessesList      = "processes.list"
-	OpTunnelsHealth      = "tunnels.health"
-	OpServicesStatus     = "services.status"
-	OpServicesLogs       = "services.logs"
-	OpServicesRestart    = "services.restart"
-	OpSessionsConnect    = "sessions.connect"
-	OpSessionsDisconnect = "sessions.disconnect"
-	OpSessionsReconnect  = "sessions.reconnect"
-	OpServersSearch      = "servers.search"
+	OpExecStart           = "exec.start"
+	OpExecPlan            = "exec.plan"
+	OpExecBatch           = "exec.batch"
+	OpJobsGet             = "jobs.get"
+	OpJobsWait            = "jobs.wait"
+	OpJobsOutput          = "jobs.output"
+	OpJobsCancel          = "jobs.cancel"
+	OpJobsList            = "jobs.list"
+	OpSessionsGet         = "sessions.get"
+	OpSessionsWait        = "sessions.wait"
+	OpHostChallenges      = "hostTrust.challenges"
+	OpHostsMetrics        = "hosts.metrics"
+	OpProcessesList       = "processes.list"
+	OpTunnelsHealth       = "tunnels.health"
+	OpServicesStatus      = "services.status"
+	OpServicesLogs        = "services.logs"
+	OpServicesRestart     = "services.restart"
+	OpSessionsConnect     = "sessions.connect"
+	OpSessionsDisconnect  = "sessions.disconnect"
+	OpSessionsReconnect   = "sessions.reconnect"
+	OpSessionsClose       = "sessions.close"
+	OpSessionsCloseStatus = "sessions.closeStatus"
+	OpSessionSnapshot     = "session.snapshot" // Host-only exact-tab state.
+	OpServersSearch       = "servers.search"
 )
 
 // JobsExecutor pins and validates the target before the asynchronous job begins.
@@ -59,6 +62,7 @@ type JobRequest struct {
 	TimeoutMs      int               `json:"timeoutMs"`
 	MaxBytes       int               `json:"maxBytes"`
 	IdempotencyKey string            `json:"idempotencyKey,omitempty"`
+	Shell          string            `json:"shell,omitempty"`
 }
 type JobExecutionResult struct {
 	ExitCode          *int   `json:"exitCode,omitempty"`
@@ -134,7 +138,9 @@ func registerJobsCaps() {
 	registerWrite(OpServicesRestart, CapTerminalInput, OpServicesRestart)
 	RegisterToolCap(OpSessionsConnect, CapConnect)
 	RegisterToolCap(OpSessionsDisconnect, CapDisconnect)
-	RegisterToolCap(OpSessionsReconnect, CapConnect, CapDisconnect, CapCredentialUse)
+	RegisterToolCap(OpSessionsReconnect, CapConnect, CapDisconnect)
+	RegisterToolCap(OpSessionsClose, CapDisconnect)
+	RegisterToolCap(OpSessionsCloseStatus, CapRead)
 	RegisterToolCap(OpServersSearch, CapRead)
 	for _, name := range []string{OpJobsGet, OpJobsWait, OpJobsOutput, OpJobsCancel, OpJobsList, OpSessionsGet, OpSessionsWait, OpHostChallenges, OpTunnelsHealth} {
 		RegisterToolCap(name, CapRead)
@@ -146,18 +152,20 @@ func registerJobsCaps() {
 func jobsToolEntries() []mcpTool {
 	id := map[string]any{"jobId": strProp("exec.start 返回的任务 id")}
 	list := []mcpTool{
-		{Name: OpSessionsConnect, Description: "语义化连接入口：连接已保存的服务器并打开标签；显式local=true为本机终端，需独立本机执行授权。复用open_tab的全部权限校验与连接流程。", InputSchema: obj(map[string]any{"serverId": strProp("已保存服务器id"), "local": boolProp("显式打开本机终端")})},
-		{Name: OpSessionsDisconnect, Description: "断开指定会话并保留标签；会中断该会话中的作业。复用disconnect_session权限校验。", InputSchema: obj(map[string]any{"sessionId": strProp("会话id")}, "sessionId")},
-		{Name: OpSessionsReconnect, Description: "重连指定会话；会影响原连接中的作业，保留标签缓冲。复用reconnect_session权限校验。", InputSchema: obj(map[string]any{"sessionId": strProp("会话id")}, "sessionId")},
+		{Name: OpSessionsConnect, Description: "推荐连接入口：连接保存的服务器或显式 local=true 打开本机终端。直接返回 sessionId/tabId，并等待连接就绪；waitMs=0 立即返回，等待超时不取消连接。不会批准主机信任。", InputSchema: obj(map[string]any{"serverId": strProp("已保存服务器id"), "local": boolProp("显式打开本机终端"), "waitMs": intProp("等待就绪毫秒，默认10000，范围0–30000")})},
+		{Name: OpSessionsDisconnect, Description: "断开指定会话并保留标签，等待后端断开；会中断该会话中的作业。返回 sessionId/tabId/status。", InputSchema: obj(map[string]any{"sessionId": strProp("会话或标签id"), "waitMs": intProp("等待断开毫秒，默认10000，范围0–30000")}, "sessionId")},
+		{Name: OpSessionsReconnect, Description: "重连指定会话并等待就绪；会影响原连接中的作业，保留标签缓冲。按目标分别要求本机执行或凭据使用授权。", InputSchema: obj(map[string]any{"sessionId": strProp("会话或标签id"), "waitMs": intProp("等待就绪毫秒，默认10000，范围0–30000")}, "sessionId")},
+		{Name: OpSessionsClose, Description: "关闭精确标签并等待后端会话清理，遵守用户的关闭确认设置。需用户确认时返回 confirmation_required 和下一步，不依赖 DOM；不会代替用户批准。", InputSchema: obj(map[string]any{"sessionId": strProp("会话或标签id"), "waitMs": intProp("等待清理毫秒，默认10000，范围0–30000")}, "sessionId")},
+		{Name: OpSessionsCloseStatus, Description: "观察指定标签关闭请求，返回 confirmation_required、cancelled 或 closed；仅观察，不关闭标签，不批准确认。", InputSchema: obj(map[string]any{"sessionId": strProp("会话或标签id"), "waitMs": intProp("等待关闭毫秒，默认0，范围0–30000")}, "sessionId")},
 		{Name: OpServersSearch, Description: "按名称/地址/用户/分组搜索已保存服务器并分页，结果默认脱敏；查询不会匹配密码或私钥。", InputSchema: obj(map[string]any{"query": strProp("大小写不敏感子串"), "group": strProp("精确分组路径"), "offset": intProp("从0起的偏移"), "limit": intProp("每页1–500，默认100")})},
 		{Name: OpServicesStatus, Description: "通过独立SSH通道读取Linux systemd指定服务的结构化状态，不修改服务。需精确unit名，不支持任意命令。", InputSchema: obj(map[string]any{"sessionId": strProp("SSH会话id"), "unit": strProp("systemd unit名，例如 nginx.service")}, "sessionId", "unit")},
 		{Name: OpServicesLogs, Description: "读取Linux journald指定服务的最近日志，输出受256KiB限制，不占用户终端。仅支持有journald读取权限的当前SSH用户。", InputSchema: obj(map[string]any{"sessionId": strProp("SSH会话id"), "unit": strProp("systemd unit名"), "lines": intProp("日志条数，默认100，范围1–1000")}, "sessionId", "unit")},
 		{Name: OpServicesRestart, Description: "请求重启精确的Linux systemd服务；必须用户批准，异步返回jobId。使用当前SSH用户权限，不自动sudo，不输入用户终端。完成后另调services.status验证状态。", InputSchema: obj(map[string]any{"sessionId": strProp("SSH会话id"), "unit": strProp("systemd unit名"), "token": strProp("用户批准后的确认凭据"), "idempotencyKey": strProp("可选重试键")}, "sessionId", "unit")},
 		{Name: OpExecPlan, Description: "预检多主机独立执行计划，不执行命令。显式选择最多8个已连接的 SSH sessionId，冻结每个当前连接、命令与执行预算。计划仅当前身份可用，120秒过期；返回命令摘要与目标。", InputSchema: obj(map[string]any{"sessionIds": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": 8}, "command": strProp("每个目标执行的相同命令"), "mode": map[string]any{"type": "string", "enum": []string{"raw", "posix"}}, "cwd": strProp("工作目录，仅posix"), "env": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}, "timeoutMs": intProp("每个目标含排队的总预算，默认30000，最多600000"), "maxBytes": intProp("每目标输出预算，默认262144，最多1048576")}, "sessionIds", "command")},
 		{Name: OpExecBatch, Description: "执行已预检的精确计划，最多4个目标同时运行。计划一次性，重复调用返回相同批次；每个目标有独立jobId/状态，部分失败不会伪装为全体成功。通过jobs.cancel取消单目标，取消排队目标不会执行。", InputSchema: obj(map[string]any{"planId": strProp("exec.plan返回的id"), "concurrency": intProp("并发数，默认2，范围1–4")}, "planId")},
-		{Name: OpExecStart, Description: "在现有 SSH 连接的独立非 PTY 通道执行命令，返回 jobId；不占用或输入用户终端。显式 local=true 才运行本机 shell，另需本机执行授权。任务独立于 HTTP 请求，超时/断线不假定远端进程已停止。idempotencyKey 在同一身份下绑定完整参数，不能复用到不同操作。", InputSchema: obj(map[string]any{"sessionId": strProp("已连接的 SSH sessionId；local=true 时省略"), "local": boolProp("显式请求本机独立 shell；默认 false"), "command": strProp("命令文本"), "mode": map[string]any{"type": "string", "enum": []string{"raw", "posix"}, "description": "raw 保持远端 shell 命令；cwd/env 需显式 posix"}, "cwd": strProp("工作目录"), "env": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}, "timeoutMs": intProp("执行预算，默认 30000，范围 200–600000"), "maxBytes": intProp("总输出存储上限，默认 262144，范围 1024–1048576"), "idempotencyKey": strProp("重试时复用的键，最多 200 字符")}, "command")},
+		{Name: OpExecStart, Description: "推荐命令执行入口：独立非 PTY 通道执行，不输入用户终端。waitMs>0 可在同一次调用中等待并返回输出与退出码；超时返回 jobId 可继续 jobs.wait。显式 local=true 才运行本机 shell，Windows 默认 cmd，可选 powershell/pwsh；远端 shell 由服务器决定。任务独立于 HTTP 请求，断线不假定进程已停止。idempotencyKey 绑定完整执行参数。", InputSchema: obj(map[string]any{"sessionId": strProp("已连接的 SSH sessionId；local=true 时省略"), "local": boolProp("显式请求本机独立 shell；默认 false"), "shell": map[string]any{"type": "string", "enum": []string{"cmd", "powershell", "pwsh", "sh"}, "description": "仅本机；Windows 默认 cmd，POSIX 默认 sh，支持情况见 app.health"}, "command": strProp("命令文本"), "mode": map[string]any{"type": "string", "enum": []string{"raw", "posix"}, "description": "远端 raw 保持 shell 命令，远端 cwd/env 需 posix；本机 raw 原生支持 cwd/env"}, "cwd": strProp("工作目录"), "env": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}, "timeoutMs": intProp("执行预算，默认 30000，范围 200–600000"), "waitMs": intProp("本次请求等待毫秒，默认0，范围0–30000；等待超时不取消任务"), "includeOutput": boolProp("返回 stdout/stderr；waitMs>0 时默认true"), "maxBytes": intProp("总输出存储上限，默认 262144，范围 1024–1048576"), "idempotencyKey": strProp("重试时复用的键，最多 200 字符")}, "command")},
 		{Name: OpJobsGet, Description: "查询自己的独立执行任务状态与退出码。unknown 表示无法确认远端结果；cancel_requested 不是已终止。", InputSchema: obj(id, "jobId")},
-		{Name: OpJobsWait, Description: "等待自己的任务完成，最多 30 秒；等待超时不会取消任务。", InputSchema: obj(map[string]any{"jobId": id["jobId"], "timeoutMs": intProp("等待毫秒，默认 1000，范围 0–30000")}, "jobId")},
+		{Name: OpJobsWait, Description: "等待自己的任务完成，最多 30 秒；等待超时不会取消任务。includeOutput=true 同时返回捕获的 stdout/stderr 和游标。", InputSchema: obj(map[string]any{"jobId": id["jobId"], "timeoutMs": intProp("等待毫秒，默认 1000，范围 0–30000"), "includeOutput": boolProp("返回已捕获输出，默认false")}, "jobId")},
 		{Name: OpJobsOutput, Description: "按字节游标分页读取自己的任务 stdout/stderr；nextCursor 可继续读，truncated 明确表示存储预算截断。", InputSchema: obj(map[string]any{"jobId": id["jobId"], "cursor": intProp("捕获输出中的字节游标，默认 0"), "maxBytes": intProp("本页预算，默认 65536，范围 1024–262144")}, "jobId")},
 		{Name: OpJobsCancel, Description: "请求取消自己的任务。只关闭该任务的 SSH 通道；远端没有退出确认时状态为 unknown，不能保证其子进程已停止。本机进程取消会等待退出。", InputSchema: obj(id, "jobId")},
 		{Name: OpJobsList, Description: "列出当前身份的最近独立执行任务；最多保留 64 条，完成任务保留一小时。", InputSchema: obj(nil)},
@@ -176,14 +184,14 @@ func jobsToolEntries() []mcpTool {
 }
 func isJobsTool(name string) bool {
 	switch name {
-	case OpExecStart, OpExecPlan, OpExecBatch, OpServicesStatus, OpServicesLogs, OpServicesRestart, OpSessionsConnect, OpSessionsDisconnect, OpSessionsReconnect, OpServersSearch, OpJobsGet, OpJobsWait, OpJobsOutput, OpJobsCancel, OpJobsList, OpSessionsGet, OpSessionsWait, OpHostChallenges, OpHostsMetrics, OpProcessesList, OpTunnelsHealth:
+	case OpExecStart, OpExecPlan, OpExecBatch, OpServicesStatus, OpServicesLogs, OpServicesRestart, OpSessionsConnect, OpSessionsDisconnect, OpSessionsReconnect, OpSessionsClose, OpSessionsCloseStatus, OpServersSearch, OpJobsGet, OpJobsWait, OpJobsOutput, OpJobsCancel, OpJobsList, OpSessionsGet, OpSessionsWait, OpHostChallenges, OpHostsMetrics, OpProcessesList, OpTunnelsHealth:
 		return true
 	}
 	return false
 }
 func IsJobsHostOp(name string) bool {
 	switch name {
-	case OpSessionsGet, OpSessionsWait, OpHostChallenges, OpHostsMetrics, OpProcessesList, OpTunnelsHealth:
+	case OpSessionsGet, OpSessionsWait, OpSessionSnapshot, OpHostChallenges, OpHostsMetrics, OpProcessesList, OpTunnelsHealth:
 		return true
 	}
 	return false
@@ -272,29 +280,8 @@ func (s *Server) handleJobsTool(ctx context.Context, name string, args map[strin
 		}
 		return jobJSON(v)
 	}
-	if name == OpSessionsConnect || name == OpSessionsDisconnect || name == OpSessionsReconnect {
-		original := "open_tab"
-		callArgs := args
-		if name != OpSessionsConnect {
-			original = "disconnect_session"
-			if name == OpSessionsReconnect {
-				original = "reconnect_session"
-			}
-			id, _ := args["sessionId"].(string)
-			if id == "" {
-				return nil, fmt.Errorf("%w: 缺少sessionId", ErrBadInput)
-			}
-			callArgs = map[string]any{"id": id}
-		} else {
-			server, _ := args["serverId"].(string)
-			local, _ := args["local"].(bool)
-			if server == "" && !local || server != "" && local {
-				return nil, fmt.Errorf("%w: 必须指定serverId或local=true，不能同时指定", ErrBadInput)
-			}
-			callArgs = map[string]any{"serverId": server, "local": local}
-		}
-		content, _, e := s.mcpCallToolAudited(ctx, original, callArgs)
-		return content, e
+	if isSessionWorkflowTool(name) {
+		return s.handleSessionWorkflow(ctx, name, args)
 	}
 	if name == OpServicesStatus || name == OpServicesLogs || name == OpServicesRestart {
 		return s.handleServiceTool(ctx, name, args)
@@ -316,15 +303,7 @@ func (s *Server) handleJobsTool(ctx context.Context, name string, args map[strin
 		return s.runJobPlan(ctx, args)
 	}
 	if name == OpExecStart {
-		req, e := parseJobRequest(args)
-		if e != nil {
-			return nil, e
-		}
-		v, e := m.start(ctx, owner, req)
-		if e != nil {
-			return nil, e
-		}
-		return jobJSON(v)
+		return s.startJobResult(ctx, args)
 	}
 	if name == OpJobsList {
 		m.mu.Lock()
@@ -369,7 +348,7 @@ func (s *Server) handleJobsTool(ctx context.Context, name string, args map[strin
 	defer m.mu.Unlock()
 	switch name {
 	case OpJobsGet, OpJobsWait:
-		return jobJSON(j.view)
+		return jobJSON(jobResultLocked(j, appctlBool(args, "includeOutput")))
 	case OpJobsCancel:
 		if !j.complete {
 			j.view.CancelRequested = true

@@ -17,16 +17,23 @@ it('uses the themed application dialog and cancels without closing tabs', async 
  await flushPromises()
  expect(document.querySelector('[role="dialog"]')).toBeNull()
 })
-it('confirms in English and prevents duplicate dialogs', async () => {
+it('queues concurrent close confirmations and keeps each decision separate', async () => {
  language.value = 'en'
- const result = confirmTabs(3)
+ const first = confirmTabs(1, ['first'])
+ const second = confirmTabs(1, ['second'])
  await flushPromises()
- expect(await confirmTabs(1)).toBe(false)
  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
- expect(document.body.textContent).toContain('Closing 3 tabs')
+ expect(document.body.textContent).toContain('first')
+ expect(document.body.textContent).not.toContain('second')
  button('Confirm close').click()
- expect(await result).toBe(true)
+ expect(await first).toBe(true)
  await flushPromises()
+ expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+ expect(document.body.textContent).toContain('second')
+ button('Cancel').click()
+ expect(await second).toBe(false)
+ await flushPromises()
+ expect(document.querySelector('[role="dialog"]')).toBeNull()
 })
 it('treats Escape as cancellation', async () => {
  const result = confirmTabs(1)

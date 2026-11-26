@@ -186,6 +186,7 @@ func mcpTools(s *Server) []mcpTool {
 				list[i].Meta["unavailableReason"] = "当前平台尚未实现窗口截图"
 			}
 		}
+		decorateToolDiscovery(&list[i])
 	}
 	return list
 }
@@ -214,6 +215,8 @@ func mcpToolEntries() []mcpTool {
 	// 能力位与确认登记在 sudo.go 的 init 里。
 	list = append(list, sudoToolEntries()...)
 	list = append(list, jobsToolEntries()...)
+	list = append(list, preflightToolEntries()...)
+	list = append(list, discoveryToolEntries()...)
 	return list
 }
 
@@ -463,6 +466,7 @@ type mcpSession struct {
 	subscriptions map[string]bool
 	loggingLevel  int
 	owner         string
+	toolProfile   string
 }
 
 // mcpSessionHeader MCP 会话头（2025-03-26 规范）。
@@ -663,6 +667,11 @@ func (s *Server) mcpPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	profile, explicitProfile, profileErr := requestToolProfile(r)
+	if profileErr != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": profileErr.Error()})
+		return
+	}
 	sid := mcpSessionIDFrom(r)
 	var sess *mcpSession
 	if sid != "" {
@@ -672,8 +681,15 @@ func (s *Server) mcpPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.mcpMu.Lock()
-		v, ready := sess.version, sess.initialized
+		v, ready, sessionProfile := sess.version, sess.initialized, sess.toolProfile
 		s.mcpMu.Unlock()
+		if sessionProfile != "" {
+			if explicitProfile && profile != sessionProfile {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "tool profile 与已初始化会话不一致；切换 profile 请建立新 MCP 会话"})
+				return
+			}
+			profile = sessionProfile
+		}
 		if hv := r.Header.Get("MCP-Protocol-Version"); hv != "" && hv != v {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "协议版本与已协商版本不一致"})
 			return
@@ -685,6 +701,7 @@ func (s *Server) mcpPost(w http.ResponseWriter, r *http.Request) {
 		ctx = context.WithValue(ctx, protocolContextKey{}, v)
 		ctx = context.WithValue(ctx, sessionContextKey{}, sess)
 	}
+	ctx = context.WithValue(ctx, toolProfileContextKey{}, profile)
 	if hv := r.Header.Get("MCP-Protocol-Version"); hv != "" && !protocolSupported(hv) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "不支持的 MCP-Protocol-Version"})
 		return
@@ -762,6 +779,7 @@ func (s *Server) mcpPost(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		next.owner = CallerID(ctx)
+		next.toolProfile = profile
 		w.Header().Set(mcpSessionHeader, next.id)
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -937,7 +955,7 @@ func (s *Server) mcpDispatch(ctx context.Context, req rpcRequest) rpcResponse {
 				"logging":   map[string]any{},
 			},
 			"serverInfo": map[string]any{"name": mcpServerName, "version": mcpServerVersion},
-			"instructions": "ding-ssh 控制面。先用 app.permissions / app.health 检查用户授权与平台能力。新连接默认观察模式，各类终端/远端文件/UI 读取分别受能力控制。" +
+			"instructions": "ding-ssh 控制面。先用 app.health 检查环境，app.preflight(tool,args) 一次预检具体操作的权限与约束；tools.search 查找工具和推荐工作流。目录 profile=" + contextToolProfile(ctx) + "，只调整工具发现，不改变授权。使用 X-Ding-SSH-Tool-Profile: operations 可获得精简运维目录；默认 full 保持兼容。新连接默认观察模式，各类终端/远端文件/UI 读取分别受能力控制。" +
 				"独立运维命令优先 exec.start，然后用 jobs.get/wait/output 查询；任务超时或连接丢失不能假定远端命令已停止。交互才用 terminal.run/expect；静默不等于执行完成。" +
 				"持久化变更先 confirm.prepare（建议提供精确 tool/action/args），用户在独立系统窗口批准后才返回一次性 token，再调用原工具或 confirm.commit；MCP 不能修改自身授权。" +
 				"credentials.use 允许应用内部使用保存凭据，secrets.read 另行控制明文导出；两者互不隐含。" +
@@ -951,7 +969,7 @@ func (s *Server) mcpDispatch(ctx context.Context, req rpcRequest) rpcResponse {
 		return ok(map[string]any{})
 
 	case "tools/list":
-		tools := mcpTools(s)
+		tools := toolsForProfile(s, contextToolProfile(ctx))
 		if protocolVersion(ctx) != "2025-06-18" {
 			for i := range tools {
 				tools[i].OutputSchema = nil
@@ -1128,12 +1146,9 @@ func (s *Server) mcpCallToolAudited(ctx context.Context, name string, args map[s
 	rec.ClientID = CallerID(ctx)
 	rec.OperationID = "call_" + newSessionID()
 
-	// Identity scopes are checked before capability/confirmation consumption.
+	// Identity scopes and argument-dependent capabilities are checked together,
+	// before confirmation consumption.
 	if err := s.authorizeInvocation(ctx, name, args); err != nil {
-		return nil, rec.finish(err, false, ""), err
-	}
-	// 1) 能力位
-	if err := s.checkToolCaps(name, argDetail(args)); err != nil {
 		return nil, rec.finish(err, false, ""), err
 	}
 
@@ -1296,6 +1311,14 @@ func (s *Server) mcpCallTool(ctx context.Context, name string, args map[string]a
 	}
 
 	switch name {
+	case OpAppPreflight:
+		return s.handlePreflight(ctx, args)
+	case OpToolsSearch:
+		v, err := s.searchTools(args)
+		if err != nil {
+			return nil, err
+		}
+		return text(v), nil
 	case "app_state":
 		return call(OpState, nil)
 	case "list_terminals":
@@ -1485,7 +1508,12 @@ func structuredContentFor(tool string, content []any) (any, bool) {
 // 鉴权：仍走同一个 Bearer token（auth 中间件把整张 mux 包住）——工具目录里有描述与
 // 能力位，属于控制面信息，不做「读类免鉴权」的例外。
 func (s *Server) toolsHTTP(w http.ResponseWriter, r *http.Request) {
-	tools := mcpTools(s)
+	profile, _, err := requestToolProfile(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	tools := toolsForProfile(s, profile)
 	out := make([]any, 0, len(tools))
 	structuredCount := 0
 	for _, t := range tools {
@@ -1497,6 +1525,7 @@ func (s *Server) toolsHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	logx.Debugf("[debugsrv/mcp] 返回工具目录: count=%d structured=%d", len(out), structuredCount)
 	writeJSON(w, http.StatusOK, map[string]any{
+		"profile":         profile,
 		"count":           len(out),
 		"structuredCount": structuredCount,
 		"tools":           out,
@@ -1518,6 +1547,14 @@ func toolCatalogEntry(t mcpTool) map[string]any {
 		"description":         t.Description,
 		"inputSchema":         t.InputSchema,
 		"hasStructuredOutput": hasStructured,
+	}
+	if conditions := conditionalToolCapabilities(t.Name); len(conditions) > 0 {
+		entry["conditionalCapabilities"] = conditions
+		entry["capabilityMode"] = "conditional"
+		entry["capabilitySemantics"] = "The legacy capability list is a conservative union; use conditionalCapabilities for argument-specific requirements."
+	}
+	if len(t.Meta) > 0 {
+		entry["_meta"] = t.Meta
 	}
 	if needToken {
 		entry["confirmAction"] = action
@@ -1776,10 +1813,7 @@ func (s *Server) authorizeResource(ctx context.Context, uri string) error {
 	case uri == TransfersResourceURI:
 		tool = "sftp.transfers"
 	}
-	if err := s.authorizeInvocation(ctx, tool, args); err != nil {
-		return err
-	}
-	return s.checkToolCaps(tool, "")
+	return s.authorizeInvocation(ctx, tool, args)
 }
 
 // mcpReadResource 读取资源内容（JSON 文本）。

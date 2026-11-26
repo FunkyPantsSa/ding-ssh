@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -44,7 +45,7 @@ func TestSnapshotPrivateAtomicAndBounded(t *testing.T) {
 		if filepath.Ext(e.Name()) == ".png" {
 			count++
 			st, _ := e.Info()
-			if st.Mode().Perm() != 0600 {
+			if runtime.GOOS != "windows" && st.Mode().Perm() != 0600 {
 				t.Fatal("public snapshot")
 			}
 		}

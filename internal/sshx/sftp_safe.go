@@ -305,8 +305,18 @@ func WriteRemoteFile(ctx context.Context, client *sftp.Client, target string, da
 	}
 	if statErr == nil {
 		if attrs, ok := fi.Sys().(*sftp.FileStat); ok {
-			if err := f.Chown(int(attrs.UID), int(attrs.GID)); err != nil {
-				return out, fmt.Errorf("preserve remote owner: %w", err)
+			// A newly staged file often already has the target owner. Avoid a
+			// redundant chown: Windows SFTP servers and restricted accounts may
+			// reject it even when no ownership change is necessary.
+			stagedInfo, err := f.Stat()
+			if err != nil {
+				return out, fmt.Errorf("read staged remote owner: %w", err)
+			}
+			stagedAttrs, known := stagedInfo.Sys().(*sftp.FileStat)
+			if !known || stagedAttrs.UID != attrs.UID || stagedAttrs.GID != attrs.GID {
+				if err := f.Chown(int(attrs.UID), int(attrs.GID)); err != nil {
+					return out, fmt.Errorf("preserve remote owner: %w", err)
+				}
 			}
 		}
 		if err := f.Chmod(fi.Mode().Perm()); err != nil {

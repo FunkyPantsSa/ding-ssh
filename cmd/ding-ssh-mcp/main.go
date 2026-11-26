@@ -48,8 +48,9 @@ const (
 	serverName = "ding-ssh-mcp"
 
 	// envURL / envToken 环境变量名：优先级低于命令行参数、高于 debug.json。
-	envURL   = "DING_SSH_DEBUG_URL"
-	envToken = "DING_SSH_DEBUG_TOKEN"
+	envURL         = "DING_SSH_DEBUG_URL"
+	envToken       = "DING_SSH_DEBUG_TOKEN"
+	envToolProfile = "DING_SSH_MCP_TOOL_PROFILE"
 
 	// sessionHeader MCP 会话头（2025-03-26 规范，与 internal/debugsrv 保持一致）。
 	sessionHeader = "Mcp-Session-Id"
@@ -106,13 +107,14 @@ type rpcEnvelope struct {
 
 // options 解析后的运行配置。
 type options struct {
-	url      string
-	token    string
-	debugRaw string // -debug-json，空表示用默认路径
-	verbose  bool
-	quiet    bool
-	once     bool
-	help     bool
+	url         string
+	token       string
+	debugRaw    string // -debug-json，空表示用默认路径
+	toolProfile string // Discovery only; does not change tool authorization.
+	verbose     bool
+	quiet       bool
+	once        bool
+	help        bool
 }
 
 // logf2 是极小的 stderr 日志器（名字里的 2 只是与 logx 体系区分，这里只用标准库）。
@@ -246,6 +248,7 @@ func parseFlags(argv []string, out io.Writer) (options, error) {
 	fs.StringVar(&opts.url, "url", os.Getenv(envURL), "调试服务地址，如 http://127.0.0.1:8765（默认取环境变量 "+envURL+" 或 debug.json）")
 	fs.StringVar(&opts.token, "token", os.Getenv(envToken), "调试服务 token（默认取环境变量 "+envToken+" 或 debug.json）")
 	fs.StringVar(&opts.debugRaw, "debug-json", "", "debug.json 路径（默认 %AppData%\\ding-ssh\\debug.json）")
+	fs.StringVar(&opts.toolProfile, "tool-profile", os.Getenv(envToolProfile), "工具目录：operations（日常运维）、debug（界面调试）、full（默认全部）")
 	fs.BoolVar(&opts.verbose, "v", false, "打印转发细节日志到 stderr（token 一律打码）")
 	fs.BoolVar(&opts.quiet, "quiet", false, "只输出错误日志到 stderr")
 	fs.BoolVar(&opts.once, "once", false, "仅探测地址与 token 是否可用，然后退出（不进入 stdio 桥接）")
@@ -264,6 +267,12 @@ func parseFlags(argv []string, out io.Writer) (options, error) {
 	opts.url = strings.TrimSpace(opts.url)
 	opts.token = strings.TrimSpace(opts.token)
 	opts.debugRaw = strings.TrimSpace(opts.debugRaw)
+	opts.toolProfile = strings.ToLower(strings.TrimSpace(opts.toolProfile))
+	switch opts.toolProfile {
+	case "", "full", "operations", "debug":
+	default:
+		return opts, errors.New("-tool-profile 必须为 full、operations 或 debug")
+	}
 	return opts, nil
 }
 
@@ -278,6 +287,7 @@ func printUsage(w io.Writer) {
   -url string         调试服务地址，如 http://127.0.0.1:8765（也接受以 /mcp 结尾，会自动去掉）
   -token string       调试服务 token（每次启动应用都会变化）
   -debug-json string  debug.json 路径，默认 %AppData%\ding-ssh\debug.json
+  -tool-profile string 工具目录：operations / debug / full（默认 full；也可用 DING_SSH_MCP_TOOL_PROFILE）
   -v                  打印转发细节日志到 stderr（token 一律打码）
   -quiet              只输出错误日志
   -once               仅探测地址与 token 是否可用，然后退出
@@ -298,6 +308,7 @@ func printUsage(w io.Writer) {
 
 示例：
   ding-ssh-mcp -v
+  ding-ssh-mcp -tool-profile operations
   ding-ssh-mcp -url http://127.0.0.1:8765 -token <token>
   $env:DING_SSH_DEBUG_URL="http://127.0.0.1:8765"; ding-ssh-mcp
 
@@ -655,6 +666,9 @@ func (c *clientMCP) doRequest(body []byte) ([]byte, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+cfg.token)
+	if c.opts.toolProfile != "" {
+		req.Header.Set("X-Ding-SSH-Tool-Profile", c.opts.toolProfile)
+	}
 	if v := c.protocolVersion(); v != "" {
 		req.Header.Set("MCP-Protocol-Version", v)
 	}
@@ -734,6 +748,9 @@ func (c *clientMCP) post(ctx context.Context, body []byte) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+cfg.token)
+	if c.opts.toolProfile != "" {
+		req.Header.Set("X-Ding-SSH-Tool-Profile", c.opts.toolProfile)
+	}
 	if v := c.protocolVersion(); v != "" {
 		req.Header.Set("MCP-Protocol-Version", v)
 	}

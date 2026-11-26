@@ -57,6 +57,8 @@ func ensureSFTPRegistrations(t *testing.T) {
 // AllRegisteredToolNames()，只要某个域被 ResetRegistrationsForTest 清掉就会漏掉该域的工具。
 func ensureAllRegistrations(t *testing.T) {
 	registerJobsCaps()
+	registerDiscoveryCaps()
+	registerPreflightCaps()
 
 	t.Helper()
 	ensureUIRegistrations(t)

@@ -52,6 +52,37 @@ func TestTerminalRunExpectMatchesRealOutputAfterEcho(t *testing.T) {
 	}
 }
 
+// ConPTY can place PowerShell output directly after its command echo. A later
+// newline belongs to the output and must not extend the skipped echo region.
+func TestTerminalRunExpectMatchesOutputAdjacentToEcho(t *testing.T) {
+	command := "[BitConverter]::ToString([Text.Encoding]::UTF8.GetBytes('é'))"
+	for _, chunked := range []bool{false, true} {
+		name := "single chunk"
+		if chunked {
+			name = "separate chunks"
+		}
+		t.Run(name, func(t *testing.T) {
+			ensureSFTPRegistrations(t)
+			env := newSFTPEnv(t)
+			env.h.onInput = func(id, _ string) {
+				echo := "\nPS C:\\Users\\test> > [> " + command
+				if chunked {
+					publishOutput(env.hub, id, echo)
+					publishOutput(env.hub, id, "C3-A9\r\nPS> ")
+				} else {
+					publishOutput(env.hub, id, echo+"C3-A9\r\nPS> ")
+				}
+			}
+			out := env.callJSON(t, OpTerminalRun, map[string]any{
+				"id": "tab-1", "command": command, "expect": "C3-A9", "timeoutMs": 300,
+			})
+			if out["matched"] != true {
+				t.Fatalf("output adjacent to the echo must match: %v", out)
+			}
+		})
+	}
+}
+
 // 分块到达：先到半截回显（不含换行），再到完整回显 → 全程不得命中。
 func TestTerminalRunExpectIgnoresPartialEcho(t *testing.T) {
 	ensureSFTPRegistrations(t)

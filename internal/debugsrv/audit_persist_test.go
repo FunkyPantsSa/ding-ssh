@@ -3,6 +3,7 @@ package debugsrv
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -25,7 +26,7 @@ func TestPersistentAuditMetadataAndRotation(t *testing.T) {
 		t.Fatal("missing identity")
 	}
 	st, _ := os.Stat(path)
-	if st.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0600 {
 		t.Fatalf("mode %v", st.Mode())
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY, 0600)

@@ -177,6 +177,20 @@ func hasString(list []string, v string) bool {
 // authorizeInvocation is shared by HTTP and MCP. Host/session identifiers are
 // immutable policy targets; UI selectors and arbitrary node objects are not.
 func (s *Server) authorizeInvocation(ctx context.Context, tool string, args map[string]any) error {
+	if err := s.authorizeInvocationPolicy(ctx, tool, args); err != nil {
+		return err
+	}
+	return s.checkInvocationCaps(ctx, tool, args)
+}
+
+// Policy checks never execute the requested tool or consume a confirmation.
+// Keeping these separate lets preflight report scope and capability failures together.
+func (s *Server) authorizeInvocationPolicy(ctx context.Context, tool string, args map[string]any) (resultErr error) {
+	defer func() {
+		if resultErr != nil && !errors.Is(resultErr, ErrBadInput) && !errors.Is(resultErr, ErrForbidden) {
+			resultErr = &OperationError{Code: "PERMISSION_DENIED", Message: resultErr.Error(), Cause: ErrForbidden, NextSteps: []string{"Check the current client identity, granted targets and path scopes with app.permissions; ask the user to adjust the authorization."}}
+		}
+	}()
 	// Host request structs use encoding/json's case-insensitive field matching.
 	// Authorization must not interpret "Local" or "Node" differently from it.
 	for key := range args {
@@ -188,21 +202,6 @@ func (s *Server) authorizeInvocation(ctx context.Context, tool string, args map[
 	}
 	if err := rejectSecurityPatch(tool, args); err != nil {
 		return err
-	}
-	if tool == "eval_js" || unsafeUITool(tool) {
-		if err := s.allowCap(CapTrustedAutomation, tool); err != nil {
-			return err
-		}
-	}
-	if (tool == "open_tab" || tool == OpSessionsConnect) && appctlBool(args, "local") {
-		if err := s.allowCap(CapLocalExec, "本机终端"); err != nil {
-			return err
-		}
-	}
-	if (tool == "open_tab" || tool == OpSessionsConnect) && !appctlBool(args, "local") {
-		if err := s.allowCap(CapCredentialUse, "服务器连接"); err != nil {
-			return err
-		}
 	}
 	if tool == OpExecPlan || tool == OpExecBatch {
 		return s.authorizeJobBatch(ctx, tool, args)
@@ -216,15 +215,6 @@ func (s *Server) authorizeInvocation(ctx context.Context, tool string, args map[
 	}
 	if tool == "confirm.prepare" || tool == "confirm.commit" || tool == "confirm.status" {
 		return nil
-	}
-	caps, _ := ToolCapabilities(tool)
-	for _, c := range caps {
-		if !hasString(p.Capabilities, string(c)) {
-			return fmt.Errorf("客户端未获授权能力 %s", c)
-		}
-	}
-	if (tool == "open_tab" || tool == OpSessionsConnect) && !appctlBool(args, "local") && !hasString(p.Capabilities, string(CapCredentialUse)) {
-		return fmt.Errorf("客户端未获授权能力 %s", CapCredentialUse)
 	}
 	if unsafeUITool(tool) || strings.HasPrefix(tool, "ui.") || tool == "eval_js" || tool == "get_settings" || tool == "update_settings" || tool == "settings.reset" || tool == "settings.schema" || tool == "app.command" || tool == "app.commands" || tool == "app_state" || tool == "export_diagnostics" || tool == "recent_events" || tool == "read_logs" || tool == "list_logs" || tool == "app.recent_calls" || tool == "screenshot" || strings.HasPrefix(tool, "credentials.") {
 		return errors.New("该工具仅供本机可信所有者使用")
@@ -265,7 +255,7 @@ func (s *Server) authorizeInvocation(ctx context.Context, tool string, args map[
 func authorizeClientTarget(p ClientPolicy, tool string, args map[string]any) error {
 	var serverID, sessionID string
 	switch tool {
-	case "app.health", "app.permissions", OpJobsGet, OpJobsWait, OpJobsOutput, OpJobsCancel, OpJobsList:
+	case "app.health", "app.permissions", OpAppPreflight, "tools.search", OpJobsGet, OpJobsWait, OpJobsOutput, OpJobsCancel, OpJobsList:
 		return nil // Jobs enforce immutable owner IDs in their own store.
 	case "open_tab", OpSessionsConnect:
 		serverID = appctlString(args, "serverId")
@@ -284,7 +274,7 @@ func authorizeClientTarget(p ClientPolicy, tool string, args map[string]any) err
 		return nil
 	case "read_terminal", "send_input", "scroll_terminal", "resize_terminal", "close_tab", "reconnect_session", "disconnect_session", OpTerminalRun, OpTerminalExpect, OpTerminalSudo:
 		sessionID = appctlString(args, "id")
-	case OpExecStart, OpSessionsGet, OpSessionsWait, OpSessionsDisconnect, OpSessionsReconnect, OpHostsMetrics, OpProcessesList, OpServicesStatus, OpServicesLogs, OpServicesRestart:
+	case OpExecStart, OpSessionsGet, OpSessionsWait, OpSessionsDisconnect, OpSessionsReconnect, OpSessionsClose, OpSessionsCloseStatus, OpHostsMetrics, OpProcessesList, OpServicesStatus, OpServicesLogs, OpServicesRestart:
 		sessionID = appctlString(args, "sessionId")
 	default:
 		if IsSftpOp(tool) {
@@ -412,9 +402,6 @@ func (s *Server) approveOperation(ctx context.Context, action, tool string, args
 	}
 	if tool != "" {
 		if err := s.authorizeInvocation(ctx, tool, args); err != nil {
-			return "", "", 0, err
-		}
-		if err := s.checkToolCaps(tool, argDetail(args)); err != nil {
 			return "", "", 0, err
 		}
 	} else if cap, ok := CapabilityOfAction(action); ok {

@@ -6,15 +6,14 @@ vars:
   TARGET_ARCH: '{{.TARGET_ARCH | default (.ARCH | default (.GOARCH | default ARCH))}}'
   BUILD_CHANNEL: '{{.BUILD_CHANNEL | default "main"}}'
   LINUX_TOOLKIT: '{{.LINUX_TOOLKIT | default "gtk3"}}'
-  TAGS: '{{if ne .DEV "true"}}production{{if and (eq .TARGET_OS "linux") (eq .LINUX_TOOLKIT "gtk3")}},{{end}}{{end}}{{if and (eq .TARGET_OS "linux") (eq .LINUX_TOOLKIT "gtk3")}}gtk3{{end}}'
   EXE: '{{.BIN_DIR}}/ding-ssh{{if eq .TARGET_OS "windows"}}.exe{{end}}'
   SKIP_FRONTEND: '{{.SKIP_FRONTEND | default "false"}}'
 
 tasks:
   bindings:
     cmds:
-      - mkdir -p frontend/dist
-      - touch frontend/dist/.gitkeep
+      - >-
+        node -e "const fs = require('node:fs'); fs.mkdirSync('frontend/dist', {recursive:true}); fs.writeFileSync('frontend/dist/.gitkeep', '', {flag:'a'})"
       - wails3 generate bindings -ts -d frontend/bindings
     env:
       GOFLAGS: '{{if and (eq OS "linux") (eq .LINUX_TOOLKIT "gtk3")}}-tags=gtk3{{end}}'
@@ -58,6 +57,7 @@ tasks:
     vars:
       TARGET_OS: '{{.GOOS | default (.TARGET_OS | default OS)}}'
       TARGET_ARCH: '{{.ARCH | default (.GOARCH | default (.TARGET_ARCH | default ARCH))}}'
+      TAGS: '{{if ne .DEV "true"}}production{{if and (eq .TARGET_OS "linux") (eq .LINUX_TOOLKIT "gtk3")}},{{end}}{{end}}{{if and (eq .TARGET_OS "linux") (eq .LINUX_TOOLKIT "gtk3")}}gtk3{{end}}'
       EXE: '{{.BIN_DIR | default "build/bin"}}/ding-ssh{{if eq .TARGET_OS "windows"}}.exe{{end}}'
     env:
       GOOS: '{{.TARGET_OS}}'
@@ -67,8 +67,10 @@ tasks:
       CGO_CFLAGS: '{{if eq .TARGET_OS "darwin"}}-O2 -g -mmacosx-version-min=12.0{{else}}-O2 -g{{end}}'
       CGO_LDFLAGS: '{{if eq .TARGET_OS "darwin"}}-O2 -g -mmacosx-version-min=12.0{{else}}-O2 -g{{end}}'
     cmds:
-      - mkdir -p "{{.BIN_DIR}}"
-      - defer: 'rm -f "ding_windows_{{.TARGET_ARCH}}.syso"'
+      - >-
+        node -e "require('node:fs').mkdirSync(process.argv[1], {recursive:true})" "{{.BIN_DIR}}"
+      - defer: >-
+          node -e "require('node:fs').rmSync(process.argv[1], {force:true})" "ding_windows_{{.TARGET_ARCH}}.syso"
       - >-
         {{if eq .TARGET_OS "windows"}}wails3 generate syso -arch {{.TARGET_ARCH}} -icon build/windows/icon.ico -manifest build/windows/wails.exe.manifest -info build/windows/info.json -out ding_windows_{{.TARGET_ARCH}}.syso{{else}}true{{end}}
       - >-

@@ -10,6 +10,18 @@
 - `terminal.input` 允许在相应目标上执行任意 SSH 命令，是高权限能力。SFTP 路径白名单只约束文件接口，不构成 shell 沙箱。受限客户端禁止本机执行、任意 JS 和明文凭据导出。
 - 文件写入和服务重启经独立可信界面批准，确认 token 一次性绑定客户端、精确工具、动作和参数。MCP 不能批准自己或修改自身授权配置。
 
+## 工具发现、流程与配置
+
+- `tools/list` 默认返回完整兼容目录。需要缩小日常列表时，可在 HTTP MCP 初始化请求设置 `X-Ding-SSH-Tool-Profile: operations`，或在 stdio bridge 启动时使用 `-tool-profile operations` / `DING_SSH_MCP_TOOL_PROFILE=operations`。可选 profile 为 `full`（默认）、`operations` 和 `debug`；profile 在 MCP session 初始化时固定，切换时需重新初始化。
+- profile 只筛选目录，不授予或撤销权限。已知工具仍按应用能力和客户端策略逐次授权。`tools.search` 默认搜索完整目录，即使当前 profile 隐藏了某工具也能发现它；`includeSchema:true` 可返回参数 schema，`limit/offset` 用于分页。
+- 常规流程先调用 `app.health` 和 `app.permissions` 了解运行状态与授权，再用 `tools.search` 查找工具；有精确参数时可调用 `app.preflight {tool,args}` 汇总 schema、能力、客户端范围和确认要求。preflight 不执行工具、不申请或消费批准；`allowed:true` 也不代表写操作已获确认，远端路径 canonical/symlink 检查、连接状态和执行结果仍在执行阶段判断。
+- 推荐用 `sessions.connect` 建立/等待会话就绪，用 `exec.start` 在隔离任务中执行命令，并用 `jobs.wait/jobs.output` 收取结果。`terminal.run/terminal.expect` 操作共享交互式终端状态；非交互任务优先使用 `exec.start`。
+
+```text
+tools.search {"query":"exec","limit":10,"includeSchema":true}
+app.preflight {"tool":"exec.start","args":{"sessionId":"ssh-1","command":"uname -s"}}
+```
+
 ## 独立执行
 
 ### `exec.start`
@@ -21,18 +33,22 @@
 | `command` | 必填字符串，非空、无 NUL、最多 256 KiB |
 | `sessionId` | 已连接的 SSH 会话；与 `local=true` 二选一 |
 | `local` | 默认 `false`；只有显式 `true` 才执行本机 shell，另需 `exec.local` |
-| `mode` | `raw`（默认）或 `posix` |
-| `cwd` | 仅显式 `posix` 支持，最多 8192 字节 |
-| `env` | 仅显式 `posix` 支持；最多 128 个变量，变量名为合法 shell 标识符，单值最多 32768 字节 |
+| `shell` | 仅本机目标；Windows 默认 `cmd`，可选 `cmd/powershell/pwsh`；POSIX 默认 `sh`。实际可用项见 `app.health` |
+| `mode` | `raw`（默认）或 `posix`；`posix` 仅用于远端 shell 包装 |
+| `cwd` | 本机目标使用操作系统原生工作目录；远端仅显式 `posix` 支持；最多 8192 字节 |
+| `env` | 本机目标使用原生环境变量；远端仅显式 `posix` 支持。最多 128 个变量，名称为合法 shell 标识符，单值最多 32768 字节 |
 | `timeoutMs` | 整数，默认 30000，范围 200–600000；包含排队时间 |
+| `waitMs` | 本次调用等待毫秒，默认 0，范围 0–30000；等待超时不会取消任务 |
+| `includeOutput` | 默认 `false`；设为 `true` 返回已捕获的 stdout/stderr。`waitMs>0` 且未显式设置时默认返回输出 |
 | `maxBytes` | stdout 与 stderr 共用的存储预算；默认 262144，范围 1024–1048576 |
 | `idempotencyKey` | 可选字符串，最多 200 字符；同一身份、同一完整请求返回原任务；复用到不同参数会拒绝 |
 
-`raw` 保留远端 shell 命令文本，不拼接工作目录和环境。`posix` 明确依赖远端 `sh`，对 `cwd/env` 做单引号转义；`command` 本身仍是获授权的命令文本。本机在 Unix 使用 `/bin/sh -c`，Windows 使用 `cmd.exe`，Windows 本机不支持 `posix` 模式。交互式 JumpServer 网关不支持独立 exec，会明确拒绝。
+`raw` 保留远端 shell 命令文本，不拼接工作目录和环境。`posix` 明确依赖远端 `sh`，对 `cwd/env` 做单引号转义；`command` 本身仍是获授权的命令文本。本机在 Windows 默认用 `cmd.exe`，也可选择 `powershell` 或 `pwsh`；POSIX 本机默认用 `sh`。本机 `cwd/env` 由操作系统原生设置。Windows PowerShell 输出按 UTF-8 捕获。交互式 JumpServer 网关不支持独立 exec，会明确拒绝。
 
 ```text
 exec.start {"sessionId":"ssh-1","command":"uname -s","idempotencyKey":"inspect-os-1"}
 exec.start {"sessionId":"ssh-1","mode":"posix","cwd":"/srv/app","env":{"LANG":"C"},"command":"pwd; printf '%s' \"$LANG\""}
+exec.start {"local":true,"shell":"powershell","cwd":"C:\\work\\app","command":"Get-Location; [Console]::WriteLine('就绪')","waitMs":5000,"includeOutput":true}
 ```
 
 返回任务摘要，包括 `jobId/sessionId/local/state/createdAt/outputBytes/capturedBytes/truncated/cancelRequested/terminationProven`。开始后有 `startedAt`，完成后有 `finishedAt`；收到明确退出状态才提供 `exitCode`，可能另有 `signal/error/errorCode`。HTTP 请求结束不会取消已提交任务。任务固定使用提交时的 SSH transport，后续重连不会把它改投另一个连接。
@@ -42,7 +58,7 @@ exec.start {"sessionId":"ssh-1","mode":"posix","cwd":"/srv/app","env":{"LANG":"C
 | 工具 | 参数 | 结果 |
 | --- | --- | --- |
 | `jobs.get` | 必填 `jobId` | 当前任务摘要 |
-| `jobs.wait` | 必填 `jobId`；`timeoutMs` 默认 1000，整数 0–30000 | 等到完成或等待预算耗尽，返回当时摘要；等待超时不会取消执行 |
+| `jobs.wait` | 必填 `jobId`；`timeoutMs` 默认 1000，整数 0–30000；`includeOutput` 默认 `false` | 等到完成或等待预算耗尽，返回当时摘要；等待超时不会取消执行。`includeOutput:true` 同时返回 stdout/stderr 与游标 |
 | `jobs.output` | 必填 `jobId`；`cursor` 默认 0；`maxBytes` 默认 65536，范围 1024–262144 | 输出分片、`nextCursor/hasMore/complete/truncated/outputBytes/capturedBytes` |
 | `jobs.cancel` | 必填 `jobId` | 取消请求后的摘要；完成任务调用不会重新执行 |
 | `jobs.list` | 无参数 | 当前身份的 `jobs/count/retentionSec` |
@@ -56,6 +72,8 @@ jobs.wait {"jobId":"job_…","timeoutMs":30000}
 jobs.output {"jobId":"job_…","cursor":0,"maxBytes":65536}
 jobs.output {"jobId":"job_…","cursor":65536,"maxBytes":65536}
 ```
+
+`exec.start` 可设置 `waitMs` 在同一次调用中等待并收取最终结果；若返回 `complete:false`，使用 `jobs.wait`（可选 `includeOutput:true`）继续等待，或用 `jobs.output` 按游标读取增量。交付等待选项不属于执行幂等指纹，复用相同 `idempotencyKey` 不会重复启动命令。
 
 进程内最多接受 8 个未完成任务（排队任务也计入），最多保留 64 个任务；完成记录保留一小时，后台每分钟清理。每任务最多保留 1 MiB、4096 个输出分片。宿主在配置目录的 `mcp-jobs/` 持久化摘要及已保存输出，目录权限 0700、文件权限 0600，采用临时文件加原子替换；不保存命令正文或环境，只保存请求摘要哈希和幂等键。输出本身可能含命令产生的敏感内容。启动前无法安全保存状态会拒绝执行。应用重启后未完成任务标为 `unknown`，不会自动重放；执行期间的输出只在最终状态保存时持久化，崩溃前最后一段输出可能缺失。
 
@@ -80,15 +98,17 @@ exec.batch {"planId":"job_…","concurrency":2}
 
 | 工具 | 参数与语义 |
 | --- | --- |
-| `sessions.connect` | `serverId` 或显式 `local:true` 二选一；连接已保存服务器并打开标签，复用 `open_tab` 流程与权限；依赖运行中的应用前端 |
-| `sessions.disconnect` | 必填 `sessionId`；复用 `disconnect_session`，保留标签；中断原 SSH 连接上的任务 |
-| `sessions.reconnect` | 必填 `sessionId`；复用 `reconnect_session`，保留标签；依赖前端与其保存的服务器配置 |
+| `sessions.connect` | `serverId` 或显式 `local:true` 二选一；可选 `waitMs` 默认 10000，范围 0–30000；连接已保存服务器并等待就绪，复用 `open_tab` 流程与权限；依赖运行中的应用前端 |
+| `sessions.disconnect` | 必填 `sessionId`；可选 `waitMs` 默认 10000，范围 0–30000；复用 `disconnect_session`，保留标签并等待后端断开；中断原 SSH 连接上的任务 |
+| `sessions.reconnect` | 必填 `sessionId`；可选 `waitMs` 默认 10000，范围 0–30000；复用 `reconnect_session`，等待就绪并保留标签；依赖前端与其保存的服务器配置 |
+| `sessions.close` | 必填 `sessionId`；可选 `waitMs` 默认 10000，范围 0–30000；关闭精确标签并等待清理，遵守应用的关闭确认设置 |
+| `sessions.closeStatus` | 必填 `sessionId`；可选 `waitMs` 默认 0，范围 0–30000；只观察关闭请求，绝不代为确认或关闭 |
 | `sessions.get` | 必填 `sessionId`；仅读后端状态，不建立连接 |
 | `sessions.wait` | 必填 `sessionId`；`status` 默认 `connected`，允许 `connected/connecting/disconnected/closed`；`timeoutMs` 默认 1000，整数 0–30000 |
 | `hostTrust.challenges` | 无参数；返回 `challenges/count/requiresUserApproval:true`，只公开指纹挑战，不具备批准能力 |
 | `servers.search` | 可选 `query/group/offset/limit`；默认 `offset:0,limit:100`，每页 1–500 条 |
 
-连接远端需 `session.connect` 与凭据使用授权 `credentials.use`；打开本机终端另需 `exec.local`。断开需 `session.disconnect`，重连同时需连接、断开及对应凭据使用授权。连接与重连失败由原调用返回错误；后端不会编造历史错误状态。
+连接远端需 `session.connect` 与凭据使用授权 `credentials.use`；打开本机终端另需 `exec.local`。断开需 `session.disconnect`；重连按具体目标需要 `session.connect`、`session.disconnect`，并且仅远端目标需要对应的凭据使用授权。本机目标使用本机执行授权。连接与重连失败由原调用返回错误；后端不会编造历史错误状态。`waitMs` 到期只表示等待结束，不会撤销已开始的连接操作；可按返回的 `nextStep` 继续观察。关闭若返回 `confirmation_required`，需用户在应用界面确认后再调用 `sessions.closeStatus`。
 
 会话观测结果含 `sessionId/tabId/local/exists/status`；已知 SSH 会话另有 `serverId/serverName/host/user/createdAt/independentExecSupported`。`matched` 表示当前状态是否符合等待条件。未知或已移除会话为 `exists:false,status:"closed"`；保留的断线 SSH 会话为 `disconnected`。本机终端的独立执行入口仍是显式 `exec.start local=true`。
 

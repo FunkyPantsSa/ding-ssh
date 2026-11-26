@@ -54,7 +54,7 @@ func (b *Bridge) SetTimeout(d time.Duration) {
 func (b *Bridge) Call(ctx context.Context, op string, args any) (json.RawMessage, error) {
 	if b.emit == nil {
 		logx.Warnf("[debugsrv/bridge] 前端桥未初始化，无法投递请求: op=%s", op)
-		return nil, errors.New("前端桥未初始化")
+		return nil, &OperationError{Code: "FRONTEND_NOT_READY", Message: "前端桥未初始化", Retryable: true, RetryAfterMs: 250, NextSteps: []string{"调用 app.health 检查 readiness.frontendResponsive，等待界面初始化后重试"}}
 	}
 	id := fmt.Sprintf("dbg-%d-%d", time.Now().UnixNano(), atomic.AddUint64(&b.seq, 1))
 	ch := make(chan bridgeReply, 1)
@@ -89,7 +89,7 @@ func (b *Bridge) Call(ctx context.Context, op string, args any) (json.RawMessage
 		return rep.payload, rep.err
 	case <-timer.C:
 		logx.Warnf("[debugsrv/bridge] 前端响应超时: op=%s timeout=%s elapsed=%s", op, b.timeout, time.Since(start))
-		return nil, fmt.Errorf("前端响应超时（op=%s）: %w", op, context.DeadlineExceeded)
+		return nil, &OperationError{Code: "FRONTEND_TIMEOUT", Message: fmt.Sprintf("前端响应超时（op=%s）", op), Cause: context.DeadlineExceeded, OutcomeUnknown: true, NextSteps: []string{"调用 app.health 检查前端状态，并先查询操作结果；前端操作可能已执行，请勿直接重复写操作"}}
 	case <-ctx.Done():
 		logx.Debugf("[debugsrv/bridge] 前端请求被取消: op=%s elapsed=%s err=%v", op, time.Since(start), ctx.Err())
 		return nil, ctx.Err()

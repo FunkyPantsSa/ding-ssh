@@ -248,16 +248,33 @@ async function handle(req: DebugRequest): Promise<unknown> {
     }
 
     case 'session.reconnect': {
-      const e = requireTerminal(args.id)
+      const id = str(args.id)
+      const tab = sessions.tabs.find(t => t.clientId === id || t.sessionId === id)
+      if (!tab) throw new Error(`未找到会话: ${id}`)
+      const e = requireTerminal(tab.clientId)
       e.reconnect()
-      return {ok: true}
+      // Mark synchronously: a backend waiter must not mistake the old
+      // connected state for the completion of this reconnect request.
+      sessions.setStatus(tab.clientId, 'connecting')
+      return {ok: true, sessionId: tab.sessionId || tab.clientId, tabId: tab.clientId, local: tab.kind === 'local', status: tab.status}
+    }
+
+    case 'session.describe': {
+      const id = str(args.id)
+      const tab = sessions.tabs.find(t => t.clientId === id || t.sessionId === id)
+      if (!tab) return {sessionId: id, tabId: id, exists: false, tabExists: false, status: 'closed', closeState: 'closed'}
+      return {
+        sessionId: tab.sessionId || tab.clientId, tabId: tab.clientId, serverId: tab.kind === 'ssh' ? tab.node.id : undefined,
+        exists: true, tabExists: true, local: tab.kind === 'local', kind: tab.kind, status: tab.status,
+        message: tab.message || '', closeState: sessions.closeRequests[tab.clientId] || 'open',
+      }
     }
 
     case 'tab.open': {
       ui.showWorkspace()
       if (args.local) {
-        sessions.openLocalTab()
-        return {ok: true, kind: 'local'}
+        const tab = sessions.openLocalTab()
+        return {ok: true, kind: 'local', local: true, sessionId: tab.clientId, tabId: tab.clientId, status: tab.status}
       }
       // 优先用 serverId：由页面自己去 Go 侧取完整节点，凭据不经过 API 调用方
       let node = args.node as {id?: string; name?: string} | undefined
@@ -268,15 +285,20 @@ async function handle(req: DebugRequest): Promise<unknown> {
         if (!node) throw new Error(`未找到服务器: ${serverId}`)
       }
       if (!node || !node.id) throw new Error('tab.open 需要 serverId / node，或 local=true')
-      sessions.openTab(node as never, false)
-      return {ok: true, kind: 'ssh', node: node.id}
+      const tab = sessions.openTab(node as never, false)
+      return {ok: true, kind: 'ssh', local: false, node: node.id, serverId: node.id, sessionId: tab.clientId, tabId: tab.clientId, status: tab.status}
     }
 
     case 'tab.close': {
       const id = str(args.id)
       if (!id) throw new Error('缺少 id')
-      sessions.closeTab(id)
-      return {ok: true}
+      const tab = sessions.tabs.find(t => t.clientId === id || t.sessionId === id)
+      if (!tab) return {ok: true, sessionId: id, tabId: id, status: 'closed', closeState: 'closed', tabExists: false}
+      const sessionId = tab.sessionId || tab.clientId
+      sessions.closeTab(tab.clientId)
+      const exists = sessions.tabs.some(t => t.clientId === tab.clientId)
+      return {ok: true, sessionId, tabId: tab.clientId, status: exists ? tab.status : 'closed',
+        tabExists: exists, closeState: exists ? sessions.closeRequests[tab.clientId] || 'open' : 'closed'}
     }
 
     // ---- 应用控制面（M7）：会话 → 服务器节点（建隧道时需要完整节点，只有标签里才有）----

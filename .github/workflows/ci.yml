@@ -55,6 +55,19 @@ jobs:
       - name: Test
         run: go test -tags gtk3 ./internal/... ./cmd/...
 
+  go-test-windows:
+    name: Windows Go tests
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test native terminals, SSH, SFTP and storage
+        run: go test ./internal/... ./cmd/... -count=1 -timeout=120s
+
   frontend:
     name: Frontend typecheck
     runs-on: ubuntu-24.04
@@ -84,7 +97,7 @@ jobs:
   build-artifacts:
     name: Build ${{ matrix.artifact }}
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
-    needs: [go-test, frontend]
+    needs: [go-test, go-test-windows, frontend]
     strategy:
       fail-fast: false
       matrix:

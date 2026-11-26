@@ -551,11 +551,6 @@ func (s *Server) named(tool string, next http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
 			return
 		}
-		if err := s.checkToolCaps(tool, httpDetail(info.Args)); err != nil {
-			info.ErrMsg = err.Error()
-			writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
-			return
-		}
 		next(w, r)
 	}
 }
@@ -580,11 +575,6 @@ func (s *Server) guarded(route httpRoute, next http.HandlerFunc) http.HandlerFun
 		}
 
 		if err := s.authorizeInvocation(r.Context(), route.tool, args); err != nil {
-			info.ErrMsg = err.Error()
-			writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
-			return
-		}
-		if err := s.checkToolCaps(route.tool, httpDetail(args)); err != nil {
 			info.ErrMsg = err.Error()
 			writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
 			return

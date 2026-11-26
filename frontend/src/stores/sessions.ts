@@ -75,6 +75,9 @@ export function removePaneIn(node: PaneNode, paneId: string): boolean {
 export const useSessionsStore = defineStore('sessions', {
   state: () => ({
     tabs: [] as SessionTab[],
+    // Exact tab targets awaiting the user's close decision. MCP can observe
+    // these states but cannot manufacture an approval.
+    closeRequests: {} as Record<string, 'confirmation_required' | 'cancelled'>,
     activeId: '',
     sftpVisible: true, // 右侧 SFTP 面板显隐
     rightPanel: 'sftp' as 'sftp' | 'sysinfo' | 'transfers', // 右侧面板模式
@@ -227,11 +230,18 @@ export const useSessionsStore = defineStore('sessions', {
     closeTab(clientId: string, confirmed = false): void {
       if (!this.tabs.some(tab => tab.clientId === clientId)) return
       if (!confirmed && needsTabConfirmation()) {
-        void confirmTabs(1).then(ok => { if (ok) this.closeTab(clientId, true) })
+        if (this.closeRequests[clientId] === 'confirmation_required') return
+        this.closeRequests[clientId] = 'confirmation_required'
+        const targetName = this.tabs.find(tab => tab.clientId === clientId)?.serverName || clientId
+        void confirmTabs(1, [targetName]).then(ok => {
+          if (ok) this.closeTab(clientId, true)
+          else if (this.tabs.some(tab => tab.clientId === clientId)) this.closeRequests[clientId] = 'cancelled'
+        })
         return
       }
       const idx = this.tabs.findIndex((t) => t.clientId === clientId)
       if (idx < 0) return
+      delete this.closeRequests[clientId]
       this.tabs.splice(idx, 1)
       if (this.activeId === clientId) {
         this.activeId = this.tabs[idx]?.clientId ?? this.tabs[idx - 1]?.clientId ?? ''
@@ -285,6 +295,7 @@ export const useSessionsStore = defineStore('sessions', {
         return
       }
       this.tabs = []
+      this.closeRequests = {}
       this.activeId = ''
       this.panes = null
       this.splitVisible = false

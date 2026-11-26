@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -85,7 +86,7 @@ func TestJobsOutputOwnershipAndIdempotency(t *testing.T) {
 		t.Fatal("persisted command/env")
 	}
 	info, _ := os.Stat(filepath.Join(f.dir, id+".json"))
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatalf("unsafe mode %v", info.Mode())
 	}
 }

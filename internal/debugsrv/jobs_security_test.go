@@ -229,13 +229,13 @@ func TestSessionsAliasesPreserveOriginalGuards(t *testing.T) {
 			t.Fatalf("%s reached host before authorization", tc.tool)
 		}
 	}
-	h := &appctlStubHandler{}
+	h := &appctlStubHandler{replies: map[string]any{OpSessionSnapshot: map[string]any{"sessionId": "s", "tabId": "s", "status": "closed", "backendConnected": false, "tabExists": true}}}
 	s := New(Options{Handler: h, Gate: &fakeGate{}})
 	if _, _, err := s.mcpCallToolAudited(context.Background(), OpSessionsDisconnect, map[string]any{"sessionId": "s"}); err != nil {
 		t.Fatal(err)
 	}
-	if !h.called(OpSessionDisconnect) || h.lastArgs()["id"] != "s" {
-		t.Fatalf("alias target altered: %#v", h.lastArgs())
+	if !h.called(OpSessionDisconnect) || h.args[0]["id"] != "s" {
+		t.Fatalf("alias target altered: %#v", h.args)
 	}
 }
 

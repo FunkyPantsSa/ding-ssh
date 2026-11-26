@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 
@@ -94,6 +95,14 @@ func TestCopyFolderChunkAccumulatesAndCancels(t *testing.T) {
 }
 
 // ---- 集成：uploadFolderTree 走真实进程内 sftp 服务端 ----
+
+// remoteTestPath converts a native fixture path to the SFTP server's syntax.
+func remoteTestPath(local string) string {
+	if runtime.GOOS == "windows" {
+		return "/" + filepath.ToSlash(local)
+	}
+	return local
+}
 
 // startInProcessSFTP 启动一个基于临时目录的进程内 sftp 服务端，返回客户端。
 func startInProcessSFTP(t *testing.T, serverRoot string) *sftp.Client {

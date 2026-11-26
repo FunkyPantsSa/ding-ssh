@@ -17,7 +17,7 @@ import urllib.request
 
 class Audit:
     def __init__(self, discovery):
-        info = json.loads(Path(discovery).read_text())
+        info = json.loads(Path(discovery).read_text(encoding='utf-8'))
         self.base = f"http://127.0.0.1:{info['port']}"
         self.token = info['token']
         self.http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -183,19 +183,32 @@ class Audit:
                 'kind': first['kind'], 'connected': first['status'] == 'connected',
                 'shell': first['name']})
             terminal_id = first['clientId']
+            def shell_command(posix, powershell):
+                if sys.platform != 'win32':
+                    return posix
+                if 'powershell' in first['name'].lower():
+                    return powershell
+                return 'powershell.exe -NoLogo -NoProfile -Command "' + powershell + '"'
             def run_command(command, expected):
                 response = self.tool('terminal.run', {'id': terminal_id, 'command': command,
                                       'expect': expected, 'timeoutMs': 8000})
                 assert response.get('matched') is True, response
                 return {'matched': True, 'reason': response['reason']}
             self.check('Local shell ASCII command and output', lambda: run_command(
-                "printf '\\101\\125\\104\\111\\124\\137\\117\\113\\012'", 'AUDIT_OK'))
+                shell_command("printf '\\101\\125\\104\\111\\124\\137\\117\\113\\012'",
+                              "Write-Output ('AUDIT_' + 'OK')"), 'AUDIT_OK'))
             self.check('Local shell Unicode command input', lambda: run_command(
-                "printf 'é' | od -An -tx1", r'c3\s+a9'))
+                shell_command("printf 'é' | od -An -tx1",
+                              "[BitConverter]::ToString([Text.Encoding]::UTF8.GetBytes('é'))"),
+                r'C3-A9' if sys.platform == 'win32' else r'c3\s+a9'))
             self.check('Local shell Chinese command input', lambda: run_command(
-                "printf '测试' | od -An -tx1", r'e6\s+b5\s+8b\s+e8\s+af\s+95'))
+                shell_command("printf '测试' | od -An -tx1",
+                              "[BitConverter]::ToString([Text.Encoding]::UTF8.GetBytes('测试'))"),
+                r'E6-B5-8B-E8-AF-95' if sys.platform == 'win32' else r'e6\s+b5\s+8b\s+e8\s+af\s+95'))
             def base64_input():
-                payload = base64.b64encode(b"printf '\\102\\111\\116\\101\\122\\131\\137\\117\\113\\012'\r").decode()
+                command = shell_command("printf '\\102\\111\\116\\101\\122\\131\\137\\117\\113\\012'",
+                                        "Write-Output ('BINARY_' + 'OK')")
+                payload = base64.b64encode((command + '\r').encode('utf-8')).decode()
                 self.tool('send_input', {'id': terminal_id, 'base64': payload})
                 self.wait(lambda: 'BINARY_OK' in self.tool('read_terminal', {'id': terminal_id, 'from': 'head', 'lines': 2000}).get('text', ''))
                 return {'rawBase64Preserved': True}
@@ -223,7 +236,8 @@ class Audit:
                 self.tool('reconnect_session', {'id': terminal_id})
                 self.wait(lambda: any(t['clientId'] == terminal_id and t['status'] == 'connected'
                                       for t in self.request('/v1/state')['frontend']['tabs']))
-                return run_command("printf '\\122\\105\\103\\117\\116\\116\\105\\103\\124\\137\\117\\113\\012'", 'RECONNECT_OK')
+                return run_command(shell_command("printf '\\122\\105\\103\\117\\116\\116\\105\\103\\124\\137\\117\\113\\012'",
+                                                 "Write-Output ('RECONNECT_' + 'OK')"), 'RECONNECT_OK')
             self.check('Reconnect a real local session and run a command', reconnect)
             def console():
                 entries = self.tool('ui.console', {'limit': 100}).get('entries', [])
@@ -259,7 +273,10 @@ class Audit:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    default = Path.home() / ('Library/Application Support' if sys.platform == 'darwin' else '.config') / 'ding-ssh/debug.json'
+    if sys.platform == 'win32':
+        default = Path(os.environ['APPDATA']) / 'ding-ssh/debug.json'
+    else:
+        default = Path.home() / ('Library/Application Support' if sys.platform == 'darwin' else '.config') / 'ding-ssh/debug.json'
     parser.add_argument('--debug-info', default=str(default))
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
@@ -267,7 +284,7 @@ def main():
     try:
         audit.run()
     finally:
-        Path(args.output).write_text(json.dumps({'results': audit.results}, ensure_ascii=False, indent=2) + '\n')
+        Path(args.output).write_text(json.dumps({'results': audit.results}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return 1 if any(r['status'] == 'FAIL' for r in audit.results) else 0
 
 

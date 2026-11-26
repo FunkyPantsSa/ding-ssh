@@ -2,6 +2,9 @@ import {createPinia, setActivePinia} from 'pinia'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {useSessionsStore} from '../stores/sessions'
 import {useUIStore} from '../stores/ui'
+import {useSettingsStore} from '../stores/settings'
+import {confirmTabs} from '../services/closeConfirmation'
+vi.mock('../services/closeConfirmation', () => ({confirmTabs: vi.fn(), needsTabConfirmation: () => {const s=useSettingsStore(); return s.loaded && s.confirmCloseTab}}))
 
 const bridge = vi.hoisted(() => ({handler: undefined as undefined | ((p: unknown) => Promise<void>), reply: vi.fn()}))
 vi.mock('../services/desktop', async importOriginal => ({
@@ -24,6 +27,33 @@ async function call(op: string, args: Record<string, unknown>) {
   return JSON.parse(bridge.reply.mock.calls.at(-1)![1])
 }
 describe('workspace MCP bridge', () => {
+  it('returns the exact new tab identifier and describes a disconnected local tab', async () => {
+    const opened=await call('tab.open',{local:true})
+    const id=opened.data.sessionId
+    expect(opened.data).toMatchObject({tabId:id,local:true,status:'connecting'})
+    useSessionsStore().setStatus(id,'closed')
+    expect((await call('session.describe',{id})).data).toMatchObject({sessionId:id,tabId:id,local:true,tabExists:true,status:'closed'})
+    expect((await call('session.describe',{id:'missing'})).data).toMatchObject({tabExists:false,status:'closed'})
+  })
+  it('reports exact-tab confirmation and cancellation without clicking DOM', async () => {
+    const settings=useSettingsStore(); settings.loaded=true; settings.confirmCloseTab=true
+    const store=useSessionsStore(); const a=store.openLocalTab('audit target'), b=store.openLocalTab('keep')
+    let decide: (ok:boolean)=>void=()=>{}
+    vi.mocked(confirmTabs).mockImplementation(()=>new Promise(resolve=>{decide=resolve}))
+    const pending=await call('tab.close',{id:a.clientId})
+    expect(pending.data).toMatchObject({tabId:a.clientId,closeState:'confirmation_required',tabExists:true})
+    expect(confirmTabs).toHaveBeenLastCalledWith(1,['audit target'])
+    const requests=vi.mocked(confirmTabs).mock.calls.length
+    expect((await call('tab.close',{id:a.clientId})).data.closeState).toBe('confirmation_required')
+    expect(confirmTabs).toHaveBeenCalledTimes(requests)
+    decide(false); await Promise.resolve()
+    expect((await call('session.describe',{id:a.clientId})).data.closeState).toBe('cancelled')
+    await call('tab.close',{id:a.clientId})
+    store.activateTab(b.clientId)
+    decide(true); await Promise.resolve()
+    expect(store.tabs.map(t=>t.clientId)).toEqual([b.clientId])
+    expect((await call('session.describe',{id:a.clientId})).data.closeState).toBe('closed')
+  })
   it('distinguishes Unicode text from raw base64 input', async () => {
     const write = vi.fn()
     const entry = {clientId: 'audit-input', write} as unknown as DebugTerminalEntry
