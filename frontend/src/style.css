@@ -297,19 +297,15 @@ html[data-glass="on"]:not([data-tone="light"]) .nav {
   padding: var(--space-2);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-3);
 }
-/* 左侧导航区段：导航项使用统一的 4px 节奏。 */
+/* 左侧导航区段：组内 4px、组间 12px，以留白区分层次。 */
 .nav-sec {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   gap: var(--space-1);
   min-height: 0;
-}
-.nav-sec + .nav-sec {
-  border-top: 1px solid var(--border-subtle);
-  padding-top: 6px;
 }
 .nav-label {
   padding: 8px 8px 4px;
